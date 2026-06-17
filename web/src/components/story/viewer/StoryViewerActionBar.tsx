@@ -1,42 +1,80 @@
+import { createSignal, Show } from "solid-js";
+
 interface StoryViewerActionBarProps {
   isLiked: boolean;
   placeholder: string;
+  sendLabel: string;
+  // Send the typed text as a direct message to the story author. Resolves to
+  // `true` on success so the input can clear. When omitted (e.g. own story),
+  // the reply input is hidden entirely.
+  onReply?: (text: string) => Promise<boolean>;
   onLike: () => void;
   onShare: () => void;
 }
 
 export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
+  const [reply, setReply] = createSignal("");
+  const [sending, setSending] = createSignal(false);
+
+  const submit = async () => {
+    const text = reply().trim();
+    if (!text || sending() || !props.onReply) return;
+    setSending(true);
+    try {
+      const ok = await props.onReply(text);
+      if (ok) setReply("");
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <div class="absolute bottom-0 left-0 right-0 z-20 p-4 flex items-center gap-3">
-      <div class="flex-1 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2">
-        <input
-          type="text"
-          placeholder={props.placeholder}
-          class="flex-1 bg-transparent text-white placeholder-white/50 text-sm outline-none"
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-        />
-        <button
-          class="text-white/70 hover:text-white transition-colors"
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Send message"
-        >
-          <svg
-            class="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+      <Show when={props.onReply}>
+        <div class="flex-1 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2">
+          <input
+            type="text"
+            value={reply()}
+            placeholder={props.placeholder}
+            disabled={sending()}
+            class="flex-1 bg-transparent text-white placeholder-white/50 text-sm outline-none disabled:opacity-50"
+            onInput={(e) => setReply(e.currentTarget.value)}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+          />
+          <button
+            class="text-white/70 hover:text-white transition-colors disabled:opacity-40"
+            disabled={sending() || reply().trim().length === 0}
+            onClick={(e) => {
+              e.stopPropagation();
+              void submit();
+            }}
+            aria-label={props.sendLabel}
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width={2}
-              d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-            />
-          </svg>
-        </button>
-      </div>
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width={2}
+                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+              />
+            </svg>
+          </button>
+        </div>
+      </Show>
       <button
         class={`p-2 transition-colors ${
           props.isLiked ? "text-red-400" : "text-white hover:text-red-400"

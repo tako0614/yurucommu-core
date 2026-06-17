@@ -1,7 +1,7 @@
 import type { JSX } from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
 
-type Tool = "text" | "sticker" | "music" | "effect" | "resize";
+type Tool = "text" | "sticker";
 
 interface StoryComposerHeaderProps {
   onClose: () => void;
@@ -44,39 +44,6 @@ const BackIcon = () => (
       stroke-linejoin="round"
       stroke-width={2}
       d="M15 19l-7-7 7-7"
-    />
-  </svg>
-);
-
-const EffectIcon = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width={2}
-      d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-    />
-  </svg>
-);
-
-const ResizeIcon = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width={2}
-      d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5"
-    />
-  </svg>
-);
-
-const MusicIcon = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width={2}
-      d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
     />
   </svg>
 );
@@ -133,24 +100,6 @@ export function StoryComposerHeader(props: StoryComposerHeaderProps) {
           label={t("story.stamp")}
           onClick={() => props.onToolClick("sticker")}
           active={props.activeTool === "sticker"}
-        />
-        <ToolButton
-          icon={<MusicIcon />}
-          label={t("story.music")}
-          onClick={() => props.onToolClick("music")}
-          active={props.activeTool === "music"}
-        />
-        <ToolButton
-          icon={<EffectIcon />}
-          label={t("story.effect")}
-          onClick={() => props.onToolClick("effect")}
-          active={props.activeTool === "effect"}
-        />
-        <ToolButton
-          icon={<ResizeIcon />}
-          label={t("story.resize")}
-          onClick={() => props.onToolClick("resize")}
-          active={props.activeTool === "resize"}
         />
         <button class="flex items-center justify-end w-full">
           <span class="p-2 rounded-full bg-black/40">

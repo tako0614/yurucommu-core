@@ -12,6 +12,10 @@ interface StoryComposerFooterProps {
   ffmpegReady: boolean;
   error: string | null;
   onDismissError: () => void;
+  // Inhabited scope the story will be shared to. `null` => personal story
+  // (self + followers). A non-null label is the community display name and
+  // binds the story to that community (reach == members).
+  scopeLabel: string | null;
 }
 
 const SendIcon = () => (
@@ -26,6 +30,13 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
     !props.canPost ||
     props.posting ||
     !!(props.videoFile && !props.ffmpegReady);
+
+  // The single post button is labelled by the inhabited scope: a community
+  // scope shares "to #<community>", personal shares "to your story".
+  const postLabel = () =>
+    props.scopeLabel
+      ? t("story.shareToCommunity").replace("{name}", props.scopeLabel)
+      : t("story.shareToStory");
 
   return (
     <div
@@ -44,40 +55,21 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
         />
       </div>
 
+      {/* Current scope indicator: shows where the story will be shared. */}
+      <div class="flex items-center gap-2 px-4 pb-2 text-white/60 text-xs">
+        <span class="w-2 h-2 rounded-full bg-white/40"></span>
+        <span>{postLabel()}</span>
+      </div>
+
       <div class="flex items-center gap-3 px-4 pb-2">
         <button
           onClick={props.onPost}
           disabled={postDisabled()}
-          class="flex-1 flex items-center justify-center gap-2 py-3.5 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white font-medium disabled:opacity-50 transition-all"
+          class="flex-1 flex items-center justify-center gap-2 py-3.5 bg-blue-500 hover:bg-blue-600 rounded-full text-white font-medium disabled:opacity-50 transition-all"
         >
-          <span class="w-7 h-7 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center border-2 border-black">
-            <span class="w-4 h-4 rounded-full bg-neutral-900"></span>
-          </span>
           <span>
-            {props.posting
-              ? `${Math.round(props.progress)}%`
-              : t("story.stories")}
+            {props.posting ? `${Math.round(props.progress)}%` : postLabel()}
           </span>
-        </button>
-
-        <button
-          onClick={props.onPost}
-          disabled={postDisabled()}
-          class="flex-1 flex items-center justify-center gap-2 py-3.5 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white font-medium disabled:opacity-50 transition-all"
-        >
-          <span class="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center">
-            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-            </svg>
-          </span>
-          <span>{t("story.closeFriends")}</span>
-        </button>
-
-        <button
-          onClick={props.onPost}
-          disabled={postDisabled()}
-          class="w-12 h-12 flex items-center justify-center bg-blue-500 hover:bg-blue-600 rounded-full text-white disabled:opacity-50 transition-all"
-        >
           <SendIcon />
         </button>
       </div>

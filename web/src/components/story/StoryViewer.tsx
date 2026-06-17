@@ -11,6 +11,7 @@ import {
   deleteStory,
   likeStory,
   markStoryViewed,
+  sendUserDMMessage,
   shareStory,
   unlikeStory,
   voteOnStory,
@@ -31,6 +32,10 @@ interface StoryViewerProps {
   currentUserApId?: string;
   onClose: () => void;
 }
+
+// How long a video may sit un-ready (never reaching loadedmetadata) before the
+// watchdog advances past it, so a stalled/broken video can't freeze the viewer.
+const VIDEO_STALL_TIMEOUT_MS = 8000;
 export function StoryViewer(props: StoryViewerProps) {
   const { t } = useI18n();
   const [localActorStories, setLocalActorStories] = createSignal(
@@ -211,6 +216,34 @@ export function StoryViewer(props: StoryViewerProps) {
     });
   });
 
+  // Video stall watchdog: a broken or stalled video never fires `onEnded`
+  // (auto-advance relies on it) and the image timer bails on `isVideo()`, so
+  // without this a frozen video would trap the viewer forever. If the media
+  // errors, advance promptly; otherwise if it never becomes ready within the
+  // stall timeout, advance anyway.
+  createEffect(() => {
+    // Re-run when the story, readiness, or error state changes.
+    actorIndex();
+    storyIndex();
+    const video = isVideo();
+    const ready = videoReady();
+    const errored = mediaError();
+
+    if (!video) return;
+
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    if (errored) {
+      // Show the error fallback briefly, then move on.
+      stallTimer = setTimeout(goNext, 1500);
+    } else if (!ready) {
+      stallTimer = setTimeout(goNext, VIDEO_STALL_TIMEOUT_MS);
+    }
+
+    onCleanup(() => {
+      if (stallTimer) clearTimeout(stallTimer);
+    });
+  });
+
   const handleVote = async (storyApId: string, optionIndex: number) => {
     const result = await voteOnStory(storyApId, optionIndex);
     setLocalActorStories((prev) =>
@@ -305,6 +338,22 @@ export function StoryViewer(props: StoryViewerProps) {
     } catch (err) {
       console.error("Failed to share story:", err);
       setToastMessage(t("story.shareFailed"));
+    }
+  };
+
+  // Send a reply to the story author as a direct message (Note). Returns true
+  // on success so the action bar can clear its input.
+  const handleReply = async (text: string): Promise<boolean> => {
+    const authorApId = currentActorStories()?.actor.ap_id;
+    if (!authorApId) return false;
+    try {
+      await sendUserDMMessage(authorApId, text);
+      setToastMessage(t("story.replySent"));
+      return true;
+    } catch (err) {
+      console.error("Failed to send story reply:", err);
+      setToastMessage(t("story.replyFailed"));
+      return false;
     }
   };
 
@@ -528,7 +577,9 @@ export function StoryViewer(props: StoryViewerProps) {
 
         <StoryViewerActionBar
           isLiked={isLiked()}
-          placeholder={t("messages.placeholder")}
+          placeholder={t("story.replyPlaceholder")}
+          sendLabel={t("dm.send")}
+          onReply={isOwnStory() ? undefined : handleReply}
           onLike={handleLike}
           onShare={handleShare}
         />

@@ -86,9 +86,9 @@ export function StoryComposer(props: StoryComposerProps) {
   // Caption and audience state (Instagram-style)
   const [caption, setCaption] = createSignal("");
   const [showToolPanel, setShowToolPanel] = createSignal(false);
-  const [activeTool, setActiveTool] = createSignal<
-    "text" | "sticker" | "music" | "effect" | "resize" | null
-  >(null);
+  const [activeTool, setActiveTool] = createSignal<"text" | "sticker" | null>(
+    null,
+  );
 
   // Double-tap detection for text editing
   let lastTapTime = 0;
@@ -341,22 +341,16 @@ export function StoryComposer(props: StoryComposerProps) {
     bumpRenderKey();
   };
 
-  // Handle tool button click
-  const handleToolClick = (
-    tool: "text" | "sticker" | "music" | "effect" | "resize",
-  ) => {
+  // Handle tool button click. Only the implemented tools (text + sticker)
+  // remain wired; the previously dead Music/Effect/Resize buttons were removed.
+  const handleToolClick = (tool: "text" | "sticker") => {
     if (tool === "text") {
       textEditor.handleAddText();
       return;
     }
-    if (tool === "sticker") {
-      setActiveTool(activeTool() === "sticker" ? null : "sticker");
-      setShowToolPanel(activeTool() !== "sticker");
-      handleTabChange("sticker");
-      return;
-    }
-    setActiveTool(activeTool() === tool ? null : tool);
-    setShowToolPanel(activeTool() !== tool);
+    setActiveTool(activeTool() === "sticker" ? null : "sticker");
+    setShowToolPanel(activeTool() !== "sticker");
+    handleTabChange("sticker");
   };
 
   // --- Derived state ---
@@ -425,6 +419,10 @@ export function StoryComposer(props: StoryComposerProps) {
           ffmpegReady={video.ffmpegReady()}
           error={error()}
           onDismissError={() => setError(null)}
+          scopeLabel={(() => {
+            const s = scope();
+            return s.kind === "community" ? s.display_name : null;
+          })()}
         />
 
         <StoryComposerStickerPanel
