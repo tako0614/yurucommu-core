@@ -1,5 +1,6 @@
-import { createEffect, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { A, useSearchParams } from "@solidjs/router";
+import { useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor, Post } from "../types/index.ts";
 import {
@@ -8,12 +9,15 @@ import {
   fetchFollowing,
   fetchTrendingHashtags,
   follow,
+  joinCommunity,
   likePost,
   searchActors,
   searchPosts,
   searchRemote,
   unlikePost,
 } from "../lib/api.ts";
+import { enterCommunityScopeAtom } from "../atoms/scope.ts";
+import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
@@ -78,6 +82,8 @@ function getSingleSearchParam(
 export function SearchPage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
+  const setToasts = useSetAtom(toastsAtom);
+  const enterCommunityScope = useSetAtom(enterCommunityScopeAtom);
   const lightbox = useMediaLightbox();
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
@@ -96,6 +102,12 @@ export function SearchPage() {
   const [filteredCommunities, setFilteredCommunities] = createSignal<
     CommunityDetail[]
   >([]);
+  // Communities the owner has not entered yet — the discovery surface. Pending
+  // (approval-policy) requests stay visible so the state is legible.
+  const discoverCommunities = createMemo(() =>
+    communities().filter((c) => !c.is_member),
+  );
+  const [joiningApId, setJoiningApId] = createSignal<string | null>(null);
 
   const [following, setFollowing] = createSignal<Actor[]>([]);
 
@@ -229,6 +241,67 @@ export function SearchPage() {
   const isFollowing = (actorApId: string) =>
     following().some((f) => f.ap_id === actorApId);
 
+  const label = (community: CommunityDetail) =>
+    community.display_name || community.name;
+
+  // One-tap join from the discovery surface. An open community drops the owner
+  // straight into it as the active scope (new ScopeBar pill); an approval/invite
+  // community surfaces a toast and reflects the pending/invite state in the list.
+  const handleJoin = async (community: CommunityDetail, e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (joiningApId()) return;
+    setJoiningApId(community.ap_id);
+    try {
+      const result = await joinCommunity(community.name);
+      if (result.status === "joined") {
+        setCommunities((prev) =>
+          prev.map((c) =>
+            c.ap_id === community.ap_id
+              ? {
+                  ...c,
+                  is_member: true,
+                  member_role: "member",
+                  join_status: null,
+                  member_count: c.member_count + 1,
+                }
+              : c,
+          ),
+        );
+        // Refresh the scope source and stand in the community just joined.
+        await enterCommunityScope(community);
+        pushToast(
+          setToasts,
+          t("discover.joined").replace("{name}", label(community)),
+          { kind: "success" },
+        );
+      } else if (result.status === "pending") {
+        setCommunities((prev) =>
+          prev.map((c) =>
+            c.ap_id === community.ap_id ? { ...c, join_status: "pending" } : c,
+          ),
+        );
+        pushToast(
+          setToasts,
+          t("discover.requested").replace("{name}", label(community)),
+          { kind: "info" },
+        );
+      } else {
+        // invite_required
+        pushToast(
+          setToasts,
+          t("discover.inviteOnly").replace("{name}", label(community)),
+          { kind: "info" },
+        );
+      }
+    } catch (err) {
+      console.error("Failed to join community:", err);
+      pushToast(setToasts, t("discover.joinFailed"), { kind: "error" });
+    } finally {
+      setJoiningApId(null);
+    }
+  };
+
   const tabs = (): { key: SearchTab; label: string; count: number }[] => [
     {
       key: "users",
@@ -327,42 +400,129 @@ export function SearchPage() {
             <Show
               when={searched()}
               fallback={
-                /* Trending hashtags when not searching */
-
-                <div class="px-4 py-4">
-                  <h2 class="text-lg font-bold text-white mb-4">
-                    {t("search.trending")}
-                  </h2>
+                /* Default discovery surface (not searching): communities to
+                   join, then trending hashtags. */
+                <div>
+                  {/* Communities Discover — non-member communities with one-tap
+                      join. Joining an open community lands you in it as a new
+                      ScopeBar pill. */}
+                  <div class="px-4 pt-4 pb-2">
+                    <h2 class="text-lg font-bold text-white">
+                      {t("discover.title")}
+                    </h2>
+                    <p class="text-sm text-neutral-500 mt-0.5">
+                      {t("discover.subtitle")}
+                    </p>
+                  </div>
                   <Show
-                    when={trendingHashtags().length > 0}
+                    when={discoverCommunities().length > 0}
                     fallback={
-                      <EmptyState
-                        icon={<SearchEmptyIcon />}
-                        title={t("search.empty")}
-                        hint={t("search.emptyHint")}
-                      />
+                      <div class="px-4 pb-4">
+                        <EmptyState
+                          icon={<SearchEmptyIcon />}
+                          title={t("discover.empty")}
+                          hint={t("discover.emptyHint")}
+                        />
+                      </div>
                     }
                   >
-                    <div class="space-y-3">
-                      <For each={trendingHashtags()}>
-                        {({ tag, count }) => (
-                          <button
-                            onClick={() => {
-                              setSearchQuery(`#${tag}`);
-                              setSearchTab("posts");
-                              performSearch(`#${tag}`);
-                            }}
-                            class="block w-full text-left px-3 py-2.5 rounded-lg hover:bg-neutral-900/50 transition-colors"
-                          >
-                            <div class="font-medium text-white">#{tag}</div>
-                            <div class="text-xs text-neutral-500 mt-0.5">
-                              {count} {t("profile.posts").toLowerCase()}
+                    <For each={discoverCommunities()}>
+                      {(community) => (
+                        <A
+                          href={`/groups/${community.name}`}
+                          class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors"
+                        >
+                          <div class="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center overflow-hidden shrink-0">
+                            <Show
+                              when={community.icon_url}
+                              fallback={
+                                <span class="text-lg font-medium text-white">
+                                  {(community.display_name || community.name)
+                                    .charAt(0)
+                                    .toUpperCase()}
+                                </span>
+                              }
+                            >
+                              <img
+                                src={community.icon_url ?? undefined}
+                                alt=""
+                                class="w-full h-full object-cover"
+                              />
+                            </Show>
+                          </div>
+                          <div class="flex-1 min-w-0">
+                            <div class="font-bold text-white truncate">
+                              {community.display_name || community.name}
                             </div>
-                          </button>
-                        )}
-                      </For>
-                    </div>
+                            <Show when={community.summary}>
+                              <div class="text-sm text-neutral-400 truncate mt-0.5">
+                                {community.summary}
+                              </div>
+                            </Show>
+                            <div class="text-xs text-neutral-500 mt-0.5">
+                              {community.member_count ?? 0}{" "}
+                              {t("groups.members")}
+                            </div>
+                          </div>
+                          <Show
+                            when={community.join_status === "pending"}
+                            fallback={
+                              <button
+                                onClick={(e) => handleJoin(community, e)}
+                                disabled={joiningApId() !== null}
+                                class="px-4 py-1.5 bg-[var(--accent)] text-white font-medium rounded-full hover:brightness-110 transition-colors text-sm shrink-0 disabled:opacity-50"
+                              >
+                                {joiningApId() === community.ap_id
+                                  ? t("discover.joining")
+                                  : t("discover.join")}
+                              </button>
+                            }
+                          >
+                            <span class="px-4 py-1.5 border border-neutral-700 text-neutral-400 font-medium rounded-full text-sm shrink-0">
+                              {t("groups.pending")}
+                            </span>
+                          </Show>
+                        </A>
+                      )}
+                    </For>
                   </Show>
+
+                  {/* Trending hashtags when not searching */}
+                  <div class="px-4 py-4">
+                    <h2 class="text-lg font-bold text-white mb-4">
+                      {t("search.trending")}
+                    </h2>
+                    <Show
+                      when={trendingHashtags().length > 0}
+                      fallback={
+                        <EmptyState
+                          icon={<SearchEmptyIcon />}
+                          title={t("search.empty")}
+                          hint={t("search.emptyHint")}
+                        />
+                      }
+                    >
+                      <div class="space-y-3">
+                        <For each={trendingHashtags()}>
+                          {({ tag, count }) => (
+                            <button
+                              onClick={() => {
+                                setSearchQuery(`#${tag}`);
+                                setSearchTab("posts");
+                                performSearch(`#${tag}`);
+                              }}
+                              class="block w-full text-left px-3 py-2.5 rounded-lg hover:bg-neutral-900/50 transition-colors"
+                            >
+                              <div class="font-medium text-white">#{tag}</div>
+                              <div class="text-xs text-neutral-500 mt-0.5">
+                                {count} {t("profile.posts").toLowerCase()}
+                              </div>
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
                 </div>
               }
             >

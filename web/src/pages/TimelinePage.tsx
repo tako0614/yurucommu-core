@@ -5,6 +5,7 @@ import { StoryBar } from "../components/story/StoryBar.tsx";
 import { ScopeHeader } from "../components/scope/ScopeHeader.tsx";
 import { ScopeBar } from "../components/scope/ScopeBar.tsx";
 import { ScopeSwitcherSheet } from "../components/scope/ScopeSwitcherSheet.tsx";
+import { CreateScopeModal } from "../components/scope/CreateScopeModal.tsx";
 import { LoadingSpinner } from "../components/LoadingSpinner.tsx";
 
 // Lazy load heavy components
@@ -27,6 +28,9 @@ export function TimelinePage() {
   // Shared open state for the scope switcher sheet — both the ScopeHeader pill
   // and the ScopeBar's trailing "+" drive the same instance.
   const [switcherOpen, setSwitcherOpen] = createSignal(false);
+  // The switcher's "Create" row hands off to the community composer; discovery
+  // routes to /search where non-member communities can be joined one-tap.
+  const [createOpen, setCreateOpen] = createSignal(false);
 
   return (
     <div class="relative flex flex-col h-full">
@@ -71,10 +75,19 @@ export function TimelinePage() {
       <ScopeBar onOpenSwitcher={() => setSwitcherOpen(true)} />
 
       {/* Scope switcher sheet, shared by the header pill and the rail's "+".
-          Discover/Create fall through to the sheet's default /search route. */}
+          Discover routes to /search; Create opens the community composer. */}
       <ScopeSwitcherSheet
         open={switcherOpen()}
         onClose={() => setSwitcherOpen(false)}
+        onDiscover={() => navigate("/search")}
+        onCreate={() => setCreateOpen(true)}
+      />
+
+      {/* Community composer — the first caller of createCommunity(). On success
+          it selects the new community as the inhabited scope. */}
+      <CreateScopeModal
+        open={createOpen()}
+        onClose={() => setCreateOpen(false)}
       />
 
       {/* New-posts pill — prepends staged head posts and scrolls to top. */}

@@ -133,6 +133,40 @@ export const hydrateScopeAtom = atom(null, async (get, set) => {
   set(inhabitedScopeAtom, reconciled);
 });
 
+// Action: refetch joined communities into the picker source without touching
+// the active scope. Used after a join so a freshly joined community surfaces as
+// a new ScopeBar pill. Returns the refreshed list (empty on failure).
+export const refreshScopesAtom = atom(
+  null,
+  async (_get, set): Promise<CommunityDetail[]> => {
+    let communities: CommunityDetail[] = [];
+    try {
+      communities = await fetchCommunities();
+    } catch (e) {
+      console.error("Failed to refresh scope communities:", e);
+      return [];
+    }
+    set(scopeCommunitiesAtom, communities);
+    return communities;
+  },
+);
+
+// Action: enter a community as the active scope ("stand in the room you made").
+// Refreshes the picker source so the community is present as a pill, then writes
+// it as the active scope. Used after creating or joining a community.
+export const enterCommunityScopeAtom = atom(
+  null,
+  async (_get, set, community: CommunityDetail): Promise<void> => {
+    const communities = await set(refreshScopesAtom);
+    // Prefer the freshly fetched row (authoritative membership/role); fall back
+    // to the passed-in community if the refetch failed or hasn't propagated.
+    const live =
+      communities.find((c) => c.ap_id === community.ap_id) ?? community;
+    const scope = communityToScope(live);
+    if (scope) set(inhabitedScopeAtom, scope);
+  },
+);
+
 // Action: reset scope to personal (wired into logout so a switched account
 // never inherits the previous owner's community lens).
 export const resetScopeAtom = atom(null, (_get, set) => {
