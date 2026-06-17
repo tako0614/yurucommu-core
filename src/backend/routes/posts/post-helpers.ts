@@ -546,6 +546,26 @@ export async function processMentions(
     }
   }
 
+  // Persist the computed Mention tag array onto the object row so the served
+  // object at `GET /ap/objects/:id` can emit the same `tag` the Create carried
+  // (the object was already inserted by `insertPostAndHandleReply` before this
+  // ran, so this is an UPDATE rather than part of the initial insert). Only
+  // write when there is at least one tag — the column already defaults to "[]".
+  if (tags.length > 0) {
+    try {
+      await db
+        .update(objects)
+        .set({ tagsJson: JSON.stringify(tags) })
+        .where(eq(objects.apId, params.postApId));
+    } catch (e) {
+      log.error("Failed to persist object tags", {
+        event: "posts.mention.tags_persist_failed",
+        postApId: params.postApId,
+        error: e,
+      });
+    }
+  }
+
   return emptyResult;
 }
 

@@ -32,6 +32,8 @@ const MIGRATIONS = [
   "0004_blocklist.sql",
   "0005_story_community_scope.sql",
   "0006_dm_community_read_status.sql",
+  "0008_actor_fields_aka.sql",
+  "0009_object_tags.sql",
 ];
 
 async function freshDb(): Promise<Database> {
@@ -152,13 +154,14 @@ const R2_KEY = `uploads/${FILENAME}`;
 const MEDIA_URL = `/media/${FILENAME}`;
 
 // Tiny valid PNG header bytes (content is irrelevant to the auth path).
-const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const PNG_BYTES = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
 
 async function seedUpload(db: Database, env: Env, uploaderApId: string) {
-  await (env.MEDIA as unknown as { put: (k: string, v: Uint8Array) => Promise<void> }).put(
-    R2_KEY,
-    PNG_BYTES,
-  );
+  await (
+    env.MEDIA as unknown as { put: (k: string, v: Uint8Array) => Promise<void> }
+  ).put(R2_KEY, PNG_BYTES);
   await db.insert(mediaUploads).values({
     id: MEDIA_ID,
     r2Key: R2_KEY,
@@ -281,10 +284,18 @@ test("direct media is served only to addressed recipients", async () => {
     attachments: [{ type: "Image", url: MEDIA_URL, r2_key: R2_KEY }],
   });
 
-  const recipientRes = await getMedia(db, env, fakeActor(recipientApId, "carol"));
+  const recipientRes = await getMedia(
+    db,
+    env,
+    fakeActor(recipientApId, "carol"),
+  );
   expect(recipientRes.status).toEqual(200);
 
-  const outsiderRes = await getMedia(db, env, fakeActor(localApId("dave"), "dave"));
+  const outsiderRes = await getMedia(
+    db,
+    env,
+    fakeActor(localApId("dave"), "dave"),
+  );
   expect(outsiderRes.status).toEqual(403);
 });
 
@@ -300,7 +311,11 @@ test("unattached media is served only to its uploader; others denied/unauthorize
   expect(uploaderRes.status).toEqual(200);
   expect(uploaderRes.headers.get("Cache-Control")).toContain("private");
 
-  const otherRes = await getMedia(db, env, fakeActor(localApId("mallory"), "mallory"));
+  const otherRes = await getMedia(
+    db,
+    env,
+    fakeActor(localApId("mallory"), "mallory"),
+  );
   expect(otherRes.status).toEqual(403);
 
   const anonRes = await getMedia(db, env, null);

@@ -45,6 +45,8 @@ const MIGRATIONS = [
   "0001_init.sql",
   "0002_social_remote_actor_edges.sql",
   "0004_blocklist.sql",
+  "0008_actor_fields_aka.sql",
+  "0009_object_tags.sql",
 ];
 
 async function freshDb(): Promise<Database> {

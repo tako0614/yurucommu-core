@@ -33,8 +33,14 @@ const APP_URL = "https://yuru.test";
 async function freshDb(): Promise<Database> {
   const client = createClient({ url: ":memory:" });
   const root = new URL("../../../../migrations/", import.meta.url);
-  const sql = await readFile(new URL("0001_init.sql", root), "utf8");
-  await client.executeMultiple(sql);
+  for (const file of [
+    "0001_init.sql",
+    "0008_actor_fields_aka.sql",
+    "0009_object_tags.sql",
+  ]) {
+    const sql = await readFile(new URL(file, root), "utf8");
+    await client.executeMultiple(sql);
+  }
   return drizzle(client, { schema }) as unknown as Database;
 }
 
@@ -186,7 +192,11 @@ test("invite join loser (claim affects 0 rows): no membership, no count bump", a
   expect(before).toBe(5);
 
   const app = appWith(db, loser);
-  const res = await app.request(joinRequest("club", "invite-1"), undefined, env);
+  const res = await app.request(
+    joinRequest("club", "invite-1"),
+    undefined,
+    env,
+  );
 
   expect(res.status).toBe(403);
   const body = (await res.json()) as { status?: string };
@@ -228,7 +238,11 @@ test("invite join winner (claim affects 1 row): membership + count bump + invite
   });
 
   const app = appWith(db, winner);
-  const res = await app.request(joinRequest("club", "invite-2"), undefined, env);
+  const res = await app.request(
+    joinRequest("club", "invite-2"),
+    undefined,
+    env,
+  );
 
   expect(res.status).toBe(200);
   const body = (await res.json()) as { status?: string };

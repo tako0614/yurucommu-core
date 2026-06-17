@@ -24,6 +24,7 @@ import {
   follows,
   inbox,
   likes,
+  mediaUploads,
   mutes,
   notDeleted,
   objectRecipients,
@@ -63,6 +64,57 @@ import {
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "actors" });
+
+// Mastodon-parity profile metadata limits. Mastodon caps profile fields at 4
+// rows with bounded name/value lengths; we mirror that to keep the served
+// actor document and federated Update(Person) bounded.
+const MAX_PROFILE_FIELDS = 4;
+const MAX_PROFILE_FIELD_NAME_LENGTH = 255;
+const MAX_PROFILE_FIELD_VALUE_LENGTH = 255;
+// Bound declared aliases (alsoKnownAs) so the actor document stays bounded.
+const MAX_ALSO_KNOWN_AS = 10;
+// Personal-portability export caps so a single archive request cannot OOM.
+const MAX_EXPORT_POSTS = 5000;
+const MAX_EXPORT_RELATIONS = 10000;
+const MAX_EXPORT_MEDIA = 10000;
+
+type ProfileField = { name: string; value: string };
+
+/**
+ * Sanitize a structured profile fields payload into a bounded array of
+ * { name, value } rows. Non-string / empty rows are dropped; the result is
+ * capped at MAX_PROFILE_FIELDS with trimmed, length-bounded values.
+ */
+function sanitizeProfileFields(input: unknown): ProfileField[] {
+  if (!Array.isArray(input)) return [];
+  const out: ProfileField[] = [];
+  for (const row of input) {
+    if (out.length >= MAX_PROFILE_FIELDS) break;
+    if (!row || typeof row !== "object") continue;
+    const name = (row as { name?: unknown }).name;
+    const value = (row as { value?: unknown }).value;
+    if (typeof name !== "string" || typeof value !== "string") continue;
+    const trimmedName = name.trim().slice(0, MAX_PROFILE_FIELD_NAME_LENGTH);
+    const trimmedValue = value.trim().slice(0, MAX_PROFILE_FIELD_VALUE_LENGTH);
+    if (trimmedName.length === 0 && trimmedValue.length === 0) continue;
+    out.push({ name: trimmedName, value: trimmedValue });
+  }
+  return out;
+}
+
+/**
+ * Render stored profile fields as PropertyValue attachments for the federated
+ * Person object (mirrors the served actor document in routes/activitypub.ts).
+ */
+function fieldsToAttachments(
+  fields: ProfileField[],
+): Array<{ type: "PropertyValue"; name: string; value: string }> {
+  return fields.map((f) => ({
+    type: "PropertyValue",
+    name: f.name,
+    value: f.value,
+  }));
+}
 
 const actorsRoute = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -559,6 +611,8 @@ actorsRoute.put("/me", async (c) => {
     icon_url?: string;
     header_url?: string;
     is_private?: boolean;
+    fields?: Array<{ name?: unknown; value?: unknown }>;
+    also_known_as?: unknown;
   }>();
 
   const updates: Record<string, string | number | null> = {};
@@ -612,12 +666,67 @@ actorsRoute.put("/me", async (c) => {
     updates.isPrivate = body.is_private ? 1 : 0;
   }
 
+  // Structured profile metadata (PropertyValue). Sanitized + capped so the
+  // served actor document and federated Update(Person) stay bounded.
+  let nextFields: ProfileField[] | undefined;
+  if (body.fields !== undefined) {
+    nextFields = sanitizeProfileFields(body.fields);
+    updates.fieldsJson = JSON.stringify(nextFields);
+  }
+
+  // Account-migration aliases (alsoKnownAs). Accept an array of AP-ID URLs the
+  // account claims; bound + validate so a Move target can reference us.
+  let nextAlsoKnownAs: string[] | undefined;
+  if (body.also_known_as !== undefined) {
+    if (!Array.isArray(body.also_known_as)) {
+      return c.json({ error: "also_known_as must be an array" }, 400);
+    }
+    const aliases: string[] = [];
+    for (const raw of body.also_known_as) {
+      if (aliases.length >= MAX_ALSO_KNOWN_AS) break;
+      if (typeof raw !== "string") continue;
+      const trimmed = raw.trim();
+      if (trimmed.length === 0) continue;
+      if (!isValidHttpUrl(trimmed)) {
+        return c.json({ error: `Invalid alsoKnownAs entry: ${trimmed}` }, 400);
+      }
+      if (!aliases.includes(trimmed)) aliases.push(trimmed);
+    }
+    nextAlsoKnownAs = aliases;
+    updates.alsoKnownAsJson = JSON.stringify(aliases);
+  }
+
   if (Object.keys(updates).length === 0) {
     return c.json({ error: "No fields to update" }, 400);
   }
 
   const db = c.get("db");
   await db.update(actors).set(updates).where(eq(actors.apId, actor.ap_id));
+
+  // The `actor` context snapshot predates the new columns, so to federate a
+  // faithful Person we read the current persisted values when the request did
+  // not itself supply them.
+  if (nextFields === undefined || nextAlsoKnownAs === undefined) {
+    const persisted = await db
+      .select({
+        fieldsJson: actors.fieldsJson,
+        alsoKnownAsJson: actors.alsoKnownAsJson,
+      })
+      .from(actors)
+      .where(eq(actors.apId, actor.ap_id))
+      .get();
+    if (nextFields === undefined) {
+      nextFields = sanitizeProfileFields(
+        safeJsonParse(persisted?.fieldsJson, []),
+      );
+    }
+    if (nextAlsoKnownAs === undefined) {
+      const parsed = safeJsonParse<string[]>(persisted?.alsoKnownAsJson, []);
+      nextAlsoKnownAs = Array.isArray(parsed)
+        ? parsed.filter((a): a is string => typeof a === "string")
+        : [];
+    }
+  }
 
   // Federate the profile change so remote followers do not see a stale
   // Person. Every field this route can mutate (name / summary / icon /
@@ -667,6 +776,12 @@ actorsRoute.put("/me", async (c) => {
   if (nextHeaderUrl) {
     personObject.image = { type: "Image", url: nextHeaderUrl };
   }
+  if (nextFields && nextFields.length > 0) {
+    personObject.attachment = fieldsToAttachments(nextFields);
+  }
+  if (nextAlsoKnownAs && nextAlsoKnownAs.length > 0) {
+    personObject.alsoKnownAs = nextAlsoKnownAs;
+  }
 
   const updateActivityId = activityApId(baseUrl, generateId());
   const updateActivity = {
@@ -702,6 +817,221 @@ actorsRoute.put("/me", async (c) => {
   }
 
   return c.json({ success: true });
+});
+
+// Initiate an account migration: declare the destination and federate a
+// Move(actor -> target) to followers. The destination must already list this
+// account in its own `alsoKnownAs` (verified by remote servers); we persist
+// `moved_to` so the served actor document advertises the migration and emit
+// the Move so followers can re-follow the target.
+actorsRoute.post("/me/move", async (c) => {
+  const result = requireActor(c);
+  if (result instanceof Response) return result;
+  const actor = result;
+
+  const body = await c.req
+    .json<{ target?: unknown }>()
+    .catch(() => ({}) as { target?: unknown });
+  const target = typeof body.target === "string" ? body.target.trim() : "";
+  if (target.length === 0) {
+    return c.json({ error: "target is required" }, 400);
+  }
+  if (!isValidHttpUrl(target)) {
+    return c.json({ error: "Invalid move target" }, 400);
+  }
+  if (target === actor.ap_id) {
+    return c.json({ error: "Cannot move an account to itself" }, 400);
+  }
+
+  const db = c.get("db");
+  const baseUrl = c.env.APP_URL;
+
+  await db
+    .update(actors)
+    .set({ movedTo: target })
+    .where(eq(actors.apId, actor.ap_id));
+
+  // Federate Move(actor) addressed to followers so they migrate their follow.
+  const moveActivityId = activityApId(baseUrl, generateId());
+  const moveActivity = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: moveActivityId,
+    type: "Move",
+    actor: actor.ap_id,
+    object: actor.ap_id,
+    target,
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    cc: [actor.followers_url],
+  };
+
+  try {
+    await db.insert(activities).values({
+      apId: moveActivityId,
+      type: "Move",
+      actorApId: actor.ap_id,
+      objectApId: actor.ap_id,
+      rawJson: JSON.stringify(moveActivity),
+      direction: "outbound",
+    });
+    await enqueueFanoutToFollowers(c.env, moveActivityId, actor.ap_id);
+  } catch (err) {
+    // Federation is best-effort; the local moved_to marker already persisted.
+    log.error("Failed to enqueue account Move federation", {
+      event: "actors.account.move_federation_failed",
+      actor: actor.ap_id,
+      error: err,
+    });
+  }
+
+  return c.json({ success: true, moved_to: target });
+});
+
+// Personal-portability data export: a bounded JSON archive of the actor's
+// profile + authored posts (outbox-style) + follow graph + media manifest.
+// Every collection is capped so a single request cannot OOM the worker; this
+// is a portability aid, not a streaming full backup.
+actorsRoute.get("/me/export", async (c) => {
+  const result = requireActor(c);
+  if (result instanceof Response) return result;
+  const actor = result;
+  const db = c.get("db");
+  const actorApIdVal = actor.ap_id;
+
+  const profileRow = await db
+    .select({
+      apId: actors.apId,
+      type: actors.type,
+      preferredUsername: actors.preferredUsername,
+      name: actors.name,
+      summary: actors.summary,
+      iconUrl: actors.iconUrl,
+      headerUrl: actors.headerUrl,
+      isPrivate: actors.isPrivate,
+      role: actors.role,
+      createdAt: actors.createdAt,
+      fieldsJson: actors.fieldsJson,
+      alsoKnownAsJson: actors.alsoKnownAsJson,
+      movedTo: actors.movedTo,
+    })
+    .from(actors)
+    .where(eq(actors.apId, actorApIdVal))
+    .get();
+
+  if (!profileRow) return c.json({ error: "Actor not found" }, 404);
+
+  const [authoredPosts, following, followers, media] = await Promise.all([
+    db
+      .select()
+      .from(objects)
+      .where(and(eq(objects.attributedTo, actorApIdVal), notDeleted(objects)))
+      .orderBy(desc(objects.published))
+      .limit(MAX_EXPORT_POSTS),
+    db
+      .select({
+        followingApId: follows.followingApId,
+        status: follows.status,
+        createdAt: follows.createdAt,
+      })
+      .from(follows)
+      .where(eq(follows.followerApId, actorApIdVal))
+      .orderBy(desc(follows.createdAt))
+      .limit(MAX_EXPORT_RELATIONS),
+    db
+      .select({
+        followerApId: follows.followerApId,
+        status: follows.status,
+        createdAt: follows.createdAt,
+      })
+      .from(follows)
+      .where(eq(follows.followingApId, actorApIdVal))
+      .orderBy(desc(follows.createdAt))
+      .limit(MAX_EXPORT_RELATIONS),
+    db
+      .select({
+        id: mediaUploads.id,
+        r2Key: mediaUploads.r2Key,
+        contentType: mediaUploads.contentType,
+        size: mediaUploads.size,
+        createdAt: mediaUploads.createdAt,
+      })
+      .from(mediaUploads)
+      .where(eq(mediaUploads.uploaderApId, actorApIdVal))
+      .orderBy(desc(mediaUploads.createdAt))
+      .limit(MAX_EXPORT_MEDIA),
+  ]);
+
+  const archive = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    exported_at: new Date().toISOString(),
+    actor: {
+      ap_id: profileRow.apId,
+      type: profileRow.type,
+      preferred_username: profileRow.preferredUsername,
+      name: profileRow.name,
+      summary: profileRow.summary,
+      icon_url: profileRow.iconUrl,
+      header_url: profileRow.headerUrl,
+      is_private: profileRow.isPrivate,
+      role: profileRow.role,
+      created_at: profileRow.createdAt,
+      fields: sanitizeProfileFields(safeJsonParse(profileRow.fieldsJson, [])),
+      also_known_as: safeJsonParse<string[]>(profileRow.alsoKnownAsJson, []),
+      moved_to: profileRow.movedTo,
+      username: formatUsername(profileRow.apId),
+    },
+    outbox: {
+      type: "OrderedCollection",
+      total_items: authoredPosts.length,
+      truncated: authoredPosts.length >= MAX_EXPORT_POSTS,
+      ordered_items: authoredPosts.map((p) => ({
+        ap_id: p.apId,
+        type: p.type,
+        content: p.content,
+        summary: p.summary,
+        attachments: safeJsonParse(p.attachmentsJson, []),
+        in_reply_to: p.inReplyTo,
+        visibility: p.visibility,
+        community_ap_id: p.communityApId,
+        published: p.published,
+        updated: p.updated,
+      })),
+    },
+    following: {
+      total_items: following.length,
+      truncated: following.length >= MAX_EXPORT_RELATIONS,
+      items: following.map((f) => ({
+        ap_id: f.followingApId,
+        status: f.status,
+        created_at: f.createdAt,
+      })),
+    },
+    followers: {
+      total_items: followers.length,
+      truncated: followers.length >= MAX_EXPORT_RELATIONS,
+      items: followers.map((f) => ({
+        ap_id: f.followerApId,
+        status: f.status,
+        created_at: f.createdAt,
+      })),
+    },
+    media: {
+      total_items: media.length,
+      truncated: media.length >= MAX_EXPORT_MEDIA,
+      items: media.map((m) => ({
+        id: m.id,
+        key: m.r2Key,
+        content_type: m.contentType,
+        size: m.size,
+        created_at: m.createdAt,
+      })),
+    },
+  };
+
+  c.header(
+    "Content-Disposition",
+    `attachment; filename="${profileRow.preferredUsername}-export.json"`,
+  );
+  return c.json(archive);
 });
 
 // Get actor's followers

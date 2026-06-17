@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Env, Variables } from "../types.ts";
 import { actorApId, formatUsername } from "../federation-helpers.ts";
-import { verifyPassword } from "../lib/crypto.ts";
+import { verifyBootstrapOrPassword } from "../lib/crypto.ts";
 import {
   fetchUserInfo,
   getAuthConfig,
@@ -142,11 +142,17 @@ auth.post("/login", async (c) => {
     return c.json({ error: "password is required", code: "BAD_REQUEST" }, 400);
   }
 
-  // Verify password using PBKDF2 hash (AUTH_PASSWORD_HASH).
+  // Verify password against AUTH_PASSWORD_HASH. Properly-hashed values use the
+  // PBKDF2 salt:hash path; a fresh Capsule install generates a colon-less
+  // bootstrap token that is matched verbatim in constant time so the install
+  // is actually loginnable out of the box (#11).
   let isValid = false;
 
   if (c.env.AUTH_PASSWORD_HASH) {
-    isValid = await verifyPassword(password, c.env.AUTH_PASSWORD_HASH);
+    isValid = await verifyBootstrapOrPassword(
+      password,
+      c.env.AUTH_PASSWORD_HASH,
+    );
   }
 
   if (!isValid) {

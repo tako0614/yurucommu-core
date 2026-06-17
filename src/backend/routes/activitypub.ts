@@ -4,7 +4,7 @@ import { and, asc, count, eq } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import { actors, objects as objectsTable } from "../../db/index.ts";
 import { notDeleted } from "../../db/index.ts";
-import { actorApId, getDomain } from "../federation-helpers.ts";
+import { actorApId, getDomain, safeJsonParse } from "../federation-helpers.ts";
 import {
   getInstanceActor,
   INSTANCE_ACTOR_USERNAME,
@@ -289,6 +289,9 @@ ap.get(
         postCount: true,
         isPrivate: true,
         createdAt: true,
+        fieldsJson: true,
+        alsoKnownAsJson: true,
+        movedTo: true,
       },
     });
 
@@ -323,6 +326,37 @@ ap.get(
       discoverable: !actor.isPrivate,
       published: actor.createdAt,
     };
+
+    // Structured profile metadata -> PropertyValue attachments (Mastodon
+    // convention). Stored as a JSON array of { name, value }.
+    const fields = safeJsonParse<Array<{ name?: unknown; value?: unknown }>>(
+      actor.fieldsJson,
+      [],
+    );
+    if (Array.isArray(fields) && fields.length > 0) {
+      actorResponse.attachment = fields
+        .filter(
+          (f) => typeof f?.name === "string" && typeof f?.value === "string",
+        )
+        .map((f) => ({
+          type: "PropertyValue",
+          name: f.name as string,
+          value: f.value as string,
+        }));
+    }
+
+    // Account-migration declarations. `alsoKnownAs` lists the aliases this
+    // account claims; `movedTo` (when set) points remote servers at the new
+    // account so they can process a Move.
+    const alsoKnownAs = safeJsonParse<string[]>(actor.alsoKnownAsJson, []);
+    if (Array.isArray(alsoKnownAs) && alsoKnownAs.length > 0) {
+      actorResponse.alsoKnownAs = alsoKnownAs.filter(
+        (a) => typeof a === "string",
+      );
+    }
+    if (actor.movedTo) {
+      actorResponse.movedTo = actor.movedTo;
+    }
 
     // Remove undefined fields
     for (const key of Object.keys(actorResponse)) {

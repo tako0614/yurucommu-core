@@ -108,14 +108,14 @@ output "takos_app" {
       # Without this, a fresh auto-install would 503 /readyz with no auth
       # provider configured and be unusable until an operator manually set an
       # auth secret. Generating AUTH_PASSWORD_HASH makes the password auth
-      # method "present" so the install comes up ready out of the box; the
-      # operator promotes to Accounts OIDC / OAuth (or sets a known login
-      # password) afterwards. See deferred note: the worker's password login
-      # expects a `salt:hash` PBKDF2 value, so a generated single-token secret
-      # marks the method present but is not itself a loginnable credential —
-      # making the generated bootstrap value directly loginnable (or seeding
-      # Accounts OIDC env on bundled-app install) is a worker/platform change
-      # outside this Capsule manifest.
+      # method "present" so the install comes up ready out of the box. The
+      # worker now treats a generated single-token AUTH_PASSWORD_HASH (a
+      # colon-less value, i.e. not the `salt:hash` PBKDF2 form) as a BOOTSTRAP
+      # shared secret: the operator logs in for the first time by entering this
+      # generated value as the password (constant-time compared — see
+      # lib/crypto.ts verifyBootstrapOrPassword), then should rotate to a real
+      # password or promote to Accounts OIDC / OAuth. So a fresh `tofu apply`
+      # install is both ready AND loginnable out of the box.
       auth_password_hash = {
         type     = "secret"
         bind     = "AUTH_PASSWORD_HASH"

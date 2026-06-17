@@ -32,6 +32,8 @@ const MIGRATIONS = [
   "0002_social_remote_actor_edges.sql",
   "0003_activity_remote_object_edges.sql",
   "0004_blocklist.sql",
+  "0008_actor_fields_aka.sql",
+  "0009_object_tags.sql",
 ];
 
 async function freshDb(): Promise<Database> {
@@ -196,10 +198,9 @@ test("community timeline: non-member is denied a private community feed (403, no
 
   const app = appWith(db, fakeActor(outsider, "outsider"), timelineRoutes);
   const res = await app.fetch(
-    new Request(
-      `${APP_URL}/?community=${encodeURIComponent(communityApId)}`,
-      { method: "GET" },
-    ),
+    new Request(`${APP_URL}/?community=${encodeURIComponent(communityApId)}`, {
+      method: "GET",
+    }),
     envFor(db),
   );
 
@@ -235,10 +236,9 @@ test("community timeline: accepted member can read a private community feed", as
 
   const app = appWith(db, fakeActor(member, "member"), timelineRoutes);
   const res = await app.fetch(
-    new Request(
-      `${APP_URL}/?community=${encodeURIComponent(communityApId)}`,
-      { method: "GET" },
-    ),
+    new Request(`${APP_URL}/?community=${encodeURIComponent(communityApId)}`, {
+      method: "GET",
+    }),
     envFor(db),
   );
 

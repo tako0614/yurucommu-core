@@ -30,6 +30,7 @@ export const objects = sqliteTable(
     toJson: text("to_json").notNull().default("[]"),
     ccJson: text("cc_json").notNull().default("[]"),
     audienceJson: text("audience_json").notNull().default("[]"),
+    tagsJson: text("tags_json").notNull().default("[]"),
     communityApId: text("community_ap_id"),
     endTime: text("end_time"),
     likeCount: integer("like_count").notNull().default(0),

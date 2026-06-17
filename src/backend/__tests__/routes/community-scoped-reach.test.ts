@@ -45,6 +45,8 @@ const MIGRATIONS = [
   "0002_social_remote_actor_edges.sql",
   "0003_activity_remote_object_edges.sql",
   "0004_blocklist.sql",
+  "0008_actor_fields_aka.sql",
+  "0009_object_tags.sql",
 ];
 
 async function freshDb(): Promise<Database> {
@@ -231,12 +233,7 @@ test("community post: audience is the community, excluded from public feed, deli
   });
 
   // --- create the community post via the real route ---
-  const createApp = appWith(
-    db,
-    env,
-    fakeActor(author, "author"),
-    postsRoutes,
-  );
+  const createApp = appWith(db, env, fakeActor(author, "author"), postsRoutes);
   const createRes = await createApp.fetch(
     new Request(`${APP_URL}/`, {
       method: "POST",
@@ -335,12 +332,7 @@ test("non-community post keeps author-follower reach and empty community audienc
 
   const author = await insertLocalActor(db, "author");
 
-  const createApp = appWith(
-    db,
-    env,
-    fakeActor(author, "author"),
-    postsRoutes,
-  );
+  const createApp = appWith(db, env, fakeActor(author, "author"), postsRoutes);
   const createRes = await createApp.fetch(
     new Request(`${APP_URL}/`, {
       method: "POST",

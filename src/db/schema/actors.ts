@@ -37,6 +37,13 @@ export const actors = sqliteTable(
     postCount: integer("post_count").notNull().default(0),
     isPrivate: integer("is_private").notNull().default(0),
     role: text("role").notNull().default("member"),
+    // Structured profile metadata (Mastodon PropertyValue): JSON array of
+    // { name, value } rows rendered as `attachment` on the served actor doc.
+    fieldsJson: text("fields_json").notNull().default("[]"),
+    // Account-migration aliases: JSON array of AP IDs this account claims
+    // (alsoKnownAs). `movedTo` is the migration target once the account moves.
+    alsoKnownAsJson: text("also_known_as_json").notNull().default("[]"),
+    movedTo: text("moved_to"),
     createdAt: text("created_at").notNull().$defaultFn(nowIso),
     updatedAt: text("updated_at")
       .notNull()

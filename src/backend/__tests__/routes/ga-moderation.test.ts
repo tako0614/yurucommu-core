@@ -29,6 +29,8 @@ const MIGRATIONS = [
   "0005_story_community_scope.sql",
   "0006_dm_community_read_status.sql",
   "0007_moderation_reports.sql",
+  "0008_actor_fields_aka.sql",
+  "0009_object_tags.sql",
 ];
 
 async function freshDb(): Promise<Database> {

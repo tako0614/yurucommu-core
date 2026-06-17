@@ -39,6 +39,8 @@ const MIGRATIONS = [
   "0003_activity_remote_object_edges.sql",
   "0004_blocklist.sql",
   "0005_story_community_scope.sql",
+  "0008_actor_fields_aka.sql",
+  "0009_object_tags.sql",
 ];
 
 async function freshDb(): Promise<Database> {
@@ -121,7 +123,11 @@ async function insertCommunity(
   return { apId, followersUrl };
 }
 
-type SentMessage = { type: string; communityApId?: string; [k: string]: unknown };
+type SentMessage = {
+  type: string;
+  communityApId?: string;
+  [k: string]: unknown;
+};
 
 function envFor(db: Database, sent?: SentMessage[]): Env {
   const capture = sent ?? [];
@@ -145,7 +151,10 @@ function envFor(db: Database, sent?: SentMessage[]): Env {
   } as unknown as Env;
 }
 
-function appWith(db: Database, actor: Actor | null): Hono<{
+function appWith(
+  db: Database,
+  actor: Actor | null,
+): Hono<{
   Bindings: Env;
   Variables: Variables;
 }> {

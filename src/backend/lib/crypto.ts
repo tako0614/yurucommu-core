@@ -338,3 +338,82 @@ export async function verifyPassword(
     return false;
   }
 }
+
+/**
+ * Decide whether a stored AUTH_PASSWORD_HASH value is a proper PBKDF2
+ * `salt:hash` credential or a bootstrap shared secret.
+ *
+ * A fresh Capsule install generates AUTH_PASSWORD_HASH as a colon-less
+ * 64-char hex token (enough to satisfy the readiness AUTH_METHOD gate) rather
+ * than a real PBKDF2 hash. The PBKDF2 form is `<saltHex>:<hashHex>` (two
+ * hex segments separated by exactly one ':'). Anything that is not in that
+ * shape is treated as a bootstrap shared secret the operator types in as the
+ * password.
+ */
+function isPbkdf2Hash(storedHash: string): boolean {
+  const parts = storedHash.split(":");
+  if (parts.length !== 2) return false;
+  const [saltHex, hashHex] = parts;
+  if (!saltHex || !hashHex) return false;
+  return isValidHexString(saltHex) && isValidHexString(hashHex);
+}
+
+let warnedBootstrapCredential = false;
+
+/**
+ * Verify a submitted password against the configured AUTH_PASSWORD_HASH.
+ *
+ * - If the stored value is a proper PBKDF2 `salt:hash` credential, verify it
+ *   with the normal PBKDF2 path (unchanged behaviour).
+ * - Otherwise the stored value is a bootstrap shared secret (e.g. the
+ *   colon-less hex token a fresh Capsule install generates). The operator
+ *   logs in by entering that token verbatim as the password; it is compared
+ *   in constant time so a fresh install is actually loginnable while avoiding
+ *   timing leaks. A one-time warning recommends setting a real password.
+ */
+export async function verifyBootstrapOrPassword(
+  password: string,
+  storedHash: string,
+): Promise<boolean> {
+  if (isPbkdf2Hash(storedHash)) {
+    return verifyPassword(password, storedHash);
+  }
+
+  if (!warnedBootstrapCredential) {
+    warnedBootstrapCredential = true;
+    log.warn(
+      "AUTH_PASSWORD_HASH is a bootstrap shared secret, not a PBKDF2 " +
+        "salt:hash credential. Login is accepted by entering that token " +
+        "verbatim as the password. Set a real password (hashPassword) to " +
+        "replace this bootstrap credential.",
+      { event: "crypto.password.bootstrap_credential" },
+    );
+  }
+
+  // Constant-time compare over the raw UTF-8 bytes of the token. The byte
+  // arrays are unequal length when the token does not match, in which case
+  // timingSafeEqual still does length-independent work via a fixed-length
+  // comparison against the stored secret.
+  const stored = new TextEncoder().encode(storedHash);
+  const candidate = new TextEncoder().encode(password);
+  return timingSafeEqualConstantTime(candidate, stored);
+}
+
+/**
+ * Length-independent constant-time comparison: always iterates over the
+ * stored secret's length so the running time does not reveal whether the
+ * candidate matched or even how long it was.
+ */
+function timingSafeEqualConstantTime(
+  candidate: Uint8Array,
+  secret: Uint8Array,
+): boolean {
+  let diff = candidate.length ^ secret.length;
+  for (let i = 0; i < secret.length; i++) {
+    // When candidate is shorter, fold in a non-matching byte so the loop is
+    // still secret-length and never short-circuits.
+    const c = i < candidate.length ? candidate[i] : secret[i] ^ 0xff;
+    diff |= c ^ secret[i];
+  }
+  return diff === 0;
+}
