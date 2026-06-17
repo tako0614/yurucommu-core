@@ -29,8 +29,53 @@ type ActorCacheRow = {
   lastFetchedAt: string;
 };
 
-function createMockPlannerDb(rows: ActorCacheRow[]) {
+/**
+ * Extract the single bound value from a drizzle eq() condition.
+ * eq(col, value) stores the value as a Param object in queryChunks.
+ */
+function extractValueFromEq(condition: unknown): string | null {
+  const chunks = (condition as Record<string, unknown> | null | undefined)
+    ?.queryChunks;
+  if (!Array.isArray(chunks)) return null;
+  for (const chunk of chunks) {
+    const c = chunk as Record<string, unknown> | null | undefined;
+    if (c?.constructor?.name === "Param" && typeof c.value === "string") {
+      return c.value;
+    }
+  }
+  return null;
+}
+
+function createMockPlannerDb(
+  rows: ActorCacheRow[],
+  blocklist?: { actors?: string[]; domains?: string[] },
+) {
+  const blockedActorSet = new Set(blocklist?.actors ?? []);
+  const blockedDomainSet = new Set(blocklist?.domains ?? []);
   return {
+    // isActorBlocked() reads through db.query.blockedActors / blockedDomains.
+    // Provide a real resolving mock so the outbound blocklist filter is
+    // actually exercised (an undefined query makes isActorBlocked fail OPEN).
+    query: {
+      blockedActors: {
+        findFirst: (args: { where?: unknown }) => {
+          const actorApId = extractValueFromEq(args?.where);
+          return Promise.resolve(
+            actorApId && blockedActorSet.has(actorApId)
+              ? { actorApId }
+              : undefined,
+          );
+        },
+      },
+      blockedDomains: {
+        findFirst: (args: { where?: unknown }) => {
+          const domain = extractValueFromEq(args?.where);
+          return Promise.resolve(
+            domain && blockedDomainSet.has(domain) ? { domain } : undefined,
+          );
+        },
+      },
+    },
     select: (_fields?: unknown) => ({
       from: (_table: unknown) => ({
         where: (...whereArgs: unknown[]) => {
@@ -92,6 +137,90 @@ test("delivery/planner - aggregates by sharedInbox and prefers sharedInbox", asy
     );
     expect(byEndpoint.get("https://a.example/shared")).toEqual(2);
     expect(byEndpoint.get("https://b.example/inbox")).toEqual(1);
+  } finally {
+    dateNowStub.restore();
+  }
+});
+
+test("delivery/planner - excludes blocked actor from planned endpoints", async () => {
+  const nowMs = Date.now();
+  const dateNowStub = stub(Date, "now", () => nowMs);
+  try {
+    const nowIso = new Date(nowMs).toISOString();
+
+    const blocked = "https://blocked.example/ap/users/evil";
+    const allowed = "https://a.example/ap/users/u1";
+
+    const db = createMockPlannerDb(
+      [
+        {
+          apId: blocked,
+          inbox: "https://blocked.example/inbox",
+          sharedInbox: null,
+          lastFetchedAt: nowIso,
+        },
+        {
+          apId: allowed,
+          inbox: "https://a.example/inbox",
+          sharedInbox: null,
+          lastFetchedAt: nowIso,
+        },
+      ],
+      { actors: [blocked] },
+    );
+
+    const res = await planEndpointsFromActorCache(db as unknown as Database, [
+      blocked,
+      allowed,
+    ]);
+
+    expect(res.blockedRecipients).toEqual([blocked]);
+    // The blocked actor's endpoint must NOT be planned.
+    const endpoints = res.groups.map((g) => g.endpoint);
+    expect(endpoints).not.toContain("https://blocked.example/inbox");
+    expect(endpoints).toContain("https://a.example/inbox");
+    expect(res.unknownRecipients).toEqual([]);
+  } finally {
+    dateNowStub.restore();
+  }
+});
+
+test("delivery/planner - excludes recipient on a blocked domain", async () => {
+  const nowMs = Date.now();
+  const dateNowStub = stub(Date, "now", () => nowMs);
+  try {
+    const nowIso = new Date(nowMs).toISOString();
+
+    const onBlockedDomain = "https://evil.example/ap/users/u1";
+    const allowed = "https://a.example/ap/users/u1";
+
+    const db = createMockPlannerDb(
+      [
+        {
+          apId: onBlockedDomain,
+          inbox: "https://evil.example/inbox",
+          sharedInbox: null,
+          lastFetchedAt: nowIso,
+        },
+        {
+          apId: allowed,
+          inbox: "https://a.example/inbox",
+          sharedInbox: null,
+          lastFetchedAt: nowIso,
+        },
+      ],
+      { domains: ["evil.example"] },
+    );
+
+    const res = await planEndpointsFromActorCache(db as unknown as Database, [
+      onBlockedDomain,
+      allowed,
+    ]);
+
+    expect(res.blockedRecipients).toEqual([onBlockedDomain]);
+    const endpoints = res.groups.map((g) => g.endpoint);
+    expect(endpoints).not.toContain("https://evil.example/inbox");
+    expect(endpoints).toContain("https://a.example/inbox");
   } finally {
     dateNowStub.restore();
   }

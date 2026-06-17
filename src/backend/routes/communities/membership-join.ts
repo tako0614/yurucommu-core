@@ -211,19 +211,24 @@ export function registerMembershipJoinRoutes(
         }
       }
 
-      // Open join
+      // Open join — create the member + bump the count atomically. D1 has no
+      // interactive transactions; group the member insert and the counter
+      // increment into a single batch so they cannot diverge on a mid-request
+      // failure (matching the invite-join path). The `Database` union type does
+      // not surface `batch` (it is only on the concrete D1/libsql subclasses),
+      // so reach it through a narrow structural cast.
       try {
-        await db.insert(communityMembers).values({
+        const memberInsert = db.insert(communityMembers).values({
           communityApId: community.apId,
           actorApId: actor.ap_id,
           role: "member",
           joinedAt: now,
         });
-
-        await db
+        const countBump = db
           .update(communities)
           .set({ memberCount: sql`${communities.memberCount} + 1` })
           .where(eq(communities.apId, community.apId));
+        await (db as unknown as Batchable).batch([memberInsert, countBump]);
 
         return c.json({ success: true, status: "joined" });
       } catch (error) {

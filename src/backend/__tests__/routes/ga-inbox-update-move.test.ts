@@ -126,7 +126,12 @@ test("handleUpdate(Person) re-fetches and upserts the remote actor immediately",
   fetchedUrls.length = 0;
   const db = await freshDb();
 
-  // Pre-existing stale cache row (old name / avatar / key).
+  // Pre-existing stale cache row (old name / avatar / key). `lastFetchedAt`
+  // is forced well into the past (the column otherwise defaults to `now`):
+  // the inbound-Update handler now applies an amplification cooldown
+  // (ACTOR_UPDATE_REFETCH_COOLDOWN_MS) that suppresses the outbound re-fetch
+  // when the cached row was fetched within the last minute. A genuinely stale
+  // row must look stale, so the re-fetch this test asserts actually fires.
   await db.insert(actorCache).values({
     apId: ALICE,
     type: "Person",
@@ -137,6 +142,7 @@ test("handleUpdate(Person) re-fetches and upserts the remote actor immediately",
     publicKeyId: `${ALICE}#main-key`,
     publicKeyPem: "OLD-PEM",
     rawJson: "{}",
+    lastFetchedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
   });
 
   const activity: Activity = {

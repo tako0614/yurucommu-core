@@ -285,11 +285,51 @@ async function isActivityBlocked(
   return false;
 }
 
+// `processed` ledger values for an inbound activity row:
+//   0 = stored, dispatch not yet committed (newly inserted, or a prior dispatch
+//       threw — such a row is RE-DISPATCHABLE so a peer retry completes it)
+//   1 = dispatch effects committed successfully (terminal; suppresses re-dispatch)
+const PROCESSED_UNPROCESSED = 0;
+const PROCESSED_DONE = 1;
+
 /**
- * Check for duplicate activity. Returns true (and sends 202) when the activity
- * already exists; otherwise stores it and returns false.
+ * A request that owns dispatch for an inbound activity. After running the
+ * handler the caller MUST call `commitActivityDispatch` on success so a
+ * subsequent (re)delivery is suppressed. On handler failure the caller does
+ * nothing extra: the row stays `processed = 0`, so a peer retry re-dispatches
+ * and completes the effect instead of being permanently black-holed by the
+ * dedup row.
  */
-async function deduplicateAndStoreActivity(
+type ActivityDispatchClaim = {
+  activityId: string;
+  activityType: string;
+  actor: string;
+};
+
+/**
+ * Dedup + claim. Stores the inbound activity (idempotent on the `apId` primary
+ * key) and decides whether THIS request must dispatch. Returns either:
+ *   - a `Response` (202) when the activity must NOT be dispatched (a concurrent
+ *     delivery already created the row, or a prior delivery already committed
+ *     `processed = 1`); or
+ *   - an `ActivityDispatchClaim` when this request owns dispatch.
+ *
+ * Idempotency model: `apId` is the primary key, so `onConflictDoNothing` makes
+ * the dedup insert atomic — exactly one concurrent delivery of the same
+ * activity creates the row (and gets a non-null returned row → owns dispatch);
+ * the rest get a null row. This is what keeps a genuine concurrent double
+ * delivery (shared inbox + per-actor inbox racing) from applying the effect
+ * twice or 500'ing on a PK violation.
+ *
+ * Retry-after-failure fix (#9): the dedup row is no longer unconditionally
+ * suppressing. When this request LOST the insert (row already exists), we only
+ * suppress if that row is already `processed = 1` (a committed prior dispatch).
+ * If the existing row is still `processed = 0` — i.e. a prior dispatch threw
+ * mid-effect and never committed — we re-claim it so the peer's retry completes
+ * the half-applied activity exactly once (the commit flips it to `1`, after
+ * which any further redelivery is suppressed).
+ */
+async function claimActivityForDispatch(
   c: HonoContext,
   {
     activityId,
@@ -298,17 +338,13 @@ async function deduplicateAndStoreActivity(
     activityObjectId,
     activity,
   }: ParsedActivity,
-): Promise<Response | null> {
+): Promise<Response | ActivityDispatchClaim> {
   const db = c.get("db");
   const rawJson = JSON.stringify(activity);
 
-  // Atomic insert-or-skip. `apId` is the primary key, so `onConflictDoNothing`
-  // makes concurrent duplicate delivery (e.g. the same activity arriving on the
-  // shared inbox and a per-actor inbox simultaneously) idempotent instead of
-  // throwing a primary-key violation that would surface as a 500 and trigger a
-  // peer retry. A non-null returned row means THIS request won the insert and
-  // must proceed to dispatch; a null row means a concurrent (or prior) delivery
-  // already stored it, so we ACK with 202 and skip re-dispatch.
+  // Atomic insert-or-skip. A non-null returned row means THIS request created
+  // the dedup row and owns dispatch; a null row means a concurrent or prior
+  // delivery already stored it.
   const inserted = await db
     .insert(activities)
     .values({
@@ -318,22 +354,59 @@ async function deduplicateAndStoreActivity(
       objectApId: activityObjectId,
       rawJson,
       direction: "inbound",
+      processed: PROCESSED_UNPROCESSED,
     })
     .onConflictDoNothing()
     .returning()
     .get();
 
-  if (!inserted) {
-    log.info("Duplicate activity skipped", {
-      event: "ap.activity.duplicate_skipped",
+  if (inserted) {
+    return { activityId, activityType, actor };
+  }
+
+  // Lost the insert: a row already exists. Suppress ONLY if it was already
+  // dispatched to completion (`processed = 1`). An existing `processed = 0` row
+  // means a prior dispatch threw without committing, so this redelivery must
+  // re-dispatch to finish it — otherwise the dedup row would permanently
+  // suppress re-dispatch of a half-applied activity (bug #9).
+  const existing = await db.query.activities.findFirst({
+    where: eq(activities.apId, activityId),
+    columns: { processed: true },
+  });
+
+  if (existing && existing.processed === PROCESSED_UNPROCESSED) {
+    log.info("Re-dispatching previously-uncommitted activity", {
+      event: "ap.activity.redispatch_uncommitted",
       activityId,
       activityType,
       actor,
     });
-    return c.body(null, 202);
+    return { activityId, activityType, actor };
   }
 
-  return null;
+  log.info("Duplicate activity skipped", {
+    event: "ap.activity.duplicate_skipped",
+    activityId,
+    activityType,
+    actor,
+  });
+  return c.body(null, 202);
+}
+
+/**
+ * Mark a claimed activity's dispatch as terminally complete. Called after the
+ * handler effects commit successfully so any subsequent (re)delivery is
+ * suppressed by `claimActivityForDispatch`.
+ */
+async function commitActivityDispatch(
+  c: HonoContext,
+  activityId: string,
+): Promise<void> {
+  const db = c.get("db");
+  await db
+    .update(activities)
+    .set({ processed: PROCESSED_DONE })
+    .where(eq(activities.apId, activityId));
 }
 
 // ---------------------------------------------------------------------------
@@ -550,15 +623,18 @@ ap.post("/ap/actor/inbox", async (c) => {
   const throttled = await applyInboxDomainRateLimit(c, result.actor);
   if (throttled) return throttled;
 
-  const duplicate = await deduplicateAndStoreActivity(c, result);
-  if (duplicate) return duplicate;
+  const claim = await claimActivityForDispatch(c, result);
+  if (claim instanceof Response) return claim;
 
   const { activity, activityType, actor } = result;
 
-  // The activity is already stored before group dispatch (dedup ledger), so a
-  // thrown handler that 500s would make the remote retry, hit dedup, and
-  // permanently drop the activity undispatched. Isolate the failure, log it,
-  // and still ACK with 202 — consistent with the per-actor and shared inboxes.
+  // The activity row is stored (processed = 0) before group dispatch. A thrown
+  // handler is isolated and logged WITHOUT committing, so the row stays
+  // `processed = 0` and a peer retry re-dispatches to complete the effect rather
+  // than being permanently suppressed by the dedup row (#9). A successful
+  // dispatch commits (processed = 1) so retries are skipped. Either way we ACK
+  // 202 — a 5xx would make the remote retry, and a committed-too-early dedup row
+  // would black-hole the half-applied activity.
   try {
     switch (activityType) {
       case "Follow":
@@ -578,6 +654,7 @@ ap.post("/ap/actor/inbox", async (c) => {
         await handleGroupCreate(c, activity, instActor, actor, baseUrl);
         break;
     }
+    await commitActivityDispatch(c, claim.activityId);
   } catch (e) {
     log.error("Actor-inbox dispatch failed", {
       event: "ap.actor_inbox.dispatch_error",
@@ -607,25 +684,25 @@ ap.post("/ap/users/:username/inbox", async (c) => {
   const throttled = await applyInboxDomainRateLimit(c, result.actor);
   if (throttled) return throttled;
 
-  const duplicate = await deduplicateAndStoreActivity(c, result);
-  if (duplicate) return duplicate;
+  const claim = await claimActivityForDispatch(c, result);
+  if (claim instanceof Response) return claim;
 
   const { activity, activityType, actor } = result;
 
   await cacheRemoteActor(c, actor, baseUrl);
 
-  // The activity row is already stored (dedup ledger) before dispatch. If a
-  // handler throws and we let the route 500, the remote retries, dedup finds
-  // the stored row, and the activity is permanently lost without ever being
-  // dispatched. Mirror the shared-inbox fan-out: isolate the handler failure,
-  // log it, and still ACK with 202 so a retry is not provoked into a silent
-  // black hole.
+  // The activity row is stored (processed = 0) before dispatch. If a handler
+  // throws we leave it uncommitted so a peer retry re-dispatches and completes
+  // the effect, instead of the dedup row permanently suppressing it (#9); on
+  // success we commit (processed = 1) so retries are skipped. We ACK 202
+  // regardless so a retry is not provoked into a 5xx loop.
   try {
     await dispatchUserActivity(c, activityType, activity, {
       recipient,
       actor,
       baseUrl,
     });
+    await commitActivityDispatch(c, claim.activityId);
   } catch (e) {
     log.error("User-inbox dispatch failed", {
       event: "ap.user_inbox.dispatch_error",
@@ -720,59 +797,79 @@ ap.post("/ap/inbox", async (c) => {
   const throttled = await applyInboxDomainRateLimit(c, result.actor);
   if (throttled) return throttled;
 
-  const duplicate = await deduplicateAndStoreActivity(c, result);
-  if (duplicate) return duplicate;
+  const claim = await claimActivityForDispatch(c, result);
+  if (claim instanceof Response) return claim;
 
   const { activity, activityType, actor } = result;
 
-  await cacheRemoteActor(c, actor, baseUrl);
+  // The fan-out below may throw before any dispatch runs (e.g. actor cache or
+  // follower resolution faults). On such a failure we leave the row uncommitted
+  // (processed = 0) so a peer retry re-dispatches and completes delivery rather
+  // than being suppressed by the dedup row (#9); we commit it once the fan-out
+  // has run so retries are skipped.
+  try {
+    await cacheRemoteActor(c, actor, baseUrl);
 
-  if (RECIPIENT_INDEPENDENT_TYPES.has(activityType)) {
-    // These handlers ignore the recipient; dispatch once. We pass a synthetic
-    // recipient context derived from the activity actor so the handler
-    // signature is satisfied without implying a specific local target.
-    await dispatchUserActivity(c, activityType, activity, {
-      recipient: { apId: actor } as ActorRow,
-      actor,
-      baseUrl,
-    });
-    return c.body(null, 202);
-  }
-
-  // Recipient-scoped: fan out to every local follower of the sending actor.
-  const recipients = await resolveLocalFollowerRecipients(c, actor, baseUrl);
-  if (recipients.length === 0) {
-    // No local subscribers for this actor. We have still verified + stored
-    // the activity (dedup ledger), so this is an honest no-op delivery, not a
-    // black hole — a 202 here means "accepted, nothing to route locally".
-    log.info("Shared-inbox activity had no local recipients", {
-      event: "ap.shared_inbox.no_recipients",
-      activityType,
-      actor,
-    });
-    return c.body(null, 202);
-  }
-
-  for (const recipient of recipients) {
-    // Isolate per-recipient failures: a single local recipient whose handler
-    // throws must not abort fan-out to the others or turn the whole shared
-    // delivery into a 5xx (which would make the sending peer retry and
-    // redeliver to every recipient).
-    try {
+    if (RECIPIENT_INDEPENDENT_TYPES.has(activityType)) {
+      // These handlers ignore the recipient; dispatch once. We pass a synthetic
+      // recipient context derived from the activity actor so the handler
+      // signature is satisfied without implying a specific local target.
       await dispatchUserActivity(c, activityType, activity, {
-        recipient,
+        recipient: { apId: actor } as ActorRow,
         actor,
         baseUrl,
       });
-    } catch (e) {
-      log.error("Shared-inbox dispatch failed for one recipient", {
-        event: "ap.shared_inbox.dispatch_error",
+      await commitActivityDispatch(c, claim.activityId);
+      return c.body(null, 202);
+    }
+
+    // Recipient-scoped: fan out to every local follower of the sending actor.
+    const recipients = await resolveLocalFollowerRecipients(c, actor, baseUrl);
+    if (recipients.length === 0) {
+      // No local subscribers for this actor — an honest no-op delivery. Commit
+      // the claim so the no-op is not retried indefinitely.
+      await commitActivityDispatch(c, claim.activityId);
+      log.info("Shared-inbox activity had no local recipients", {
+        event: "ap.shared_inbox.no_recipients",
         activityType,
         actor,
-        recipient: recipient.apId,
-        error: e,
       });
+      return c.body(null, 202);
     }
+
+    for (const recipient of recipients) {
+      // Isolate per-recipient failures: a single local recipient whose handler
+      // throws must not abort fan-out to the others or turn the whole shared
+      // delivery into a 5xx (which would make the sending peer retry and
+      // redeliver to every recipient).
+      try {
+        await dispatchUserActivity(c, activityType, activity, {
+          recipient,
+          actor,
+          baseUrl,
+        });
+      } catch (e) {
+        log.error("Shared-inbox dispatch failed for one recipient", {
+          event: "ap.shared_inbox.dispatch_error",
+          activityType,
+          actor,
+          recipient: recipient.apId,
+          error: e,
+        });
+      }
+    }
+
+    // Fan-out attempted for every resolved recipient (per-recipient failures
+    // are isolated above). Commit the claim so a peer retry does not redeliver
+    // to every local follower.
+    await commitActivityDispatch(c, claim.activityId);
+  } catch (e) {
+    log.error("Shared-inbox dispatch failed", {
+      event: "ap.shared_inbox.dispatch_error",
+      activityType,
+      actor,
+      error: e,
+    });
   }
 
   return c.body(null, 202);

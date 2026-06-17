@@ -2,6 +2,7 @@ import type { Database } from "../../../../db/index.ts";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   activities,
+  actorCache,
   actors,
   follows,
   inbox as inboxTable,
@@ -58,6 +59,12 @@ const ACTOR_OBJECT_TYPES = new Set([
   "Organization",
   "Application",
 ]);
+
+// Minimum interval between outbound actor re-fetches triggered by an inbound
+// Update(actor). Within this window we rely on the existing cache row (and the
+// normal actor-cache TTL) instead of re-fetching, so a flood of Update
+// activities cannot amplify into a flood of outbound fetches.
+const ACTOR_UPDATE_REFETCH_COOLDOWN_MS = 60_000;
 
 function isActorTypeUpdate(type: string | string[] | undefined): boolean {
   if (!type) return false;
@@ -454,16 +461,27 @@ export async function handleCreateStory(
   const endTime =
     object.endTime || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-  await db.insert(objects).values({
-    apId: objectId,
-    type: "Story",
-    attributedTo: actor,
-    content: "",
-    attachmentsJson: JSON.stringify(attachmentData),
-    endTime,
-    published: object.published || now,
-    isLocal: 0,
-  });
+  // The early existence check above is best-effort (TOCTOU): two isolates
+  // racing the same cold story can both pass it. `onConflictDoNothing` keeps
+  // that race insert-safe, and gating follow-on side effects on the returned
+  // row mirrors the duplicate guard in handleCreate.
+  const inserted = await db
+    .insert(objects)
+    .values({
+      apId: objectId,
+      type: "Story",
+      attributedTo: actor,
+      content: "",
+      attachmentsJson: JSON.stringify(attachmentData),
+      endTime,
+      published: object.published || now,
+      isLocal: 0,
+    })
+    .onConflictDoNothing()
+    .returning()
+    .get();
+
+  if (!inserted) return; // duplicate
 }
 
 // ---------------------------------------------------------------------------
@@ -567,6 +585,27 @@ export async function handleUpdate(
         objectId,
       });
       return;
+    }
+    // Amplification guard: an inbound Update(actor) would otherwise trigger an
+    // unconditional outbound re-fetch of the actor document on EVERY activity,
+    // so a remote could flood us into hammering its origin (or a third party).
+    // Skip the re-fetch when the cached row was fetched within a short cooldown
+    // window; the normal actor-cache TTL refresh still picks up later changes.
+    const cached = await db
+      .select({ lastFetchedAt: actorCache.lastFetchedAt })
+      .from(actorCache)
+      .where(eq(actorCache.apId, objectId))
+      .get();
+    if (cached?.lastFetchedAt) {
+      const age = Date.now() - new Date(cached.lastFetchedAt).getTime();
+      if (Number.isFinite(age) && age >= 0 && age < ACTOR_UPDATE_REFETCH_COOLDOWN_MS) {
+        log.debug("Update(actor) re-fetch skipped: within cooldown", {
+          event: "ap.update.actor_refetch_cooldown",
+          actor: objectId,
+          ageMs: age,
+        });
+        return;
+      }
     }
     await refreshActorCache(db, objectId);
     return;

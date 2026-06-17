@@ -20,7 +20,10 @@ import {
   blocks,
   bookmarks,
   communities,
+  communityInvites,
+  communityJoinRequests,
   communityMembers,
+  deliveryQueue,
   follows,
   inbox,
   likes,
@@ -35,6 +38,7 @@ import {
   storyViews,
   storyVotes,
 } from "../../db/index.ts";
+import type { Database } from "../../db/index.ts";
 import type { Env, Variables } from "../types.ts";
 import {
   activityApId,
@@ -116,6 +120,107 @@ function fieldsToAttachments(
     name: f.name,
     value: f.value,
   }));
+}
+
+// Tombstone reaper horizon. A deleted account's row is kept as a tombstone so
+// the queued Delete(actor) deliver_endpoint jobs can sign with the actor's
+// private key when they drain. Once those jobs have drained AND enough time has
+// passed that no further delivery attempts are possible, the tombstone (and its
+// signing material) can be hard-deleted. The horizon is comfortably past the
+// delivery backoff series (~4.3h total) so a still-retrying Delete is never
+// reaped out from under the signer; the no-pending-jobs check below is the
+// primary guard and this is a belt-and-braces lower bound.
+const TOMBSTONE_REAP_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Hard-delete tombstoned local actors whose federation Delete has drained.
+ *
+ * A tombstone is only reaped when (a) its `deletedAt` is older than
+ * TOMBSTONE_REAP_AFTER_MS and (b) it has NO non-terminal (pending / processing
+ * / failed) delivery_queue rows for any of its Delete activities — i.e. nothing
+ * still needs the private key to sign a retry. The preserved Delete activity
+ * rows are removed alongside the actor so they do not accumulate forever.
+ *
+ * Returns the number of tombstones hard-deleted.
+ */
+export async function reapDrainedTombstones(db: Database): Promise<number> {
+  const cutoff = new Date(Date.now() - TOMBSTONE_REAP_AFTER_MS).toISOString();
+
+  const candidates = await db
+    .select({ apId: actors.apId })
+    .from(actors)
+    .where(and(sql`${actors.deletedAt} IS NOT NULL`, lt(actors.deletedAt, cutoff)))
+    .limit(100);
+  if (candidates.length === 0) return 0;
+
+  let reaped = 0;
+  for (const { apId } of candidates) {
+    // Delete activities this actor authored (preserved through teardown for
+    // the delivery signer). Outbound by construction.
+    const deleteActivities = await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(
+        and(eq(activities.actorApId, apId), eq(activities.type, "Delete")),
+      );
+    const deleteActivityIds = deleteActivities.map((a) => a.apId);
+
+    if (deleteActivityIds.length > 0) {
+      // Any non-terminal delivery job for those Delete activities means the
+      // signer may still need this actor's key — skip reaping for now.
+      const pending = await db
+        .select({ id: deliveryQueue.id })
+        .from(deliveryQueue)
+        .where(
+          and(
+            inArray(deliveryQueue.activityApId, deleteActivityIds),
+            inArray(deliveryQueue.status, ["pending", "processing", "failed"]),
+          ),
+        )
+        .limit(1)
+        .get();
+      if (pending) continue;
+    }
+
+    // Drained: remove the terminal delivery_queue rows, the preserved Delete
+    // activities, then the tombstone row itself.
+    if (deleteActivityIds.length > 0) {
+      await db
+        .delete(deliveryQueue)
+        .where(inArray(deliveryQueue.activityApId, deleteActivityIds));
+      await db
+        .delete(activities)
+        .where(inArray(activities.apId, deleteActivityIds));
+    }
+    await db.delete(actors).where(eq(actors.apId, apId));
+    reaped += 1;
+  }
+
+  return reaped;
+}
+
+// Best-effort, opportunistic tombstone reaping on the read path. This Worker
+// has no `scheduled` handler, so (mirroring maybeCleanupExpiredStories) the
+// sweep is triggered probabilistically and guarded so at most one runs per
+// isolate at a time. Tombstones are already excluded from every serving query,
+// so a missed sweep only delays storage/key-material reclamation.
+let tombstoneReapInFlight = false;
+
+export function maybeReapDrainedTombstones(db: Database): void {
+  if (tombstoneReapInFlight) return;
+  if (Math.random() >= 0.01) return; // ~1% of eligible requests per isolate
+
+  tombstoneReapInFlight = true;
+  reapDrainedTombstones(db)
+    .catch((err) => {
+      log.warn("Failed to reap drained tombstones", {
+        event: "actors.tombstone.reap_failed",
+        error: err,
+      });
+    })
+    .finally(() => {
+      tombstoneReapInFlight = false;
+    });
 }
 
 const actorsRoute = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -380,6 +485,28 @@ actorsRoute.post("/me/delete", async (c) => {
         .where(eq(mediaUploads.uploaderApId, actorApIdVal));
     }
 
+    // Story interactions the actor performed on OTHER actors' stories (incl.
+    // remote ones): the objectIds-scoped story_votes/story_views delete below
+    // only reaps interactions on THIS actor's own stories, so without these the
+    // actor's votes/views on remote stories are orphaned by the tombstone.
+    await db.delete(storyVotes).where(eq(storyVotes.actorApId, actorApIdVal));
+    await db.delete(storyViews).where(eq(storyViews.actorApId, actorApIdVal));
+
+    // Community membership lifecycle rows for this actor: pending join requests
+    // and any invites the actor created or consumed would otherwise dangle.
+    await db
+      .delete(communityJoinRequests)
+      .where(eq(communityJoinRequests.actorApId, actorApIdVal));
+    await db
+      .delete(communityInvites)
+      .where(
+        or(
+          eq(communityInvites.invitedByApId, actorApIdVal),
+          eq(communityInvites.usedByApId, actorApIdVal),
+          eq(communityInvites.invitedApId, actorApIdVal),
+        ),
+      );
+
     const memberships = await db
       .select({
         communityApId: communityMembers.communityApId,
@@ -444,11 +571,20 @@ actorsRoute.post("/me/delete", async (c) => {
     // privateKeyPem/publicKeyPem) and scrub every piece of personal data. The
     // `deletedAt` tombstone excludes this row from all federation-serving and
     // counting queries (which filter `notDeleted(actors)`), and all auth paths
-    // are already severed because the sessions were deleted in Phase 1. A later
-    // sweep can hard-delete tombstones after the Delete jobs have drained.
+    // are already severed because the sessions were deleted in Phase 1. The
+    // tombstone reaper (reapDrainedTombstones) hard-deletes these rows once the
+    // Delete jobs have drained.
+    //
+    // `preferredUsername` carries a UNIQUE constraint, so leaving the original
+    // handle on the tombstone would permanently squat it: re-registration (and
+    // a re-login that re-provisions the same handle) would collide or be forced
+    // onto a different handle. Rename it to a reserved, non-colliding sentinel
+    // so the original handle is freed immediately while the row lingers for the
+    // delivery signer.
     await db
       .update(actors)
       .set({
+        preferredUsername: `deleted-${generateId()}`,
         name: null,
         summary: null,
         iconUrl: null,
@@ -503,7 +639,14 @@ actorsRoute.get("/:identifier/posts", async (c) => {
   if (isOwnProfile) {
     conditions.push(ne(objects.visibility, "direct"));
   } else {
+    // Non-own profile: only globally-public posts. `visibility = "public"`
+    // alone is insufficient because community-scoped and explicitly-addressed
+    // posts can carry public-ish visibility while their reach is the audience
+    // list; without the empty-audience guard those would leak to anyone
+    // viewing the author's profile. An empty `audienceJson` ("[]") marks a
+    // post with no community/addressed scope, i.e. truly public reach.
     conditions.push(eq(objects.visibility, "public"));
+    conditions.push(eq(objects.audienceJson, "[]"));
   }
   if (before) {
     conditions.push(lt(objects.published, before));
@@ -587,7 +730,10 @@ actorsRoute.get("/:identifier", async (c) => {
       movedTo: actors.movedTo,
     })
     .from(actors)
-    .where(eq(actors.apId, apId))
+    // Exclude tombstoned local actors so a deleted handle is not served as a
+    // live profile (consistent with the notDeleted filter used by the actor
+    // list and federation-serving queries).
+    .where(and(eq(actors.apId, apId), notDeleted(actors)))
     .get();
 
   if (!localActor) {
@@ -598,6 +744,17 @@ actorsRoute.get("/:identifier", async (c) => {
       .get();
     if (!cachedActor) return c.json({ error: "Actor not found" }, 404);
 
+    // Project the remote actor's AS Person document (cached `rawJson`) so the
+    // client banner/fields work for REMOTE actors too: `attachment` ->
+    // PropertyValue fields, `alsoKnownAs` -> also_known_as, `movedTo` ->
+    // moved_to. Mirrors the local-actor projection below.
+    const raw = safeJsonParse<Record<string, unknown>>(cachedActor.rawJson, {});
+    const rawAttachment = Array.isArray(raw?.attachment) ? raw.attachment : [];
+    const rawAlsoKnownAs = Array.isArray(raw?.alsoKnownAs)
+      ? raw.alsoKnownAs.filter((a): a is string => typeof a === "string")
+      : [];
+    const rawMovedTo = typeof raw?.movedTo === "string" ? raw.movedTo : null;
+
     return c.json({
       actor: {
         ap_id: cachedActor.apId,
@@ -606,6 +763,9 @@ actorsRoute.get("/:identifier", async (c) => {
         summary: cachedActor.summary,
         icon_url: cachedActor.iconUrl,
         username: formatUsername(cachedActor.apId),
+        fields: sanitizeProfileFields(rawAttachment),
+        also_known_as: rawAlsoKnownAs.slice(0, MAX_ALSO_KNOWN_AS),
+        moved_to: rawMovedTo,
         is_following: false,
         is_followed_by: false,
       },
@@ -858,6 +1018,15 @@ actorsRoute.put("/me", async (c) => {
     "@context": [
       "https://www.w3.org/ns/activitystreams",
       "https://w3id.org/security/v1",
+      {
+        schema: "http://schema.org#",
+        PropertyValue: "schema:PropertyValue",
+        value: "schema:value",
+        toot: "http://joinmastodon.org/ns#",
+        alsoKnownAs: { "@id": "as:alsoKnownAs", "@type": "@id" },
+        movedTo: { "@id": "as:movedTo", "@type": "@id" },
+        manuallyApprovesFollowers: "as:manuallyApprovesFollowers",
+      },
     ],
     id: updateActivityId,
     type: "Update",

@@ -16,6 +16,7 @@ import {
   inbox as inboxTable,
 } from "../../../db/index.ts";
 import { isLocal, isSafeRemoteUrl } from "../../federation-helpers.ts";
+import { isActorBlocked } from "../blocklist.ts";
 import { planEndpointsFromActorCache } from "./planner.ts";
 import { fetchAndUpsertActorCache } from "../activitypub-actor-cache.ts";
 import {
@@ -196,14 +197,11 @@ export async function snapshotAndEnqueueFollowerDeliveries(
 ): Promise<void> {
   const queue = (env as Partial<QueueEnv>).DELIVERY_QUEUE;
   if (!queue) {
-    log.warn(
-      "Delivery queue unavailable; follower snapshot delivery skipped",
-      {
-        event: "delivery.fanout.snapshot_queue_unavailable",
-        followee: followeeApId,
-        activityId,
-      },
-    );
+    log.warn("Delivery queue unavailable; follower snapshot delivery skipped", {
+      event: "delivery.fanout.snapshot_queue_unavailable",
+      followee: followeeApId,
+      activityId,
+    });
     return;
   }
 
@@ -392,7 +390,10 @@ export async function processFanoutCommunity(
       if (page.length === 0) break;
       cursor = page[page.length - 1].followerApId;
       for (const f of page) {
-        if (!isLocal(f.followerApId, baseUrl) && f.followerApId !== authorApId) {
+        if (
+          !isLocal(f.followerApId, baseUrl) &&
+          f.followerApId !== authorApId
+        ) {
           remoteRecipients.add(f.followerApId);
         }
       }
@@ -441,6 +442,15 @@ export async function processResolveActor(
   message: Message<DeliveryQueueMessageV1>,
 ): Promise<void> {
   if (!requireQueue(env, "resolve_actor", message)) return;
+
+  // Defense-in-depth: the fanout/enqueue side already drops blocked recipients
+  // via planEndpointsFromActorCache, but enforce the operator blocklist at the
+  // resolve seam too so a re-resolved actor (or a domain blocked after enqueue)
+  // never gets a delivery job. ACK silently — same posture as the inbox handler.
+  if (await isActorBlocked(db, msg.recipientActorApId)) {
+    message.ack();
+    return;
+  }
 
   const cached = await db
     .select({

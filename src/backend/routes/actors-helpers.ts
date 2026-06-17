@@ -187,7 +187,7 @@ export async function actorExists(
     db
       .select({ apId: actors.apId })
       .from(actors)
-      .where(eq(actors.apId, apId))
+      .where(and(eq(actors.apId, apId), sql`${actors.deletedAt} IS NULL`))
       .get(),
     db
       .select({ apId: actorCache.apId })

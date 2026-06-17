@@ -54,6 +54,7 @@ import {
   validateSummaryEdit,
 } from "./post-helpers.ts";
 import { requireActor } from "../actors-helpers.ts";
+import { canViewerReadObject } from "../../lib/community-visibility.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "posts.routes" });
@@ -67,6 +68,8 @@ type ReplyVisibilityRow = {
   attributedTo: string;
   visibility: string;
   toJson?: string | null;
+  audienceJson?: string | null;
+  communityApId?: string | null;
 };
 
 /**
@@ -109,7 +112,18 @@ async function filterVisibleReplies<T extends ReplyVisibilityRow>(
     acceptedFollowing = new Set(rows.map((r) => r.followingApId));
   }
 
-  return replies.filter((reply) => {
+  // Pre-compute the community read-gate for every reply: a community-scoped
+  // reply is stored "public" but carries an audience, so the per-visibility
+  // checks below would let it through. Resolving membership here (rather than
+  // inside the synchronous .filter) lets the predicate stay synchronous.
+  const communityAllowed = await Promise.all(
+    replies.map((reply) => canViewerReadObject(db, reply, viewerApId)),
+  );
+
+  return replies.filter((reply, i) => {
+    // A private-community reply is hidden from anyone who is not an accepted
+    // member, regardless of the (stored "public") visibility.
+    if (!communityAllowed[i]) return false;
     if (reply.visibility === "followers") {
       if (!viewerApId) return false;
       if (reply.attributedTo === viewerApId) return true;
@@ -393,6 +407,13 @@ posts.get("/:id", async (c) => {
     }
   }
 
+  // Community read-gate: a community-scoped post is stored with a "public"
+  // visibility (so the checks above pass) but carries an audience. If it is
+  // addressed to a PRIVATE community, only an accepted member may read it.
+  if (!(await canViewerReadObject(db, post, currentActor?.ap_id))) {
+    return c.json({ error: "Post not found" }, 404);
+  }
+
   const postRow: PostDetailRow = toPostRow(post, author, { liked, bookmarked });
 
   return c.json({ post: formatPost(postRow, currentActor?.ap_id) });
@@ -408,12 +429,22 @@ posts.get("/:id/replies", async (c) => {
   const db = c.get("db");
 
   const parentPost = await db
-    .select({ apId: objects.apId })
+    .select({
+      apId: objects.apId,
+      audienceJson: objects.audienceJson,
+      communityApId: objects.communityApId,
+    })
     .from(objects)
     .where(postWhereByIdOrApId(baseUrl, postId)!)
     .get();
 
   if (!parentPost) return c.json({ error: "Post not found" }, 404);
+
+  // Gate the parent on the community read-gate: if the thread root is addressed
+  // to a private community, only an accepted member may enumerate its replies.
+  if (!(await canViewerReadObject(db, parentPost, currentActor?.ap_id))) {
+    return c.json({ error: "Post not found" }, 404);
+  }
 
   const whereCondition = before
     ? and(

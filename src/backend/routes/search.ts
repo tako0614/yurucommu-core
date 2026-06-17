@@ -10,7 +10,13 @@ import {
   parseOffset,
 } from "../federation-helpers.ts";
 import type { Database } from "../../db/index.ts";
-import { actorCache, actors, likes, objects } from "../../db/index.ts";
+import {
+  actorCache,
+  actors,
+  likes,
+  notDeleted,
+  objects,
+} from "../../db/index.ts";
 import {
   parseWebFinger,
   tryParseRemoteActor,
@@ -248,9 +254,12 @@ search.get("/actors", async (c) => {
       })
       .from(actors)
       .where(
-        or(
-          like(actors.preferredUsername, "%" + query + "%"),
-          like(actors.name, "%" + query + "%"),
+        and(
+          notDeleted(actors),
+          or(
+            like(actors.preferredUsername, "%" + query + "%"),
+            like(actors.name, "%" + query + "%"),
+          ),
         ),
       )
       .orderBy(...orderByClause)

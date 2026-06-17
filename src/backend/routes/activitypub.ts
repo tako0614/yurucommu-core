@@ -34,6 +34,25 @@ const AP_CONTEXT = [
   "https://w3id.org/security/v1",
 ] as const;
 
+// Conventional Mastodon-style JSON-LD context extension. The served Person
+// actor doc uses PropertyValue attachments, alsoKnownAs / movedTo migration
+// declarations, and manuallyApprovesFollowers; strict consumers (Mastodon)
+// only interpret these terms when they are declared in @context. Mirrors what
+// Mastodon emits on its own actor documents.
+const ACTOR_CONTEXT_EXTENSION = {
+  schema: "http://schema.org#",
+  PropertyValue: "schema:PropertyValue",
+  value: "schema:value",
+  toot: "http://joinmastodon.org/ns#",
+  alsoKnownAs: { "@id": "as:alsoKnownAs", "@type": "@id" },
+  movedTo: { "@id": "as:movedTo", "@type": "@id" },
+  manuallyApprovesFollowers: "as:manuallyApprovesFollowers",
+} as const;
+
+// Full @context for the served Person actor doc: AS2 + security + the
+// Mastodon-style extension terms above.
+const ACTOR_CONTEXT = [...AP_CONTEXT, ACTOR_CONTEXT_EXTENSION] as const;
+
 /** Build a standard WebFinger JRD response. */
 function buildWebFingerResponse(
   username: string,
@@ -301,7 +320,7 @@ ap.get(
       !actor.isPrivate || canViewPrivateActorCollections(c, actor.apId);
 
     const actorResponse: Record<string, unknown> = {
-      "@context": AP_CONTEXT,
+      "@context": ACTOR_CONTEXT,
       id: actor.apId,
       type: actor.type,
       preferredUsername: actor.preferredUsername,

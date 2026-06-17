@@ -32,6 +32,7 @@ import {
   objectApId,
 } from "../../federation-helpers.ts";
 import { storyToActivityPub } from "../../lib/activitypub-helpers.ts";
+import { maybeReapDrainedTombstones } from "../actors.ts";
 import { checkCommunityPostPermission } from "../posts/post-helpers.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import {
@@ -312,6 +313,9 @@ stories.get("/", async (c) => {
 
   // Opportunistic, best-effort expiry cleanup (see maybeCleanupExpiredStories).
   maybeCleanupExpiredStories(db);
+  // Opportunistically reap drained account tombstones on this hot read path
+  // (the Worker has no scheduled handler; see maybeReapDrainedTombstones).
+  maybeReapDrainedTombstones(db);
 
   // Get followed user IDs
   const followRows = await db
