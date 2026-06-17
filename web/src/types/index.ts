@@ -17,6 +17,14 @@ export interface Actor {
   created_at: string;
   is_following?: boolean;
   is_followed_by?: boolean;
+  // Structured PropertyValue profile fields (Mastodon-parity, capped at 4 on
+  // the backend). Rendered as a small label/value list on the profile.
+  fields?: { name: string; value: string }[];
+  // Account-migration markers: `moved_to` is the AP id this account moved to,
+  // `also_known_as` is the set of declared aliases. Migration *authoring* lives
+  // in Settings; the profile only surfaces the moved-to banner.
+  moved_to?: string | null;
+  also_known_as?: string[];
 }
 
 // Community (AP Group)

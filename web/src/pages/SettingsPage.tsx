@@ -16,9 +16,15 @@ import { UserAvatar } from "../components/UserAvatar.tsx";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { SettingsAccountsSection } from "../components/settings/SettingsAccountsSection.tsx";
+import { SettingsAccountSection } from "../components/settings/SettingsAccountSection.tsx";
+import { SettingsModerationSection } from "../components/settings/SettingsModerationSection.tsx";
 import { SettingsDeleteSection } from "../components/settings/SettingsDeleteSection.tsx";
 import { SettingsUserList } from "../components/settings/SettingsUserList.tsx";
-import { ChevronRightIcon } from "../components/settings/SettingsIcons.tsx";
+import {
+  ChevronRightIcon,
+  MigrateIcon,
+  ShieldIcon,
+} from "../components/settings/SettingsIcons.tsx";
 import {
   deleteAccount,
   fetchBlockedUsers,
@@ -37,8 +43,17 @@ export function SettingsPage() {
   const [confirmingDeleteAccount, setConfirmingDeleteAccount] =
     createSignal(false);
   const [activeSection, setActiveSection] = createSignal<
-    "main" | "blocked" | "muted" | "delete" | "accounts"
+    | "main"
+    | "blocked"
+    | "muted"
+    | "delete"
+    | "accounts"
+    | "migration"
+    | "moderation"
   >("main");
+  // The first actor created on an instance is the owner; only they get the
+  // federation moderation surface (the backend also enforces this with 403).
+  const isOwner = () => actor.role === "owner";
   const [blockedUsers, setBlockedUsers] = createSignal<Actor[]>([]);
   const [mutedUsers, setMutedUsers] = createSignal<Actor[]>([]);
   const [loading, setLoading] = createSignal(false);
@@ -274,6 +289,17 @@ export function SettingsPage() {
         />
       </Show>
 
+      <Show when={activeSection() === "migration"}>
+        <SettingsAccountSection onBack={() => setActiveSection("main")} t={t} />
+      </Show>
+
+      <Show when={activeSection() === "moderation"}>
+        <SettingsModerationSection
+          onBack={() => setActiveSection("main")}
+          t={t}
+        />
+      </Show>
+
       <Show when={activeSection() === "main"}>
         <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <h1 class="text-xl font-bold px-4 py-3">{t("settings.title")}</h1>
@@ -350,6 +376,17 @@ export function SettingsPage() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveSection("migration")}
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+            >
+              <div class="flex items-center gap-3">
+                <MigrateIcon />
+                <span>{t("settings.accountMigration")}</span>
+              </div>
+              <ChevronRightIcon />
+            </button>
+            <button
+              type="button"
               onClick={handleLogout}
               class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
             >
@@ -365,6 +402,26 @@ export function SettingsPage() {
               <ChevronRightIcon />
             </button>
           </div>
+
+          {/* Moderation (instance owner only) */}
+          <Show when={isOwner()}>
+            <div class="border-b border-neutral-900">
+              <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
+                {t("settings.moderation")}
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSection("moderation")}
+                class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+              >
+                <div class="flex items-center gap-3">
+                  <ShieldIcon />
+                  <span>{t("settings.moderation")}</span>
+                </div>
+                <ChevronRightIcon />
+              </button>
+            </div>
+          </Show>
         </div>
       </Show>
       <ConfirmSheet

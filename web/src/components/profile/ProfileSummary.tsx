@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { For, Show } from "solid-js";
 import type { Actor } from "../../types/index.ts";
 import { formatMonthYear } from "../../lib/datetime.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
@@ -26,7 +26,23 @@ interface ProfileSummaryProps {
   t: Translate;
 }
 
+// Derive a readable `@user@domain` handle from an AP id for the moved-to
+// banner, falling back to the raw value when it is not a parseable actor URL.
+function movedToHandle(apId: string): string {
+  try {
+    const url = new URL(apId);
+    const match = apId.match(/\/(users|groups)\/([^/]+)$/);
+    if (match) return `@${match[2]}@${url.host}`;
+  } catch {
+    // Ignore malformed values and show them verbatim.
+  }
+  return apId;
+}
+
 export function ProfileSummary(props: ProfileSummaryProps) {
+  // Only keep fully-populated label/value pairs for display.
+  const visibleFields = () =>
+    (props.profile.fields ?? []).filter((f) => f.name.trim() && f.value.trim());
   return (
     <>
       {/* Header Image */}
@@ -135,11 +151,42 @@ export function ProfileSummary(props: ProfileSummaryProps) {
           </div>
         </div>
 
+        {/* Account-migration banner: this account has moved elsewhere. */}
+        <Show when={props.profile.moved_to}>
+          <div class="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+            {props
+              .t("profile.movedToBanner")
+              .replace("{handle}", movedToHandle(props.profile.moved_to!))}
+          </div>
+        </Show>
+
         {/* Bio */}
         <Show when={props.profile.summary}>
           <p class="text-neutral-200 mb-3 whitespace-pre-wrap">
             {props.profile.summary}
           </p>
+        </Show>
+
+        {/* Structured profile fields (PropertyValue label/value list) */}
+        <Show when={visibleFields().length > 0}>
+          <dl class="mb-3 overflow-hidden rounded-lg border border-neutral-800">
+            <For each={visibleFields()}>
+              {(field, index) => (
+                <div
+                  class={`flex gap-3 px-3 py-2 text-sm ${
+                    index() > 0 ? "border-t border-neutral-800" : ""
+                  }`}
+                >
+                  <dt class="w-1/3 shrink-0 truncate font-medium text-neutral-400">
+                    {field.name}
+                  </dt>
+                  <dd class="min-w-0 flex-1 break-words text-neutral-200">
+                    {field.value}
+                  </dd>
+                </div>
+              )}
+            </For>
+          </dl>
         </Show>
 
         {/* Join Date */}

@@ -21,6 +21,9 @@ export async function updateProfile(data: {
   icon_url?: string;
   header_url?: string;
   is_private?: boolean;
+  // Structured PropertyValue profile fields. PUT /me replaces the stored set
+  // with this array (backend caps it at 4 and sanitizes name/value).
+  fields?: { name: string; value: string }[];
 }): Promise<void> {
   const res = await apiPut("/api/actors/me", data);
   await assertOk(res, "Failed to update profile");

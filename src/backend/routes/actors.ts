@@ -582,6 +582,9 @@ actorsRoute.get("/:identifier", async (c) => {
       postCount: actors.postCount,
       isPrivate: actors.isPrivate,
       createdAt: actors.createdAt,
+      fieldsJson: actors.fieldsJson,
+      alsoKnownAsJson: actors.alsoKnownAsJson,
+      movedTo: actors.movedTo,
     })
     .from(actors)
     .where(eq(actors.apId, apId))
@@ -657,6 +660,9 @@ actorsRoute.get("/:identifier", async (c) => {
       is_private: localActor.isPrivate,
       created_at: localActor.createdAt,
       username: formatUsername(localActor.apId),
+      fields: sanitizeProfileFields(safeJsonParse(localActor.fieldsJson, [])),
+      also_known_as: safeJsonParse<string[]>(localActor.alsoKnownAsJson, []),
+      moved_to: localActor.movedTo,
       is_following,
       is_followed_by,
     },

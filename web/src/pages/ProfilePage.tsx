@@ -53,6 +53,9 @@ export function ProfilePage() {
   const [editHeaderUrl, setEditHeaderUrl] = createSignal<string | undefined>(
     undefined,
   );
+  const [editFields, setEditFields] = createSignal<
+    { name: string; value: string }[]
+  >([]);
   const [saving, setSaving] = createSignal(false);
   const [showMenu, setShowMenu] = createSignal(false);
   const [showFollowModal, setShowFollowModal] = createSignal<
@@ -167,6 +170,7 @@ export function ProfilePage() {
       setEditIsPrivate(p.is_private || false);
       setEditIconUrl(p.icon_url || undefined);
       setEditHeaderUrl(p.header_url || undefined);
+      setEditFields((p.fields ?? []).map((f) => ({ ...f })));
       setShowEditModal(true);
     }
   };
@@ -174,6 +178,12 @@ export function ProfilePage() {
   const handleSaveProfile = async () => {
     if (saving()) return;
     setSaving(true);
+    // Keep only fully-populated label/value pairs; the backend replaces the
+    // stored set with this array and caps it at 4.
+    const cleanFields = editFields()
+      .map((f) => ({ name: f.name.trim(), value: f.value.trim() }))
+      .filter((f) => f.name && f.value)
+      .slice(0, 4);
     try {
       await updateProfile({
         name: editName().trim() || undefined,
@@ -181,6 +191,7 @@ export function ProfilePage() {
         icon_url: editIconUrl() || undefined,
         header_url: editHeaderUrl() || undefined,
         is_private: editIsPrivate(),
+        fields: cleanFields,
       });
       setProfile((prev) =>
         prev
@@ -191,6 +202,7 @@ export function ProfilePage() {
               icon_url: editIconUrl() ?? prev.icon_url,
               header_url: editHeaderUrl() ?? prev.header_url,
               is_private: editIsPrivate(),
+              fields: cleanFields,
             }
           : null,
       );
@@ -314,6 +326,7 @@ export function ProfilePage() {
           editIsPrivate={editIsPrivate()}
           editIconUrl={editIconUrl()}
           editHeaderUrl={editHeaderUrl()}
+          editFields={editFields()}
           saving={saving()}
           onClose={() => setShowEditModal(false)}
           onSave={handleSaveProfile}
@@ -322,6 +335,7 @@ export function ProfilePage() {
           onTogglePrivate={() => setEditIsPrivate(!editIsPrivate())}
           onChangeIconUrl={setEditIconUrl}
           onChangeHeaderUrl={setEditHeaderUrl}
+          onChangeFields={setEditFields}
           t={t}
         />
         <ProfileFollowModal

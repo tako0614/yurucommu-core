@@ -1,9 +1,12 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { CloseIcon } from "./ProfileIcons.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { uploadMedia } from "../../lib/api/media.ts";
 import { useDialog } from "../../lib/useDialog.ts";
 import type { Translate } from "../../lib/i18n.tsx";
+
+// Mastodon-parity cap on structured profile fields.
+const MAX_PROFILE_FIELDS = 4;
 
 interface ProfileEditModalProps {
   isOpen: boolean;
@@ -12,6 +15,8 @@ interface ProfileEditModalProps {
   editIsPrivate: boolean;
   editIconUrl?: string;
   editHeaderUrl?: string;
+  // Structured PropertyValue rows (label + content), capped at 4.
+  editFields: { name: string; value: string }[];
   saving: boolean;
   onClose: () => void;
   onSave: () => void;
@@ -24,6 +29,7 @@ interface ProfileEditModalProps {
   onTogglePrivate: () => void;
   onChangeIconUrl: (url: string) => void;
   onChangeHeaderUrl: (url: string) => void;
+  onChangeFields: (fields: { name: string; value: string }[]) => void;
   t: Translate;
 }
 
@@ -37,6 +43,24 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
     onClose: props.onClose,
     container: () => dialogRef,
   });
+
+  const updateField = (
+    index: number,
+    patch: Partial<{ name: string; value: string }>,
+  ) => {
+    props.onChangeFields(
+      props.editFields.map((f, i) => (i === index ? { ...f, ...patch } : f)),
+    );
+  };
+
+  const addField = () => {
+    if (props.editFields.length >= MAX_PROFILE_FIELDS) return;
+    props.onChangeFields([...props.editFields, { name: "", value: "" }]);
+  };
+
+  const removeField = (index: number) => {
+    props.onChangeFields(props.editFields.filter((_, i) => i !== index));
+  };
 
   const handleUpload = async (
     file: File | undefined,
@@ -194,6 +218,67 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent resize-none"
               />
             </div>
+            {/* Structured profile fields (PropertyValue rows) */}
+            <div>
+              <label class="block text-sm text-neutral-400 mb-1">
+                {props.t("profile.fieldsLabel")}
+              </label>
+              <p class="text-xs text-neutral-500 mb-2">
+                {props.t("profile.fieldsHint")}
+              </p>
+              <div class="space-y-2">
+                <For each={props.editFields}>
+                  {(field, index) => (
+                    <div class="flex items-start gap-2">
+                      <div class="flex-1 space-y-2">
+                        <input
+                          type="text"
+                          value={field.name}
+                          onInput={(e) =>
+                            updateField(index(), {
+                              name: e.currentTarget.value,
+                            })
+                          }
+                          placeholder={props.t("profile.fieldName")}
+                          aria-label={props.t("profile.fieldName")}
+                          class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
+                        />
+                        <input
+                          type="text"
+                          value={field.value}
+                          onInput={(e) =>
+                            updateField(index(), {
+                              value: e.currentTarget.value,
+                            })
+                          }
+                          placeholder={props.t("profile.fieldValue")}
+                          aria-label={props.t("profile.fieldValue")}
+                          class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeField(index())}
+                        aria-label={props.t("profile.removeField")}
+                        class="mt-1 p-2 rounded-full text-neutral-400 hover:bg-neutral-800 hover:text-red-500 transition-colors"
+                      >
+                        <CloseIcon />
+                      </button>
+                    </div>
+                  )}
+                </For>
+              </div>
+              <Show when={props.editFields.length < MAX_PROFILE_FIELDS}>
+                <button
+                  type="button"
+                  onClick={addField}
+                  class="mt-2 px-3 py-1.5 rounded-full border border-neutral-600 text-sm text-white hover:bg-neutral-800 transition-colors"
+                >
+                  {props.t("profile.addField")}
+                </button>
+              </Show>
+            </div>
+
             <div class="flex items-center justify-between py-2">
               <div>
                 <div class="text-white font-medium">
