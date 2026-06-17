@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import { useSetAtom } from "solid-jotai";
 import { Notification } from "../types/index.ts";
 import { refreshNotificationUnreadAtom } from "../atoms/notifications.ts";
@@ -71,6 +72,7 @@ type FilterType = "all" | "follow" | "like" | "announce" | "mention" | "reply";
 
 export function NotificationPage() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const refreshUnread = useSetAtom(refreshNotificationUnreadAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
@@ -153,6 +155,31 @@ export function NotificationPage() {
     } finally {
       setPendingAction((prev) => ({ ...prev, [notification.id]: false }));
     }
+  };
+
+  // Resolve the in-app route a notification points at, using the data already
+  // attached to it: post-shaped events open the related post, while
+  // follow-shaped events open the actor's profile.
+  const notificationTarget = (notification: Notification): string | null => {
+    switch (notification.type) {
+      case "like":
+      case "announce":
+      case "mention":
+      case "reply":
+        return notification.object_ap_id
+          ? `/post/${encodeURIComponent(notification.object_ap_id)}`
+          : null;
+      case "follow":
+      case "follow_request":
+        return `/profile/${encodeURIComponent(notification.actor.ap_id)}`;
+      default:
+        return null;
+    }
+  };
+
+  const handleRowActivate = (notification: Notification) => {
+    const target = notificationTarget(notification);
+    if (target) navigate(target);
   };
 
   const getNotificationText = (notification: Notification): JSX.Element => {
@@ -347,11 +374,30 @@ export function NotificationPage() {
               }
             >
               <For each={filteredNotifications()}>
-                {(notification) => (
+                {(notification) => {
+                  const target = notificationTarget(notification);
+                  return (
                   <div
+                    role={target ? "link" : undefined}
+                    tabindex={target ? 0 : undefined}
+                    onClick={
+                      target
+                        ? () => handleRowActivate(notification)
+                        : undefined
+                    }
+                    onKeyDown={
+                      target
+                        ? (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleRowActivate(notification);
+                            }
+                          }
+                        : undefined
+                    }
                     class={`flex items-start gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors ${
-                      !notification.read ? "bg-neutral-900/50" : ""
-                    }`}
+                      target ? "cursor-pointer" : ""
+                    } ${!notification.read ? "bg-neutral-900/50" : ""}`}
                   >
                     <div class="relative shrink-0">
                       <UserAvatar
@@ -373,22 +419,24 @@ export function NotificationPage() {
                       <Show when={notification.type === "follow_request"}>
                         <div class="mt-2 flex gap-2">
                           <button
-                            onClick={() =>
-                              handleFollowRequest(notification, "accept")
-                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleFollowRequest(notification, "accept");
+                            }}
                             disabled={pendingAction()[notification.id]}
                             class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
                           >
-                            Accept
+                            {t("dm.accept")}
                           </button>
                           <button
-                            onClick={() =>
-                              handleFollowRequest(notification, "reject")
-                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleFollowRequest(notification, "reject");
+                            }}
                             disabled={pendingAction()[notification.id]}
                             class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
                           >
-                            Reject
+                            {t("dm.reject")}
                           </button>
                         </div>
                       </Show>
@@ -397,7 +445,8 @@ export function NotificationPage() {
                       </p>
                     </div>
                   </div>
-                )}
+                  );
+                }}
               </For>
             </Show>
           </Show>
