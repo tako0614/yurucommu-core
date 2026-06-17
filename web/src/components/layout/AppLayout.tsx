@@ -23,9 +23,9 @@ export function AppLayout(props: { children?: JSX.Element }) {
   });
 
   return (
-    <div class="flex justify-center h-screen bg-neutral-900 text-white">
+    <div class="flex justify-center h-screen h-[100dvh] bg-neutral-900 text-white">
       <Sidebar />
-      <main class="flex-1 flex flex-col min-h-screen pb-14 md:pb-0 overflow-hidden border-x border-neutral-800 max-w-2xl">
+      <main class="flex-1 flex flex-col min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0 overflow-hidden border-x border-neutral-800 max-w-2xl">
         {/* Mobile-only app-shell header: AppMenu trigger + DM + Notifications,
             reachable from every route. Phase B's ScopeHeader absorbs it. */}
         <AppHeaderMobile />

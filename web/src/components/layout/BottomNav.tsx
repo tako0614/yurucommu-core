@@ -28,7 +28,7 @@ export function BottomNav() {
     }`;
 
   return (
-    <nav class="md:hidden fixed bottom-0 left-0 right-0 h-14 bg-neutral-900 border-t border-neutral-900 flex items-center justify-around z-50">
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-neutral-900 border-t border-neutral-900 flex items-center justify-around z-50">
       <For each={NAV_ITEMS}>
         {(item) => {
           const Icon = item.icon;

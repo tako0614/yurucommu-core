@@ -154,7 +154,7 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
             role="dialog"
             aria-modal="true"
             aria-label={t("scope.switch")}
-            class="max-h-[80vh] w-full max-w-sm overflow-y-auto rounded-t-2xl border border-neutral-800 bg-neutral-900 p-2 shadow-2xl sm:rounded-2xl"
+            class="max-h-[80vh] w-full max-w-sm overflow-y-auto rounded-t-2xl border border-neutral-800 bg-neutral-900 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:pb-2"
           >
             <h2
               id="scope-switcher-heading"

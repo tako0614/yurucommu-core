@@ -47,7 +47,7 @@ export function ConfirmSheet(props: ConfirmSheetProps) {
             role="alertdialog"
             aria-modal="true"
             aria-label={props.title}
-            class="w-full max-w-sm rounded-t-2xl border border-neutral-800 bg-neutral-900 p-5 shadow-2xl sm:rounded-2xl"
+            class="w-full max-w-sm rounded-t-2xl border border-neutral-800 bg-neutral-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:pb-5"
           >
             <h2 class="text-base font-bold text-white">{props.title}</h2>
             <Show when={props.body}>
