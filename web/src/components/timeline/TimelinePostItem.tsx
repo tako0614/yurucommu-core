@@ -170,7 +170,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       <button
         onClick={() => props.onReply(props.post)}
         aria-label="Reply"
-        class="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors"
+        class="flex items-center gap-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
       >
         <ReplyIcon />
         <span class="text-sm">{props.post.reply_count || ""}</span>
@@ -211,8 +211,8 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
         aria-pressed={props.post.bookmarked}
         class={`flex items-center gap-2 transition-colors ${
           props.post.bookmarked
-            ? "text-blue-500"
-            : "text-neutral-500 hover:text-blue-500"
+            ? "text-accent"
+            : "text-neutral-500 hover:text-[var(--accent)]"
         }`}
       >
         <BookmarkIcon filled={props.post.bookmarked} />

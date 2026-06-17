@@ -56,7 +56,7 @@ export function TextPanel(props: TextPanelProps) {
         <textarea
           value={props.layer.content}
           onInput={(e) => props.onUpdate({ content: e.currentTarget.value })}
-          class="w-full mt-1 bg-neutral-800 text-white px-4 py-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          class="w-full mt-1 bg-neutral-800 text-white px-4 py-3 rounded-xl outline-none focus:ring-2 focus:ring-accent resize-none"
           rows={3}
         />
       </div>
@@ -71,7 +71,7 @@ export function TextPanel(props: TextPanelProps) {
                 onClick={() => props.onUpdate({ fontFamily: font.family })}
                 class={`px-3 py-2 rounded-lg text-sm transition-colors ${
                   props.layer.fontFamily === font.family
-                    ? "bg-blue-500 text-white"
+                    ? "bg-accent text-white"
                     : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                 }`}
                 style={{ "font-family": font.family }}
@@ -110,7 +110,7 @@ export function TextPanel(props: TextPanelProps) {
           }
           class={`flex-1 py-2 rounded-lg font-bold transition-colors ${
             props.layer.fontWeight === "bold"
-              ? "bg-blue-500 text-white"
+              ? "bg-accent text-white"
               : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
           }`}
         >
@@ -125,7 +125,7 @@ export function TextPanel(props: TextPanelProps) {
           }
           class={`flex-1 py-2 rounded-lg italic transition-colors ${
             props.layer.fontStyle === "italic"
-              ? "bg-blue-500 text-white"
+              ? "bg-accent text-white"
               : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
           }`}
         >
@@ -143,7 +143,7 @@ export function TextPanel(props: TextPanelProps) {
                 onClick={() => props.onUpdate({ textAlign: align })}
                 class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
                   props.layer.textAlign === align
-                    ? "bg-blue-500 text-white"
+                    ? "bg-accent text-white"
                     : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                 }`}
               >
@@ -173,7 +173,7 @@ export function TextPanel(props: TextPanelProps) {
             onClick={() => props.onUpdate({ backgroundColor: undefined })}
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               !props.layer.backgroundColor
-                ? "bg-blue-500 text-white"
+                ? "bg-accent text-white"
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
@@ -185,7 +185,7 @@ export function TextPanel(props: TextPanelProps) {
             }
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               props.layer.backgroundColor
-                ? "bg-blue-500 text-white"
+                ? "bg-accent text-white"
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
@@ -208,7 +208,7 @@ export function TextPanel(props: TextPanelProps) {
             onClick={() => props.onUpdate({ stroke: undefined })}
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               !props.layer.stroke
-                ? "bg-blue-500 text-white"
+                ? "bg-accent text-white"
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
@@ -220,7 +220,7 @@ export function TextPanel(props: TextPanelProps) {
             }
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               props.layer.stroke
-                ? "bg-blue-500 text-white"
+                ? "bg-accent text-white"
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
@@ -272,7 +272,7 @@ export function TextPanel(props: TextPanelProps) {
             onClick={() => props.onUpdate({ shadow: undefined })}
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               !props.layer.shadow
-                ? "bg-blue-500 text-white"
+                ? "bg-accent text-white"
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
@@ -291,7 +291,7 @@ export function TextPanel(props: TextPanelProps) {
             }
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               props.layer.shadow
-                ? "bg-blue-500 text-white"
+                ? "bg-accent text-white"
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >

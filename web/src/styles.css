@@ -23,6 +23,32 @@
 .border-accent {
   border-color: var(--accent);
 }
+/*
+ * Additional accent helpers backed by the SAME --accent token, so a parallel
+ * migration off raw Tailwind blue utilities (bg-blue-XXX/NN alpha tints,
+ * ring-blue, from/via/to-blue gradients) can map cleanly onto a single brand
+ * token. Variable names (--tw-ring-color / --tw-gradient-*) are the names this
+ * project's Tailwind emits for ring/gradient utilities.
+ */
+.bg-accent-soft {
+  background-color: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.ring-accent {
+  --tw-ring-color: var(--accent);
+}
+.from-accent {
+  --tw-gradient-from: var(--accent) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(59 130 246 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+.to-accent {
+  --tw-gradient-to: var(--accent) var(--tw-gradient-to-position);
+}
+.via-accent {
+  --tw-gradient-to: rgb(59 130 246 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from),
+    var(--accent) var(--tw-gradient-via-position), var(--tw-gradient-to);
+}
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {

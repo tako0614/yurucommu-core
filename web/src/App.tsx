@@ -10,6 +10,7 @@ import { InstancePendingScreen } from "./components/InstancePendingScreen.tsx";
 import { InstanceProblemScreen } from "./components/InstanceProblemScreen.tsx";
 import { AppLayout } from "./components/layout/index.ts";
 import { LoadingSpinner } from "./components/LoadingSpinner.tsx";
+import { OfflineBanner } from "./components/OfflineBanner.tsx";
 import { yurucommuDeployDocsUrl } from "./lib/deploy-docs.ts";
 
 // Lazy load page components for code splitting
@@ -212,6 +213,7 @@ export default function App() {
         <Suspense fallback={<LoadingSpinner />}>
           <AppContent />
         </Suspense>
+        <OfflineBanner />
       </Provider>
     </ErrorBoundary>
   );

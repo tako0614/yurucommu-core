@@ -77,7 +77,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
             fallback={
               <button
                 onClick={() => props.onToggleCreate(true)}
-                class="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/50 text-blue-400"
+                class="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/50 text-accent"
               >
                 <div class="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center">
                   <PlusIcon />
@@ -116,7 +116,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                     placeholder="username"
                     pattern="^[a-zA-Z0-9_]+$"
                     required
-                    class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
                   />
                   <p class="text-xs text-neutral-500 mt-1">
                     {props.t("settings.usernameHint")}
@@ -133,13 +133,13 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                       props.onChangeDisplayName(e.currentTarget.value)
                     }
                     placeholder={props.t("settings.displayName")}
-                    class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
                   />
                 </div>
                 <button
                   onClick={props.onCreate}
                   disabled={!props.isUsernameValid}
-                  class="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:hover:bg-blue-500"
+                  class="w-full py-2 bg-accent rounded-lg font-bold transition-colors disabled:opacity-50"
                 >
                   {props.t("groups.create")}
                 </button>

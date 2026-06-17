@@ -327,7 +327,7 @@ export function PostDetailPage() {
             <div class="flex items-center justify-around mt-3 pt-3 border-t border-neutral-800">
               <button
                 aria-label="Reply"
-                class="flex items-center gap-2 p-2 text-neutral-500 hover:text-blue-500 transition-colors"
+                class="flex items-center gap-2 p-2 text-neutral-500 hover:text-accent transition-colors"
               >
                 <ReplyIcon />
               </button>
@@ -349,8 +349,8 @@ export function PostDetailPage() {
                 aria-pressed={post()!.bookmarked}
                 class={`flex items-center gap-2 p-2 transition-colors ${
                   post()!.bookmarked
-                    ? "text-blue-500"
-                    : "text-neutral-500 hover:text-blue-500"
+                    ? "text-accent"
+                    : "text-neutral-500 hover:text-accent"
                 }`}
               >
                 <BookmarkIcon filled={post()!.bookmarked || false} />
@@ -378,7 +378,7 @@ export function PostDetailPage() {
                   <button
                     onClick={handleReply}
                     disabled={!replyContent().trim() || replying()}
-                    class="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full text-sm font-bold transition-colors"
+                    class="px-4 py-1.5 bg-accent disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full text-sm font-bold transition-colors"
                   >
                     Reply
                   </button>

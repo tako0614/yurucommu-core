@@ -65,7 +65,7 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
         <button
           onClick={props.onPost}
           disabled={postDisabled()}
-          class="flex-1 flex items-center justify-center gap-2 py-3.5 bg-blue-500 hover:bg-blue-600 rounded-full text-white font-medium disabled:opacity-50 transition-all"
+          class="flex-1 flex items-center justify-center gap-2 py-3.5 bg-accent rounded-full text-white font-medium disabled:opacity-50 transition-all"
         >
           <span>
             {props.posting ? `${Math.round(props.progress)}%` : postLabel()}

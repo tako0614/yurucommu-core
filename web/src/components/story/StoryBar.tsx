@@ -72,7 +72,7 @@ export function StoryBar(props: StoryBarProps) {
                       size={60}
                     />
                   </div>
-                  <div class="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center ring-2 ring-black">
+                  <div class="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center ring-2 ring-black">
                     <PlusIcon />
                   </div>
                 </div>
@@ -102,7 +102,7 @@ export function StoryBar(props: StoryBarProps) {
                   class={`w-16 h-16 rounded-full p-0.5 ${
                     hasMyStories() && myStories()
                       ? myStories()!.has_unviewed
-                        ? "bg-gradient-to-tr from-blue-400 to-blue-500"
+                        ? "bg-gradient-to-tr from-accent to-accent"
                         : "bg-neutral-600"
                       : "ring-2 ring-neutral-700"
                   }`}
@@ -121,7 +121,7 @@ export function StoryBar(props: StoryBarProps) {
                     e.stopPropagation();
                     props.onAddStory();
                   }}
-                  class="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center ring-2 ring-black hover:bg-blue-600 transition-colors"
+                  class="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center ring-2 ring-black transition-colors"
                 >
                   <PlusIcon />
                 </button>
@@ -141,7 +141,7 @@ export function StoryBar(props: StoryBarProps) {
                   <div
                     class={`w-16 h-16 rounded-full p-0.5 ${
                       as.has_unviewed
-                        ? "bg-gradient-to-tr from-blue-400 to-blue-500"
+                        ? "bg-gradient-to-tr from-accent to-accent"
                         : "bg-neutral-600"
                     }`}
                   >

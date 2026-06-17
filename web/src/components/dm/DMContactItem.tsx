@@ -45,7 +45,7 @@ export function DMContactItem(props: DMContactItemProps) {
           </div>
         </Show>
         <Show when={props.contact.type === "community"}>
-          <div class="absolute -bottom-1 -right-1 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center border-2 border-black">
+          <div class="absolute -bottom-1 -right-1 w-6 h-6 bg-accent rounded-full flex items-center justify-center border-2 border-black">
             <svg
               class="w-3.5 h-3.5 text-white"
               fill="currentColor"

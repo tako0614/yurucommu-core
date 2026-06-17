@@ -286,7 +286,7 @@ export function QRCodeModal(props: QRCodeModalProps) {
           >
             My QR
             <Show when={tab() === "myqr"}>
-              <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-blue-500 rounded-full" />
+              <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-accent rounded-full" />
             </Show>
           </button>
           <button
@@ -297,7 +297,7 @@ export function QRCodeModal(props: QRCodeModalProps) {
           >
             Scan
             <Show when={tab() === "scan"}>
-              <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-blue-500 rounded-full" />
+              <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-accent rounded-full" />
             </Show>
           </button>
         </div>
@@ -313,7 +313,7 @@ export function QRCodeModal(props: QRCodeModalProps) {
                 <Show when={lookingUp()}>
                   {/* Loading State */}
                   <div class="flex flex-col items-center space-y-4 py-8">
-                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-accent" />
                     <div class="text-neutral-400">Looking up user...</div>
                   </div>
                 </Show>
@@ -359,7 +359,7 @@ export function QRCodeModal(props: QRCodeModalProps) {
                         <button
                           onClick={handleFollow}
                           disabled={following()}
-                          class="px-6 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 text-white rounded-full font-medium transition-colors"
+                          class="px-6 py-2 bg-accent disabled:bg-neutral-700 text-white rounded-full font-medium transition-colors"
                         >
                           {following() ? "Following..." : "Follow"}
                         </button>

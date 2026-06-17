@@ -153,7 +153,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
           </div>
           <button
             onClick={handleSave}
-            class="text-blue-400 text-lg font-semibold"
+            class="text-accent text-lg font-semibold"
           >
             {t("story.done")}
           </button>

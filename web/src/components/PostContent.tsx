@@ -125,7 +125,7 @@ export function PostContent(props: PostContentProps) {
           return (
             <A
               href={`/groups?search=@${part.username}`}
-              class="text-blue-400 hover:underline"
+              class="text-accent hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
               @{part.username}

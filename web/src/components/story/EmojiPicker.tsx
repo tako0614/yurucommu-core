@@ -689,7 +689,7 @@ export function EmojiPicker(props: EmojiPickerProps) {
               onClick={() => setActiveCategory(index())}
               class={`px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${
                 activeCategory() === index()
-                  ? "bg-blue-500 text-white"
+                  ? "bg-accent text-white"
                   : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
               }`}
             >

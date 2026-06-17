@@ -440,7 +440,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
                       <div
                         class={`inline-block px-4 py-2 rounded-2xl ${
                           isMine
-                            ? "bg-blue-500 text-white rounded-br-sm"
+                            ? "bg-accent text-white rounded-br-sm"
                             : "bg-neutral-800 text-white rounded-bl-sm"
                         }`}
                       >
@@ -474,13 +474,13 @@ export function DMChatPanel(props: DMChatPanelProps) {
             value={input()}
             onInput={handleInputChange}
             placeholder={t("dm.placeholder")}
-            class="flex-1 px-4 py-2 bg-neutral-900 border border-neutral-800 rounded-full text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500"
+            class="flex-1 px-4 py-2 bg-neutral-900 border border-neutral-800 rounded-full text-white placeholder-neutral-500 focus:outline-none focus:border-accent"
           />
           <button
             type="submit"
             disabled={!input().trim() || sending()}
             aria-label="Send message"
-            class="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 disabled:cursor-not-allowed text-white rounded-full font-medium transition-colors"
+            class="px-4 py-2 bg-accent disabled:bg-neutral-700 disabled:cursor-not-allowed text-white rounded-full font-medium transition-colors"
           >
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />

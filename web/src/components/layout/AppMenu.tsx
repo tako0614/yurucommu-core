@@ -264,7 +264,7 @@ export function AppMenu() {
                             </div>
                             <Show when={account.ap_id === currentApId()}>
                               <svg
-                                class="w-5 h-5 text-blue-500"
+                                class="w-5 h-5 text-accent"
                                 fill="currentColor"
                                 viewBox="0 0 24 24"
                                 aria-hidden="true"

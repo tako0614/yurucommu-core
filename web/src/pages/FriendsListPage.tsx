@@ -147,7 +147,7 @@ export function FriendsListPage() {
           >
             {t("profile.following")} ({following().length})
             <Show when={activeTab() === "following"}>
-              <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
+              <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-accent rounded-full" />
             </Show>
           </button>
           <button
@@ -160,7 +160,7 @@ export function FriendsListPage() {
           >
             {t("profile.followers")} ({followers().length})
             <Show when={activeTab() === "followers"}>
-              <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
+              <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-accent rounded-full" />
             </Show>
           </button>
         </div>

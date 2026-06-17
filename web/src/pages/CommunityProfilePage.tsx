@@ -491,7 +491,7 @@ export function CommunityProfilePage() {
             >
               {t("community.tabAbout")}
               <Show when={activeTab() === "about"}>
-                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
+                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-accent rounded-full" />
               </Show>
             </button>
             <button
@@ -504,7 +504,7 @@ export function CommunityProfilePage() {
             >
               {t("members.title")}
               <Show when={activeTab() === "members"}>
-                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
+                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-accent rounded-full" />
               </Show>
             </button>
             <Show when={canManage()}>
@@ -518,7 +518,7 @@ export function CommunityProfilePage() {
               >
                 {t("nav.settings")}
                 <Show when={activeTab() === "settings"}>
-                  <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
+                  <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-accent rounded-full" />
                 </Show>
               </button>
             </Show>

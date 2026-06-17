@@ -108,7 +108,7 @@ export function ColorPicker(props: ColorPickerProps) {
             value={customColor()}
             onInput={handleCustomChange}
             placeholder="#ffffff"
-            class="flex-1 bg-neutral-800 text-white px-3 py-2 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            class="flex-1 bg-neutral-800 text-white px-3 py-2 rounded-lg text-sm outline-none focus:ring-2 ring-accent"
           />
         </div>
       </Show>

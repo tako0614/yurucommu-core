@@ -110,7 +110,7 @@ export function LoginForm(props: LoginFormProps) {
       when={!loading()}
       fallback={
         <div class="w-full max-w-sm flex justify-center py-8">
-          <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div class="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
         </div>
       }
     >
@@ -174,7 +174,7 @@ export function LoginForm(props: LoginFormProps) {
                   type="password"
                   value={password()}
                   onInput={(e) => setPassword(e.currentTarget.value)}
-                  class="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-md text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  class="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-md text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
                   placeholder={t("auth.passwordPlaceholder")}
                   disabled={submitting()}
                   autocomplete="current-password"
@@ -191,7 +191,7 @@ export function LoginForm(props: LoginFormProps) {
               <button
                 type="submit"
                 disabled={submitting() || !password()}
-                class="w-full bg-blue-600 text-white px-6 py-3 rounded-md font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                class="w-full bg-accent text-white px-6 py-3 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submitting() ? t("auth.loggingIn") : t("auth.login")}
               </button>

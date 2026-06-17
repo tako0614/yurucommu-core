@@ -537,6 +537,8 @@ const translations = {
     "app.errorTitle": "問題が発生しました",
     "app.errorBody": "予期しないエラーが発生しました。もう一度お試しください。",
     "app.reloadButton": "ページを再読み込み",
+    "app.offline": "オフラインです",
+    "app.offlineHint": "再接続するまで一部の操作は利用できません。",
   },
   en: {
     "nav.home": "Home",
@@ -1067,6 +1069,8 @@ const translations = {
     "app.errorTitle": "Something went wrong",
     "app.errorBody": "An unexpected error occurred. Please try again.",
     "app.reloadButton": "Reload page",
+    "app.offline": "You're offline",
+    "app.offlineHint": "Some actions are unavailable until you reconnect.",
   },
 } as const;
 

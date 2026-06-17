@@ -167,7 +167,7 @@ export function StoryComposerQuickActions(
         onClick={props.onSelectVideo}
         disabled={props.uploading}
         class={`p-3 rounded-full text-white transition-colors ${
-          props.hasVideo ? "bg-blue-500" : "bg-black/60 hover:bg-black/80"
+          props.hasVideo ? "bg-accent" : "bg-black/60 hover:bg-black/80"
         }`}
       >
         <VideoIcon />

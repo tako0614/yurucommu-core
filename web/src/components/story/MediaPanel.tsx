@@ -64,7 +64,7 @@ export function MediaPanel(props: MediaPanelProps) {
                 class={`p-2 rounded-lg text-xs transition-colors ${
                   JSON.stringify(currentFilter()) ===
                   JSON.stringify(preset.filter)
-                    ? "bg-blue-500 text-white"
+                    ? "bg-accent text-white"
                     : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                 }`}
               >

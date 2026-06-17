@@ -107,7 +107,7 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
           class="flex-1 py-4 text-center font-bold transition-colors relative text-white"
         >
           {props.t("profile.posts")}
-          <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
+          <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-accent rounded-full" />
         </button>
       </div>
 
@@ -302,7 +302,7 @@ function ProfilePostItem(props: ProfilePostItemProps) {
         <div class="flex items-center gap-6 mt-3">
           <button
             aria-label="Reply"
-            class="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors"
+            class="flex items-center gap-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
           >
             <ReplyIcon />
             <span class="text-sm">{props.post.reply_count || ""}</span>

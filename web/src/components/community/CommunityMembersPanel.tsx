@@ -74,7 +74,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                       <button
                         onClick={() => props.onAcceptRequest(request)}
                         disabled={props.requestAction[request.ap_id]}
-                        class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
+                        class="px-3 py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
                       >
                         {props.t("dm.accept")}
                       </button>
@@ -128,7 +128,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     </span>
                   </Show>
                   <Show when={member.role === "moderator"}>
-                    <span class="px-1.5 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
+                    <span class="px-1.5 py-0.5 text-xs bg-accent-soft text-accent rounded">
                       {props.t("members.moderator")}
                     </span>
                   </Show>
@@ -175,7 +175,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
             <button
               onClick={props.onCreateInvite}
               disabled={props.creatingInvite}
-              class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
+              class="px-3 py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
             >
               {props.creatingInvite
                 ? props.t("members.creatingInvite")

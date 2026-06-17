@@ -513,7 +513,7 @@ export function SearchPage() {
                 >
                   {label} ({count})
                   <Show when={searchTab() === key}>
-                    <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-blue-500 rounded-full" />
+                    <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-accent rounded-full" />
                   </Show>
                 </button>
               )}

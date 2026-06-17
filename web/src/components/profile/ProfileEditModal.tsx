@@ -175,7 +175,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 value={props.editName}
                 onInput={props.onChangeName}
                 placeholder={props.t("profile.editNamePlaceholder")}
-                class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
+                class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
               />
             </div>
             <div>
@@ -191,7 +191,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 onInput={props.onChangeSummary}
                 placeholder={props.t("profile.editBioPlaceholder")}
                 rows={4}
-                class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent resize-none"
               />
             </div>
             <div class="flex items-center justify-between py-2">
@@ -207,7 +207,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 type="button"
                 onClick={props.onTogglePrivate}
                 class={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  props.editIsPrivate ? "bg-blue-500" : "bg-neutral-600"
+                  props.editIsPrivate ? "bg-accent" : "bg-neutral-600"
                 }`}
               >
                 <span

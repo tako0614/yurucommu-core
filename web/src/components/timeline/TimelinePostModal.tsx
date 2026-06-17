@@ -271,7 +271,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                   }
                 }}
                 disabled={!canSubmit()}
-                class="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
+                class="px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
               >
                 {props.posting ? props.submittingLabel : props.submitLabel}
               </button>
@@ -316,7 +316,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                       e.currentTarget.value as PostVisibility,
                     )
                   }
-                  class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-blue-500 transition-colors"
+                  class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-accent transition-colors"
                 >
                   <For each={VISIBILITY_OPTIONS}>
                     {(opt) => (
@@ -355,7 +355,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                     props.onPostSummaryChange(e.currentTarget.value)
                   }
                   placeholder={t("posts.cwPlaceholder")}
-                  class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors focus:border-blue-500 ${
+                  class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors focus:border-accent ${
                     summaryOverLimit() ? "border-red-500" : "border-neutral-700"
                   }`}
                 />
@@ -429,7 +429,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                                 )
                               }
                               placeholder={t("posts.altPlaceholder")}
-                              class="w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border border-neutral-700 focus:border-blue-500 transition-colors"
+                              class="w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border border-neutral-700 focus:border-accent transition-colors"
                             />
                           </div>
                         </div>
@@ -465,7 +465,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
               onClick={() => fileInputRef?.click()}
               disabled={props.uploading || props.uploadedMedia.length >= 4}
               aria-label="Add image"
-              class="p-2 text-blue-500 hover:bg-blue-500/10 rounded-full disabled:opacity-50 transition-colors"
+              class="p-2 text-accent hover:bg-[var(--accent)]/10 rounded-full disabled:opacity-50 transition-colors"
             >
               <ImageIcon />
             </button>
@@ -475,8 +475,8 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
               aria-pressed={showEmoji()}
               class={`p-2 rounded-full transition-colors ${
                 showEmoji()
-                  ? "text-blue-500 bg-blue-500/10"
-                  : "text-blue-500 hover:bg-blue-500/10"
+                  ? "text-accent bg-accent-soft"
+                  : "text-accent hover:bg-[var(--accent)]/10"
               }`}
             >
               <span class="text-lg leading-none">{"\u{1F642}"}</span>
@@ -487,8 +487,8 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
               aria-pressed={showCw()}
               class={`px-2 py-1 rounded-full text-sm font-bold transition-colors ${
                 showCw()
-                  ? "text-blue-500 bg-blue-500/10"
-                  : "text-blue-500 hover:bg-blue-500/10"
+                  ? "text-accent bg-accent-soft"
+                  : "text-accent hover:bg-[var(--accent)]/10"
               }`}
             >
               CW

@@ -176,7 +176,7 @@ export function BookmarksPage() {
                         <button
                           onClick={() => handleUnbookmark(post.ap_id)}
                           aria-label={t("bookmarks.remove")}
-                          class="flex items-center gap-2 text-blue-500 hover:text-blue-400 transition-colors"
+                          class="flex items-center gap-2 text-accent transition-colors"
                           title={t("bookmarks.remove")}
                         >
                           <BookmarkIcon filled={true} />

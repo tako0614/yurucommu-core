@@ -280,7 +280,7 @@ export function NotificationPage() {
     switch (type) {
       case "follow":
         return (
-          <div class="p-1 bg-blue-500 rounded-full text-white">
+          <div class="p-1 bg-accent rounded-full text-white">
             <FollowIcon />
           </div>
         );
@@ -377,7 +377,7 @@ export function NotificationPage() {
                 onClick={() => setFilter(tab.key)}
                 class={`flex items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 ${
                   filter() === tab.key
-                    ? "text-white border-blue-500"
+                    ? "text-white border-accent"
                     : "text-neutral-500 border-transparent hover:text-neutral-300"
                 }`}
               >
@@ -473,7 +473,7 @@ export function NotificationPage() {
                             handleFollowRequest(notification, "accept")
                           }
                           disabled={pendingAction()[notification.id]}
-                          class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
+                          class="px-3 py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
                         >
                           {t("dm.accept")}
                         </button>

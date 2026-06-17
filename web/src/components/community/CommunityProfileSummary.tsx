@@ -51,7 +51,7 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
   return (
     <>
       {/* Header Image */}
-      <div class="h-32 md:h-48 bg-gradient-to-br from-blue-600 to-purple-700 relative" />
+      <div class="h-32 md:h-48 bg-gradient-to-br from-accent to-purple-700 relative" />
 
       {/* Profile Info */}
       <div class="px-4 pb-4 relative">
@@ -87,7 +87,7 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
                 disabled={
                   props.joining || props.community.join_status === "pending"
                 }
-                class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors disabled:opacity-50"
+                class="px-6 py-2 bg-accent text-white rounded-full font-bold transition-colors disabled:opacity-50"
               >
                 {joinLabel()}
               </button>
@@ -95,7 +95,7 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
           >
             <A
               href={props.chatPath}
-              class="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors"
+              class="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-full font-bold transition-colors"
             >
               <ChatIcon />
               <span>{t("dm.talks")}</span>
