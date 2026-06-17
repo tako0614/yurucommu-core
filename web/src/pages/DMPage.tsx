@@ -334,7 +334,12 @@ export function DMPage() {
             <header class="sticky top-0 bg-neutral-900/95 backdrop-blur-sm z-10">
               {/* Title bar with icons */}
               <div class="flex items-center justify-between px-4 py-3">
-                <h1 class="text-xl font-bold text-white">{t("dm.talks")}</h1>
+                <div class="min-w-0">
+                  <h1 class="text-xl font-bold text-white">{t("dm.talks")}</h1>
+                  <p class="text-xs text-neutral-500 truncate">
+                    {t("dm.directReachHint")}
+                  </p>
+                </div>
                 <div class="flex items-center gap-2">
                   {/* Search icon */}
                   <button

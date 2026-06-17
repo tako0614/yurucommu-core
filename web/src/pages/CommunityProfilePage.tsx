@@ -417,7 +417,7 @@ export function CommunityProfilePage() {
             joining={joining()}
             onJoin={handleJoin}
             onLeave={handleLeave}
-            chatPath={`/groups/${community()!.name}/chat`}
+            chatPath={`/dm/${encodeURIComponent(community()!.ap_id)}`}
           />
           {/* Tabs */}
           <div class="border-b border-neutral-900 flex">
