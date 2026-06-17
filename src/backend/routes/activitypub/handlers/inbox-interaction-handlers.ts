@@ -5,6 +5,7 @@ import {
   follows,
   likes,
   objects,
+  reports,
 } from "../../../../db/index.ts";
 import {
   activityApId,
@@ -215,13 +216,49 @@ export async function handleBlock(
 // ---------------------------------------------------------------------------
 
 export async function handleFlag(
-  _c: ActivityContext,
+  c: ActivityContext,
   activity: Activity,
   actor: string,
 ) {
   const objectId = getActivityObjectId(activity);
   const targetId = getActivityTargetId(activity);
-  // No moderation subsystem yet: record is already stored in activities; log for operators.
+  // Flag activities carry a free-text reason in `content` (not part of the
+  // narrowed Activity type, so read it defensively).
+  const rawContent = (activity as { content?: unknown }).content;
+  const content = typeof rawContent === "string" ? rawContent : null;
+
+  // The report target is the flagged object (preferred) or the activity target.
+  const reportTarget = objectId ?? targetId ?? null;
+
+  let instance: string | null = null;
+  try {
+    instance = getDomain(actor);
+  } catch {
+    instance = null;
+  }
+
+  // Persist the report so operators can triage it via the moderation API.
+  // Best-effort: never let a storage error 5xx the inbox (which would make
+  // the sender retry on a backoff). Log the failure for the operator.
+  try {
+    const db = c.get("db");
+    await db.insert(reports).values({
+      id: generateId(),
+      reporterApId: actor,
+      targetApId: reportTarget,
+      content,
+      instance,
+    });
+  } catch (err) {
+    log.warn("Failed to persist Flag report", {
+      event: "ap.flag.persist_failed",
+      actor,
+      object: objectId,
+      target: targetId,
+      error: err,
+    });
+  }
+
   log.warn("Flag received", {
     event: "ap.flag.received",
     actor,

@@ -190,7 +190,7 @@ readArchive.get("/archived", async (c) => {
       published: objects.published,
     })
     .from(objects)
-    .where(dmWhereForActor(actor.ap_id)!)
+    .where(dmWhereForActor(db, actor.ap_id)!)
     .orderBy(desc(objects.published))
     .limit(2000);
 

@@ -24,8 +24,19 @@ const ALLOWED_TYPES = [
   "video/webm",
 ];
 
+// Limits are chosen to stay within the Cloudflare Workers ~128MB memory budget.
+// The upload path reads only a small header slice into memory for magic-byte
+// validation and streams the body straight to R2 (no full-file ArrayBuffer), so
+// the dominant cost is `c.req.formData()` materializing the multipart field.
+// We keep video at 40MB so that even a transient full-buffer (~40MB) plus
+// multipart/runtime overhead stays comfortably under budget on large uploads.
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_VIDEO_SIZE = 40 * 1024 * 1024; // 40MB (was 100MB; lowered to fit Worker memory budget)
+
+// Number of leading bytes to read for magic-byte validation. All supported
+// signatures (incl. WebP RIFF/WEBP at offset 8-11 and MP4 ftyp at offset 4-7)
+// are decided within the first 12 bytes; read a small slice for headroom.
+const MAGIC_BYTES_HEADER_LEN = 64;
 
 // Cache durations for served media
 const CACHE_MAX_AGE_IMAGE = 31536000; // 1 year for immutable content
@@ -169,10 +180,15 @@ media.post("/upload", async (c) => {
       );
     }
 
-    const arrayBuffer = await file.arrayBuffer();
+    // Read only the leading header bytes for magic-byte validation instead of
+    // buffering the entire file into Worker memory. This avoids the ~2x
+    // (formData + arrayBuffer) memory blow-up that risked OOM on large uploads.
+    const headerBuffer = await file
+      .slice(0, MAGIC_BYTES_HEADER_LEN)
+      .arrayBuffer();
 
     // Validate actual content against declared MIME type via magic bytes
-    if (!validateMagicBytes(arrayBuffer, contentType)) {
+    if (!validateMagicBytes(headerBuffer, contentType)) {
       return c.json(
         {
           error: "File content does not match declared type",
@@ -194,7 +210,9 @@ media.post("/upload", async (c) => {
     if (!media) {
       return c.json({ error: "Object storage unavailable" }, 503);
     }
-    const r2Upload = media.put(r2Key, arrayBuffer, {
+    // Stream the file body directly to R2 rather than materializing a full
+    // ArrayBuffer in memory, keeping the upload path memory-safe.
+    const r2Upload = media.put(r2Key, file.stream(), {
       httpMetadata: { contentType },
     });
 

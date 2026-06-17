@@ -3,7 +3,12 @@
 import type { Context } from "hono";
 import { and, eq, inArray, isNotNull, or, type SQL, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
-import { actorCache, actors, objects } from "../../../db/index.ts";
+import {
+  actorCache,
+  actors,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { safeJsonParse } from "../../federation-helpers.ts";
 
@@ -29,6 +34,35 @@ export function recipientToJsonLike(apId: string): SQL {
     .replace(/%/g, "\\%")
     .replace(/_/g, "\\_");
   return sql`${objects.toJson} LIKE ${"%" + token + "%"} ESCAPE '\\'`;
+}
+
+/**
+ * Indexed lookup of the object AP-IDs a given actor was addressed on as a DM
+ * recipient.
+ *
+ * DM writes (dm/messages.ts, takos-tools/dm.ts, inbox-content-handlers.ts)
+ * record every recipient in the `object_recipients` link table with
+ * `type = 'to'` and `recipient_ap_id = <recipient>`, backed by the
+ * `object_recipients_recipient_created_idx` index. Selecting object AP-IDs from
+ * that table on an equality of `recipient_ap_id` is index-served, whereas the
+ * equivalent `to_json LIKE '%"<apId>"%'` substring scan over the `objects`
+ * table cannot use an index and degrades to a full-table scan.
+ *
+ * Returned as a Drizzle subquery so callers can use it inside `inArray(
+ * objects.apId, ...)` — the same recipient-membership semantics as
+ * {@link recipientToJsonLike} (the `to` audience contains the actor) without
+ * the scan.
+ */
+export function recipientObjectIds(db: Database, recipientApId: string) {
+  return db
+    .select({ objectApId: objectRecipients.objectApId })
+    .from(objectRecipients)
+    .where(
+      and(
+        eq(objectRecipients.recipientApId, recipientApId),
+        eq(objectRecipients.type, "to"),
+      ),
+    );
 }
 
 export type HonoEnv = { Bindings: Env; Variables: Variables };
@@ -65,18 +99,25 @@ export function getOtherParticipant(
 }
 
 /**
- * Drizzle where clause for DM objects involving a given actor.
+ * Drizzle where clause for DM objects involving a given actor (author OR
+ * recipient).
  *
- * `actorApIdJson` is accepted for backwards compatibility but the recipient
- * match is now built from `actorApId` via {@link recipientToJsonLike} so LIKE
- * metacharacters in the AP-ID are escaped.
+ * Recipient membership is resolved through the indexed `object_recipients`
+ * link via {@link recipientObjectIds} (`inArray(objects.apId, ...)`) instead of
+ * an unindexable `to_json LIKE '%"<apId>"%'` substring scan. The semantics are
+ * identical — a DM where the actor authored it (`attributed_to`) or was a `to`
+ * recipient — but the query is index-served. `db` is required to build the
+ * recipient subquery.
  */
-export function dmWhereForActor(actorApId: string, _actorApIdJson?: string) {
+export function dmWhereForActor(db: Database, actorApId: string) {
   return and(
     eq(objects.visibility, "direct"),
     eq(objects.type, "Note"),
     isNotNull(objects.conversation),
-    or(eq(objects.attributedTo, actorApId), recipientToJsonLike(actorApId)),
+    or(
+      eq(objects.attributedTo, actorApId),
+      inArray(objects.apId, recipientObjectIds(db, actorApId)),
+    ),
   );
 }
 

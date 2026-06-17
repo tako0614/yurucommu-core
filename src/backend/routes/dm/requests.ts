@@ -9,7 +9,7 @@ import {
   findRepliedConversations,
   formatActorProfile,
   type HonoEnv,
-  recipientToJsonLike,
+  recipientObjectIds,
 } from "./conversations-helpers.ts";
 
 const requests = new Hono<HonoEnv>();
@@ -33,7 +33,11 @@ requests.get("/requests", async (c) => {
       and(
         eq(objects.visibility, "direct"),
         eq(objects.type, "Note"),
-        recipientToJsonLike(actor.ap_id),
+        // Incoming DMs = Notes where this actor is a `to` recipient. Resolved
+        // via the indexed object_recipients link (see recipientObjectIds)
+        // instead of an unindexable `to_json LIKE '%"<apId>"%'` scan; same
+        // recipient-membership semantics.
+        inArray(objects.apId, recipientObjectIds(db, actor.ap_id)),
       ),
     )
     .orderBy(desc(objects.published))

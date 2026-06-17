@@ -1,7 +1,7 @@
-import { and, desc, eq, isNotNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, or } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import { objects } from "../../../db/index.ts";
-import { recipientToJsonLike } from "./conversations-helpers.ts";
+import { recipientObjectIds } from "./conversations-helpers.ts";
 
 export const MAX_DM_CONTENT_LENGTH = 5000;
 export const MAX_DM_PAGE_LIMIT = 100;
@@ -60,14 +60,18 @@ export async function resolveConversationId(
         eq(objects.visibility, "direct"),
         eq(objects.type, "Note"),
         isNotNull(objects.conversation),
+        // A DM between this pair = a Note authored by one and addressed to the
+        // other. Recipient membership is resolved via the indexed
+        // object_recipients link (see recipientObjectIds) instead of an
+        // unindexable `to_json LIKE '%"<apId>"%'` scan; same semantics.
         or(
           and(
             eq(objects.attributedTo, actorApId),
-            recipientToJsonLike(otherApId),
+            inArray(objects.apId, recipientObjectIds(db, otherApId)),
           ),
           and(
             eq(objects.attributedTo, otherApId),
-            recipientToJsonLike(actorApId),
+            inArray(objects.apId, recipientObjectIds(db, actorApId)),
           ),
         ),
       ),

@@ -4,18 +4,22 @@ import { createYurucommuBackendApp } from "../index.ts";
 
 // Regression for GA-fix #15 (BODY-CAP): the /api/media/* pre-route body cap
 // must sit AT OR ABOVE the largest advertised media size (media.ts advertises
-// MAX_VIDEO_SIZE = 100MB and MAX_IMAGE_SIZE = 20MB and returns a friendly 413
+// MAX_VIDEO_SIZE = 40MB and MAX_IMAGE_SIZE = 20MB and returns a friendly 413
 // citing those numbers). If the cap is smaller than the advertised limit, an
 // upload between the cap and the advertised limit is rejected by the cap FIRST
 // with a generic `body_too_large` envelope, making the advertised limit
-// unreachable and the friendly media 413 dead code.
+// unreachable and the friendly media 413 dead code. The cap is also the
+// Worker memory ceiling (media.ts buffers the whole file ~2x), so it is kept
+// just above the advertised max (48 MiB) rather than far above it.
 
 const MiB = 1024 * 1024;
 const MB = 1000 * 1000;
 
 // Advertised in routes/media.ts (NOT exported from there). Kept in sync here so
 // the test fails loudly if either side drifts back out of agreement.
-const ADVERTISED_MAX_VIDEO_SIZE = 100 * MB;
+const ADVERTISED_MAX_VIDEO_SIZE = 40 * MB;
+// The /api/media body cap in index.ts (module-private). Kept in sync here.
+const MEDIA_BODY_CAP = 48 * MiB;
 
 function declaredLengthRequest(url: string, declaredBytes: number): Request {
   // A declared Content-Length lets the body cap decide pre-stream. We do not
@@ -32,11 +36,12 @@ function declaredLengthRequest(url: string, declaredBytes: number): Request {
   });
 }
 
-test("media body cap does NOT reject an upload between 10 MiB and the advertised video limit with a generic body_too_large", async () => {
+test("media body cap does NOT reject an upload up to the advertised video limit with a generic body_too_large", async () => {
   const app = createYurucommuBackendApp();
-  // 50 MB: comfortably above the old 10 MiB cap, below the advertised 100MB.
+  // 30 MB: comfortably above the old 10 MiB default cap, below both the
+  // advertised 40MB video limit and the 48 MiB body cap.
   const res = await app.fetch(
-    declaredLengthRequest("https://t.local/api/media/upload", 50 * MB),
+    declaredLengthRequest("https://t.local/api/media/upload", 30 * MB),
     { ENVIRONMENT: "test" } as never,
   );
 
@@ -51,11 +56,11 @@ test("media body cap does NOT reject an upload between 10 MiB and the advertised
 
 test("media body cap still refuses a request that exceeds the advertised video limit", async () => {
   const app = createYurucommuBackendApp();
-  // Just over the advertised 100MB, accounting for multipart overhead headroom:
-  // the 110 MiB cap (= 115343360 bytes) sits above 100MB but below 120MB, so a
-  // 120MB declared body is rejected by the cap with the generic envelope.
-  const oversize = 120 * MB;
-  expect(oversize).toBeGreaterThan(110 * MiB);
+  // Above the 48 MiB body cap: a declared body larger than the cap is rejected
+  // by the cap itself with the generic envelope (this is correct — it exceeds
+  // every advertised media size too).
+  const oversize = 60 * MB;
+  expect(oversize).toBeGreaterThan(MEDIA_BODY_CAP);
   const res = await app.fetch(
     declaredLengthRequest("https://t.local/api/media/upload", oversize),
     { ENVIRONMENT: "test" } as never,
@@ -67,7 +72,7 @@ test("media body cap still refuses a request that exceeds the advertised video l
 
 test("the media body cap covers the largest advertised media size", () => {
   // The cap is module-private in index.ts; this asserts the invariant the fix
-  // establishes via the documented value (110 MiB) against the advertised max.
-  const cap = 110 * MiB;
-  expect(cap).toBeGreaterThanOrEqual(ADVERTISED_MAX_VIDEO_SIZE);
+  // establishes (48 MiB) sits at or above the advertised max (40MB) so the
+  // friendly per-size 413 in media.ts is reachable.
+  expect(MEDIA_BODY_CAP).toBeGreaterThanOrEqual(ADVERTISED_MAX_VIDEO_SIZE);
 });

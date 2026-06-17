@@ -22,6 +22,7 @@ import activitypubRoutes from "./routes/activitypub.ts";
 import takosProxyRoutes from "./routes/takos-proxy.ts";
 import takosToolsRoutes from "./routes/takos-tools.ts";
 import recommendationsRoutes from "./routes/recommendations.ts";
+import { moderationRoutes } from "./routes/moderation.ts";
 import { appsApiRoutes, appsServeRoutes } from "./routes/apps.ts";
 
 import { rateLimit, RateLimitConfigs } from "./middleware/rate-limit.ts";
@@ -88,6 +89,54 @@ function getMimeType(path: string): string {
   return MIME_TYPES[ext] || "application/octet-stream";
 }
 
+// Hard runtime preconditions: without these the worker cannot serve a request
+// correctly, so /readyz must 503 when any is missing. A correctly-provisioned
+// fresh install (Capsule supplies APP_URL + ENCRYPTION_KEY + an auth method,
+// platform supplies DB + KV) satisfies all of these and is therefore ready.
+function collectMissingRequiredBindings(env: Env): string[] {
+  const missing: string[] = [];
+  const hasValue = (value: string | undefined): boolean => !!value?.trim();
+  if (!env.DB_INSTANCE) missing.push("DB");
+  if (!env.KV) missing.push("KV");
+  if (!hasValue(env.APP_URL)) missing.push("APP_URL");
+  if (!hasValue(env.ENCRYPTION_KEY)) missing.push("ENCRYPTION_KEY");
+  const hasPassword = hasValue(env.AUTH_PASSWORD_HASH);
+  const hasGoogle =
+    hasValue(env.GOOGLE_CLIENT_ID) && hasValue(env.GOOGLE_CLIENT_SECRET);
+  const hasX = hasValue(env.X_CLIENT_ID) && hasValue(env.X_CLIENT_SECRET);
+  const oidcCredentials = getOidcClientCredentials(env);
+  const hasAccountsOidc =
+    hasValue(getOidcIssuerUrl(env) ?? undefined) &&
+    hasValue(oidcCredentials.clientId) &&
+    hasValue(oidcCredentials.clientSecret);
+  if (!hasPassword && !hasGoogle && !hasX && !hasAccountsOidc) {
+    missing.push("AUTH_METHOD");
+  }
+  return missing;
+}
+
+// Optional capabilities the worker can run WITHOUT and still be "ready":
+//   - MEDIA: media storage; uploads are unavailable but the rest of the app
+//     (timeline, posts, federation reads) serves normally. MEDIA is optional in
+//     the Env type and may be replaced by a STORAGE-backed asset path.
+//   - DELIVERY_QUEUE / DELIVERY_DLQ: outbound federation delivery. When unbound,
+//     enqueued activities are buffered/persisted and re-fire once the bindings
+//     appear (see lib/delivery/queue.ts); local dev only attaches them behind
+//     YURUCOMMU_ENABLE_LOCAL_DELIVERY_QUEUE. Treating these as hard-required
+//     would 503 a perfectly serviceable install, so they are reported as
+//     degraded info on /healthz but do not fail /readyz.
+function collectMissingOptionalBindings(env: Env): string[] {
+  const missing: string[] = [];
+  if (!env.MEDIA) missing.push("MEDIA");
+  if (!env.DELIVERY_QUEUE) missing.push("DELIVERY_QUEUE");
+  if (!env.DELIVERY_DLQ) missing.push("DELIVERY_DLQ");
+  return missing;
+}
+
+// Full binding report in the original declaration order (DB, MEDIA, KV,
+// DELIVERY_QUEUE, DELIVERY_DLQ, APP_URL, ENCRYPTION_KEY, AUTH_METHOD). Used by
+// /healthz and surfaced in /readyz's missingBindings for visibility; /readyz's
+// status/code is driven by the required subset only (see collectMissingRequiredBindings).
 function collectMissingRuntimeBindings(env: Env): string[] {
   const missing: string[] = [];
   const hasValue = (value: string | undefined): boolean => !!value?.trim();
@@ -120,6 +169,9 @@ function isStrictReadinessEnabled(env: Env): boolean {
 
 function mountReadinessRoutes(app: YurucommuApp): void {
   app.get("/healthz", (c) => {
+    // /healthz reports the full picture (required + optional capabilities) so
+    // operators can see degraded-but-serving states. The 503 gate stays opt-in
+    // via YURUCOMMU_STRICT_READINESS for a hard all-or-nothing health check.
     const missing = collectMissingRuntimeBindings(c.env);
     const strict = isStrictReadinessEnabled(c.env);
     return c.json(
@@ -134,15 +186,64 @@ function mountReadinessRoutes(app: YurucommuApp): void {
   });
 
   app.get("/readyz", (c) => {
+    // Readiness keys off the HARD preconditions only. Optional capabilities
+    // (MEDIA, DELIVERY_QUEUE, DELIVERY_DLQ) are still reported in
+    // missingBindings for visibility, but their absence does NOT flip the
+    // worker to not-ready: a correctly-provisioned fresh install with
+    // APP_URL + ENCRYPTION_KEY + an auth method (and DB + KV) is ready even
+    // before media storage / federation delivery queues are bound. The status
+    // and HTTP code are therefore driven solely by the required set, while
+    // missingBindings still surfaces every gap.
+    const missingRequired = collectMissingRequiredBindings(c.env);
     const missing = collectMissingRuntimeBindings(c.env);
     return c.json(
       {
-        status: missing.length === 0 ? "ok" : "misconfigured",
+        status: missingRequired.length === 0 ? "ok" : "misconfigured",
         service: "yurucommu",
         missingBindings: missing,
       },
-      missing.length === 0 ? 200 : 503,
+      missingRequired.length === 0 ? 200 : 503,
     );
+  });
+
+  // Operator-sensible crawler defaults. Allow the public landing / actor
+  // profile HTML to be indexed, but keep the JSON API and the machine-only
+  // ActivityPub federation surface out of search crawlers. Mounted alongside
+  // the readiness probes so they answer BEFORE body-size / payload validation
+  // middleware and stay reachable in any runtime mode.
+  app.get("/robots.txt", (c) => {
+    const body = [
+      "User-agent: *",
+      "Disallow: /api/",
+      "Disallow: /ap/",
+      "Disallow: /.takos/",
+      "Disallow: /hosted/",
+      "Disallow: /media/",
+      "Allow: /",
+      "",
+    ].join("\n");
+    return c.body(body, 200, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    });
+  });
+
+  // Minimal RFC 9116 security.txt. The contact points operators at the
+  // instance admin; APP_URL (when configured) makes the policy line concrete.
+  app.get("/.well-known/security.txt", (c) => {
+    const appUrl = c.env.APP_URL?.trim().replace(/\/+$/, "");
+    const lines = [
+      "Contact: mailto:security@yurucommu.invalid",
+    ];
+    if (appUrl) {
+      lines.push(`Policy: ${appUrl}/.well-known/security.txt`);
+    }
+    lines.push("Preferred-Languages: en, ja");
+    lines.push("");
+    return c.body(lines.join("\n"), 200, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    });
   });
 }
 
@@ -151,18 +252,19 @@ function mountReadinessRoutes(app: YurucommuApp): void {
 // at or above the largest advertised media size, otherwise an upload between
 // the body cap and the advertised limit is rejected by the cap FIRST with a
 // generic error, making the advertised limit unreachable and the friendly 413
-// dead. We size the cap to cover the 100MB video limit (100 * 1000 * 1000
-// bytes) plus multipart/form-data envelope overhead, rounded up to 110 MiB.
-// NOTE: media.ts buffers the whole file in Worker memory (formData() +
-// arrayBuffer()), so 100MB videos are near the Workers memory budget; the
-// safer long-term fix is to LOWER MAX_VIDEO_SIZE in media.ts — see deferred.
-const MEDIA_UPLOAD_BODY_LIMIT_BYTES = 110 * 1024 * 1024; // 110 MiB
+// dead. media.ts buffers the whole file in Worker memory (formData() +
+// arrayBuffer(), ~2x the file size), so the cap is also the memory ceiling:
+// it is sized to just cover MAX_VIDEO_SIZE = 40MB (40 * 1024 * 1024) plus
+// multipart/form-data envelope overhead (= 48 MiB), keeping peak buffering
+// well under the Workers ~128MB per-request memory budget while leaving the
+// friendly per-size 413 in media.ts reachable.
+const MEDIA_UPLOAD_BODY_LIMIT_BYTES = 48 * 1024 * 1024; // 48 MiB
 const INBOX_BODY_LIMIT_BYTES = 512 * 1024; // 512 KiB
 
 function applyBodyLimits(app: YurucommuApp): void {
   // Per-route caps are registered BEFORE the global default cap. The stricter
   // inbox cap (512 KiB) wins for /ap/*/inbox; the LARGER media-upload cap
-  // (110 MiB) wins for /api/media/*. ActivityPub inbox is unauthenticated and
+  // (48 MiB) wins for /api/media/*. ActivityPub inbox is unauthenticated and
   // federation peers can hammer it, so its cap matches the rate-limit
   // assumption (small JSON activities).
   //
@@ -172,12 +274,12 @@ function applyBodyLimits(app: YurucommuApp): void {
   // /api/media/* and /ap/*/inbox. For the inbox routes that is harmless — the
   // stricter 512 KiB cap already rejected anything the 1 MiB default would,
   // and a body that passed 512 KiB trivially passes 1 MiB. For media it is
-  // NOT harmless: a 50 MB upload that passes the 110 MiB media cap would then
+  // NOT harmless: a 30 MB upload that passes the 48 MiB media cap would then
   // be rejected by the 1 MiB default cap with a generic `body_too_large`,
   // making the friendly per-size 413 in routes/media.ts (which advertises
   // MAX_VIDEO_SIZE = 100MB / MAX_IMAGE_SIZE = 20MB) unreachable. So the default
   // cap is registered with a path guard that SKIPS the media prefix, leaving
-  // /api/media/* governed solely by its own 110 MiB cap.
+  // /api/media/* governed solely by its own 48 MiB cap.
   //
   // The inbox cap runs pre-auth, so a chunked body with no `Content-Length`
   // could otherwise bypass the declared-length check entirely. We require
@@ -208,15 +310,22 @@ function applyBodyLimits(app: YurucommuApp): void {
   // Media uploads carry binary payloads (images, short videos). The cap covers
   // the largest advertised media size so routes/media.ts owns the friendly,
   // per-size 413; see the MEDIA_UPLOAD_BODY_LIMIT_BYTES note above.
-  app.use(
-    "/api/media/*",
-    bodyLimit({ maxBytes: MEDIA_UPLOAD_BODY_LIMIT_BYTES }),
-  );
+  // mediaRoutes is mounted at BOTH /api/media and the bare /media prefix
+  // (the latter is the public serve path used by AP/HTML), but media.ts also
+  // registers POST /upload. That means /media/upload exists too and MUST get
+  // the same large media cap — otherwise an advertised-size upload posted to
+  // /media/upload would be rejected by the 1 MiB default cap with a generic
+  // 413, a dead path. Apply the identical 48 MiB cap to /media/* so the cap
+  // is consistent across both mounts.
+  for (const prefix of ["/api/media/*", "/media/*"]) {
+    app.use(prefix, bodyLimit({ maxBytes: MEDIA_UPLOAD_BODY_LIMIT_BYTES }));
+  }
   // Default global cap: 1 MiB covers JSON-shaped API traffic. It must NOT also
-  // clamp /api/media/* (whose intended cap is larger), so guard the prefix.
+  // clamp the media prefixes (whose intended cap is larger), so guard both.
   const defaultCap = bodyLimit({ maxBytes: DEFAULT_BODY_LIMIT_BYTES });
   app.use("*", async (c, next) => {
-    if (c.req.path.startsWith("/api/media/")) {
+    const path = c.req.path;
+    if (path.startsWith("/api/media/") || path.startsWith("/media/")) {
       return next();
     }
     return defaultCap(c, next);
@@ -307,6 +416,9 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   app.use("/api/auth/*", rateLimit(RateLimitConfigs.auth));
   app.use("/api/search/*", rateLimit(RateLimitConfigs.search));
   app.use("/api/media/*", rateLimit(RateLimitConfigs.mediaUpload));
+  // The bare /media mount serves media and also exposes POST /media/upload;
+  // throttle it with the same media budget as /api/media/* for consistency.
+  app.use("/media/*", rateLimit(RateLimitConfigs.mediaUpload));
   app.use("/api/dm/*", rateLimit(RateLimitConfigs.dm));
   app.post("/api/posts", rateLimit(RateLimitConfigs.postCreate));
   app.use("/ap/*/inbox", rateLimit(RateLimitConfigs.inbox));
@@ -358,6 +470,7 @@ function mountCoreRoutes(app: YurucommuApp): void {
   app.route("/api/takos", takosProxyRoutes);
   app.route("/.takos/tools", takosToolsRoutes);
   app.route("/api/recommendations", recommendationsRoutes);
+  app.route("/api/moderation", moderationRoutes);
   app.route("/api/apps", appsApiRoutes);
   app.route("/hosted", appsServeRoutes);
   app.route("/", activitypubRoutes);
