@@ -137,8 +137,8 @@ const TOMBSTONE_REAP_AFTER_MS = 24 * 60 * 60 * 1000;
  *
  * A tombstone is only reaped when (a) its `deletedAt` is older than
  * TOMBSTONE_REAP_AFTER_MS and (b) it has NO non-terminal (pending / processing
- * / failed) delivery_queue rows for any of its Delete activities — i.e. nothing
- * still needs the private key to sign a retry. The preserved Delete activity
+ * / failed / retry_wait) delivery_queue rows for any of its Delete activities —
+ * i.e. nothing still needs the private key to sign a retry. The preserved Delete activity
  * rows are removed alongside the actor so they do not accumulate forever.
  *
  * Returns the number of tombstones hard-deleted.
@@ -149,7 +149,9 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
   const candidates = await db
     .select({ apId: actors.apId })
     .from(actors)
-    .where(and(sql`${actors.deletedAt} IS NOT NULL`, lt(actors.deletedAt, cutoff)))
+    .where(
+      and(sql`${actors.deletedAt} IS NOT NULL`, lt(actors.deletedAt, cutoff)),
+    )
     .limit(100);
   if (candidates.length === 0) return 0;
 
@@ -174,7 +176,18 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
         .where(
           and(
             inArray(deliveryQueue.activityApId, deleteActivityIds),
-            inArray(deliveryQueue.status, ["pending", "processing", "failed"]),
+            // Non-terminal delivery states (anything other than the terminal
+            // "delivered" / "dead_letter"). A "retry_wait" row is a Delete that
+            // is between attempts and will be re-sent, so reaping the tombstone
+            // (and its signing key) while one exists would strand the retry
+            // unsigned. queue-delivery.ts writes: pending / processing / failed
+            // / retry_wait / delivered / dead_letter.
+            inArray(deliveryQueue.status, [
+              "pending",
+              "processing",
+              "failed",
+              "retry_wait",
+            ]),
           ),
         )
         .limit(1)
@@ -597,6 +610,12 @@ actorsRoute.post("/me/delete", async (c) => {
         alsoKnownAsJson: "[]",
         movedTo: null,
         ownerActorApId: null,
+        // Demote the tombstone off the "owner" role. Owner password login
+        // resolves the owner by `role = "owner"`; even though that query now
+        // also filters `notDeleted`, defence-in-depth demotes the scrubbed row
+        // so a stale tombstone can never be re-resolved as the instance owner
+        // (and a future role-keyed lookup cannot resurrect a zombie owner).
+        role: "member",
         deletedAt: nowIso(),
       })
       .where(eq(actors.apId, actorApIdVal));

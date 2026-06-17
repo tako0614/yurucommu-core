@@ -1,4 +1,5 @@
 import { and, eq, or, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import {
   actors,
   announces,
@@ -7,6 +8,7 @@ import {
   objects,
   reports,
 } from "../../../../db/index.ts";
+import type { Database } from "../../../../db/index.ts";
 import {
   activityApId,
   generateId,
@@ -23,6 +25,30 @@ import { logger } from "../../../lib/logger.ts";
 type ActorRow = typeof actors.$inferSelect;
 
 const log = logger.child({ component: "activitypub.inbox.interaction" });
+
+// ---------------------------------------------------------------------------
+// Atomic multi-statement commit (mirrors posts/interactions.ts `runBatch`)
+//
+// D1 has no interactive transactions, but both the D1 and libsql drivers
+// expose `db.batch([...])`, which commits a list of prepared statements
+// atomically. The shared `Database` union aliases the abstract
+// `BaseSQLiteDatabase` base (which does not surface `batch`), so we narrow to
+// the concrete batch surface here rather than weakening the shared type.
+// ---------------------------------------------------------------------------
+
+type BatchStatement = BatchItem<"sqlite">;
+interface BatchableDb {
+  batch(
+    statements: readonly [BatchStatement, ...BatchStatement[]],
+  ): Promise<unknown>;
+}
+
+async function runBatch(
+  db: Database,
+  statements: readonly [BatchStatement, ...BatchStatement[]],
+): Promise<void> {
+  await (db as unknown as BatchableDb).batch(statements);
+}
 
 // ---------------------------------------------------------------------------
 // Interaction table / count-field mapping
@@ -61,24 +87,46 @@ async function handleInteraction(
   const { table, countField, activityType } = INTERACTION_CONFIG[kind];
   const activityId = activity.id || activityApId(baseUrl, generateId());
 
-  // Try to insert; if duplicate, skip
-  const insertResult = await db
-    .insert(table)
-    .values({
-      actorApId: actor,
-      objectApId: objectId,
-      activityApId: activityId,
-    })
-    .onConflictDoNothing()
-    .returning()
+  // Was the edge already present BEFORE this dispatch? This decides whether the
+  // dispatch represents a genuinely new interaction (gate for the one-shot
+  // owner notification below) — it does NOT gate the counter, which is derived
+  // atomically from the edge table state at commit (see below).
+  const existingEdge = await db
+    .select({ actorApId: table.actorApId })
+    .from(table)
+    .where(and(eq(table.actorApId, actor), eq(table.objectApId, objectId)))
     .get();
 
-  if (!insertResult) return; // duplicate
+  // #7 (atomicity + idempotency): the edge insert and the counter maintenance
+  // MUST commit together. Previously the edge was inserted (onConflictDoNothing)
+  // and the counter was bumped in a SEPARATE statement; under the claim/processed
+  // re-dispatch model an interruption between the two left the edge present but
+  // the counter un-bumped, and a retry's no-op insert SKIPPED the bump → a
+  // permanent under-count. Group both into one atomic `db.batch`, and derive the
+  // counter from `COUNT(*)` of the edge table rather than a blind `+ 1`: the
+  // recompute is exact and idempotent, so a retry after a mid-write crash
+  // converges to the correct value and a genuine duplicate can never double-count.
+  await runBatch(db, [
+    db
+      .insert(table)
+      .values({
+        actorApId: actor,
+        objectApId: objectId,
+        activityApId: activityId,
+      })
+      .onConflictDoNothing(),
+    db
+      .update(objects)
+      .set({
+        [countField]: sql`(SELECT COUNT(*) FROM ${table} WHERE ${table.objectApId} = ${objectId})`,
+      })
+      .where(eq(objects.apId, objectId)),
+  ]);
 
-  await db
-    .update(objects)
-    .set({ [countField]: sql`${objects[countField]} + 1` })
-    .where(eq(objects.apId, objectId));
+  // Only notify the local owner for a genuinely new interaction. A duplicate
+  // (re)delivery — including a wave-8 re-dispatch of an already-applied edge —
+  // must not spam a second notification.
+  if (existingEdge) return;
 
   await notifyLocalObjectOwner(
     db,

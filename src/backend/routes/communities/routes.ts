@@ -30,6 +30,16 @@ import {
 } from "./membership-shared.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 
+/**
+ * Narrow view over the concrete D1/libsql drizzle client's atomic batch API.
+ * The shared `Database` union type does not surface `batch` (it lives on the
+ * concrete subclasses), so we reach it through a structural cast at the call
+ * sites that need an atomic multi-statement write.
+ */
+type Batchable = {
+  batch(statements: readonly unknown[]): Promise<unknown>;
+};
+
 const communitiesRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 function isValidCommunityIconUrl(value: string): boolean {
@@ -216,9 +226,14 @@ communitiesRouter.post("/", async (c) => {
 
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
 
-  // Create community and member (D1 doesn't support interactive transactions, so sequential ops)
+  // Create community and owner member. D1 has no interactive transactions, so
+  // group the community insert (which carries memberCount: 1) and the owner
+  // membership insert into a single atomic batch — otherwise a mid-write failure
+  // could leave an owner-less community (or a member row without its community).
+  // The `Database` union type does not surface `batch` (it is only on the
+  // concrete D1/libsql subclasses), so reach it through a narrow structural cast.
   try {
-    await db.insert(communities).values({
+    const communityInsert = db.insert(communities).values({
       apId,
       preferredUsername: validName,
       name: body.display_name || validName,
@@ -236,12 +251,17 @@ communitiesRouter.post("/", async (c) => {
       createdAt: now,
     });
 
-    await db.insert(communityMembers).values({
+    const ownerMemberInsert = db.insert(communityMembers).values({
       communityApId: apId,
       actorApId: actor.ap_id,
       role: "owner",
       joinedAt: now,
     });
+
+    await (db as unknown as Batchable).batch([
+      communityInsert,
+      ownerMemberInsert,
+    ]);
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       return c.json({ error: "Community name already taken" }, 409);

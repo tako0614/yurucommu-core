@@ -18,6 +18,7 @@ import {
 } from "../../db/index.ts";
 import { batchLoadActorInfo } from "./communities/membership-shared.ts";
 import { requireActor } from "./actors-helpers.ts";
+import { canViewerReadObject } from "../lib/community-visibility.ts";
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -246,6 +247,8 @@ notifications.get("/", async (c) => {
             apId: objects.apId,
             content: objects.content,
             inReplyTo: objects.inReplyTo,
+            audienceJson: objects.audienceJson,
+            communityApId: objects.communityApId,
           })
           .from(objects)
           .where(inArray(objects.apId, objectApIds))
@@ -261,10 +264,33 @@ notifications.get("/", async (c) => {
       : Promise.resolve([]),
   ]);
 
+  // Community read-gate: a private-community post can land in a NON-member's
+  // inbox (e.g. an @-mention Create), so projecting its body verbatim would
+  // leak community-scoped content. Gate each object's content against the
+  // notification recipient (actor.ap_id) before exposing object_content.
+  const readableObjectIds = new Set<string>(
+    (
+      await Promise.all(
+        objectRows.map(async (o) =>
+          (await canViewerReadObject(
+            db,
+            { audienceJson: o.audienceJson, communityApId: o.communityApId },
+            actor.ap_id,
+          ))
+            ? o.apId
+            : null,
+        ),
+      )
+    ).filter((id): id is string => id !== null),
+  );
+
   const objectMap = new Map(
     objectRows.map((o) => [
       o.apId,
-      { content: o.content, inReplyTo: o.inReplyTo },
+      {
+        content: readableObjectIds.has(o.apId) ? o.content : "",
+        inReplyTo: o.inReplyTo,
+      },
     ]),
   );
   const followMap = new Map(

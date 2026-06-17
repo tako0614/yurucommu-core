@@ -51,9 +51,8 @@ mock.module("../../lib/federation-fetch.ts", () => ({
 
 // Imported AFTER the mock is registered so the handler + actor-cache modules
 // pick up the stubbed fetch.
-const { handleCreateStory, handleUpdate } = await import(
-  "../../routes/activitypub/handlers/inbox-content-handlers.ts"
-);
+const { handleCreateStory, handleUpdate } =
+  await import("../../routes/activitypub/handlers/inbox-content-handlers.ts");
 
 async function freshDb(): Promise<Database> {
   const client = createClient({ url: ":memory:" });

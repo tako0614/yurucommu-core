@@ -21,11 +21,7 @@ import { and, eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import {
-  actors,
-  communities,
-  communityMembers,
-} from "../../../db/index.ts";
+import { actors, communities, communityMembers } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import { registerMembershipJoinRoutes } from "../../routes/communities/membership-join.ts";
 

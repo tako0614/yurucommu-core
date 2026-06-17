@@ -164,6 +164,12 @@ async function countChildRows(
 function mockContext(db: Database): ActivityContext {
   return {
     get: (key: string) => (key === "db" ? db : null),
+    // handleDelete passes `c.env.MEDIA` into deleteObjectCascade so the
+    // object-attached media uploads can be reaped (and their R2 blobs purged
+    // when a binding exists). This test has no R2, so MEDIA is absent — the
+    // cascade's media reaper accepts an undefined binding and skips the blob
+    // purge. `env` must still exist or `c.env.MEDIA` throws.
+    env: {},
   } as unknown as ActivityContext;
 }
 

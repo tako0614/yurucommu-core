@@ -25,6 +25,7 @@ import {
 } from "../../federation-helpers.ts";
 import { MAX_POSTS_PAGE_LIMIT } from "./transformers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import { canViewerReadObject } from "../../lib/community-visibility.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "posts.interactions" });
@@ -486,12 +487,31 @@ posts.get("/bookmarks", async (c) => {
       )
     : eq(bookmarks.actorApId, actor.ap_id);
 
-  const bookmarkRows = await db.query.bookmarks.findMany({
+  const allBookmarkRows = await db.query.bookmarks.findMany({
     where: whereCondition,
     with: { object: true },
     orderBy: desc(bookmarks.createdAt),
     limit,
   });
+
+  // Re-check the community read-gate at read time: a post bookmarked while its
+  // community was public (or while the viewer was a member) must NOT keep
+  // leaking after the community became private / membership was revoked. Drop
+  // any bookmarked object the viewer can no longer read. This never widens
+  // access (non-community / public-community objects short-circuit to true).
+  const readable = await Promise.all(
+    allBookmarkRows.map((b) =>
+      canViewerReadObject(
+        db,
+        {
+          audienceJson: b.object.audienceJson,
+          communityApId: b.object.communityApId,
+        },
+        actor.ap_id,
+      ),
+    ),
+  );
+  const bookmarkRows = allBookmarkRows.filter((_, i) => readable[i]);
 
   // Batch-load author info to avoid N+1 queries
   const authorApIds = [

@@ -24,6 +24,7 @@ import {
   storyVotes,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
+import type { IObjectStorage } from "../../runtime/types.ts";
 import {
   activityApId,
   actorApId,
@@ -52,6 +53,16 @@ import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "stories.routes" });
 
+/**
+ * Narrow view over the concrete D1/libsql drizzle client's atomic batch API.
+ * The shared `Database` union type does not surface `batch` (it lives on the
+ * concrete subclasses), so we reach it through a structural cast at the call
+ * site that needs an atomic multi-statement write.
+ */
+type Batchable = {
+  batch(statements: readonly unknown[]): Promise<unknown>;
+};
+
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // Best-effort, opportunistic retention of expired stories.
@@ -65,12 +76,17 @@ const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 // feed requests cannot kick off several concurrent full-table delete sweeps.
 let expiredStoryCleanupInFlight = false;
 
-function maybeCleanupExpiredStories(db: Database): void {
+function maybeCleanupExpiredStories(
+  db: Database,
+  media?: IObjectStorage,
+): void {
   if (expiredStoryCleanupInFlight) return;
   if (Math.random() >= 0.01) return; // ~1% of feed requests per isolate
 
   expiredStoryCleanupInFlight = true;
-  cleanupExpiredStories(db)
+  // Pass the MEDIA binding so expired-story cleanup also purges the R2 blobs,
+  // not just the media_uploads DB rows (otherwise expired-story media leaks).
+  cleanupExpiredStories(db, media)
     .catch((err) => {
       log.warn("Failed to cleanup expired stories", {
         event: "stories.cleanup.failed",
@@ -312,7 +328,7 @@ stories.get("/", async (c) => {
   }
 
   // Opportunistic, best-effort expiry cleanup (see maybeCleanupExpiredStories).
-  maybeCleanupExpiredStories(db);
+  maybeCleanupExpiredStories(db, c.env.MEDIA);
   // Opportunistically reap drained account tombstones on this hot read path
   // (the Worker has no scheduled handler; see maybeReapDrainedTombstones).
   maybeReapDrainedTombstones(db);
@@ -687,7 +703,13 @@ stories.post("/", async (c) => {
   };
   const attachmentsJson = JSON.stringify(storyData);
 
-  await db.insert(objects).values({
+  // Insert the story object and bump the author's denormalized postCount in a
+  // single atomic batch. D1 has no interactive transactions, so doing these as
+  // two separate writes could drift the counter relative to the stored stories
+  // on a mid-request failure. The `Database` union type does not surface `batch`
+  // (it is only on the concrete D1/libsql subclasses), so reach it through a
+  // narrow structural cast.
+  const storyInsert = db.insert(objects).values({
     apId,
     type: "Story",
     attributedTo: actor.ap_id,
@@ -699,10 +721,12 @@ stories.post("/", async (c) => {
     isLocal: 1,
   });
 
-  await db
+  const postCountBump = db
     .update(actors)
     .set({ postCount: sql`${actors.postCount} + 1` })
     .where(eq(actors.apId, actor.ap_id));
+
+  await (db as unknown as Batchable).batch([storyInsert, postCountBump]);
 
   const responseData = transformStoryData(attachmentsJson);
   const authorInfo = buildAuthor(actor.ap_id, {

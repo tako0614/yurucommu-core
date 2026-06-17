@@ -30,6 +30,11 @@ export async function extractActorFromSession(
   if (!session || isExpired(session.expiresAt)) return;
 
   const m = session.member;
+  // A tombstoned actor (account-deletion soft-delete: `deletedAt` set) must
+  // never resolve to a live session actor, even if a stale session row somehow
+  // survived teardown. Account deletion deletes the actor's sessions, but this
+  // guard fail-closes so a tombstone can never be re-inhabited via a session.
+  if (!m || m.deletedAt != null) return;
   const actor: Actor = {
     ap_id: m.apId,
     type: m.type,

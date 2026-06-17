@@ -36,6 +36,7 @@ function createMockDb(options: {
     inserts: [] as unknown[],
     updates: [] as unknown[],
     deletes: [] as unknown[],
+    batches: [] as unknown[],
   };
 
   const selectSpy = spy((...args: unknown[]) => {
@@ -84,11 +85,22 @@ function createMockDb(options: {
     return { where };
   });
 
+  // handleInteraction now groups the edge insert and the COUNT(*)-derived
+  // counter update into one atomic `db.batch([...])` (Wave 9 #7: edge + counter
+  // must commit together, recompute is idempotent). The batch statements are
+  // built by invoking the insert/update spies BEFORE batch() runs, so the
+  // call-tracking still observes them; batch itself just resolves.
+  const batchSpy = spy((statements: unknown) => {
+    callTracker.batches.push(statements);
+    return Promise.resolve(undefined);
+  });
+
   const db = {
     select: selectSpy,
     insert: insertSpy,
     update: updateSpy,
     delete: deleteSpy,
+    batch: batchSpy,
   };
 
   return { db, callTracker };
@@ -105,6 +117,10 @@ function createMockContext(
       if (key === "db") return db;
       return null;
     },
+    // handleDelete reads `c.env.MEDIA` to pass an object-store binding into
+    // deleteObjectCascade. No R2 in this unit test, so MEDIA is absent; the
+    // cascade skips the blob purge. `env` must exist or `c.env.MEDIA` throws.
+    env: {},
   } as unknown as ActivityContext;
 }
 
@@ -135,18 +151,27 @@ test("userInboxHandlers hardening - handleLike writes like/count/inbox in a sing
     "https://example.com",
   );
 
-  // Verify select was called (lookup object)
+  // Verify select was called once (pre-dispatch existing-edge lookup that gates
+  // the one-shot owner notification).
   assertSpyCalls(db.select, 1);
-  // Verify insert was called (like + activity + inbox)
+  // Verify the edge insert statement was built.
   assert_called(db.insert);
-  // Verify update was called (likeCount)
+  // Verify the COUNT(*)-derived counter update statement was built.
   assert_called(db.update);
+  // The edge insert and counter update commit together in ONE atomic batch
+  // (Wave 9 #7), not as two independent statements.
+  assertSpyCalls(db.batch, 1);
 });
 
 test("userInboxHandlers hardening - handleLike treats unique conflicts as idempotent", async () => {
+  // An existing edge is returned by the pre-dispatch lookup, modelling a
+  // re-delivered/duplicate Like.
   const { db } = createMockDb({
-    selectResults: [{ attributedTo: "https://example.com/ap/users/bob" }],
-    insertReturningResult: undefined,
+    selectResults: [
+      {
+        actorApId: "https://example.com/ap/users/alice",
+      },
+    ],
   });
 
   const context = createMockContext(db);
@@ -166,10 +191,17 @@ test("userInboxHandlers hardening - handleLike treats unique conflicts as idempo
     "https://example.com",
   );
 
-  // insert was called for like, but returned undefined (duplicate)
+  // Idempotency is now structural, not gated on a `.returning()` row: the edge
+  // insert uses onConflictDoNothing and the counter is RECOMPUTED from
+  // COUNT(*) of the edge table inside the same atomic batch (Wave 9 #7), so a
+  // duplicate can never double-count. The batch (insert + count recompute)
+  // still runs exactly once on a duplicate.
   assertSpyCalls(db.insert, 1);
-  // update should NOT have been called (no count increment for duplicate)
-  assertSpyCalls(db.update, 0);
+  assertSpyCalls(db.update, 1);
+  assertSpyCalls(db.batch, 1);
+  // A duplicate (existing edge) must NOT re-notify the owner; handleInteraction
+  // returns before the notify path, so no further selects happen.
+  assertSpyCalls(db.select, 1);
 });
 
 test("userInboxHandlers hardening - handleDelete performs dependent deletes and counter update", async () => {

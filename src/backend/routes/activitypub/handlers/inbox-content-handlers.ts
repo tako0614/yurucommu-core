@@ -530,7 +530,7 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
   // (D1 ignores PRAGMA foreign_keys), so cascade explicitly to avoid orphans.
   // Covers likes/announces/bookmarks/object_recipients/story_* in one place,
   // shared with the local DELETE /posts/:id path.
-  await deleteObjectCascade(db, objectId);
+  await deleteObjectCascade(db, objectId, c.env.MEDIA);
 
   await db.delete(objects).where(eq(objects.apId, objectId));
 
@@ -598,7 +598,11 @@ export async function handleUpdate(
       .get();
     if (cached?.lastFetchedAt) {
       const age = Date.now() - new Date(cached.lastFetchedAt).getTime();
-      if (Number.isFinite(age) && age >= 0 && age < ACTOR_UPDATE_REFETCH_COOLDOWN_MS) {
+      if (
+        Number.isFinite(age) &&
+        age >= 0 &&
+        age < ACTOR_UPDATE_REFETCH_COOLDOWN_MS
+      ) {
         log.debug("Update(actor) re-fetch skipped: within cooldown", {
           event: "ap.update.actor_refetch_cooldown",
           actor: objectId,

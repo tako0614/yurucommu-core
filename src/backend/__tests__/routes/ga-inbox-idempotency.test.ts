@@ -49,7 +49,9 @@ const HANDLERS_MODULE =
 // `afterAll`. Bun's `mock.module` is process-global and persists across test
 // files; without restoring it the no-op stubs would leak into other suites
 // (e.g. the real user-inbox-handlers tests) and fail them.
-const realHandlers: Record<string, unknown> = { ...(await import(HANDLERS_MODULE)) };
+const realHandlers: Record<string, unknown> = {
+  ...(await import(HANDLERS_MODULE)),
+};
 
 mock.module(HANDLERS_MODULE, () => {
   const noop = async () => {};
@@ -97,9 +99,8 @@ afterAll(() => {
 
 // Imported AFTER the mock registration so the route binds to the stubbed
 // handlers module.
-const { default: inboxRoutes } = await import(
-  "../../routes/activitypub/inbox.ts"
-);
+const { default: inboxRoutes } =
+  await import("../../routes/activitypub/inbox.ts");
 
 async function freshDb(): Promise<Database> {
   const client = createClient({ url: ":memory:" });

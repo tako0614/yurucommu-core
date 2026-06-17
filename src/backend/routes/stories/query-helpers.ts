@@ -7,6 +7,7 @@ import {
   objects,
   storyVotes,
 } from "../../../db/index.ts";
+import type { IObjectStorage } from "../../runtime/types.ts";
 import { objectApId, safeJsonParse } from "../../federation-helpers.ts";
 import { deleteObjectCascade } from "../posts/delete-cascade.ts";
 
@@ -217,7 +218,10 @@ export async function fetchActorCache(
 // Story data cleanup & transformation
 // ---------------------------------------------------------------------------
 
-export async function cleanupExpiredStories(db: Database): Promise<number> {
+export async function cleanupExpiredStories(
+  db: Database,
+  media?: IObjectStorage,
+): Promise<number> {
   const now = new Date().toISOString();
 
   const expiredStories = await db
@@ -234,8 +238,10 @@ export async function cleanupExpiredStories(db: Database): Promise<number> {
   // story_votes / story_shares + attached media_uploads), so expiry can't
   // orphan rows the hand-rolled list previously missed (announces, bookmarks,
   // media). The helper reads each object row, so run it before deleting them.
+  // When a `media` binding is threaded in, the backing R2 blobs are best-effort
+  // purged too so expired-story storage does not leak.
   for (const apId of expiredApIds) {
-    await deleteObjectCascade(db, apId);
+    await deleteObjectCascade(db, apId, media);
   }
 
   await db

@@ -599,7 +599,7 @@ posts.delete("/:id", async (c) => {
   // FK ON DELETE CASCADE is not reliably enforced (PRAGMA foreign_keys is not
   // guaranteed on every runtime/connection, and D1 ignores it), so delete the
   // object's child rows explicitly before the object row to avoid orphans.
-  await deleteObjectCascade(db, post.apId);
+  await deleteObjectCascade(db, post.apId, c.env.MEDIA);
   await db.delete(objects).where(eq(objects.apId, post.apId));
 
   await db

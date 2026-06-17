@@ -5,9 +5,10 @@
  *          yurucommu_get_trending, yurucommu_get_user_profile
  */
 
-import { and, desc, eq, like, or } from "drizzle-orm";
+import { and, desc, eq, isNull, like, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, objects } from "../../../db/index.ts";
+import { NO_AUDIENCE_PREDICATE } from "../../lib/community-visibility.ts";
 import {
   ACTOR_SUMMARY_COLUMNS,
   errNotFound,
@@ -104,6 +105,8 @@ async function searchPosts(c: ToolContext, input: Input) {
       and(
         like(objects.content, `%${query}%`),
         eq(objects.visibility, "public"),
+        NO_AUDIENCE_PREDICATE,
+        isNull(objects.deletedAt),
       ),
     )
     .orderBy(desc(objects.published))
@@ -134,6 +137,8 @@ async function getTrending(c: ToolContext, input: Input) {
     .where(
       and(
         eq(objects.visibility, "public"),
+        NO_AUDIENCE_PREDICATE,
+        isNull(objects.deletedAt),
         sql`${objects.published} > ${sinceDate}`,
       ),
     )

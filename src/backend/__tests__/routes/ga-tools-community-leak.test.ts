@@ -1,0 +1,246 @@
+import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+
+/**
+ * GA #4 + #5 — community-scope leak via the AI-agent (takos-tools) surface.
+ *
+ * Community-scoped Notes are persisted as visibility="public" but carry a
+ * non-"[]" audienceJson (the community read-gate). The agent tools
+ * (yurucommu_get_timeline / yurucommu_search_posts / yurucommu_get_trending)
+ * previously filtered on visibility="public" ALONE, so they surfaced
+ * private-community posts and their hashtags to the agent.
+ *
+ * This test pins the same NO_AUDIENCE_PREDICATE (audienceJson="[]") guard that
+ * the human-facing search/timeline routes already enforce, plus the
+ * deletedAt-tombstone exclusion:
+ *
+ *  (i)   handleGetTimeline must NOT return a community post.
+ *  (ii)  searchPosts must NOT return a community post (id or content).
+ *  (iii) getTrending must NOT surface a community post's hashtag.
+ *
+ * A regular (empty-audience) public post IS returned in each case, proving the
+ * guard scopes out only the community-gated content. A soft-deleted public
+ * post is also excluded.
+ */
+
+import { drizzle } from "drizzle-orm/libsql";
+import { createClient } from "@libsql/client";
+
+import * as schema from "../../../db/schema.ts";
+import type { Database } from "../../../db/index.ts";
+import { actors, objects } from "../../../db/index.ts";
+import {
+  handleSearchPosts,
+  handleGetTrending,
+} from "../../routes/takos-tools/search.ts";
+import { handleGetTimeline as getTimeline } from "../../routes/takos-tools/timeline.ts";
+
+const APP_URL = "https://yuru.test";
+const MIGRATIONS = [
+  "0001_init.sql",
+  "0002_social_remote_actor_edges.sql",
+  "0003_activity_remote_object_edges.sql",
+  "0004_blocklist.sql",
+  "0008_actor_fields_aka.sql",
+  "0009_object_tags.sql",
+];
+
+async function freshDb(): Promise<Database> {
+  const client = createClient({ url: ":memory:" });
+  const root = new URL("../../../../migrations/", import.meta.url);
+  for (const file of MIGRATIONS) {
+    const sql = await readFile(new URL(file, root), "utf8");
+    await client.executeMultiple(sql);
+  }
+  return drizzle(client, { schema }) as unknown as Database;
+}
+
+async function insertLocalActor(
+  db: Database,
+  username: string,
+): Promise<string> {
+  const apId = `${APP_URL}/ap/users/${username}`;
+  await db.insert(actors).values({
+    apId,
+    type: "Person",
+    preferredUsername: username,
+    inbox: `${apId}/inbox`,
+    outbox: `${apId}/outbox`,
+    followersUrl: `${apId}/followers`,
+    followingUrl: `${apId}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  return apId;
+}
+
+async function insertPost(
+  db: Database,
+  author: string,
+  id: string,
+  content: string,
+  published: string,
+  audienceJson: string,
+  deletedAt: string | null = null,
+): Promise<string> {
+  const apId = `${APP_URL}/ap/objects/${id}`;
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: author,
+    content,
+    visibility: "public",
+    audienceJson,
+    published,
+    deletedAt,
+  });
+  return apId;
+}
+
+/** Minimal ToolContext stub: handlers only use c.get("db") and c.json(). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ctxFor(db: Database): any {
+  return {
+    get(key: string) {
+      if (key === "db") return db;
+      return null;
+    },
+    json(value: unknown) {
+      return { __body: value };
+    },
+  };
+}
+
+function isoMinutesAgo(min: number): string {
+  return new Date(Date.now() - min * 60 * 1000).toISOString();
+}
+
+const COMMUNITY_AUDIENCE = JSON.stringify([`${APP_URL}/ap/groups/secretclub`]);
+
+test("agent get_timeline excludes community-scoped and deleted posts", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "alice");
+
+  const publicId = await insertPost(
+    db,
+    author,
+    "pub",
+    "open thoughts",
+    isoMinutesAgo(5),
+    "[]",
+  );
+  await insertPost(
+    db,
+    author,
+    "comm",
+    "members only secret",
+    isoMinutesAgo(4),
+    COMMUNITY_AUDIENCE,
+  );
+  await insertPost(
+    db,
+    author,
+    "del",
+    "tombstoned public",
+    isoMinutesAgo(3),
+    "[]",
+    isoMinutesAgo(1),
+  );
+
+  const res = (await getTimeline(ctxFor(db), {}, null)) as unknown as {
+    __body: { data: { posts: { ap_id: string; content: string }[] } };
+  };
+  const posts = res.__body.data.posts;
+  const ids = posts.map((p) => p.ap_id);
+
+  expect(ids).toContain(publicId);
+  expect(ids).not.toContain(`${APP_URL}/ap/objects/comm`);
+  expect(ids).not.toContain(`${APP_URL}/ap/objects/del`);
+  expect(posts.some((p) => p.content.includes("members only"))).toBe(false);
+});
+
+test("agent search_posts excludes community-scoped and deleted posts", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "bob");
+
+  const publicId = await insertPost(
+    db,
+    author,
+    "pub",
+    "open secretword thoughts",
+    isoMinutesAgo(5),
+    "[]",
+  );
+  await insertPost(
+    db,
+    author,
+    "comm",
+    "members only secretword",
+    isoMinutesAgo(4),
+    COMMUNITY_AUDIENCE,
+  );
+  await insertPost(
+    db,
+    author,
+    "del",
+    "deleted secretword",
+    isoMinutesAgo(3),
+    "[]",
+    isoMinutesAgo(1),
+  );
+
+  const res = (await handleSearchPosts(
+    ctxFor(db),
+    { query: "secretword" },
+    null,
+  )) as unknown as {
+    __body: { data: { posts: { ap_id: string; content: string }[] } };
+  };
+  const posts = res.__body.data.posts;
+  const ids = posts.map((p) => p.ap_id);
+
+  expect(ids).toContain(publicId);
+  expect(ids).not.toContain(`${APP_URL}/ap/objects/comm`);
+  expect(ids).not.toContain(`${APP_URL}/ap/objects/del`);
+  expect(posts.some((p) => p.content.includes("members only"))).toBe(false);
+});
+
+test("agent get_trending omits community-scoped post hashtags", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "carol");
+
+  await insertPost(
+    db,
+    author,
+    "t1",
+    "town square #plaza",
+    isoMinutesAgo(3),
+    "[]",
+  );
+  await insertPost(
+    db,
+    author,
+    "t2",
+    "hush #backroom #backroom",
+    isoMinutesAgo(2),
+    COMMUNITY_AUDIENCE,
+  );
+  await insertPost(
+    db,
+    author,
+    "t3",
+    "deleted #ghosttag",
+    isoMinutesAgo(1),
+    "[]",
+    isoMinutesAgo(1),
+  );
+
+  const res = (await handleGetTrending(ctxFor(db), {}, null)) as unknown as {
+    __body: { data: { trending: { tag: string; count: number }[] } };
+  };
+  const tags = res.__body.data.trending.map((t) => t.tag);
+
+  expect(tags).toContain("plaza");
+  expect(tags).not.toContain("backroom");
+  expect(tags).not.toContain("ghosttag");
+});

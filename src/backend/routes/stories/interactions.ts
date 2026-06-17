@@ -137,32 +137,24 @@ stories.post("/vote", async (c) => {
     );
   }
 
-  // Upsert vote
-  const existingVote = await db
-    .select()
-    .from(storyVotes)
-    .where(
-      and(
-        eq(storyVotes.storyApId, apId),
-        eq(storyVotes.actorApId, actor.ap_id),
-      ),
-    )
-    .get();
-
-  if (existingVote) {
-    await db
-      .update(storyVotes)
-      .set({ optionIndex: body.option_index, createdAt: now })
-      .where(eq(storyVotes.id, existingVote.id));
-  } else {
-    await db.insert(storyVotes).values({
+  // Upsert vote atomically. A concurrent double-vote previously raced the
+  // check-then-insert and 500'd on the (storyApId, actorApId) unique index;
+  // letting the DB resolve the conflict makes re-voting idempotent without a
+  // pre-read. On conflict we keep the existing row's id and only update the
+  // chosen option / timestamp.
+  await db
+    .insert(storyVotes)
+    .values({
       id: generateId(),
       storyApId: apId,
       actorApId: actor.ap_id,
       optionIndex: body.option_index,
       createdAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [storyVotes.storyApId, storyVotes.actorApId],
+      set: { optionIndex: body.option_index, createdAt: now },
     });
-  }
 
   const votes = await getVoteCounts(db, apId);
   return c.json({

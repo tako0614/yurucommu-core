@@ -153,7 +153,8 @@ test("#8 OrderedCollectionPage id is unique per page (derived from cursor)", asy
 
   // Dereference the next page; its `id` must equal the link we followed and
   // must differ from the first page's id (not a shared hardcoded `?page=1`).
-  const nextPath = new URL(next as string).pathname + new URL(next as string).search;
+  const nextPath =
+    new URL(next as string).pathname + new URL(next as string).search;
   const second = await fetchJson(db, nextPath);
   expect(second.status).toEqual(200);
   const secondId = second.body.id as string;
@@ -234,10 +235,7 @@ test("#16 GET /ap/objects/:id serves an unlisted object publicly (no signature)"
   });
 
   // Unauthenticated (no HTTP signature) fetch must succeed for `unlisted`.
-  const { status, body } = await fetchJson(
-    db,
-    "/ap/objects/unlisted-readable",
-  );
+  const { status, body } = await fetchJson(db, "/ap/objects/unlisted-readable");
   expect(status).toEqual(200);
   expect(body.id).toEqual(objectId);
   expect(body.content).toEqual("unlisted body");

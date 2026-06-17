@@ -126,7 +126,10 @@ function captureQueue() {
   };
 }
 
-function envFor(db: Database, queue: ReturnType<typeof captureQueue>["queue"]): Env {
+function envFor(
+  db: Database,
+  queue: ReturnType<typeof captureQueue>["queue"],
+): Env {
   return {
     APP_URL,
     DB_INSTANCE: db,
@@ -358,7 +361,10 @@ test("reapDrainedTombstones does not touch recent tombstones", async () => {
   const apId = await insertLocalActor(db, "fresh");
   await db
     .update(actors)
-    .set({ preferredUsername: "deleted-fresh", deletedAt: new Date().toISOString() })
+    .set({
+      preferredUsername: "deleted-fresh",
+      deletedAt: new Date().toISOString(),
+    })
     .where(eq(actors.apId, apId));
 
   const reaped = await reapDrainedTombstones(db);

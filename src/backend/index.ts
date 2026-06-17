@@ -232,9 +232,7 @@ function mountReadinessRoutes(app: YurucommuApp): void {
   // instance admin; APP_URL (when configured) makes the policy line concrete.
   app.get("/.well-known/security.txt", (c) => {
     const appUrl = c.env.APP_URL?.trim().replace(/\/+$/, "");
-    const lines = [
-      "Contact: mailto:security@yurucommu.invalid",
-    ];
+    const lines = ["Contact: mailto:security@yurucommu.invalid"];
     if (appUrl) {
       lines.push(`Policy: ${appUrl}/.well-known/security.txt`);
     }

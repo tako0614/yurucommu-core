@@ -46,7 +46,10 @@ function buildSignedRequest(
 
 test("verifyHttpSignature accepts a correct signature that signs host", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-  const body = JSON.stringify({ type: "Create", id: "https://remote.example/a" });
+  const body = JSON.stringify({
+    type: "Create",
+    id: "https://remote.example/a",
+  });
   const headers = await signRequest(
     privateKeyPem,
     KEY_ID,
@@ -64,7 +67,10 @@ test("verifyHttpSignature accepts a correct signature that signs host", async ()
 
 test("verifyHttpSignature rejects a signature whose signed-header set omits host", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-  const body = JSON.stringify({ type: "Create", id: "https://remote.example/a" });
+  const body = JSON.stringify({
+    type: "Create",
+    id: "https://remote.example/a",
+  });
 
   // Hand-roll a signature over the "(request-target) date digest" set only
   // (no host), as a non-conforming peer would.
@@ -111,7 +117,10 @@ test("verifyHttpSignature rejects a signature whose signed-header set omits host
 
 test("verifyHttpSignature rejects when the Host header does not match the request target", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-  const body = JSON.stringify({ type: "Create", id: "https://remote.example/a" });
+  const body = JSON.stringify({
+    type: "Create",
+    id: "https://remote.example/a",
+  });
 
   // Sign for a DIFFERENT target host (the attacker's captured origin) and then
   // replay against TARGET_URL. The signature is cryptographically valid for

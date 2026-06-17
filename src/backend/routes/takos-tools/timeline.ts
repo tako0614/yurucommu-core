@@ -4,8 +4,9 @@
  * Handles: yurucommu_get_timeline, yurucommu_get_notifications
  */
 
-import { and, desc, eq, inArray, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 import { actors, inbox, objects } from "../../../db/index.ts";
+import { NO_AUDIENCE_PREDICATE } from "../../lib/community-visibility.ts";
 import {
   ACTOR_SUMMARY_COLUMNS,
   errAuth,
@@ -24,7 +25,11 @@ export async function handleGetTimeline(
   const limit = toolLimit(input.limit, 20, 50);
   const before = input.before ? String(input.before) : null;
 
-  const whereConditions = [eq(objects.visibility, "public")];
+  const whereConditions = [
+    eq(objects.visibility, "public"),
+    NO_AUDIENCE_PREDICATE,
+    isNull(objects.deletedAt),
+  ];
   if (before) {
     whereConditions.push(lt(objects.published, before));
   }

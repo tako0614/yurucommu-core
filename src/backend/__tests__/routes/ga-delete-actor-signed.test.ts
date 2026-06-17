@@ -264,10 +264,7 @@ test("after /me/delete the Delete(actor) deliver job can still resolve a signing
     .select()
     .from(activities)
     .where(
-      and(
-        eq(activities.actorApId, aliceApId),
-        eq(activities.type, "Delete"),
-      ),
+      and(eq(activities.actorApId, aliceApId), eq(activities.type, "Delete")),
     )
     .get();
   expect(deleteActivity).toBeTruthy();

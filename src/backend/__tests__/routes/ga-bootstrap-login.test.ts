@@ -3,10 +3,7 @@ import { Hono } from "hono";
 
 import { spy } from "#test/mock";
 import authRoutes from "../../routes/auth.ts";
-import {
-  hashPassword,
-  verifyBootstrapOrPassword,
-} from "../../lib/crypto.ts";
+import { hashPassword, verifyBootstrapOrPassword } from "../../lib/crypto.ts";
 import { actors } from "../../../db/index.ts";
 
 class MockKVNamespace {
@@ -185,13 +182,16 @@ test("bootstrap login: a proper salt:hash value still uses the PBKDF2 path", asy
 
 test("verifyBootstrapOrPassword: unit-level behaviour for both shapes", async () => {
   // Bootstrap token: exact match only.
-  expect(await verifyBootstrapOrPassword(BOOTSTRAP_TOKEN, BOOTSTRAP_TOKEN)).toBe(
-    true,
-  );
+  expect(
+    await verifyBootstrapOrPassword(BOOTSTRAP_TOKEN, BOOTSTRAP_TOKEN),
+  ).toBe(true);
   expect(await verifyBootstrapOrPassword("nope", BOOTSTRAP_TOKEN)).toBe(false);
   // A prefix of the token must not match (length-independent compare).
   expect(
-    await verifyBootstrapOrPassword(BOOTSTRAP_TOKEN.slice(0, 32), BOOTSTRAP_TOKEN),
+    await verifyBootstrapOrPassword(
+      BOOTSTRAP_TOKEN.slice(0, 32),
+      BOOTSTRAP_TOKEN,
+    ),
   ).toBe(false);
 
   // PBKDF2 salt:hash: only the real password matches; the stored value does not.

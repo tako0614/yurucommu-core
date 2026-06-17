@@ -21,6 +21,7 @@
 
 import { eq, inArray } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
+import type { IObjectStorage } from "../../runtime/types.ts";
 import {
   announces,
   bookmarks,
@@ -48,10 +49,16 @@ import {
  *
  * Returns silently when the object row is already gone (caller may delete the
  * object before or after calling this) or has no attachments.
+ *
+ * When a `media` object-store binding is provided, the backing R2 blobs for the
+ * reaped uploads are best-effort deleted by `r2_key` (mirroring the
+ * account-delete teardown in `routes/actors.ts`). R2 errors never fail the DB
+ * delete; without this the blobs leak forever (there is no orphaned-key GC).
  */
 async function deleteAttachedMediaUploads(
   db: Database,
   objectApId: string,
+  media?: IObjectStorage,
 ): Promise<void> {
   const obj = await db
     .select({
@@ -74,13 +81,25 @@ async function deleteAttachedMediaUploads(
     .from(mediaUploads)
     .where(eq(mediaUploads.uploaderApId, obj.attributedTo));
 
-  const orphanedIds = candidates
-    .filter((m) => attachmentsJson.includes(m.r2Key))
-    .map((m) => m.id);
+  const orphaned = candidates.filter((m) => attachmentsJson.includes(m.r2Key));
 
-  if (orphanedIds.length === 0) return;
+  if (orphaned.length === 0) return;
+
+  const orphanedIds = orphaned.map((m) => m.id);
 
   await db.delete(mediaUploads).where(inArray(mediaUploads.id, orphanedIds));
+
+  // Best-effort purge the backing R2 blobs so storage does not leak. The DB
+  // rows are already gone regardless of object-store availability; never let an
+  // R2 error fail the delete (there is no orphaned-key GC fallback).
+  if (media) {
+    const keys = orphaned.map((m) => m.r2Key);
+    try {
+      await media.delete(keys);
+    } catch {
+      // Swallow: storage purge is best-effort and must not fail the DB delete.
+    }
+  }
 }
 
 /**
@@ -91,17 +110,20 @@ async function deleteAttachedMediaUploads(
  *   story_views, story_votes, story_shares.
  *
  * Also reaps the object-attached `media_uploads` rows, which have no FK to
- * `objects` and would otherwise orphan (see `deleteAttachedMediaUploads`).
+ * `objects` and would otherwise orphan (see `deleteAttachedMediaUploads`). When
+ * a `media` binding is passed, the backing R2 blobs are best-effort deleted too
+ * so storage does not leak; pass `c.env.MEDIA` from the request context.
  *
  * Does not touch the `objects` row or `activities` (SET NULL, not CASCADE).
  */
 export async function deleteObjectCascade(
   db: Database,
   objectApId: string,
+  media?: IObjectStorage,
 ): Promise<void> {
   // Reap attached media first, while the object row (and its attachments_json)
   // is still readable — the caller may delete the object row afterwards.
-  await deleteAttachedMediaUploads(db, objectApId);
+  await deleteAttachedMediaUploads(db, objectApId, media);
   await db.delete(likes).where(eq(likes.objectApId, objectApId));
   await db.delete(announces).where(eq(announces.objectApId, objectApId));
   await db.delete(bookmarks).where(eq(bookmarks.objectApId, objectApId));

@@ -9,8 +9,8 @@ import {
 import { encrypt, hashSessionIdForEnv } from "../lib/crypto.ts";
 import { getClientCredentials } from "../lib/oauth-providers.ts";
 import type { Database } from "../../db/index.ts";
-import { count, eq } from "drizzle-orm";
-import { actors, sessions } from "../../db/index.ts";
+import { and, count, eq, isNotNull } from "drizzle-orm";
+import { actors, notDeleted, sessions } from "../../db/index.ts";
 import { parseJsonObject, parseNonEmptyString } from "../lib/parse-helpers.ts";
 import { logger } from "../lib/logger.ts";
 
@@ -162,11 +162,18 @@ export async function resolveUniqueUsername(
 ): Promise<string> {
   let username = baseUsername;
   let counter = 1;
+  // Exclude tombstoned rows from the collision probe: a deleted account's row
+  // lingers (renamed handle, `deletedAt` set) only until the reaper drains it,
+  // and createActor revives that row on re-registration. Treating a tombstone
+  // as a live collision would needlessly force a freed handle onto a suffixed
+  // alias until the reaper runs (#9).
   while (
     await db
       .select({ apId: actors.apId })
       .from(actors)
-      .where(eq(actors.apId, actorApId(baseUrl, username)))
+      .where(
+        and(eq(actors.apId, actorApId(baseUrl, username)), notDeleted(actors)),
+      )
       .get()
   ) {
     username = `${baseUsername}${counter}`;
@@ -189,6 +196,53 @@ export async function createActor(
 ) {
   const apId = actorApId(env.APP_URL, opts.username);
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+
+  // `apId` is deterministic from the username and is the PRIMARY KEY, so
+  // re-registering a freed handle resolves to the SAME apId that a tombstone
+  // row may still hold (account deletion renames `preferredUsername` to a
+  // sentinel and sets `deletedAt`, but keeps `apId` for the federation Delete
+  // signer). A plain insert would PK-collide while that tombstone lingers, so
+  // we first REVIVE any tombstone on this apId: clear `deletedAt`, restore the
+  // requested handle, and rotate to fresh signing keys + identity so no
+  // scrubbed data or stale key material from the deleted account survives the
+  // re-registration (#9). Only a tombstoned (deletedAt IS NOT NULL) row is ever
+  // revived; a LIVE collision is impossible here because every caller probes
+  // for a live collision (notDeleted) before reaching createActor.
+  const tombstone = await db
+    .select({ apId: actors.apId })
+    .from(actors)
+    .where(and(eq(actors.apId, apId), isNotNull(actors.deletedAt)))
+    .get();
+
+  if (tombstone) {
+    return await db
+      .update(actors)
+      .set({
+        type: "Person",
+        preferredUsername: opts.username,
+        name: opts.name,
+        summary: null,
+        iconUrl: opts.iconUrl ?? null,
+        headerUrl: null,
+        ...actorEndpoints(apId),
+        publicKeyPem,
+        privateKeyPem,
+        takosUserId: opts.takosUserId,
+        followerCount: 0,
+        followingCount: 0,
+        postCount: 0,
+        isPrivate: 0,
+        role: opts.role,
+        fieldsJson: "[]",
+        alsoKnownAsJson: "[]",
+        movedTo: null,
+        ownerActorApId: opts.ownerActorApId ?? null,
+        deletedAt: null,
+      })
+      .where(eq(actors.apId, apId))
+      .returning()
+      .get();
+  }
 
   return await db
     .insert(actors)

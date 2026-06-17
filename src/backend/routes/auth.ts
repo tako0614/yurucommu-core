@@ -24,8 +24,8 @@ import {
   recordFailedLoginAttempt,
 } from "../lib/auth-lockout.ts";
 import { getClientIP } from "../lib/client-ip.ts";
-import { asc, count, eq, or } from "drizzle-orm";
-import { actors, sessions } from "../../db/index.ts";
+import { and, asc, count, eq, or } from "drizzle-orm";
+import { actors, notDeleted, sessions } from "../../db/index.ts";
 import { hashSessionIdForEnv } from "../lib/crypto.ts";
 import {
   createActor,
@@ -170,9 +170,18 @@ auth.post("/login", async (c) => {
 
   const db = c.get("db");
 
-  // Single-user instance: find existing owner or create default
+  // Single-user instance: find existing owner or create default.
+  // Exclude tombstoned rows (`notDeleted`): a wave-8 account deletion keeps the
+  // owner row as a scrubbed tombstone (role still "owner") for the federation
+  // Delete signer. Without this guard the owner-resolution query would re-resolve
+  // that zombie and log a fresh login into a deleted account; with it, login
+  // falls through to createActor and provisions a clean owner.
   const actorData =
-    (await db.select().from(actors).where(eq(actors.role, "owner")).get()) ??
+    (await db
+      .select()
+      .from(actors)
+      .where(and(eq(actors.role, "owner"), notDeleted(actors)))
+      .get()) ??
     (await createActor(db, c.env, {
       username: "tako",
       name: "tako",
@@ -505,10 +514,14 @@ auth.post("/accounts", async (c) => {
 
   const apId = actorApId(c.env.APP_URL, username);
 
+  // Exclude tombstoned rows: a deleted account keeps its row (with a renamed
+  // sentinel handle, but the original apId is unique-keyed) until the reaper
+  // drains it. A freed handle must be immediately re-registerable, so only a
+  // LIVE collision blocks creation (#9).
   const existing = await db
     .select({ apId: actors.apId })
     .from(actors)
-    .where(eq(actors.apId, apId))
+    .where(and(eq(actors.apId, apId), notDeleted(actors)))
     .get();
 
   if (existing) return c.json({ error: "Username already taken" }, 400);
