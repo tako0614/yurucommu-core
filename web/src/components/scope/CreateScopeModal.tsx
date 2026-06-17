@@ -2,6 +2,7 @@ import { createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
+import { useDialog } from "../../lib/useDialog.ts";
 import { createCommunity } from "../../lib/api/communities.ts";
 import { enterCommunityScopeAtom } from "../../atoms/scope.ts";
 import { pushToast, toastsAtom } from "../../atoms/toast.ts";
@@ -53,11 +54,19 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
     setSummary("");
   };
 
+  let dialogRef: HTMLFormElement | undefined;
+
   const close = () => {
     if (submitting()) return;
     reset();
     props.onClose();
   };
+
+  useDialog({
+    isOpen: () => props.open,
+    onClose: close,
+    container: () => dialogRef,
+  });
 
   const canSubmit = () => isNameValid(name()) && !submitting();
 
@@ -103,6 +112,7 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
           }}
         >
           <form
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label={t("scope.createTitle")}

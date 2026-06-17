@@ -61,7 +61,6 @@ function ToastItem(props: { toast: Toast }) {
 
   return (
     <div
-      role={props.toast.kind === "error" ? "alert" : "status"}
       class={`pointer-events-auto flex items-start gap-2 rounded-xl border px-3 py-2.5 text-sm shadow-xl backdrop-blur ${
         KIND_CLASS[props.toast.kind]
       }`}
@@ -92,7 +91,11 @@ function ToastItem(props: { toast: Toast }) {
 /**
  * Single mount point for the global toast stack. Lives in AppLayout. Positioned
  * bottom-center on mobile (clear of the BottomNav) and bottom-right on desktop.
- * aria-live="polite" announces new messages without stealing focus.
+ *
+ * This wrapper is the one and only live region for toasts: aria-live="polite"
+ * announces new messages without stealing focus. Individual toast items must
+ * NOT carry their own role="alert"/"status" — nested live regions double- or
+ * mis-announce, so the single layer here owns the announcement.
  */
 export function ToastLayer() {
   const toasts = useAtomValue(toastsAtom);
@@ -100,7 +103,9 @@ export function ToastLayer() {
   return (
     <Portal>
       <div
+        role="status"
         aria-live="polite"
+        aria-atomic="false"
         class="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex flex-col items-center gap-2 px-4 md:inset-x-auto md:bottom-6 md:right-6 md:items-end"
       >
         <For each={toasts()}>{(toast) => <ToastItem toast={toast} />}</For>

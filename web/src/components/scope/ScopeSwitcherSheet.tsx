@@ -3,6 +3,7 @@ import { Portal } from "solid-js/web";
 import { useNavigate } from "@solidjs/router";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
+import { useDialog } from "../../lib/useDialog.ts";
 import { actorAtom } from "../../atoms/auth.ts";
 import {
   communityToScope,
@@ -89,6 +90,13 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
   const [scope, setScope] = useAtom(inhabitedScopeAtom);
   const communities = useAtomValue(scopeCommunitiesAtom);
   const setToasts = useSetAtom(toastsAtom);
+  let dialogRef: HTMLDivElement | undefined;
+
+  useDialog({
+    isOpen: () => props.open,
+    onClose: () => props.onClose(),
+    container: () => dialogRef,
+  });
 
   // Joined communities only; the picker never offers a scope the owner has not
   // entered. Order is preserved from the hydrate fetch.
@@ -142,18 +150,28 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
           }}
         >
           <div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label={t("scope.switch")}
             class="max-h-[80vh] w-full max-w-sm overflow-y-auto rounded-t-2xl border border-neutral-800 bg-neutral-900 p-2 shadow-2xl sm:rounded-2xl"
           >
-            <h2 class="px-3 pb-1 pt-2 text-xs font-bold uppercase tracking-wide text-neutral-500">
+            <h2
+              id="scope-switcher-heading"
+              class="px-3 pb-1 pt-2 text-xs font-bold uppercase tracking-wide text-neutral-500"
+            >
               {t("scope.switch")}
             </h2>
 
+            {/* Selectable scopes (radiogroup): Personal + joined communities.
+                Each row exposes aria-checked so SR users hear which scope they
+                inhabit, mirroring ScopeBar's aria-pressed pills. */}
+            <div role="radiogroup" aria-labelledby="scope-switcher-heading">
             {/* Personal scope — always first. */}
             <button
               type="button"
+              role="radio"
+              aria-checked={isActive({ kind: "personal" })}
               onClick={selectPersonal}
               class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-neutral-800"
             >
@@ -187,6 +205,8 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
                 return (
                   <button
                     type="button"
+                    role="radio"
+                    aria-checked={isActive(next)}
                     onClick={() =>
                       selectScope(
                         next,
@@ -218,6 +238,7 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
                 );
               }}
             </For>
+            </div>
 
             <div class="my-1 border-t border-neutral-800" />
 

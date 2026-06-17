@@ -2,6 +2,7 @@ import { createEffect, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
+import { useDialog } from "../../lib/useDialog.ts";
 import { actorAtom } from "../../atoms/auth.ts";
 import { appMenuOpenAtom } from "../../atoms/shell.ts";
 import {
@@ -89,6 +90,8 @@ export function AppMenu() {
   const doLoadAccounts = useSetAtom(loadAccountsAtom);
   const doSwitchAccount = useSetAtom(switchAccountAtom);
 
+  let drawerRef: HTMLDivElement | undefined;
+
   // Load the account list lazily the first time the menu opens.
   createEffect(() => {
     if (open()) doLoadAccounts();
@@ -98,6 +101,12 @@ export function AppMenu() {
     setOpen(false);
     setShowAccountSwitcher(false);
   };
+
+  useDialog({
+    isOpen: () => open(),
+    onClose: close,
+    container: () => drawerRef,
+  });
 
   const handleLogout = async () => {
     try {
@@ -118,7 +127,13 @@ export function AppMenu() {
             {/* Backdrop */}
             <div class="absolute inset-0 bg-black/60" onClick={close} />
             {/* Slide-in Menu */}
-            <div class="absolute left-0 top-0 bottom-0 w-72 bg-neutral-900 border-r border-neutral-800 animate-slide-in overflow-y-auto">
+            <div
+              ref={drawerRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t("menu.title")}
+              class="absolute left-0 top-0 bottom-0 w-72 bg-neutral-900 border-r border-neutral-800 animate-slide-in overflow-y-auto"
+            >
               {/* Profile Header */}
               <div class="p-4 border-b border-neutral-800">
                 <div class="flex items-center justify-between mb-3">

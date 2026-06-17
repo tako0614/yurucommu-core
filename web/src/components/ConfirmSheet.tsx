@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDialog } from "../lib/useDialog.ts";
 
 interface ConfirmSheetProps {
   open: boolean;
@@ -24,6 +25,13 @@ interface ConfirmSheetProps {
  */
 export function ConfirmSheet(props: ConfirmSheetProps) {
   const { t } = useI18n();
+  let dialogRef: HTMLDivElement | undefined;
+
+  useDialog({
+    isOpen: () => props.open,
+    onClose: () => props.onCancel(),
+    container: () => dialogRef,
+  });
 
   return (
     <Show when={props.open}>
@@ -35,6 +43,7 @@ export function ConfirmSheet(props: ConfirmSheetProps) {
           }}
         >
           <div
+            ref={dialogRef}
             role="alertdialog"
             aria-modal="true"
             aria-label={props.title}

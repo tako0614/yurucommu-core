@@ -137,3 +137,38 @@ textarea:focus-visible,
 select:focus-visible {
   border-radius: inherit;
 }
+
+/*
+ * Reduced-motion: honour the OS "reduce motion" preference. Disable the
+ * decorative/looping motion (heart-burst like animation, slide-in drawer,
+ * the ambient per-scope tint cross-fade, and spinner rotation) while keeping
+ * functional state changes instant. State is preserved — only the animation
+ * is removed — so nothing becomes unreachable.
+ */
+@media (prefers-reduced-motion: reduce) {
+  /* Spinner + pulsing indicators: stop the loop, leave the element visible. */
+  .animate-pulse-slow,
+  .animate-spin {
+    animation: none !important;
+  }
+
+  /* Slide-in drawer: skip the translate animation but land in the final
+     (visible) position rather than the off-screen `from` keyframe. */
+  .animate-slide-in {
+    animation: none !important;
+    transform: translateX(0) !important;
+  }
+
+  /* Heart-burst like flourish: skip the burst; the heart is a transient
+     decorative overlay, so removing the animation simply hides it without
+     leaving a stuck frame. */
+  .animate-heart-burst {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
+  /* Ambient per-scope tint wash cross-fade (ScopeHeader). */
+  .transition-colors {
+    transition: none !important;
+  }
+}
