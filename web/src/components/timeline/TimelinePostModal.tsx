@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import type { Actor } from "../../types/index.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { CloseIcon, CloseIconLarge, ImageIcon } from "./TimelineIcons.tsx";
@@ -6,7 +6,14 @@ import type { UploadedMedia } from "./types.ts";
 import type { PostVisibility } from "../../atoms/timeline.ts";
 import type { InhabitedScope } from "../../atoms/scope.ts";
 import { EmojiPicker } from "../story/EmojiPicker.tsx";
+import { ConfirmSheet } from "../ConfirmSheet.tsx";
+import { useDialog } from "../../lib/useDialog.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+
+// Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts). The
+// server stays the authority; this only powers the counter + a local submit
+// gate so an over-length post is caught before the round-trip.
+const MAX_CONTENT_LENGTH = 5000;
 
 interface TimelinePostModalProps {
   isOpen: boolean;
@@ -81,8 +88,56 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   const { t } = useI18n();
   const [showCw, setShowCw] = createSignal(false);
   const [showEmoji, setShowEmoji] = createSignal(false);
+  // Discard-confirm gate: shown when a dirty composer is closed via Escape /
+  // backdrop / the header close button, so an in-progress draft is never lost
+  // on a stray tap.
+  const [showDiscard, setShowDiscard] = createSignal(false);
+  let dialogRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
+
+  // The composer holds unsent work worth confirming before discarding.
+  const isDirty = () =>
+    props.postContent.trim().length > 0 ||
+    props.postSummary.trim().length > 0 ||
+    props.uploadedMedia.length > 0;
+
+  // Length gate mirrors the server limit; trimmed to match what is actually
+  // submitted (createPost trims before sending).
+  const contentLength = () => props.postContent.trim().length;
+  const overLimit = () => contentLength() > MAX_CONTENT_LENGTH;
+
+  const canSubmit = createMemo(
+    () =>
+      (props.postContent.trim().length > 0 ||
+        props.uploadedMedia.length > 0) &&
+      !props.posting &&
+      !overLimit(),
+  );
+
+  // Close request: confirm first when there is unsent content, otherwise close
+  // straight away. Used by Escape, the backdrop, and the header close button.
+  const requestClose = () => {
+    if (props.posting) return;
+    if (isDirty()) {
+      setShowDiscard(true);
+      return;
+    }
+    props.onClose();
+  };
+
+  const confirmDiscard = () => {
+    setShowDiscard(false);
+    props.onClose();
+  };
+
+  // Escape / focus-trap / scroll-lock via the shared dialog primitive. Escape
+  // routes through requestClose so a dirty draft triggers the discard confirm.
+  useDialog({
+    isOpen: () => props.isOpen && !showDiscard(),
+    onClose: requestClose,
+    container: () => dialogRef,
+  });
 
   // Scope-shaped audience: the chip names where the post lands. A community
   // scope renders the community icon + name; personal renders the owner.
@@ -128,33 +183,54 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
 
   return (
     <Show when={props.isOpen}>
-      <div class="fixed inset-0 bg-black/70 flex items-start justify-center z-50 p-4 pt-12">
-        <div class="bg-neutral-900 w-full max-w-lg rounded-2xl border border-neutral-800">
+      <div
+        class="fixed inset-0 bg-black/70 flex items-start justify-center z-50 p-4 pt-12"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) requestClose();
+        }}
+      >
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={props.placeholder}
+          class="bg-neutral-900 w-full max-w-lg rounded-2xl border border-neutral-800"
+        >
           {/* Modal Header */}
           <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
             <button
-              onClick={props.onClose}
-              aria-label="Close"
+              onClick={requestClose}
+              aria-label={t("common.close")}
               class="text-white hover:text-neutral-400 transition-colors"
             >
               <CloseIconLarge />
             </button>
-            <button
-              onClick={async () => {
-                const success = await props.onSubmit();
-                if (success) {
-                  props.onClose();
-                }
-              }}
-              disabled={
-                (!props.postContent.trim() &&
-                  props.uploadedMedia.length === 0) ||
-                props.posting
-              }
-              class="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
-            >
-              {props.posting ? props.submittingLabel : props.submitLabel}
-            </button>
+            <div class="flex items-center gap-3">
+              {/* Character counter; turns red and gates submit when over the
+                  server limit. */}
+              <span
+                class={`text-xs tabular-nums ${
+                  overLimit() ? "text-red-500" : "text-neutral-500"
+                }`}
+                aria-live="polite"
+              >
+                {t("posts.charCount")
+                  .replace("{count}", String(contentLength()))
+                  .replace("{max}", String(MAX_CONTENT_LENGTH))}
+              </span>
+              <button
+                onClick={async () => {
+                  const success = await props.onSubmit();
+                  if (success) {
+                    props.onClose();
+                  }
+                }}
+                disabled={!canSubmit()}
+                class="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
+              >
+                {props.posting ? props.submittingLabel : props.submitLabel}
+              </button>
+            </div>
           </div>
 
           {/* Modal Content */}
@@ -359,6 +435,17 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           </div>
         </div>
       </div>
+      {/* Discard confirm — layered above the composer; cancel keeps editing. */}
+      <ConfirmSheet
+        open={showDiscard()}
+        title={t("posts.discardTitle")}
+        body={t("posts.discardBody")}
+        confirmLabel={t("posts.discardConfirm")}
+        cancelLabel={t("posts.keepEditing")}
+        destructive
+        onConfirm={confirmDiscard}
+        onCancel={() => setShowDiscard(false)}
+      />
     </Show>
   );
 }

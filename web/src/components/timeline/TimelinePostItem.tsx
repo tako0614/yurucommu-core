@@ -47,10 +47,17 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
   // is a double-tap that adds a like (Instagram-style: like-only, never
   // unlike) and plays the heart burst. We defer the single-tap lightbox open by
   // one window so a double-tap can cancel it.
-  let pendingOpen: ReturnType<typeof setTimeout> | null = null;
+  //
+  // The pending open is tracked WITH the tapped index: in a multi-image grid a
+  // second tap only counts as a double-tap when it lands on the SAME image. A
+  // tap on a different image cancels the first pending open and schedules its
+  // own (so it still opens the lightbox), rather than mis-firing a like and
+  // swallowing the open.
+  let pendingOpen: { index: number; timer: ReturnType<typeof setTimeout> } | null =
+    null;
   let burstTimer: ReturnType<typeof setTimeout> | null = null;
   onCleanup(() => {
-    if (pendingOpen) clearTimeout(pendingOpen);
+    if (pendingOpen) clearTimeout(pendingOpen.timer);
     if (burstTimer) clearTimeout(burstTimer);
   });
 
@@ -64,23 +71,39 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     });
   };
 
+  // Defer the lightbox open for `index` by one double-tap window so a second
+  // tap on the same image can cancel it into a like.
+  const scheduleOpen = (index: number) => {
+    const items = props.post.attachments!;
+    pendingOpen = {
+      index,
+      timer: setTimeout(() => {
+        pendingOpen = null;
+        lightbox.open(items, index);
+      }, DOUBLE_TAP_MS),
+    };
+  };
+
   const handleMediaTap = (index: number, e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (pendingOpen) {
-      // Second tap within the window -> double-tap like.
-      clearTimeout(pendingOpen);
+      const sameImage = pendingOpen.index === index;
+      clearTimeout(pendingOpen.timer);
       pendingOpen = null;
-      fireBurst();
-      // Like-only: a double-tap never removes an existing like.
-      if (!props.post.liked) props.onLike(props.post);
+      if (sameImage) {
+        // Second tap on the same image within the window -> double-tap like.
+        fireBurst();
+        // Like-only: a double-tap never removes an existing like.
+        if (!props.post.liked) props.onLike(props.post);
+        return;
+      }
+      // A first tap on a different image: cancel the stale pending open and
+      // schedule this one so the lightbox still opens.
+      scheduleOpen(index);
       return;
     }
-    const items = props.post.attachments!;
-    pendingOpen = setTimeout(() => {
-      pendingOpen = null;
-      lightbox.open(items, index);
-    }, DOUBLE_TAP_MS);
+    scheduleOpen(index);
   };
 
   const header = (

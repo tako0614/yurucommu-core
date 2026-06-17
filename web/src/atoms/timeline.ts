@@ -11,10 +11,14 @@ import {
   uploadMedia,
 } from "../lib/api.ts";
 import type { UploadedMedia } from "../components/timeline/types.ts";
+import { ApiError } from "../lib/api/fetch.ts";
 import { pushToast, toastWriter } from "./toast.ts";
 import { scopeQueryAtom } from "./scope.ts";
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+// Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts), used to
+// surface a specific message when the server rejects an over-length post.
+const MAX_POST_CONTENT_LENGTH = 5000;
 
 export type PostVisibility = "public" | "unlisted" | "followers" | "direct";
 
@@ -232,7 +236,19 @@ export const createPostAtom = atom(
       return false;
     } catch (e) {
       console.error("Failed to create post:", e);
-      pushToast(toastWriter(set), get(tAtom)("feedback.postFailed"), {
+      // Map a server-side length rejection to a specific message so an
+      // over-length post is explained rather than a generic failure.
+      const isTooLong =
+        e instanceof ApiError &&
+        e.status === 400 &&
+        /too long/i.test(e.message);
+      const message = isTooLong
+        ? get(tAtom)("posts.tooLong").replace(
+            "{max}",
+            String(MAX_POST_CONTENT_LENGTH),
+          )
+        : get(tAtom)("feedback.postFailed");
+      pushToast(toastWriter(set), message, {
         kind: "error",
       });
       return false;
