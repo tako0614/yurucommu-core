@@ -68,14 +68,6 @@ export async function fetchDMRequests(): Promise<DMRequest[]> {
   return (data.requests || []).map(normalizeDmRequest);
 }
 
-// Accept message request (by sender AP ID)
-export async function acceptDMRequest(senderApId: string): Promise<void> {
-  const res = await apiPost("/api/dm/requests/accept", {
-    sender_ap_id: senderApId,
-  });
-  await assertOk(res, "Failed to accept request");
-}
-
 // Reject message request (by sender AP ID, optionally block)
 export async function rejectDMRequest(
   senderApId: string,

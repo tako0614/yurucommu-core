@@ -9,7 +9,6 @@ import {
 import { useNavigate, useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import {
-  acceptDMRequest,
   DMContact,
   DMRequest,
   fetchDMContact,
@@ -266,16 +265,22 @@ export function DMPage() {
     navigate("/dm");
   };
 
-  const handleAcceptRequest = async (senderApId: string) => {
-    try {
-      await acceptDMRequest(senderApId);
-      setRequests((prev) => prev.filter((r) => r.sender.ap_id !== senderApId));
-      setRequestCount((prev) => Math.max(0, prev - 1));
-      loadContacts(); // Reload contacts to show new contact
-    } catch (e) {
-      console.error("Failed to accept request:", e);
-      setListError(errorMessage());
-    }
+  const handleAcceptRequest = (request: DMRequest) => {
+    // AP-native DM model: a conversation stays a "request" until the
+    // recipient replies — replying is what accepts it; there is no separate
+    // accepted state to persist (see the /api/dm/requests/accept route).
+    // So "Accept" opens the conversation with the sender, where sending a
+    // reply moves it out of the request list and creates the contact.
+    handleSelectContact({
+      type: "user",
+      ap_id: request.sender.ap_id,
+      username: request.sender.username,
+      preferred_username: request.sender.preferred_username,
+      name: request.sender.name,
+      icon_url: request.sender.icon_url,
+      last_message: { content: request.content, is_mine: false },
+      last_message_at: request.created_at,
+    });
   };
 
   const handleRejectRequest = async (senderApId: string) => {
@@ -566,9 +571,7 @@ export function DMPage() {
                         {(request) => (
                           <RequestItem
                             request={request}
-                            onAccept={() =>
-                              handleAcceptRequest(request.sender.ap_id)
-                            }
+                            onAccept={() => handleAcceptRequest(request)}
                             onReject={() =>
                               handleRejectRequest(request.sender.ap_id)
                             }
