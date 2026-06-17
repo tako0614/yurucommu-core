@@ -474,6 +474,7 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
       attributedTo: objects.attributedTo,
       type: objects.type,
       replyCount: objects.replyCount,
+      inReplyTo: objects.inReplyTo,
     })
     .from(objects)
     .where(eq(objects.apId, objectId))
@@ -506,6 +507,21 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
     .update(actors)
     .set({ postCount: sql`${actors.postCount} - 1` })
     .where(eq(actors.apId, delObj.attributedTo));
+
+  // If the deleted object was a reply, decrement the parent's replyCount so the
+  // running tally does not inflate permanently (mirrors the increment in
+  // handleCreate and the local delete path). Guard against underflow.
+  if (delObj.inReplyTo) {
+    await db
+      .update(objects)
+      .set({ replyCount: sql`${objects.replyCount} - 1` })
+      .where(
+        and(
+          eq(objects.apId, delObj.inReplyTo),
+          sql`${objects.replyCount} > 0`,
+        ),
+      );
+  }
 }
 
 // ---------------------------------------------------------------------------

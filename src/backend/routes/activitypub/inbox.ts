@@ -302,31 +302,36 @@ async function deduplicateAndStoreActivity(
   const db = c.get("db");
   const rawJson = JSON.stringify(activity);
 
-  const existing = await db.query.activities.findFirst({
-    where: eq(activities.apId, activityId),
-    columns: { rawJson: true },
-  });
+  // Atomic insert-or-skip. `apId` is the primary key, so `onConflictDoNothing`
+  // makes concurrent duplicate delivery (e.g. the same activity arriving on the
+  // shared inbox and a per-actor inbox simultaneously) idempotent instead of
+  // throwing a primary-key violation that would surface as a 500 and trigger a
+  // peer retry. A non-null returned row means THIS request won the insert and
+  // must proceed to dispatch; a null row means a concurrent (or prior) delivery
+  // already stored it, so we ACK with 202 and skip re-dispatch.
+  const inserted = await db
+    .insert(activities)
+    .values({
+      apId: activityId,
+      type: activityType,
+      actorApId: actor,
+      objectApId: activityObjectId,
+      rawJson,
+      direction: "inbound",
+    })
+    .onConflictDoNothing()
+    .returning()
+    .get();
 
-  if (existing) {
-    if (existing.rawJson !== rawJson) {
-      log.warn("Duplicate activity received with different content", {
-        event: "ap.activity.duplicate_content_mismatch",
-        activityId,
-        activityType,
-        actor,
-      });
-    }
+  if (!inserted) {
+    log.info("Duplicate activity skipped", {
+      event: "ap.activity.duplicate_skipped",
+      activityId,
+      activityType,
+      actor,
+    });
     return c.body(null, 202);
   }
-
-  await db.insert(activities).values({
-    apId: activityId,
-    type: activityType,
-    actorApId: actor,
-    objectApId: activityObjectId,
-    rawJson,
-    direction: "inbound",
-  });
 
   return null;
 }
@@ -550,23 +555,36 @@ ap.post("/ap/actor/inbox", async (c) => {
 
   const { activity, activityType, actor } = result;
 
-  switch (activityType) {
-    case "Follow":
-      await handleGroupFollow(
-        c,
-        activity,
-        instActor,
-        actor,
-        baseUrl,
-        result.activityId,
-      );
-      break;
-    case "Undo":
-      await handleGroupUndo(c, activity, instActor);
-      break;
-    case "Create":
-      await handleGroupCreate(c, activity, instActor, actor, baseUrl);
-      break;
+  // The activity is already stored before group dispatch (dedup ledger), so a
+  // thrown handler that 500s would make the remote retry, hit dedup, and
+  // permanently drop the activity undispatched. Isolate the failure, log it,
+  // and still ACK with 202 — consistent with the per-actor and shared inboxes.
+  try {
+    switch (activityType) {
+      case "Follow":
+        await handleGroupFollow(
+          c,
+          activity,
+          instActor,
+          actor,
+          baseUrl,
+          result.activityId,
+        );
+        break;
+      case "Undo":
+        await handleGroupUndo(c, activity, instActor);
+        break;
+      case "Create":
+        await handleGroupCreate(c, activity, instActor, actor, baseUrl);
+        break;
+    }
+  } catch (e) {
+    log.error("Actor-inbox dispatch failed", {
+      event: "ap.actor_inbox.dispatch_error",
+      activityType,
+      actor,
+      error: e,
+    });
   }
 
   return c.body(null, 202);
@@ -596,11 +614,27 @@ ap.post("/ap/users/:username/inbox", async (c) => {
 
   await cacheRemoteActor(c, actor, baseUrl);
 
-  await dispatchUserActivity(c, activityType, activity, {
-    recipient,
-    actor,
-    baseUrl,
-  });
+  // The activity row is already stored (dedup ledger) before dispatch. If a
+  // handler throws and we let the route 500, the remote retries, dedup finds
+  // the stored row, and the activity is permanently lost without ever being
+  // dispatched. Mirror the shared-inbox fan-out: isolate the handler failure,
+  // log it, and still ACK with 202 so a retry is not provoked into a silent
+  // black hole.
+  try {
+    await dispatchUserActivity(c, activityType, activity, {
+      recipient,
+      actor,
+      baseUrl,
+    });
+  } catch (e) {
+    log.error("User-inbox dispatch failed", {
+      event: "ap.user_inbox.dispatch_error",
+      activityType,
+      actor,
+      recipient: recipient.apId,
+      error: e,
+    });
+  }
 
   return c.body(null, 202);
 });

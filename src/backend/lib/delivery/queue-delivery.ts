@@ -391,19 +391,41 @@ export async function processDeliverEndpoint(
     });
 
     if (response?.ok) {
+      // The remote POST already succeeded. From here on the message MUST be
+      // acked even if the bookkeeping DB writes fail: re-running the batch
+      // would re-POST the same activity and produce a duplicate delivery. A
+      // stale 'processing' row left behind by a failed update is harmless
+      // (it gets reaped/retried only via reconcile, which re-checks state).
       const now = nowIso();
-      await db
-        .update(deliveryQueue)
-        .set({
-          status: "delivered",
-          deliveredAt: now,
-          error: null,
-          lastAttemptAt: now,
-          processingStartedAt: null,
-        })
-        .where(eq(deliveryQueue.id, job.id));
+      try {
+        await db
+          .update(deliveryQueue)
+          .set({
+            status: "delivered",
+            deliveredAt: now,
+            error: null,
+            lastAttemptAt: now,
+            processingStartedAt: null,
+          })
+          .where(eq(deliveryQueue.id, job.id));
+        await recordCircuitSuccess(db, endpoint);
+      } catch (e) {
+        log.error("Post-delivery bookkeeping failed; acking to avoid re-POST", {
+          event: "delivery.deliver.post_success_update_failed",
+          jobId: job.id,
+          activityId: job.activityApId,
+          endpoint,
+          endpointHost: host,
+          error: e,
+        });
+        emitMetric("delivery_success", 1, {
+          endpoint_host: host,
+          bookkeeping_failed: true,
+        });
+        message.ack();
+        return;
+      }
       emitMetric("delivery_success", 1, { endpoint_host: host });
-      await recordCircuitSuccess(db, endpoint);
 
       // Shadow probe (staging-only)
       if (job.attempts === 0) {
@@ -461,9 +483,14 @@ export async function processDeliverEndpoint(
       }
     }
 
-    // Non-retryable 4xx (except 429) => permanent failure
+    // Non-retryable 4xx => permanent failure, EXCEPT transient statuses:
+    // 429 Too Many Requests, 408 Request Timeout, 425 Too Early.
+    const TRANSIENT_4XX = new Set([408, 425, 429]);
     const nonRetryable =
-      status !== null && status >= 400 && status < 500 && status !== 429;
+      status !== null &&
+      status >= 400 &&
+      status < 500 &&
+      !TRANSIENT_4XX.has(status);
     if (nonRetryable) {
       await failJob(db, job.id, errorMessage, message);
       emitMetric("delivery_success", 0, {

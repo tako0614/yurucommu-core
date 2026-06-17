@@ -34,11 +34,14 @@ import {
 } from "../../db/index.ts";
 import type { Env, Variables } from "../types.ts";
 import {
+  activityApId,
   formatUsername,
+  generateId,
   parseLimit,
   parseOffset,
   safeJsonParse,
 } from "../federation-helpers.ts";
+import { enqueueFanoutToFollowers } from "../lib/delivery/queue.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import {
   actorExists,
@@ -203,8 +206,44 @@ actorsRoute.post("/me/delete", async (c) => {
 
   const actorApIdVal = actor.ap_id;
   const db = c.get("db");
+  const baseUrl = c.env.APP_URL;
 
   try {
+    // Federate account deletion BEFORE local teardown so remote followers
+    // learn the actor is gone. We persist a Delete(actor) activity and enqueue
+    // fan-out to followers while the follower graph and the activity row still
+    // exist; the activity row is intentionally preserved through teardown
+    // (excluded from the activities delete below) so the delivery consumer can
+    // still read its rawJson after the actor's other rows are gone.
+    const deleteActivityId = activityApId(baseUrl, generateId());
+    const deleteActivity = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: deleteActivityId,
+      type: "Delete",
+      actor: actorApIdVal,
+      to: ["https://www.w3.org/ns/activitystreams#Public"],
+      cc: [actor.followers_url],
+      object: actorApIdVal,
+    };
+    try {
+      await db.insert(activities).values({
+        apId: deleteActivityId,
+        type: "Delete",
+        actorApId: actorApIdVal,
+        objectApId: actorApIdVal,
+        rawJson: JSON.stringify(deleteActivity),
+        direction: "outbound",
+      });
+      await enqueueFanoutToFollowers(c.env, deleteActivityId, actorApIdVal);
+    } catch (err) {
+      // Federation is best-effort; never block local account deletion on it.
+      log.error("Failed to enqueue account Delete federation", {
+        event: "actors.account.delete_federation_failed",
+        actor: actorApIdVal,
+        error: err,
+      });
+    }
+
     // Phase 1: remove dependent records sequentially.
     await db.delete(sessions).where(eq(sessions.memberId, actorApIdVal));
 
@@ -260,7 +299,16 @@ actorsRoute.post("/me/delete", async (c) => {
     await db
       .delete(objectRecipients)
       .where(eq(objectRecipients.recipientApId, actorApIdVal));
-    await db.delete(activities).where(eq(activities.actorApId, actorApIdVal));
+    // Preserve the federation Delete activity so the async delivery consumer
+    // can still read its rawJson; all other activities by this actor go.
+    await db
+      .delete(activities)
+      .where(
+        and(
+          eq(activities.actorApId, actorApIdVal),
+          ne(activities.apId, deleteActivityId),
+        ),
+      );
 
     const authoredObjects = await db
       .select({ apId: objects.apId })
@@ -557,6 +605,88 @@ actorsRoute.put("/me", async (c) => {
 
   const db = c.get("db");
   await db.update(actors).set(updates).where(eq(actors.apId, actor.ap_id));
+
+  // Federate the profile change so remote followers do not see a stale
+  // Person. Every field this route can mutate (name / summary / icon /
+  // header / is_private) is part of the published actor document, so any
+  // applied update is federated-visible: build a fresh Update(Person) from
+  // the post-update values and fan it out to followers.
+  const baseUrl = c.env.APP_URL;
+  const nextName =
+    "name" in updates ? (updates.name as string | null) : actor.name;
+  const nextSummary =
+    "summary" in updates ? (updates.summary as string | null) : actor.summary;
+  const nextIconUrl =
+    "iconUrl" in updates ? (updates.iconUrl as string | null) : actor.icon_url;
+  const nextHeaderUrl =
+    "headerUrl" in updates
+      ? (updates.headerUrl as string | null)
+      : actor.header_url;
+  const nextIsPrivate =
+    "isPrivate" in updates ? (updates.isPrivate as number) : actor.is_private;
+
+  // Mirror the actor document served at the federation actor endpoint
+  // (routes/activitypub.ts) so remote servers receive a consistent Person.
+  const personObject: Record<string, unknown> = {
+    id: actor.ap_id,
+    type: actor.type,
+    preferredUsername: actor.preferred_username,
+    name: nextName,
+    summary: nextSummary,
+    inbox: actor.inbox,
+    outbox: actor.outbox,
+    followers: actor.followers_url,
+    following: actor.following_url,
+    endpoints: {
+      sharedInbox: `${baseUrl}/ap/inbox`,
+    },
+    publicKey: {
+      id: `${actor.ap_id}#main-key`,
+      owner: actor.ap_id,
+      publicKeyPem: actor.public_key_pem,
+    },
+    discoverable: !nextIsPrivate,
+    manuallyApprovesFollowers: Boolean(nextIsPrivate),
+  };
+  if (nextIconUrl) {
+    personObject.icon = { type: "Image", url: nextIconUrl };
+  }
+  if (nextHeaderUrl) {
+    personObject.image = { type: "Image", url: nextHeaderUrl };
+  }
+
+  const updateActivityId = activityApId(baseUrl, generateId());
+  const updateActivity = {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/security/v1",
+    ],
+    id: updateActivityId,
+    type: "Update",
+    actor: actor.ap_id,
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    cc: [actor.followers_url],
+    object: personObject,
+  };
+
+  try {
+    await db.insert(activities).values({
+      apId: updateActivityId,
+      type: "Update",
+      actorApId: actor.ap_id,
+      objectApId: actor.ap_id,
+      rawJson: JSON.stringify(updateActivity),
+      direction: "outbound",
+    });
+    await enqueueFanoutToFollowers(c.env, updateActivityId, actor.ap_id);
+  } catch (err) {
+    // Federation is best-effort; the local profile update already succeeded.
+    log.error("Failed to enqueue profile Update federation", {
+      event: "actors.profile.update_federation_failed",
+      actor: actor.ap_id,
+      error: err,
+    });
+  }
 
   return c.json({ success: true });
 });

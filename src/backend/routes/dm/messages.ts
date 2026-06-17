@@ -85,6 +85,25 @@ function validateContent(
   return content;
 }
 
+/**
+ * Resolve a `user@domain` handle for a DM recipient. Prefers the stored
+ * preferredUsername paired with the recipient's host, falling back to
+ * deriving the handle from the actor id (`formatUsername`).
+ */
+function resolveRecipientHandle(
+  preferredUsername: string | null,
+  apId: string,
+): string {
+  if (preferredUsername) {
+    try {
+      return `${preferredUsername}@${new URL(apId).host}`;
+    } catch {
+      // fall through to apId-derived handle
+    }
+  }
+  return formatUsername(apId);
+}
+
 /** Build a sender info object from a current-session actor. */
 function buildSenderFromActor(actor: {
   ap_id: string;
@@ -323,14 +342,22 @@ dm.post("/user/:encodedApId/messages", async (c) => {
 
   // Verify other user exists (check both local actors and cached remote actors)
   const localActor = await db
-    .select({ apId: actors.apId, inbox: actors.inbox })
+    .select({
+      apId: actors.apId,
+      inbox: actors.inbox,
+      preferredUsername: actors.preferredUsername,
+    })
     .from(actors)
     .where(eq(actors.apId, otherApId))
     .get();
 
   const cachedActor = !localActor
     ? await db
-        .select({ apId: actorCache.apId, inbox: actorCache.inbox })
+        .select({
+          apId: actorCache.apId,
+          inbox: actorCache.inbox,
+          preferredUsername: actorCache.preferredUsername,
+        })
         .from(actorCache)
         .where(eq(actorCache.apId, otherApId))
         .get()
@@ -361,6 +388,13 @@ dm.post("/user/:encodedApId/messages", async (c) => {
 
   const isRecipientLocal = !!localActor;
   const deliveryActivityId = activityApId(baseUrl, generateId());
+  // Address the recipient with a Mention tag so remote servers (e.g. Mastodon)
+  // surface the DM as a notification. Prefer the stored preferredUsername, then
+  // fall back to deriving user@domain from the recipient actor id.
+  const recipientName = `@${resolveRecipientHandle(otherActor.preferredUsername, otherApId)}`;
+  const mentionTag = [
+    { type: "Mention", href: otherApId, name: recipientName },
+  ];
   const remoteCreateActivity = !isRecipientLocal
     ? {
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -368,6 +402,7 @@ dm.post("/user/:encodedApId/messages", async (c) => {
         type: "Create",
         actor: actor.ap_id,
         to: [otherApId],
+        tag: mentionTag,
         object: {
           id: apId,
           type: "Note",
@@ -376,6 +411,7 @@ dm.post("/user/:encodedApId/messages", async (c) => {
           content,
           published: now,
           conversation: conversationId,
+          tag: mentionTag,
         },
       }
     : null;

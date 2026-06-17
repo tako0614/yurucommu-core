@@ -18,9 +18,26 @@ import {
   isDeliveryQueueMessageV1,
 } from "./types.ts";
 import { computeDeliveryJobId, safeEndpointHost } from "./transformers.ts";
+import { emitMetric } from "./metrics.ts";
 import { logger } from "../logger.ts";
 
 const log = logger.child({ component: "delivery.queue" });
+
+// Without DELIVERY_QUEUE/DELIVERY_DLQ bindings, enqueued activities persist in
+// the DB but never federate. That used to be a silent no-op; surface it as a
+// structured error/metric on first occurrence so it is observable. Reset only
+// once a successful enqueue happens again (so a later misconfiguration re-fires).
+let producerUnavailableReported = false;
+
+function reportProducerUnavailable(op: string): void {
+  if (producerUnavailableReported) return;
+  producerUnavailableReported = true;
+  log.error("Delivery queue producer unavailable; activity will not federate", {
+    event: "delivery.queue.producer_unavailable",
+    op,
+  });
+  emitMetric("delivery.queue.producer_unavailable", 1, { op });
+}
 
 function assertNever(x: never): never {
   throw new Error(
@@ -127,7 +144,11 @@ export async function sendQueueMessage(
   body: DeliveryQueueMessageV1,
   delaySeconds?: number,
 ): Promise<void> {
-  if (!queueAvailable(env)) return;
+  if (!queueAvailable(env)) {
+    reportProducerUnavailable("sendQueueMessage");
+    return;
+  }
+  producerUnavailableReported = false;
   await env.DELIVERY_QUEUE.send(
     body,
     delaySeconds ? { delaySeconds } : undefined,
@@ -138,7 +159,11 @@ export async function sendDlqMessage(
   env: Env,
   payload: DeliveryDlqMessageV1,
 ): Promise<void> {
-  if (!queueAvailable(env)) return;
+  if (!queueAvailable(env)) {
+    reportProducerUnavailable("sendDlqMessage");
+    return;
+  }
+  producerUnavailableReported = false;
   await env.DELIVERY_DLQ.send(payload);
 }
 

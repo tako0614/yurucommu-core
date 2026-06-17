@@ -5,12 +5,15 @@ import {
   follows,
   objects,
 } from "../../../db/index.ts";
-import { and, desc, eq, or, sql } from "drizzle-orm";
-import type { Env, Variables } from "../../types.ts";
+import type { Database } from "../../../db/index.ts";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import type { Actor, Env, Variables } from "../../types.ts";
 import {
   activityApId,
   formatUsername,
   generateId,
+  isLocal,
+  isSafeRemoteUrl,
   objectApId,
   parseLimit,
   safeJsonParse,
@@ -27,6 +30,8 @@ import {
   buildCommunityObjectAddressing,
   loadCachedAuthorMap,
   loadInteractionFlags,
+  mergeCc,
+  persistActivity,
   persistAndFanout,
   persistAndFanoutToCommunity,
   type PostDetailRow,
@@ -36,6 +41,7 @@ import {
   resolveAuthorWithCache,
   toPostRow,
 } from "./queries.ts";
+import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
 import {
   checkCommunityPostPermission,
   insertPostAndHandleReply,
@@ -52,6 +58,74 @@ import { logger } from "../../lib/logger.ts";
 const log = logger.child({ component: "posts.routes" });
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+const PUBLIC_COLLECTION = "https://www.w3.org/ns/activitystreams#Public";
+
+/** Reply row shape needed for the visibility gate (subset of the object row). */
+type ReplyVisibilityRow = {
+  attributedTo: string;
+  visibility: string;
+  toJson?: string | null;
+};
+
+/**
+ * Apply the SAME per-post visibility gate that GET /:id uses, to a LIST of
+ * replies, so a follower-only or direct reply is never returned to a viewer
+ * who is not its author / an accepted follower / an addressed recipient.
+ *
+ * `public` and `unlisted` replies are always visible. The accepted-follow
+ * edges the viewer needs across all follower-only reply authors are resolved
+ * in a single batched query to avoid an N+1.
+ */
+async function filterVisibleReplies<T extends ReplyVisibilityRow>(
+  db: Database,
+  currentActor: Actor | null | undefined,
+  replies: T[],
+): Promise<T[]> {
+  const viewerApId = currentActor?.ap_id;
+
+  // Authors of follower-only replies the viewer does not own — these are the
+  // only authors we need an accepted-follow edge for.
+  const followerGateAuthors = new Set<string>();
+  for (const reply of replies) {
+    if (
+      reply.visibility === "followers" &&
+      reply.attributedTo !== viewerApId
+    ) {
+      followerGateAuthors.add(reply.attributedTo);
+    }
+  }
+
+  let acceptedFollowing = new Set<string>();
+  if (viewerApId && followerGateAuthors.size > 0) {
+    const rows = await db
+      .select({ followingApId: follows.followingApId })
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followerApId, viewerApId),
+          inArray(follows.followingApId, [...followerGateAuthors]),
+          eq(follows.status, "accepted"),
+        ),
+      );
+    acceptedFollowing = new Set(rows.map((r) => r.followingApId));
+  }
+
+  return replies.filter((reply) => {
+    if (reply.visibility === "followers") {
+      if (!viewerApId) return false;
+      if (reply.attributedTo === viewerApId) return true;
+      return acceptedFollowing.has(reply.attributedTo);
+    }
+    if (reply.visibility === "direct") {
+      if (!viewerApId) return false;
+      if (reply.attributedTo === viewerApId) return true;
+      const recipients = safeJsonParse<string[]>(reply.toJson, []);
+      return recipients.includes(viewerApId);
+    }
+    return true;
+  });
+}
 
 // --- Route handlers ---
 
@@ -119,8 +193,14 @@ posts.post("/", async (c) => {
     return c.json({ error: "Failed to create post" }, 500);
   }
 
-  // Process mentions and create notifications
-  const mentionFailures = await processMentions(db, {
+  // Process mentions: resolve @mentions (local + remote), build `Mention`
+  // tags, create local notifications, and collect the resolved recipient IRIs.
+  const {
+    failures: mentionFailures,
+    tags: mentionTags,
+    mentionedActorApIds,
+    remoteMentionedActorApIds,
+  } = await processMentions(db, {
     content,
     postApId: apId,
     actorApId: actor.ap_id,
@@ -129,19 +209,27 @@ posts.post("/", async (c) => {
     now,
   });
 
-  // Federate if visibility is not direct.
+  // Federate when the post has follower/public/community reach OR when it has
+  // resolved mentions (a mention is an explicit recipient, so even a "direct"
+  // post must federate the Create to its remote mentioned actors).
   //
   // Community-scoped posts have reach == community: address the Create toward
   // the community Group actor + its followers collection (NOT the author's
   // personal followers), record the community in `audience`, and fan out to
   // the community's members/followers. Non-community posts keep the existing
-  // author-follower addressing and fan-out.
-  if (visibility !== "direct") {
+  // author-follower addressing and fan-out. Mentioned actors are always added
+  // to `cc` so the post is addressed to them on the receiving server.
+  if (visibility !== "direct" || mentionedActorApIds.length > 0) {
     let to: string[];
     let cc: string[];
     let audience: string[] | undefined;
 
-    if (community) {
+    if (visibility === "direct") {
+      // Direct post with mentions: no follower/public reach, only the
+      // mentioned actors are recipients.
+      to = [];
+      cc = [];
+    } else if (community) {
       const objectAddressing = buildCommunityObjectAddressing(
         visibility,
         community,
@@ -154,6 +242,11 @@ posts.post("/", async (c) => {
       ({ to, cc } = buildAddressing(visibility, followersUrl));
     }
 
+    // Add every mentioned actor IRI to cc (de-duplicated).
+    cc = mergeCc(cc, mentionedActorApIds);
+
+    const tag = mentionTags.length > 0 ? mentionTags : undefined;
+
     const createActivity = {
       "@context": "https://www.w3.org/ns/activitystreams",
       id: activityApId(baseUrl, generateId()),
@@ -163,6 +256,7 @@ posts.post("/", async (c) => {
       to,
       cc,
       ...(audience ? { audience } : {}),
+      ...(tag ? { tag } : {}),
       object: {
         "@context": "https://www.w3.org/ns/activitystreams",
         id: apId,
@@ -176,10 +270,15 @@ posts.post("/", async (c) => {
         to,
         cc,
         ...(audience ? { audience } : {}),
+        ...(tag ? { tag } : {}),
       },
     };
 
-    if (community) {
+    if (visibility === "direct") {
+      // No follower/community fanout for a direct post — persist only, then
+      // direct-deliver to the remote mentioned actors below.
+      await persistActivity(db, createActivity, apId);
+    } else if (community) {
       await persistAndFanoutToCommunity(
         db,
         c.env,
@@ -189,6 +288,22 @@ posts.post("/", async (c) => {
       );
     } else {
       await persistAndFanout(db, c.env, createActivity, apId);
+    }
+
+    // Deliver the Create directly to each remote mentioned actor's inbox.
+    // Community/follower fanout does not include arbitrary remote mentions, so
+    // this is the only path that reaches a remote @user@domain mention.
+    for (const recipient of remoteMentionedActorApIds) {
+      try {
+        await enqueueDeliveryToActor(c.env, createActivity.id, recipient);
+      } catch (err) {
+        log.error("Failed to enqueue mention delivery", {
+          event: "posts.mention.delivery_enqueue_failed",
+          activityId: createActivity.id,
+          recipient,
+          error: err,
+        });
+      }
     }
   }
 
@@ -309,12 +424,18 @@ posts.get("/:id/replies", async (c) => {
       )
     : eq(objects.inReplyTo, parentPost.apId);
 
-  const replies = await db.query.objects.findMany({
+  const allReplies = await db.query.objects.findMany({
     where: whereCondition,
     with: AUTHOR_WITH,
     orderBy: desc(objects.published),
     limit,
   });
+
+  // Apply the SAME visibility gate as GET /:id, per-reply: a follower-only or
+  // direct reply must not leak to a viewer who is not its author / an accepted
+  // follower / an addressed recipient. Resolve the accepted-follow edges the
+  // viewer needs in a single batched query to avoid an N+1.
+  const replies = await filterVisibleReplies(db, currentActor, allReplies);
 
   // Batch load cached authors and interaction flags in parallel
   const replyApIds = replies.map((r) => r.apId);
@@ -472,15 +593,77 @@ posts.delete("/:id", async (c) => {
     });
   }
 
+  // The Delete must reach everyone the original object reached, not just the
+  // author's current followers: mirror the object's stored to/cc, and emit a
+  // Tombstone object (per AP) instead of a bare IRI so receivers can render
+  // the deletion correctly.
+  const originalTo = safeJsonParse<string[]>(post.toJson, []);
+  const originalCc = safeJsonParse<string[]>(post.ccJson, []);
+
+  // For a reply, the parent author's instance must also be told (it counts the
+  // reply); for a direct post, the DM recipients are exactly the addressed
+  // actors. Collect explicit (actor-IRI) recipients for direct per-actor
+  // delivery — anything that is not a Public/collection IRI is treated as an
+  // actor inbox target if it is a safe remote URL.
+  const explicitRecipients = new Set<string>();
+  for (const iri of [...originalTo, ...originalCc]) {
+    if (
+      iri &&
+      iri !== PUBLIC_COLLECTION &&
+      !iri.endsWith("/followers") &&
+      isLocal(iri, baseUrl) === false &&
+      isSafeRemoteUrl(iri)
+    ) {
+      explicitRecipients.add(iri);
+    }
+  }
+
+  // Parent author's instance (replies): ensure the reply deletion propagates
+  // to the thread root's host even if it was not in the object's to/cc.
+  if (post.inReplyTo) {
+    const parent = await db
+      .select({ attributedTo: objects.attributedTo })
+      .from(objects)
+      .where(eq(objects.apId, post.inReplyTo))
+      .get();
+    if (
+      parent?.attributedTo &&
+      !isLocal(parent.attributedTo, baseUrl) &&
+      isSafeRemoteUrl(parent.attributedTo)
+    ) {
+      explicitRecipients.add(parent.attributedTo);
+    }
+  }
+
   const deleteActivity = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: activityApId(baseUrl, generateId()),
     type: "Delete",
     actor: actor.ap_id,
-    object: post.apId,
+    to: originalTo,
+    cc: originalCc,
+    object: {
+      id: post.apId,
+      type: "Tombstone",
+    },
   };
 
+  // Fan out to the author's followers (matching the original create reach) and
+  // additionally deliver directly to each explicitly-addressed remote actor.
   await persistAndFanout(db, c.env, deleteActivity, post.apId);
+
+  for (const recipient of explicitRecipients) {
+    try {
+      await enqueueDeliveryToActor(c.env, deleteActivity.id, recipient);
+    } catch (err) {
+      log.error("Failed to enqueue delete delivery", {
+        event: "posts.delete.delivery_enqueue_failed",
+        activityId: deleteActivity.id,
+        recipient,
+        error: err,
+      });
+    }
+  }
 
   return c.json({ success: true });
 });

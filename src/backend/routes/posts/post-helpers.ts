@@ -20,7 +20,12 @@ import {
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import type { Env } from "../../types.ts";
-import { activityApId, generateId, isLocal } from "../../federation-helpers.ts";
+import {
+  activityApId,
+  formatUsername,
+  generateId,
+  isLocal,
+} from "../../federation-helpers.ts";
 import {
   extractMentions,
   MAX_POST_CONTENT_LENGTH,
@@ -31,8 +36,10 @@ import {
   type CreatePostBody,
   isRecord,
   type MentionFailure,
+  type MentionTag,
   parseJsonObject,
   type PostAttachment,
+  type ProcessMentionsResult,
   validateOptionalString,
 } from "./queries.ts";
 import { logger } from "../../lib/logger.ts";
@@ -345,9 +352,14 @@ export async function insertPostAndHandleReply(
 // ---------------------------------------------------------------------------
 
 /**
- * Extract @mentions from content, resolve them to actor AP IDs,
- * create notification activities for local mentioned actors, and
- * return any failures encountered.
+ * Extract @mentions from content, resolve them to actor AP IDs (local AND
+ * remote), build the `Mention` tag array for the outbound Note/Create, create
+ * notification activities for LOCAL mentioned actors, and return the resolved
+ * actor IRIs so the caller can address (`cc`) and deliver (remote inbox) the
+ * Create to every mentioned actor.
+ *
+ * Remote mentioned actors do not get a local inbox row — they are reached by
+ * federated delivery, which the caller enqueues via `enqueueDeliveryToActor`.
  */
 export async function processMentions(
   db: Database,
@@ -359,11 +371,22 @@ export async function processMentions(
     baseUrl: string;
     now: string;
   },
-): Promise<MentionFailure[]> {
+): Promise<ProcessMentionsResult> {
   const mentions = extractMentions(params.content);
   const mentionFailures: MentionFailure[] = [];
+  const tags: MentionTag[] = [];
+  const mentionedActorApIds: string[] = [];
+  const remoteMentionedActorApIds: string[] = [];
+  const seenMentioned = new Set<string>();
 
-  if (mentions.length === 0) return mentionFailures;
+  const emptyResult: ProcessMentionsResult = {
+    failures: mentionFailures,
+    tags,
+    mentionedActorApIds,
+    remoteMentionedActorApIds,
+  };
+
+  if (mentions.length === 0) return emptyResult;
 
   const localMentions = mentions.filter((m) => !m.includes("@"));
   const remoteMentions = mentions.filter((m) => m.includes("@"));
@@ -432,9 +455,29 @@ export async function processMentions(
       if (!mentionedActorApId || mentionedActorApId === params.actorApId) {
         continue;
       }
-      if (params.parentAuthor === mentionedActorApId) continue;
 
-      if (!isLocal(mentionedActorApId, params.baseUrl)) continue;
+      const remote = !isLocal(mentionedActorApId, params.baseUrl);
+
+      // Every resolved mention (local + remote) gets a `Mention` tag and is
+      // recorded as a recipient so the caller can address (`cc`) and — for
+      // remote actors — deliver the Create to it. `name` uses the canonical
+      // `@user@host` acct form so receiving servers can render/notify.
+      if (!seenMentioned.has(mentionedActorApId)) {
+        seenMentioned.add(mentionedActorApId);
+        tags.push({
+          type: "Mention",
+          href: mentionedActorApId,
+          name: `@${formatUsername(mentionedActorApId)}`,
+        });
+        mentionedActorApIds.push(mentionedActorApId);
+        if (remote) remoteMentionedActorApIds.push(mentionedActorApId);
+      }
+
+      // Local notification fan-in only. The parent author is already notified
+      // by the reply path, and remote actors are reached by federated delivery
+      // (no local inbox row), so skip both here.
+      if (params.parentAuthor === mentionedActorApId) continue;
+      if (remote) continue;
 
       const mentionActivityId = activityApId(params.baseUrl, generateId());
       activitiesToCreate.push({
@@ -503,7 +546,7 @@ export async function processMentions(
     }
   }
 
-  return mentionFailures;
+  return emptyResult;
 }
 
 // ---------------------------------------------------------------------------

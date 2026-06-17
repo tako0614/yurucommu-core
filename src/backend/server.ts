@@ -22,6 +22,7 @@
 import type { Message, MessageBatch, Queue } from "@cloudflare/workers-types";
 import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import process from "node:process";
+import { and, inArray, lt, or } from "drizzle-orm";
 import { BunAssets, BunDatabase, BunStorage } from "./runtime/bun.ts";
 import { MemoryKV } from "./runtime/memory-kv.ts";
 import type { Env } from "./types.ts";
@@ -29,7 +30,8 @@ import type {
   DeliveryDlqMessageV1,
   DeliveryQueueMessageV1,
 } from "./lib/delivery/types.ts";
-import { getDbSQLite } from "../db/index.ts";
+import { buildDeliverEndpointMessage } from "./lib/delivery/queue.ts";
+import { deliveryQueue, getDbSQLite } from "../db/index.ts";
 import { logger } from "./lib/logger.ts";
 
 const log = logger.child({ component: "server.bootstrap" });
@@ -227,6 +229,114 @@ function attachLocalDeliveryQueues(env: LocalServerEnv): void {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Local delivery queue durability: reconciliation sweep
+// ---------------------------------------------------------------------------
+//
+// The in-memory local queue (createLocalQueue) holds queued/retry-waiting
+// deliveries only in process memory + setTimeout timers. On the supported
+// bun/node-postgres self-host path a restart loses every in-flight delivery.
+//
+// The delivery_queue table is the durable record of work that still needs to
+// run, so we reconcile it back into the in-memory queue on startup and on a
+// periodic interval. We re-enqueue every row whose terminal disposition has
+// not been reached:
+//   - pending / retry_wait: enqueued or waiting for a retry that the lost
+//     setTimeout would otherwise never fire.
+//   - processing older than the stale threshold: a delivery that was claimed
+//     by a worker that died before acking/finishing (queue-delivery.ts treats
+//     such rows as reclaimable via STALE_PROCESSING_MS).
+// Rows in delivered / dead_letter / failed are terminal and skipped.
+//
+// This is guarded to the local/bun queue path only — under Cloudflare Queues
+// the platform persists in-flight messages and re-delivers them itself, so the
+// sweep must not run there.
+
+/** Statuses that still represent work the local queue must (re)drive. */
+const RECONCILE_PENDING_STATUSES = ["pending", "retry_wait"] as const;
+
+/**
+ * Matches queue-delivery.ts STALE_PROCESSING_MS: a row marked `processing`
+ * older than this lost its owning worker and is safe to re-enqueue.
+ */
+const RECONCILE_STALE_PROCESSING_MS = 2 * 60 * 1000;
+
+/** How often the periodic reconciliation sweep runs. */
+const RECONCILE_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/** How many rows to re-enqueue per sweep pass. */
+const RECONCILE_SWEEP_BATCH = 500;
+
+/**
+ * Select non-terminal delivery_queue rows and re-enqueue them onto the local
+ * delivery queue. Returns the number of rows re-enqueued.
+ */
+export async function reconcileLocalDeliveryQueue(
+  env: LocalServerEnv,
+): Promise<number> {
+  const queue = env.DELIVERY_QUEUE;
+  if (!queue) return 0;
+
+  const db = env.DB_INSTANCE;
+  const staleBefore = new Date(
+    Date.now() - RECONCILE_STALE_PROCESSING_MS,
+  ).toISOString();
+
+  const rows = await db
+    .select({ id: deliveryQueue.id })
+    .from(deliveryQueue)
+    .where(
+      or(
+        inArray(deliveryQueue.status, [...RECONCILE_PENDING_STATUSES]),
+        and(
+          inArray(deliveryQueue.status, ["processing"]),
+          lt(deliveryQueue.processingStartedAt, staleBefore),
+        ),
+      ),
+    )
+    .limit(RECONCILE_SWEEP_BATCH);
+
+  if (rows.length === 0) return 0;
+
+  for (const row of rows) {
+    await queue.send(buildDeliverEndpointMessage(row.id));
+  }
+  return rows.length;
+}
+
+/**
+ * Run the reconciliation sweep once at startup and then on a periodic
+ * interval. Local/bun queue path only. Errors are logged and swallowed so a
+ * transient DB hiccup never tears down the server.
+ */
+function startLocalDeliveryQueueReconciler(env: LocalServerEnv): void {
+  const runSweep = async (trigger: "startup" | "interval") => {
+    try {
+      const requeued = await reconcileLocalDeliveryQueue(env);
+      if (requeued > 0) {
+        log.info("Reconciled local delivery queue", {
+          event: "server.local_delivery_queue.reconciled",
+          trigger,
+          requeued,
+        });
+      }
+    } catch (error) {
+      log.error("Local delivery queue reconciliation failed", {
+        event: "server.local_delivery_queue.reconcile_failed",
+        trigger,
+        error,
+      });
+    }
+  };
+
+  void runSweep("startup");
+  const timer = setInterval(() => {
+    void runSweep("interval");
+  }, RECONCILE_SWEEP_INTERVAL_MS);
+  // Do not keep the event loop alive solely for the reconciler.
+  (timer as { unref?: () => void }).unref?.();
+}
+
 async function createLocalServerEnv(config: {
   databasePath: string;
   storagePath: string;
@@ -255,6 +365,7 @@ async function createLocalServerEnv(config: {
 
   if (isTruthyEnv(process.env.YURUCOMMU_ENABLE_LOCAL_DELIVERY_QUEUE)) {
     attachLocalDeliveryQueues(env);
+    env.__localDeliveryQueueEnabled = true;
   }
 
   return { env, rawDb: db };
@@ -263,9 +374,15 @@ async function createLocalServerEnv(config: {
 type LocalServerEnv = Pick<
   Env,
   "DB_INSTANCE" | "MEDIA" | "KV" | "ASSETS" | "DELIVERY_QUEUE" | "DELIVERY_DLQ"
-> & { APP_URL: string } & Partial<
-    Record<(typeof ENV_PASSTHROUGH_KEYS)[number], string | undefined>
-  >;
+> & {
+  APP_URL: string;
+  /**
+   * Set when the in-memory local delivery queue path is active (bun/node-
+   * postgres self-host). Gates the durability reconciliation sweep so it never
+   * runs on the Cloudflare Queues path.
+   */
+  __localDeliveryQueueEnabled?: boolean;
+} & Partial<Record<(typeof ENV_PASSTHROUGH_KEYS)[number], string | undefined>>;
 
 // ---------------------------------------------------------------------------
 // Run migrations from SQL files
@@ -429,6 +546,15 @@ async function startServer(env: LocalServerEnv) {
     port: PORT,
     appUrl: APP_URL,
   });
+
+  // Local/bun queue path only: recover in-flight deliveries lost across a
+  // restart by reconciling the durable delivery_queue table back into the
+  // in-memory queue (startup sweep + periodic re-sweep). The Cloudflare Queues
+  // path persists in-flight messages itself, so this is gated behind the
+  // local-queue flag.
+  if (env.__localDeliveryQueueEnabled && env.DELIVERY_QUEUE) {
+    startLocalDeliveryQueueReconciler(env);
+  }
 }
 
 if (import.meta.main) {

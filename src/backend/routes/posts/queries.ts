@@ -59,6 +59,41 @@ export type MentionFailure = {
   reason: string;
 };
 
+/** An ActivityStreams `Mention` tag entry for an outbound Note/Create. */
+export type MentionTag = {
+  type: "Mention";
+  href: string;
+  name: string;
+};
+
+/**
+ * Result of resolving the @mentions in a post: per-mention failures, the
+ * `Mention` tag array to attach to the outbound Note/Create, and the resolved
+ * actor IRIs (local + remote) that must be added to `cc` and — for remote
+ * actors — delivered to.
+ */
+export type ProcessMentionsResult = {
+  failures: MentionFailure[];
+  tags: MentionTag[];
+  /** All resolved mentioned actor IRIs (local + remote), de-duplicated. */
+  mentionedActorApIds: string[];
+  /** Resolved remote mentioned actor IRIs that need direct inbox delivery. */
+  remoteMentionedActorApIds: string[];
+};
+
+/** Merge extra recipient IRIs into a cc array, de-duplicating and dropping empties. */
+export function mergeCc(cc: string[], extra: string[]): string[] {
+  const seen = new Set(cc);
+  const out = [...cc];
+  for (const iri of extra) {
+    if (iri && !seen.has(iri)) {
+      seen.add(iri);
+      out.push(iri);
+    }
+  }
+  return out;
+}
+
 export type AuthorInfo = {
   preferredUsername: string | null;
   name: string | null;
@@ -321,6 +356,27 @@ export async function loadInteractionFlags(
     likedIds: new Set(likeRows.map((l) => l.objectApId)),
     bookmarkedIds: new Set(bookmarkRows.map((b) => b.objectApId)),
   };
+}
+
+/**
+ * Persist an outbound ActivityPub activity WITHOUT any follower/community
+ * fanout. Used when the only recipients are explicit (e.g. a "direct" post
+ * whose reach is exactly its mentioned actors), so the activity is on record
+ * for direct per-actor delivery but is never broadcast to the follower graph.
+ */
+export async function persistActivity(
+  db: Database,
+  activity: { id: string; type: string; actor: string; [key: string]: unknown },
+  objectApIdValue: string,
+): Promise<void> {
+  await db.insert(activities).values({
+    apId: activity.id,
+    type: activity.type,
+    actorApId: activity.actor,
+    objectApId: objectApIdValue,
+    rawJson: JSON.stringify(activity),
+    direction: "outbound",
+  });
 }
 
 /** Persist an outbound ActivityPub activity and enqueue federation fanout. */

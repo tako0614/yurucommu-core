@@ -6,7 +6,20 @@ import inboxRoutes from "../../../routes/activitypub/inbox.ts";
 import { generateKeyPair, signRequest } from "../../../federation-helpers.ts";
 
 function createDbMock(publicKeyPem: string) {
-  const insertValues = spy((..._args: unknown[]) => Promise.resolve(undefined));
+  // The inbound-activity store is now a single atomic
+  // `insert(activities).values(...).onConflictDoNothing().returning().get()`.
+  // A non-null `.get()` row means THIS delivery won the insert and must
+  // proceed to dispatch; null means a concurrent/prior delivery already stored
+  // it. Return a non-null row so the store-and-dispatch path runs.
+  const insertValues = spy((..._args: unknown[]) => ({
+    onConflictDoNothing: () => ({
+      returning: () => ({
+        get: () => Promise.resolve({ apId: "https://remote.example/inserted" }),
+      }),
+    }),
+    // Stay awaitable too, for any call site that does not chain.
+    then: (resolve: (value: undefined) => void) => resolve(undefined),
+  }));
   const db = {
     query: {
       actors: {
@@ -93,7 +106,10 @@ test("activitypub inbox - accepts signed object activities and stores them once"
   );
 
   expect(res.status).toEqual(202);
-  assertSpyCalls(db.query.activities.findFirst, 1);
+  // The atomic insert-or-skip path replaces the prior read-then-insert, so the
+  // store no longer issues a separate `activities.findFirst` read; idempotency
+  // is now enforced by `onConflictDoNothing().returning().get()`.
+  assertSpyCalls(db.query.activities.findFirst, 0);
   assertSpyCalls(insertValues, 1);
 });
 
@@ -211,15 +227,17 @@ function createSharedInboxDbMock(
   publicKeyPem: string,
   localFollowerApIds: string[],
 ) {
-  // The inbound-activity store path awaits `insert(activities).values(...)`
-  // directly; the Like dispatch chains `.onConflictDoNothing().returning()
-  // .get()`. Return an object that is both awaitable (→ undefined for the
-  // store) and chainable (→ null, i.e. treat the interaction as a duplicate so
-  // the per-recipient path completes instead of throwing on an unmocked
-  // method).
+  // The inbound-activity store is now a single atomic
+  // `insert(activities).values(...).onConflictDoNothing().returning().get()`,
+  // and the Like dispatch issues further chained inserts. Return an object
+  // that is chainable (→ a non-null row, so the store reports "won the insert"
+  // and the route proceeds to fan-out instead of treating it as a duplicate
+  // and short-circuiting) and also awaitable for any non-chaining call site.
   const insertChain = {
     onConflictDoNothing: () => ({
-      returning: () => ({ get: () => Promise.resolve(null) }),
+      returning: () => ({
+        get: () => Promise.resolve({ apId: "https://remote.example/inserted" }),
+      }),
     }),
     then: (resolve: (value: undefined) => void) => resolve(undefined),
   };
@@ -330,9 +348,12 @@ test("activitypub shared inbox - verifies, stores, and fans out to local followe
   );
 
   expect(res.status).toEqual(202);
-  // The activity was deduped/stored (proves it ran the real pipeline, not the
-  // old bare-202 black hole).
-  assertSpyCalls(db.query.activities.findFirst, 1);
+  // The activity was deduped/stored via the atomic insert-or-skip path (proves
+  // it ran the real pipeline, not the old bare-202 black hole). The store no
+  // longer issues a separate `activities.findFirst` read — idempotency comes
+  // from `onConflictDoNothing().returning().get()` — so the insert running and
+  // returning a "won" row is the evidence the store executed.
+  assertSpyCalls(db.query.activities.findFirst, 0);
   // Local followers of the sending actor were resolved and loaded for fan-out.
   assertSpyCalls(limit, 1);
   assertSpyCalls(findMany, 1);
