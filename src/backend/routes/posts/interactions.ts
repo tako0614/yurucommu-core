@@ -13,6 +13,7 @@ import {
   objects,
 } from "../../../db/index.ts";
 import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import {
   activityApId,
   formatUsername,
@@ -85,6 +86,29 @@ async function deliverToRemote(
   }
 }
 
+/**
+ * Atomic multi-statement commit.
+ *
+ * D1 has no interactive transactions, but both the D1 and libsql drivers
+ * expose `db.batch([...])`, which commits a list of prepared statements
+ * atomically. The shared `Database` union aliases the abstract
+ * `BaseSQLiteDatabase` base (which does not surface `batch`), so we narrow to
+ * the concrete batch surface here rather than weakening the shared type.
+ */
+type BatchStatement = BatchItem<"sqlite">;
+interface BatchableDb {
+  batch(
+    statements: readonly [BatchStatement, ...BatchStatement[]],
+  ): Promise<unknown>;
+}
+
+async function runBatch(
+  db: Database,
+  statements: readonly [BatchStatement, ...BatchStatement[]],
+): Promise<void> {
+  await (db as unknown as BatchableDb).batch(statements);
+}
+
 // ---------------------------------------------------------------------------
 // Like / Unlike
 // ---------------------------------------------------------------------------
@@ -121,35 +145,41 @@ posts.post("/:id/like", async (c) => {
   const shouldNotifyLocal =
     post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl);
 
-  // D1 doesn't support interactive transactions; use sequential operations
-  await db.insert(likes).values({
-    actorApId: actor.ap_id,
-    objectApId: post.apId,
-    activityApId: likeActivityId,
-  });
-
-  await db
-    .update(objects)
-    .set({ likeCount: sql`${objects.likeCount} + 1` })
-    .where(eq(objects.apId, post.apId));
-
-  await db.insert(activities).values({
-    apId: likeActivityId,
-    type: "Like",
-    actorApId: actor.ap_id,
-    objectApId: post.apId,
-    rawJson: JSON.stringify(likeActivityRaw),
-    createdAt: now,
-  });
+  // D1 has no interactive transactions; group the child-row insert, counter
+  // bump, activity row, and (optional) inbox row into a single atomic batch so
+  // the like row and likeCount can never diverge on a mid-request failure.
+  const likeStatements: BatchStatement[] = [
+    db.insert(likes).values({
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      activityApId: likeActivityId,
+    }),
+    db
+      .update(objects)
+      .set({ likeCount: sql`${objects.likeCount} + 1` })
+      .where(eq(objects.apId, post.apId)),
+    db.insert(activities).values({
+      apId: likeActivityId,
+      type: "Like",
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      rawJson: JSON.stringify(likeActivityRaw),
+      createdAt: now,
+    }),
+  ];
 
   if (shouldNotifyLocal) {
-    await db.insert(inboxTable).values({
-      actorApId: post.attributedTo,
-      activityApId: likeActivityId,
-      read: 0,
-      createdAt: now,
-    });
+    likeStatements.push(
+      db.insert(inboxTable).values({
+        actorApId: post.attributedTo,
+        activityApId: likeActivityId,
+        read: 0,
+        createdAt: now,
+      }),
+    );
   }
+
+  await runBatch(db, likeStatements as [BatchStatement, ...BatchStatement[]]);
 
   if (!isLocal(post.apId, baseUrl)) {
     await deliverToRemote(c.env, likeActivityId, post.attributedTo);
@@ -180,17 +210,19 @@ posts.delete("/:id/like", async (c) => {
     .get();
   if (!like) return c.json({ error: "Not liked" }, 400);
 
-  // D1 doesn't support interactive transactions; use sequential operations
-  await db
-    .delete(likes)
-    .where(
-      and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, post.apId)),
-    );
-
-  await db
-    .update(objects)
-    .set({ likeCount: sql`${objects.likeCount} - 1` })
-    .where(and(eq(objects.apId, post.apId), gt(objects.likeCount, 0)));
+  // D1 has no interactive transactions; group the like-row delete and the
+  // counter decrement into a single atomic batch so they cannot diverge.
+  await runBatch(db, [
+    db
+      .delete(likes)
+      .where(
+        and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, post.apId)),
+      ),
+    db
+      .update(objects)
+      .set({ likeCount: sql`${objects.likeCount} - 1` })
+      .where(and(eq(objects.apId, post.apId), gt(objects.likeCount, 0))),
+  ]);
 
   if (!isLocal(post.apId, baseUrl)) {
     const undoObject = like.activityApId
@@ -264,35 +296,41 @@ posts.post("/:id/repost", async (c) => {
   const shouldNotifyLocal =
     post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl);
 
-  // D1 doesn't support interactive transactions; use sequential operations
-  await db.insert(announces).values({
-    actorApId: actor.ap_id,
-    objectApId: post.apId,
-    activityApId: announceActivityId,
-  });
-
-  await db
-    .update(objects)
-    .set({ announceCount: sql`${objects.announceCount} + 1` })
-    .where(eq(objects.apId, post.apId));
-
-  await db.insert(activities).values({
-    apId: announceActivityId,
-    type: "Announce",
-    actorApId: actor.ap_id,
-    objectApId: post.apId,
-    rawJson: JSON.stringify(announceActivityRaw),
-    createdAt: now,
-  });
+  // D1 has no interactive transactions; group the child-row insert, counter
+  // bump, activity row, and (optional) inbox row into a single atomic batch so
+  // the announce row and announceCount can never diverge.
+  const repostStatements: BatchStatement[] = [
+    db.insert(announces).values({
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      activityApId: announceActivityId,
+    }),
+    db
+      .update(objects)
+      .set({ announceCount: sql`${objects.announceCount} + 1` })
+      .where(eq(objects.apId, post.apId)),
+    db.insert(activities).values({
+      apId: announceActivityId,
+      type: "Announce",
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      rawJson: JSON.stringify(announceActivityRaw),
+      createdAt: now,
+    }),
+  ];
 
   if (shouldNotifyLocal) {
-    await db.insert(inboxTable).values({
-      actorApId: post.attributedTo,
-      activityApId: announceActivityId,
-      read: 0,
-      createdAt: now,
-    });
+    repostStatements.push(
+      db.insert(inboxTable).values({
+        actorApId: post.attributedTo,
+        activityApId: announceActivityId,
+        read: 0,
+        createdAt: now,
+      }),
+    );
   }
+
+  await runBatch(db, repostStatements as [BatchStatement, ...BatchStatement[]]);
 
   if (!isLocal(post.apId, baseUrl)) {
     await deliverToRemote(c.env, announceActivityId, post.attributedTo);
@@ -323,20 +361,22 @@ posts.delete("/:id/repost", async (c) => {
     .get();
   if (!announce) return c.json({ error: "Not reposted" }, 400);
 
-  // D1 doesn't support interactive transactions; use sequential operations
-  await db
-    .delete(announces)
-    .where(
-      and(
-        eq(announces.actorApId, actor.ap_id),
-        eq(announces.objectApId, post.apId),
+  // D1 has no interactive transactions; group the announce-row delete and the
+  // counter decrement into a single atomic batch so they cannot diverge.
+  await runBatch(db, [
+    db
+      .delete(announces)
+      .where(
+        and(
+          eq(announces.actorApId, actor.ap_id),
+          eq(announces.objectApId, post.apId),
+        ),
       ),
-    );
-
-  await db
-    .update(objects)
-    .set({ announceCount: sql`${objects.announceCount} - 1` })
-    .where(and(eq(objects.apId, post.apId), gt(objects.announceCount, 0)));
+    db
+      .update(objects)
+      .set({ announceCount: sql`${objects.announceCount} - 1` })
+      .where(and(eq(objects.apId, post.apId), gt(objects.announceCount, 0))),
+  ]);
 
   if (!isLocal(post.apId, baseUrl)) {
     const undoActivity = {

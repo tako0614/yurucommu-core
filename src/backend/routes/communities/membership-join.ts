@@ -14,6 +14,16 @@ import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "communities.join" });
 
+/**
+ * Narrow view over the concrete D1/libsql drizzle client's atomic batch API.
+ * The shared `Database` union type does not surface `batch` (it lives on the
+ * concrete subclasses), so we reach it through a structural cast at the one
+ * call site that needs an atomic multi-statement write.
+ */
+type Batchable = {
+  batch(statements: readonly unknown[]): Promise<unknown>;
+};
+
 export function registerMembershipJoinRoutes(
   communitiesRouter: Hono<{ Bindings: Env; Variables: Variables }>,
 ) {
@@ -132,21 +142,11 @@ export function registerMembershipJoinRoutes(
             );
           }
 
-          // Create member
-          await db.insert(communityMembers).values({
-            communityApId: community.apId,
-            actorApId: actor.ap_id,
-            role: "member",
-            joinedAt: now,
-          });
-
-          // Increment member count
-          await db
-            .update(communities)
-            .set({ memberCount: sql`${communities.memberCount} + 1` })
-            .where(eq(communities.apId, community.apId));
-
-          // Claim the invite - update only if conditions still match
+          // Claim the invite FIRST — this conditional single-use UPDATE is the
+          // race GATE. Only the writer that flips usedAt from NULL (affecting
+          // exactly one row) is allowed to materialize the membership; a racing
+          // loser sees 0 rows affected and is rejected, so it never leaves a
+          // phantom member row or an inflated memberCount behind.
           const claimResult = await db
             .update(communityInvites)
             .set({ usedByApId: actor.ap_id, usedAt: now })
@@ -166,8 +166,35 @@ export function registerMembershipJoinRoutes(
               ),
             );
           if (affectedRowCount(claimResult) !== 1) {
-            throw new Error("INVITE_CLAIM_FAILED");
+            // Lost the single-use claim race (or invite was used/expired
+            // between the read above and this write). Reject without touching
+            // membership or the count.
+            return c.json(
+              {
+                error: "Invalid or expired invite",
+                status: "invite_required",
+              },
+              403,
+            );
           }
+
+          // Won the claim: create the member + bump the count atomically.
+          // D1 has no interactive transactions; group the member insert and
+          // the counter increment into a single batch so they cannot diverge.
+          // The `Database` union type does not surface `batch` (it is only on
+          // the concrete D1/libsql subclasses), so reach it through a narrow
+          // structural cast.
+          const memberInsert = db.insert(communityMembers).values({
+            communityApId: community.apId,
+            actorApId: actor.ap_id,
+            role: "member",
+            joinedAt: now,
+          });
+          const countBump = db
+            .update(communities)
+            .set({ memberCount: sql`${communities.memberCount} + 1` })
+            .where(eq(communities.apId, community.apId));
+          await (db as unknown as Batchable).batch([memberInsert, countBump]);
 
           return c.json({ success: true, status: "joined" });
         } catch (error) {

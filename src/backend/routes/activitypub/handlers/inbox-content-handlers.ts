@@ -5,13 +5,11 @@ import {
   actors,
   follows,
   inbox as inboxTable,
-  likes,
   objectRecipients,
   objects,
-  storyViews,
-  storyVotes,
 } from "../../../../db/index.ts";
 import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
+import { deleteObjectCascade } from "../../posts/delete-cascade.ts";
 import {
   activityApId,
   fetchWithTimeout,
@@ -492,14 +490,12 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
     return;
   }
 
-  // Story-specific cleanup
-  if (delObj.type === "Story") {
-    await db.delete(storyVotes).where(eq(storyVotes.storyApId, objectId));
-    await db.delete(storyViews).where(eq(storyViews.storyApId, objectId));
-  }
-
-  // Common cleanup for all object types
-  await db.delete(likes).where(eq(likes.objectApId, objectId));
+  // Delete every child row keyed by this object before the object row itself.
+  // FK ON DELETE CASCADE is not reliably enforced on every runtime/connection
+  // (D1 ignores PRAGMA foreign_keys), so cascade explicitly to avoid orphans.
+  // Covers likes/announces/bookmarks/object_recipients/story_* in one place,
+  // shared with the local DELETE /posts/:id path.
+  await deleteObjectCascade(db, objectId);
 
   await db.delete(objects).where(eq(objects.apId, objectId));
 
@@ -516,10 +512,7 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
       .update(objects)
       .set({ replyCount: sql`${objects.replyCount} - 1` })
       .where(
-        and(
-          eq(objects.apId, delObj.inReplyTo),
-          sql`${objects.replyCount} > 0`,
-        ),
+        and(eq(objects.apId, delObj.inReplyTo), sql`${objects.replyCount} > 0`),
       );
   }
 }

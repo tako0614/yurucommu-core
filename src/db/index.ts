@@ -47,6 +47,13 @@ export async function getDbSQLite(databasePath: string): Promise<Database> {
   const { drizzle } = await import("drizzle-orm/libsql");
 
   const client = createClient({ url: `file:${databasePath}` });
+  // Enable real FK enforcement so the ON DELETE CASCADE / SET NULL edges
+  // declared in the migrations are honoured at the engine level. SQLite has
+  // foreign keys OFF by default per connection; without this, deleting an
+  // object would orphan its likes/announces/bookmarks/recipients/story rows.
+  // (The application-level cascade in delete-cascade.ts still runs so the
+  // behaviour is identical on D1, which ignores this pragma.)
+  await client.execute("PRAGMA foreign_keys = ON");
   sqliteDb = drizzle(client, { schema });
   return sqliteDb;
 }

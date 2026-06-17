@@ -42,6 +42,7 @@ import {
   safeJsonParse,
 } from "../federation-helpers.ts";
 import { enqueueFanoutToFollowers } from "../lib/delivery/queue.ts";
+import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import {
   actorExists,
@@ -210,11 +211,16 @@ actorsRoute.post("/me/delete", async (c) => {
 
   try {
     // Federate account deletion BEFORE local teardown so remote followers
-    // learn the actor is gone. We persist a Delete(actor) activity and enqueue
-    // fan-out to followers while the follower graph and the activity row still
-    // exist; the activity row is intentionally preserved through teardown
-    // (excluded from the activities delete below) so the delivery consumer can
-    // still read its rawJson after the actor's other rows are gone.
+    // learn the actor is gone. We persist a Delete(actor) activity and
+    // SNAPSHOT the follower inboxes into per-endpoint delivery jobs while the
+    // follower graph and the activity row still exist. A plain async
+    // fanout_followers message would be processed AFTER teardown deletes the
+    // `follows` rows below, so the consumer would read an empty follower graph
+    // and reach zero remote followers; resolving endpoints synchronously here
+    // captures the graph before it is gone. The Delete activity row is
+    // intentionally preserved through teardown (excluded from the activities
+    // delete below) so the deliver_endpoint consumer can still read its
+    // rawJson after the actor's other rows are gone.
     const deleteActivityId = activityApId(baseUrl, generateId());
     const deleteActivity = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -234,7 +240,14 @@ actorsRoute.post("/me/delete", async (c) => {
         rawJson: JSON.stringify(deleteActivity),
         direction: "outbound",
       });
-      await enqueueFanoutToFollowers(c.env, deleteActivityId, actorApIdVal);
+      // Snapshot follower inboxes into delivery jobs NOW, before the `follows`
+      // rows are deleted in Phase 1 below.
+      await snapshotAndEnqueueFollowerDeliveries(
+        db,
+        c.env,
+        deleteActivityId,
+        actorApIdVal,
+      );
     } catch (err) {
       // Federation is best-effort; never block local account deletion on it.
       log.error("Failed to enqueue account Delete federation", {

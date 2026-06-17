@@ -42,6 +42,7 @@ import {
   toPostRow,
 } from "./queries.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import { deleteObjectCascade } from "./delete-cascade.ts";
 import {
   checkCommunityPostPermission,
   insertPostAndHandleReply,
@@ -88,10 +89,7 @@ async function filterVisibleReplies<T extends ReplyVisibilityRow>(
   // only authors we need an accepted-follow edge for.
   const followerGateAuthors = new Set<string>();
   for (const reply of replies) {
-    if (
-      reply.visibility === "followers" &&
-      reply.attributedTo !== viewerApId
-    ) {
+    if (reply.visibility === "followers" && reply.attributedTo !== viewerApId) {
       followerGateAuthors.add(reply.attributedTo);
     }
   }
@@ -566,7 +564,11 @@ posts.delete("/:id", async (c) => {
     return c.json({ error: "Forbidden" }, 403);
   }
 
-  // D1 doesn't support interactive transactions; use sequential operations
+  // D1 doesn't support interactive transactions; use sequential operations.
+  // FK ON DELETE CASCADE is not reliably enforced (PRAGMA foreign_keys is not
+  // guaranteed on every runtime/connection, and D1 ignores it), so delete the
+  // object's child rows explicitly before the object row to avoid orphans.
+  await deleteObjectCascade(db, post.apId);
   await db.delete(objects).where(eq(objects.apId, post.apId));
 
   await db

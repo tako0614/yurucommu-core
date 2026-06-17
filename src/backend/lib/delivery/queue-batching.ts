@@ -85,17 +85,28 @@ async function sendQueueBatchChunked(
   }
 }
 
-export async function processFanoutFollowers(
+/**
+ * Page through the accepted-follower graph of `followeeApId`, plan each page's
+ * remote recipients against the actor cache, and enqueue `deliver_endpoint`
+ * (known endpoints) + `resolve_actor` (unknown recipients) jobs directly.
+ *
+ * This is the shared core of follower fan-out. It is deliberately decoupled
+ * from the queue message so it can also be driven SYNCHRONOUSLY by callers
+ * that must capture a follower snapshot before the `follows` rows are deleted
+ * (e.g. account deletion teardown in routes/actors.ts): the async
+ * `fanout_followers` consumer would otherwise read an already-emptied graph
+ * and deliver the Delete(actor) to zero followers.
+ *
+ * Returns the number of follower rows scanned and whether the per-invocation
+ * cap was hit (so callers can log the same capped warning).
+ */
+export async function enqueueFollowerEndpointDeliveries(
   db: Database,
-  env: Env,
-  msg: DeliveryFanoutFollowersMessageV1,
-  message: Message<DeliveryQueueMessageV1>,
-): Promise<void> {
-  const baseUrl = env.APP_URL;
-
-  if (!requireQueue(env, "fanout", message)) return;
-  const queueEnv = env as QueueEnv;
-
+  queue: QueueEnv["DELIVERY_QUEUE"],
+  baseUrl: string,
+  activityId: string,
+  followeeApId: string,
+): Promise<{ processed: number; capped: boolean }> {
   // Page through accepted followers with a keyset cursor instead of loading
   // every row into memory at once. Each page is planned and dispatched in
   // ≤100-message chunks before the next page is read, bounding both memory
@@ -106,7 +117,7 @@ export async function processFanoutFollowers(
 
   while (processed < FANOUT_MAX_FOLLOWERS) {
     const conditions = [
-      eq(follows.followingApId, msg.followeeApId),
+      eq(follows.followingApId, followeeApId),
       eq(follows.status, "accepted"),
     ];
     if (cursor !== null) {
@@ -133,27 +144,24 @@ export async function processFanoutFollowers(
     if (recipientApIds.length > 0) {
       const planned = await planEndpointsFromActorCache(db, recipientApIds, {
         metricTags: {
-          followee: msg.followeeApId,
-          activity: msg.activityId,
+          followee: followeeApId,
+          activity: activityId,
         },
       });
 
       const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
       for (const group of planned.groups) {
-        const jobId = await computeDeliveryJobId(
-          msg.activityId,
-          group.endpoint,
-        );
-        await upsertDeliveryJob(db, jobId, msg.activityId, group.endpoint);
+        const jobId = await computeDeliveryJobId(activityId, group.endpoint);
+        await upsertDeliveryJob(db, jobId, activityId, group.endpoint);
         deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
       }
 
       const resolveRequests = planned.unknownRecipients.map((apId) => ({
-        body: buildResolveActorMessage(msg.activityId, apId),
+        body: buildResolveActorMessage(activityId, apId),
       }));
 
-      await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, deliverRequests);
-      await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, resolveRequests);
+      await sendQueueBatchChunked(queue, deliverRequests);
+      await sendQueueBatchChunked(queue, resolveRequests);
     }
 
     processed += page.length;
@@ -164,6 +172,76 @@ export async function processFanoutFollowers(
       break;
     }
   }
+
+  return { processed, capped };
+}
+
+/**
+ * Synchronously snapshot an actor's follower inboxes and enqueue per-endpoint
+ * delivery jobs for `activityId`, BEFORE the caller deletes the `follows`
+ * rows. Use this from teardown paths (account deletion) where the async
+ * `fanout_followers` consumer would otherwise run after the follower graph is
+ * gone and reach zero remote followers.
+ *
+ * Best-effort and queue-aware: if the delivery queue bindings are missing it
+ * is a no-op (mirrors enqueueFanoutToFollowers' silent producer-unavailable
+ * behavior). Never throws into the caller's teardown transaction — the caller
+ * still wraps it so federation can never block local deletion.
+ */
+export async function snapshotAndEnqueueFollowerDeliveries(
+  db: Database,
+  env: Env,
+  activityId: string,
+  followeeApId: string,
+): Promise<void> {
+  const queue = (env as Partial<QueueEnv>).DELIVERY_QUEUE;
+  if (!queue) {
+    log.warn(
+      "Delivery queue unavailable; follower snapshot delivery skipped",
+      {
+        event: "delivery.fanout.snapshot_queue_unavailable",
+        followee: followeeApId,
+        activityId,
+      },
+    );
+    return;
+  }
+
+  const { processed, capped } = await enqueueFollowerEndpointDeliveries(
+    db,
+    queue,
+    env.APP_URL,
+    activityId,
+    followeeApId,
+  );
+
+  if (capped) {
+    log.warn("Follower snapshot delivery capped at max followers", {
+      event: "delivery.fanout.snapshot_capped",
+      followee: followeeApId,
+      activityId,
+      processed,
+      max: FANOUT_MAX_FOLLOWERS,
+    });
+  }
+}
+
+export async function processFanoutFollowers(
+  db: Database,
+  env: Env,
+  msg: DeliveryFanoutFollowersMessageV1,
+  message: Message<DeliveryQueueMessageV1>,
+): Promise<void> {
+  if (!requireQueue(env, "fanout", message)) return;
+  const queueEnv = env as QueueEnv;
+
+  const { processed, capped } = await enqueueFollowerEndpointDeliveries(
+    db,
+    queueEnv.DELIVERY_QUEUE,
+    env.APP_URL,
+    msg.activityId,
+    msg.followeeApId,
+  );
 
   if (capped) {
     // Extremely large follower sets are capped per invocation to keep the

@@ -196,8 +196,11 @@ test("userInboxHandlers hardening - handleDelete performs dependent deletes and 
 
   // Verify select was called (lookup object)
   assertSpyCalls(db.select, 1);
-  // Verify delete was called (likes + objects)
-  assertSpyCalls(db.delete, 2);
+  // Verify delete was called for the full object cascade (likes, announces,
+  // bookmarks, object_recipients, story_views, story_votes, story_shares) plus
+  // the objects row itself = 8. The cascade now runs for every object type via
+  // the shared deleteObjectCascade helper so no child rows are orphaned.
+  assertSpyCalls(db.delete, 8);
   // Verify update was called (actor postCount decrement)
   assertSpyCalls(db.update, 1);
 });

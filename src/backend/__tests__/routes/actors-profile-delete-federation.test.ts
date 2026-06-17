@@ -18,7 +18,13 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { activities, actors, follows } from "../../../db/index.ts";
+import {
+  activities,
+  actorCache,
+  actors,
+  deliveryQueue,
+  follows,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import actorsRoute from "../../routes/actors.ts";
 
@@ -91,7 +97,7 @@ async function insertLocalActor(
 
 type Sent = { activityId: string; followeeApId: string; type: string };
 
-function envFor(db: Database, sent: Sent[]): Env {
+function envFor(db: Database, sent: Sent[], batched?: string[]): Env {
   // Minimal queue stubs so enqueueFanoutToFollowers records its send instead
   // of silently no-op'ing (queueAvailable requires both bindings present).
   const DELIVERY_QUEUE = {
@@ -107,7 +113,14 @@ function envFor(db: Database, sent: Sent[]): Env {
       });
       return Promise.resolve();
     },
-    sendBatch: () => Promise.resolve(),
+    // The synchronous follower snapshot (account deletion) dispatches
+    // deliver_endpoint / resolve_actor jobs via sendBatch, not send.
+    sendBatch: (requests: Array<{ body: { type: string } }>) => {
+      if (batched) {
+        for (const r of requests) batched.push(r.body.type);
+      }
+      return Promise.resolve();
+    },
   };
   const DELIVERY_DLQ = { send: () => Promise.resolve() };
   return {
@@ -204,7 +217,7 @@ test("PUT /me with no fields does not federate", async () => {
   expect(updates.length).toBe(0);
 });
 
-test("POST /me/delete federates Delete(actor) and preserves it through teardown", async () => {
+test("POST /me/delete snapshots follower inboxes into delivery jobs before teardown", async () => {
   const db = await freshDb();
   const actor = await insertLocalActor(db, "bob");
   const remoteFollower = "https://remote.test/users/dave";
@@ -213,21 +226,38 @@ test("POST /me/delete federates Delete(actor) and preserves it through teardown"
     followingApId: actor.ap_id,
     status: "accepted",
   });
+  // Fresh actor_cache row so the synchronous snapshot resolves the follower's
+  // endpoint immediately (deliver_endpoint) rather than deferring to
+  // resolve_actor.
+  await db.insert(actorCache).values({
+    apId: remoteFollower,
+    type: "Person",
+    inbox: "https://remote.test/users/dave/inbox",
+    sharedInbox: "https://remote.test/inbox",
+    rawJson: "{}",
+    lastFetchedAt: new Date().toISOString(),
+  });
   const sent: Sent[] = [];
+  const batched: string[] = [];
   const app = appWith(db, actor);
 
   const res = await app.fetch(
     new Request(`${APP_URL}/me/delete`, { method: "POST" }),
-    envFor(db, sent),
+    envFor(db, sent, batched),
   );
   expect(res.status).toBe(200);
 
-  // Local actor row is gone (hard delete).
+  // Local actor row is gone (hard delete) and so are the follows rows.
   const remaining = await db
     .select()
     .from(actors)
     .where(eq(actors.apId, actor.ap_id));
   expect(remaining.length).toBe(0);
+  const remainingFollows = await db
+    .select()
+    .from(follows)
+    .where(eq(follows.followingApId, actor.ap_id));
+  expect(remainingFollows.length).toBe(0);
 
   // The Delete activity survives teardown so the async delivery consumer can
   // still read its rawJson.
@@ -246,12 +276,17 @@ test("POST /me/delete federates Delete(actor) and preserves it through teardown"
   expect(doc.actor).toBe(actor.ap_id);
   expect(doc.object).toBe(actor.ap_id);
 
-  // Fan-out was enqueued referencing the Delete activity.
-  expect(sent).toEqual([
-    {
-      activityId: row.apId,
-      followeeApId: actor.ap_id,
-      type: "fanout_followers",
-    },
-  ]);
+  // The race fix: a delivery job for the Delete activity was persisted against
+  // the follower's shared inbox while the follows row still existed. The async
+  // fanout_followers message is NOT used here (it would read an empty graph
+  // post-teardown), so no fanout_followers send was recorded.
+  expect(sent).toEqual([]);
+  expect(batched).toContain("deliver_endpoint");
+
+  const jobs = await db
+    .select()
+    .from(deliveryQueue)
+    .where(eq(deliveryQueue.activityApId, row.apId));
+  expect(jobs.length).toBe(1);
+  expect(jobs[0].inboxUrl).toBe("https://remote.test/inbox");
 });

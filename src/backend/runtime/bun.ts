@@ -103,6 +103,10 @@ export class BunDatabase implements IDatabase {
     const Database = loadBunSqlite(require);
     const db = new Database(filename);
     db.exec("PRAGMA journal_mode = WAL");
+    // Enforce the migrations' ON DELETE CASCADE / SET NULL edges at the engine
+    // level. SQLite defaults foreign keys OFF per connection. The app-level
+    // cascade in delete-cascade.ts still runs so behaviour matches D1.
+    db.exec("PRAGMA foreign_keys = ON");
     return new BunDatabase(db);
   }
 
