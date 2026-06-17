@@ -91,8 +91,9 @@ export function ScopeHeader(props: ScopeHeaderProps) {
   const unreadCount = useAtomValue(notificationUnreadAtom);
   const openComposer = useSetAtom(showPostModalAtom);
 
-  // Read-only ambient reach line. Default post visibility stays public; this
-  // only describes who the active scope ambiently surfaces a post to.
+  // Read-only ambient reach line. A community scope reaches its members; the
+  // personal scope's default post visibility is public, so the line states the
+  // public reach rather than under-stating it as followers-only.
   const reach = () => {
     const s = scope();
     if (s.kind === "community") {
@@ -101,7 +102,7 @@ export function ScopeHeader(props: ScopeHeaderProps) {
         s.display_name || s.name,
       );
     }
-    return t("scope.reachPersonal");
+    return t("compose.reachPublic");
   };
 
   // Ambient per-scope tint. Personal uses the app accent (blue); each community
@@ -165,8 +166,9 @@ export function ScopeHeader(props: ScopeHeaderProps) {
           <p class="truncate pl-1 text-xs text-neutral-500">{reach()}</p>
         </div>
 
-        {/* Right cluster: DM, notifications, compose. */}
-        <div class="flex shrink-0 items-center gap-1">
+        {/* Right cluster: DM, notifications, compose. Hidden on mobile where the
+            BottomNav already surfaces these destinations; shown on desktop. */}
+        <div class="hidden shrink-0 items-center gap-1 md:flex">
           <A
             href="/dm"
             aria-label={t("menu.messages")}

@@ -4,6 +4,7 @@ import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../../hooks/useRequiredActor.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { notificationUnreadAtom } from "../../atoms/notifications.ts";
+import { dmUnreadCountAtom } from "../../atoms/dm-unread.ts";
 import { showPostModalAtom } from "../../atoms/timeline.ts";
 import { appMenuOpenAtom, createScopeOpenAtom } from "../../atoms/shell.ts";
 import { NavBadge } from "./NavBadge.tsx";
@@ -16,12 +17,22 @@ export function Sidebar() {
   const { t } = useI18n();
   const location = useLocation();
   const unreadCount = useAtomValue(notificationUnreadAtom);
+  const dmUnread = useAtomValue(dmUnreadCountAtom);
   const openComposer = useSetAtom(showPostModalAtom);
   const openMenu = useSetAtom(appMenuOpenAtom);
   const openCreateScope = useSetAtom(createScopeOpenAtom);
 
+  // The badge count source depends on which nav item it is.
+  const badgeCount = (item: NavItem) =>
+    item.id === "messages" ? dmUnread() : unreadCount();
+  const badgeLabel = (item: NavItem) =>
+    item.id === "messages" ? t("nav.messages") : t("nav.notifications");
+
   const isActive = (route: string) => {
     if (route === "/") return location.pathname === "/";
+    // "/profile" is the OWN profile; foreign profiles live at
+    // "/profile/:actorId" and must not light up the Profile entry.
+    if (route === "/profile") return location.pathname === "/profile";
     return location.pathname.startsWith(route);
   };
   const active = (item: NavItem) =>
@@ -49,11 +60,11 @@ export function Sidebar() {
                 <>
                   <span class="relative inline-flex">
                     <Icon active={active(item)} />
-                    <Show when={item.badge && unreadCount() > 0}>
+                    <Show when={item.badge && badgeCount(item) > 0}>
                       <span class="absolute -top-1.5 -right-2">
                         <NavBadge
-                          count={unreadCount()}
-                          label={t("nav.notifications")}
+                          count={badgeCount(item)}
+                          label={badgeLabel(item)}
                         />
                       </span>
                     </Show>
@@ -117,7 +128,7 @@ export function Sidebar() {
           <button
             type="button"
             onClick={() => openMenu(true)}
-            aria-haspopup="menu"
+            aria-haspopup="dialog"
             aria-label={t("menu.open")}
             class="w-full text-left px-3 py-2 rounded-xl bg-neutral-900/40 transition-colors hover:bg-neutral-900"
           >

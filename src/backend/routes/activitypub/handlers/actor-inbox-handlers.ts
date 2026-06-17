@@ -194,6 +194,13 @@ export async function handleGroupCreate(
     : "[]";
   const now = object.published || new Date().toISOString();
 
+  // This is a federated room (group-CHAT) message, addressed to the community
+  // via the object_recipients audience link below. The chat reader and the
+  // chat unread count (communities/messages.ts, dm/contacts.ts) treat the chat
+  // object-set as audience-linked Notes with `communityApId IS NULL`, disjoint
+  // from the feed object-set (which carries `communityApId`). Leave
+  // `communityApId` NULL here so the message surfaces in the group chat and
+  // unread count rather than being misrouted into the community feed.
   await db.insert(objects).values({
     apId: newObjectId,
     type: "Note",
@@ -202,7 +209,7 @@ export async function handleGroupCreate(
     summary: object.summary || null,
     attachmentsJson: attachments,
     visibility: "group",
-    communityApId: community.apId,
+    communityApId: null,
     published: now,
     isLocal: 0,
   });

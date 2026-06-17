@@ -24,7 +24,9 @@ export interface NavItem {
   route?: string;
   // Center affordance: handled by the host (opens the post composer for now).
   onAction?: "create";
-  // Surfaces the shared notification unread badge.
+  // Surfaces an unread badge. The count source depends on `id`: the activity
+  // item uses the notification unread count, the messages item uses the DM
+  // unread count.
   badge?: boolean;
 }
 
@@ -48,6 +50,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: MessagesNavIcon,
     labelKey: "nav.messages",
     route: "/dm",
+    badge: true,
   },
   {
     id: "activity",

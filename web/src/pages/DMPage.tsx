@@ -225,22 +225,12 @@ export function DMPage() {
     }
   };
 
-  // Initial load of contacts
-  onMount(async () => {
+  // Initial load of contacts. Deep-link contact selection is handled solely by
+  // the createEffect below (which fires once `loading()` flips to false), so we
+  // do not resolve the URL param here to avoid a double-resolve on first load.
+  onMount(() => {
     setSearchQuery("");
-    const data = await loadContacts();
-
-    // Select contact from URL param after initial load
-    const vcId = validContactId();
-    if (data && vcId) {
-      const allContacts = [...data.mutual_followers, ...data.communities];
-      const contact = allContacts.find((c) => c.ap_id === vcId);
-      if (contact) {
-        setSelectedContact(contact);
-      } else {
-        void resolveDeepLink(vcId);
-      }
-    }
+    void loadContacts();
   });
 
   // Handle contact selection when URL changes (after initial load)
@@ -439,66 +429,13 @@ export function DMPage() {
             <>
               {/* Header - LINE style */}
               <header class="sticky top-0 bg-neutral-900/95 backdrop-blur-sm z-10">
-              {/* Title bar with icons */}
+              {/* Title bar */}
               <div class="flex items-center justify-between px-4 py-3">
                 <div class="min-w-0">
                   <h1 class="text-xl font-bold text-white">{t("dm.talks")}</h1>
                   <p class="text-xs text-neutral-500 truncate">
                     {t("dm.directReachHint")}
                   </p>
-                </div>
-                <div class="flex items-center gap-2">
-                  {/* Search icon */}
-                  <button
-                    aria-label="Search"
-                    class="p-2 text-neutral-400 hover:text-white transition-colors"
-                  >
-                    <svg
-                      class="w-6 h-6"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width={2}
-                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                      />
-                    </svg>
-                  </button>
-                  {/* New chat icon */}
-                  <button
-                    aria-label="New chat"
-                    class="p-2 text-neutral-400 hover:text-white transition-colors"
-                  >
-                    <svg
-                      class="w-6 h-6"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width={2}
-                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                      />
-                    </svg>
-                  </button>
-                  {/* More icon */}
-                  <button
-                    aria-label="More options"
-                    class="p-2 text-neutral-400 hover:text-white transition-colors"
-                  >
-                    <svg
-                      class="w-6 h-6"
-                      fill="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
-                    </svg>
-                  </button>
                 </div>
               </div>
 

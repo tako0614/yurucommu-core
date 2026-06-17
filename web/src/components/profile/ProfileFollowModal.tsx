@@ -3,6 +3,7 @@ import { A } from "@solidjs/router";
 import type { Actor } from "../../types/index.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { CloseIcon } from "./ProfileIcons.tsx";
+import { useDialog } from "../../lib/useDialog.ts";
 import type { Translate } from "../../lib/i18n.tsx";
 
 type FollowModalType = "followers" | "following" | null;
@@ -16,10 +17,31 @@ interface ProfileFollowModalProps {
 }
 
 export function ProfileFollowModal(props: ProfileFollowModalProps) {
+  let dialogRef: HTMLDivElement | undefined;
+  useDialog({
+    isOpen: () => props.type !== null,
+    onClose: props.onClose,
+    container: () => dialogRef,
+  });
   return (
     <Show when={props.type}>
-      <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-        <div class="bg-neutral-900 rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+      <div
+        class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) props.onClose();
+        }}
+      >
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={
+            props.type === "followers"
+              ? props.t("profile.followers")
+              : props.t("profile.following")
+          }
+          class="bg-neutral-900 rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col"
+        >
           <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
             <div class="flex items-center gap-4">
               <button

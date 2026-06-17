@@ -204,30 +204,77 @@ search.get("/actors", async (c) => {
   const orderByClause =
     sort === "recent" ? [desc(actors.createdAt)] : [desc(actors.followerCount)];
 
-  const actorRows = await db
-    .select({
-      apId: actors.apId,
-      preferredUsername: actors.preferredUsername,
-      name: actors.name,
-      iconUrl: actors.iconUrl,
-      summary: actors.summary,
-      followerCount: actors.followerCount,
-      createdAt: actors.createdAt,
-    })
-    .from(actors)
-    .where(
-      or(
-        like(actors.preferredUsername, "%" + query + "%"),
-        like(actors.name, "%" + query + "%"),
-      ),
-    )
-    .orderBy(...orderByClause)
-    .limit(20);
+  const [localRows, cachedRows] = await Promise.all([
+    db
+      .select({
+        apId: actors.apId,
+        preferredUsername: actors.preferredUsername,
+        name: actors.name,
+        iconUrl: actors.iconUrl,
+        summary: actors.summary,
+        followerCount: actors.followerCount,
+        createdAt: actors.createdAt,
+      })
+      .from(actors)
+      .where(
+        or(
+          like(actors.preferredUsername, "%" + query + "%"),
+          like(actors.name, "%" + query + "%"),
+        ),
+      )
+      .orderBy(...orderByClause)
+      .limit(20),
+    // Previously-discovered remote actors live in actorCache (populated by the
+    // /remote webfinger lookup). Consult it here so an account someone already
+    // found stays re-findable by name/username without re-typing the full
+    // handle. Cached actors have no local follower/created metadata.
+    db
+      .select({
+        apId: actorCache.apId,
+        preferredUsername: actorCache.preferredUsername,
+        name: actorCache.name,
+        iconUrl: actorCache.iconUrl,
+        summary: actorCache.summary,
+      })
+      .from(actorCache)
+      .where(
+        or(
+          like(actorCache.preferredUsername, "%" + query + "%"),
+          like(actorCache.name, "%" + query + "%"),
+        ),
+      )
+      .limit(20),
+  ]);
+
+  // UNION local + cached, with local taking priority on apId collision.
+  const seen = new Set(localRows.map((a) => a.apId));
+  const actorRows: {
+    apId: string;
+    preferredUsername: string | null;
+    name: string | null;
+    iconUrl: string | null;
+    summary: string | null;
+    followerCount: number;
+    createdAt: string | null;
+  }[] = [
+    ...localRows,
+    ...cachedRows
+      .filter((a) => !seen.has(a.apId))
+      .map((a) => ({
+        apId: a.apId,
+        preferredUsername: a.preferredUsername,
+        name: a.name,
+        iconUrl: a.iconUrl,
+        summary: a.summary,
+        followerCount: 0,
+        createdAt: null,
+      })),
+  ];
 
   if (sort === "relevance") {
     actorRows.sort((a, b) => {
-      const aUsername = a.preferredUsername.toLowerCase();
-      const bUsername = b.preferredUsername.toLowerCase();
+      const aUsername = (a.preferredUsername ?? "").toLowerCase();
+      const bUsername = (b.preferredUsername ?? "").toLowerCase();
 
       const aExact = aUsername === lowerQuery ? 0 : 1;
       const bExact = bUsername === lowerQuery ? 0 : 1;

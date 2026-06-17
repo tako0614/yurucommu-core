@@ -154,6 +154,9 @@ export function StoryComposer(props: StoryComposerProps) {
     get overlays() {
       return overlays();
     },
+    get caption() {
+      return caption();
+    },
     get communityApId() {
       const s = scope();
       return s.kind === "community" ? s.ap_id : undefined;

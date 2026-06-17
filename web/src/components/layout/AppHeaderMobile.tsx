@@ -62,13 +62,13 @@ export function AppHeaderMobile() {
   return (
     <Show when={onHome() ? null : actor()}>
       {(current) => (
-        <header class="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800">
+        <header class="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800">
           {/* Avatar / menu trigger — opens the global AppMenu drawer. */}
           <button
             type="button"
             onClick={() => openMenu(true)}
             aria-label={t("menu.open")}
-            aria-haspopup="menu"
+            aria-haspopup="dialog"
             class="rounded-full ring-1 ring-neutral-700 transition-colors hover:ring-neutral-500"
           >
             <UserAvatar

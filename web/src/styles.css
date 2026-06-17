@@ -42,21 +42,6 @@
   background: #444;
 }
 
-/* Offline indicator animation */
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
-.animate-pulse-slow {
-  animation: pulse 2s ease-in-out infinite;
-}
-
 /* Slide-in menu animation */
 @keyframes slide-in {
   from {
@@ -140,14 +125,15 @@ select:focus-visible {
 
 /*
  * Reduced-motion: honour the OS "reduce motion" preference. Disable the
- * decorative/looping motion (heart-burst like animation, slide-in drawer,
- * the ambient per-scope tint cross-fade, and spinner rotation) while keeping
- * functional state changes instant. State is preserved — only the animation
- * is removed — so nothing becomes unreachable.
+ * decorative/looping MOTION (heart-burst like animation, slide-in drawer,
+ * spinner rotation) while keeping functional state changes instant. Color
+ * transitions are intentionally preserved — "reduce motion" asks for less
+ * movement/transform, not less color feedback — so `.transition-colors`
+ * keeps working app-wide. State is preserved; only motion is removed, so
+ * nothing becomes unreachable.
  */
 @media (prefers-reduced-motion: reduce) {
-  /* Spinner + pulsing indicators: stop the loop, leave the element visible. */
-  .animate-pulse-slow,
+  /* Spinner: stop the rotation loop, leave the element visible. */
   .animate-spin {
     animation: none !important;
   }
@@ -165,10 +151,5 @@ select:focus-visible {
   .animate-heart-burst {
     animation: none !important;
     opacity: 0 !important;
-  }
-
-  /* Ambient per-scope tint wash cross-fade (ScopeHeader). */
-  .transition-colors {
-    transition: none !important;
   }
 }

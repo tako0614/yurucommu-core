@@ -124,18 +124,21 @@ class DefaultSelfHostedStrategy implements AuthStrategy {
   readonly mode = "self-hosted" as const;
 
   async checkAuth(): Promise<AuthCheckResult> {
-    try {
-      const res = await fetchWithTimeout("/api/auth/me", {
-        credentials: "include",
-      });
-      if (!res.ok) {
-        return EMPTY_RESULT;
-      }
+    const res = await fetchWithTimeout("/api/auth/me", {
+      credentials: "include",
+    });
+    if (res.ok) {
       const data = (await res.json()) as { actor?: Actor };
       return { ...EMPTY_RESULT, actor: data.actor ?? null };
-    } catch {
+    }
+    // A genuine 401/403 means "not signed in" → fall through to LoginScreen.
+    if (res.status === 401 || res.status === 403) {
       return EMPTY_RESULT;
     }
+    // Any other failure (5xx, unexpected status) is a backend problem, not an
+    // unauthenticated user. Throw so checkAuthAtom sets authError and the
+    // AuthErrorScreen + retry renders instead of silently showing LoginScreen.
+    throw new Error(`auth check failed (status ${res.status})`);
   }
 
   async login(password?: string): Promise<LoginResult> {

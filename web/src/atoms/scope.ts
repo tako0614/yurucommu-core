@@ -37,13 +37,19 @@ export function communityToScope(
   community: CommunityDetail,
 ): CommunityScope | null {
   if (!community.is_member || community.member_role === null) return null;
+  // A list payload that omits member_role entirely (undefined) used to leak
+  // through as `member_role: undefined`, violating the owner|moderator|member
+  // type. The list API now populates member_role, but guard defensively: treat
+  // a missing role on a member as a plain member rather than a bogus value.
+  // (An explicit null still means "no resolvable role" and is dropped above.)
+  const role = community.member_role ?? "member";
   return {
     kind: "community",
     ap_id: community.ap_id,
     name: community.name,
     display_name: community.display_name,
     icon_url: community.icon_url ?? undefined,
-    member_role: community.member_role,
+    member_role: role,
   };
 }
 

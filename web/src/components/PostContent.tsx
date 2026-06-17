@@ -9,6 +9,12 @@ interface PostContentProps {
   // behind a reveal toggle.
   summary?: string | null;
   class?: string;
+  // Optional controlled reveal state. When provided, the CW reveal toggle is
+  // driven by the parent so a single reveal can also un-hide an accompanying
+  // media hero (see TimelinePostItem). When omitted, PostContent owns its own
+  // local reveal state.
+  revealed?: boolean;
+  onToggleReveal?: () => void;
 }
 
 type ContentPart =
@@ -47,7 +53,18 @@ function linkifyMentionsInHtml(html: string): string {
 // Parse post content and render mentions as clickable links
 export function PostContent(props: PostContentProps) {
   const { t } = useI18n();
-  const [revealed, setRevealed] = createSignal(false);
+  const [localRevealed, setLocalRevealed] = createSignal(false);
+  // Use the controlled reveal state when the parent supplies one, otherwise
+  // fall back to the local signal.
+  const revealed = () =>
+    props.onToggleReveal ? !!props.revealed : localRevealed();
+  const toggleReveal = () => {
+    if (props.onToggleReveal) {
+      props.onToggleReveal();
+    } else {
+      setLocalRevealed((v) => !v);
+    }
+  };
   const hasSummary = createMemo(() => !!props.summary && props.summary.trim());
 
   // Remote ActivityPub posts arrive as HTML; local posts are plain text.
@@ -148,7 +165,7 @@ export function PostContent(props: PostContentProps) {
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            setRevealed((v) => !v);
+            toggleReveal();
           }}
           class="mt-1 px-3 py-1 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-sm font-bold transition-colors"
         >

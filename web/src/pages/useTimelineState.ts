@@ -1,7 +1,7 @@
 import { createEffect, createSignal, on, onCleanup, onMount } from "solid-js";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { tAtom } from "../atoms/i18n.ts";
-import { scopeQueryAtom } from "../atoms/scope.ts";
+import { hydrateScopeAtom, scopeQueryAtom } from "../atoms/scope.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
   actorStoriesAtom,
@@ -62,16 +62,25 @@ export function useTimelineState() {
   const loadTimeline = useSetAtom(loadTimelineAtom);
   const loadMore = useSetAtom(loadMoreTimelineAtom);
   const loadStories = useSetAtom(loadStoriesAtom);
+  const hydrateScope = useSetAtom(hydrateScopeAtom);
 
   // New-posts indicator
   const pendingNewPosts = useAtomValue(pendingNewPostsAtom);
   const checkNewPosts = useSetAtom(checkNewPostsAtom);
   const applyNewPosts = useSetAtom(applyNewPostsAtom);
 
-  // Initial load
+  // Initial load. Gate the first timeline/story fetch on scope hydration so a
+  // stale stored community scope (one the user has since left) is reconciled to
+  // personal first, rather than firing a wasted 403 against a community the
+  // backend will reject. hydrateScopeAtom is idempotent, so re-running it here
+  // (AppLayout also kicks it on mount) only reconciles the stored scope. The
+  // scope-change effect below is deferred, so the reconcile never double-fetches
+  // on cold load.
   onMount(() => {
-    loadTimeline();
-    loadStories();
+    void hydrateScope().then(() => {
+      loadTimeline();
+      loadStories();
+    });
   });
 
   // Reactively reload when the inhabited scope changes (personal <-> a

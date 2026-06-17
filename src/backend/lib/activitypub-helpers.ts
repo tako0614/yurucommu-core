@@ -10,6 +10,9 @@ interface StoryData {
     r2_key: string;
   };
   displayDuration: string;
+  // Optional caption/text shown over the story. Federated to remote instances
+  // as the AS2 Note `content` so they can render the same caption locally.
+  caption?: string;
   overlays?: unknown[];
   endTime: string;
   published: string;
@@ -62,6 +65,9 @@ export function storyToActivityPub(
     published: story.published,
     endTime: story.endTime,
     to: [`${actor.ap_id}/followers`],
+    // The story caption is the Note text; emit it so remote instances render
+    // the same caption. Omitted entirely when there is no caption.
+    ...(story.caption ? { content: story.caption } : {}),
     attachment: {
       type: story.attachment.type,
       mediaType: story.attachment.mediaType,

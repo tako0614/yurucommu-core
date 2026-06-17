@@ -174,6 +174,7 @@ export interface Story {
   ap_id: string;
   author: PostAuthor;
   attachment: StoryAttachment;
+  caption?: string; // Optional caption/text shown over the story
   displayDuration: string; // ISO 8601 duration (e.g., "PT5S")
   overlays?: StoryOverlay[]; // Optional interactive overlays
   published: string;

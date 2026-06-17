@@ -8,6 +8,41 @@ interface UseDialogOptions {
   // Resolves the dialog's root element. Returns null until the element is
   // mounted (e.g. behind a <Show>). Re-evaluated on every open.
   container: () => HTMLElement | null | undefined;
+  // Optional element to focus when the dialog opens. When omitted, focus
+  // prefers an element with [autofocus], else the first focusable control.
+  initialFocus?: () => HTMLElement | null | undefined;
+}
+
+interface DialogEntry {
+  root: HTMLElement;
+  onClose: () => void;
+}
+
+// Module-level stack of currently-open dialogs. Only the top-most entry
+// responds to Escape / Tab so that nested dialogs (e.g. a scope switcher on
+// top of the composer) don't both close on a single Escape.
+const dialogStack: DialogEntry[] = [];
+
+// Refcounted scroll-lock so concurrent dialogs lock/unlock in an
+// order-independent way. The first opener captures the prior overflow; the
+// last closer restores it.
+let scrollLockCount = 0;
+let savedBodyOverflow = "";
+
+function lockScroll(): void {
+  if (scrollLockCount === 0) {
+    savedBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  scrollLockCount += 1;
+}
+
+function unlockScroll(): void {
+  scrollLockCount -= 1;
+  if (scrollLockCount <= 0) {
+    scrollLockCount = 0;
+    document.body.style.overflow = savedBodyOverflow;
+  }
 }
 
 const FOCUSABLE_SELECTOR = [
@@ -56,20 +91,33 @@ export function useDialog(options: UseDialogOptions): void {
         ? document.activeElement
         : null;
 
-    // Move focus into the dialog. Prefer the first focusable control; fall back
-    // to the dialog container itself (made programmatically focusable).
+    // Move focus into the dialog. Prefer an explicit initialFocus target, then
+    // an element marked [autofocus], then the first focusable control; fall
+    // back to the dialog container itself (made programmatically focusable).
+    const explicit = options.initialFocus?.();
+    const autofocusTarget = root.querySelector<HTMLElement>("[autofocus]");
     const focusables = focusableWithin(root);
-    if (focusables.length > 0) {
-      focusables[0].focus();
+    const focusTarget = explicit ?? autofocusTarget ?? focusables[0] ?? null;
+    if (focusTarget) {
+      focusTarget.focus();
     } else {
       if (!root.hasAttribute("tabindex")) root.setAttribute("tabindex", "-1");
       root.focus();
     }
 
+    // Register this dialog on the shared stack. Only the top-most entry will
+    // react to Escape / Tab.
+    const entry: DialogEntry = { root, onClose: options.onClose };
+    dialogStack.push(entry);
+
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Only the top-most dialog responds to keyboard interaction.
+      if (dialogStack[dialogStack.length - 1] !== entry) return;
+
       if (e.key === "Escape") {
         e.preventDefault();
-        options.onClose();
+        e.stopPropagation();
+        entry.onClose();
         return;
       }
       if (e.key !== "Tab") return;
@@ -98,13 +146,14 @@ export function useDialog(options: UseDialogOptions): void {
     };
     document.addEventListener("keydown", handleKeyDown, true);
 
-    // Lock background scroll.
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    // Lock background scroll (refcounted across concurrent dialogs).
+    lockScroll();
 
     onCleanup(() => {
       document.removeEventListener("keydown", handleKeyDown, true);
-      document.body.style.overflow = previousOverflow;
+      const idx = dialogStack.indexOf(entry);
+      if (idx !== -1) dialogStack.splice(idx, 1);
+      unlockScroll();
       // Restore focus to whatever was focused before the dialog opened, as long
       // as it is still in the document.
       if (previouslyFocused && previouslyFocused.isConnected) {

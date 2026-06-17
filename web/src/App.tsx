@@ -108,6 +108,30 @@ function AuthErrorScreen(props: { onRetry: () => void }) {
   );
 }
 
+// Top-level crash fallback. Rendered by the ErrorBoundary, which sits *outside*
+// the jotai <Provider>; solid-jotai's useAtomValue falls back to the default
+// store here, so the language preference (atomWithStorage "language") still
+// resolves and we can localize instead of hardcoding English.
+function AppErrorFallback() {
+  const t = useAtomValue(tAtom);
+  return (
+    <div class="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
+      <div class="max-w-md w-full bg-neutral-900 rounded-xl p-6 text-center">
+        <h1 class="text-xl font-bold text-white mb-2">
+          {t()("app.errorTitle")}
+        </h1>
+        <p class="text-neutral-400 mb-6">{t()("app.errorBody")}</p>
+        <button
+          onClick={() => window.location.reload()}
+          class="px-4 py-2 bg-accent text-white rounded-lg transition-colors"
+        >
+          {t()("app.reloadButton")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AppContent() {
   const {
     actor,
@@ -183,26 +207,7 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ErrorBoundary
-      fallback={(err) => (
-        <div class="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
-          <div class="max-w-md w-full bg-neutral-900 rounded-xl p-6 text-center">
-            <h1 class="text-xl font-bold text-white mb-2">
-              Something went wrong
-            </h1>
-            <p class="text-neutral-400 mb-6">
-              An unexpected error occurred. Please try again.
-            </p>
-            <button
-              onClick={() => window.location.reload()}
-              class="px-4 py-2 bg-accent text-white rounded-lg transition-colors"
-            >
-              Reload page
-            </button>
-          </div>
-        </div>
-      )}
-    >
+    <ErrorBoundary fallback={() => <AppErrorFallback />}>
       <Provider>
         <Suspense fallback={<LoadingSpinner />}>
           <AppContent />

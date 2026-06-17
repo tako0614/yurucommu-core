@@ -102,6 +102,7 @@ type StoryResponse = {
   ap_id: string;
   author: StoryAuthor;
   attachment: ReturnType<typeof transformStoryData>["attachment"];
+  caption?: string;
   displayDuration: string;
   overlays?: ReturnType<typeof transformStoryData>["overlays"];
   end_time: string;
@@ -123,11 +124,17 @@ type StoryCreateBody = {
     height?: number;
   };
   displayDuration: string;
+  // Optional caption/text shown over the story.
+  caption?: string;
   overlays?: unknown[];
   // Optional community scope. When set, the story is scoped to this community
   // (members-only visibility) instead of the author's personal story feed.
   community_ap_id?: string;
 };
+
+// Caption is user-authored free text; cap it so a malformed/huge body can't
+// bloat the stored attachments JSON.
+const MAX_STORY_CAPTION_LENGTH = 500;
 
 /** Build a StoryAuthor from available data sources. */
 function buildAuthor(
@@ -174,6 +181,7 @@ function buildStoryResponse(
     ap_id: s.apId,
     author,
     attachment: storyData.attachment,
+    caption: storyData.caption,
     displayDuration: storyData.displayDuration,
     overlays: storyData.overlays,
     end_time: s.endTime || "",
@@ -628,6 +636,22 @@ stories.post("/", async (c) => {
     }
   }
 
+  // Normalize the optional caption: trim, drop when empty, and reject overlong
+  // input rather than silently truncating.
+  let caption: string | undefined;
+  if (typeof body.caption === "string") {
+    const trimmed = body.caption.trim();
+    if (trimmed.length > MAX_STORY_CAPTION_LENGTH) {
+      return c.json(
+        {
+          error: `caption must be at most ${MAX_STORY_CAPTION_LENGTH} characters`,
+        },
+        400,
+      );
+    }
+    if (trimmed.length > 0) caption = trimmed;
+  }
+
   // Optional community scope. Reuse the same post-permission policy as posts so
   // story scope and post scope stay consistent (membership + postPolicy). A
   // personal story leaves communityApId NULL.
@@ -654,6 +678,7 @@ stories.post("/", async (c) => {
       height: body.attachment.height || 1920,
     },
     displayDuration: body.displayDuration || "PT5S",
+    caption,
     overlays: body.overlays || undefined,
   };
   const attachmentsJson = JSON.stringify(storyData);
@@ -686,6 +711,7 @@ stories.post("/", async (c) => {
     ap_id: apId,
     author: authorInfo,
     attachment: responseData.attachment,
+    caption: responseData.caption,
     displayDuration: responseData.displayDuration,
     overlays: responseData.overlays,
     end_time: endTime,
@@ -702,6 +728,7 @@ stories.post("/", async (c) => {
       attributedTo: actor.ap_id,
       attachment: responseData.attachment,
       displayDuration: responseData.displayDuration,
+      caption: responseData.caption,
       overlays: responseData.overlays,
       endTime,
       published: now,

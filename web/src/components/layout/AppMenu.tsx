@@ -3,7 +3,7 @@ import { A } from "@solidjs/router";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
-import { actorAtom } from "../../atoms/auth.ts";
+import { actorAtom, logoutAtom } from "../../atoms/auth.ts";
 import { appMenuOpenAtom } from "../../atoms/shell.ts";
 import {
   accountsAtom,
@@ -13,7 +13,6 @@ import {
   showAccountSwitcherAtom,
   switchAccountAtom,
 } from "../../atoms/timeline.ts";
-import { logout } from "../../lib/api.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import {
   BookmarkIconMenu,
@@ -38,6 +37,23 @@ const DiscoverIcon = () => (
       stroke-linejoin="round"
       stroke-width={2}
       d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+    />
+  </svg>
+);
+
+const FriendsIcon = () => (
+  <svg
+    class="w-6 h-6"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
     />
   </svg>
 );
@@ -89,6 +105,7 @@ export function AppMenu() {
   const currentApId = useAtomValue(currentApIdAtom);
   const doLoadAccounts = useSetAtom(loadAccountsAtom);
   const doSwitchAccount = useSetAtom(switchAccountAtom);
+  const doLogout = useSetAtom(logoutAtom);
 
   let drawerRef: HTMLDivElement | undefined;
 
@@ -109,8 +126,10 @@ export function AppMenu() {
   });
 
   const handleLogout = async () => {
+    // Route through logoutAtom so the observation scope is reset (resetScope);
+    // a direct lib/api logout would leave the previous owner's community lens.
     try {
-      await logout();
+      await doLogout();
     } catch {
       // Ignore — fall through to the redirect which re-triggers auth.
     }
@@ -123,18 +142,23 @@ export function AppMenu() {
         const current = actor();
         if (!current) return null;
         return (
-          <div class="fixed inset-0 z-[60] flex md:items-center md:justify-center md:p-4">
-            {/* Backdrop */}
-            <div class="absolute inset-0 bg-black/60" onClick={close} />
-            {/* Mobile: left slide-in drawer. Desktop: centered popover card so the
-                same account / utility affordances are reachable from the Sidebar
-                (whose static account block opens this menu). */}
+          <div class="fixed inset-0 z-[60]">
+            {/* Backdrop. On mobile it dims full-screen; on desktop it is a
+                transparent click-catcher so the popover dismisses on outside
+                click without dimming the whole app. */}
+            <div
+              class="absolute inset-0 bg-black/60 md:bg-transparent"
+              onClick={close}
+            />
+            {/* Mobile: left slide-in drawer (modal sheet). Desktop: a popover
+                anchored to the Sidebar account block (bottom-left) rather than a
+                full-screen dimmed modal — so it reads as a menu attached to its
+                trigger. */}
             <div
               ref={drawerRef}
               role="dialog"
-              aria-modal="true"
               aria-label={t("menu.title")}
-              class="absolute left-0 top-0 bottom-0 w-72 bg-neutral-900 border-r border-neutral-800 animate-slide-in overflow-y-auto md:static md:max-h-[80vh] md:w-80 md:rounded-2xl md:border md:border-neutral-800 md:shadow-2xl"
+              class="absolute left-0 top-0 bottom-0 w-72 bg-neutral-900 border-r border-neutral-800 animate-slide-in overflow-y-auto pt-[env(safe-area-inset-top)] md:bottom-4 md:left-4 md:top-auto md:w-80 md:max-h-[calc(100vh-2rem)] md:rounded-2xl md:border md:border-neutral-800 md:shadow-2xl md:pt-0"
             >
               {/* Profile Header */}
               <div class="p-4 border-b border-neutral-800">
@@ -265,6 +289,14 @@ export function AppMenu() {
                 >
                   <ProfileIconMenu />
                   <span class="text-lg">{t("nav.profile")}</span>
+                </A>
+                <A
+                  href="/friends"
+                  onClick={close}
+                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
+                >
+                  <FriendsIcon />
+                  <span class="text-lg">{t("nav.friends")}</span>
                 </A>
                 <A
                   href="/bookmarks"

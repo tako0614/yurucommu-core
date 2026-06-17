@@ -32,6 +32,10 @@ export const instancesLoadingAtom = atom(false);
 // --- Action atoms ---
 export const checkAuthAtom = atom(null, async (get, set) => {
   try {
+    // Keep the loading screen up across a retry: otherwise authError is cleared
+    // while loading is already false, flashing LoginScreen for a frame before
+    // the result (or a fresh authError) arrives.
+    set(authLoadingAtom, true);
     set(instancesLoadingAtom, true);
     set(authErrorAtom, null);
     const result = await authStrategy.checkAuth();

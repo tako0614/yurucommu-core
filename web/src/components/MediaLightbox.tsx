@@ -266,6 +266,7 @@ export function MediaLightbox(props: MediaLightboxProps) {
                   src={mediaAttachmentUrl(active()!)}
                   controls
                   autoplay
+                  muted
                   playsinline
                   class="max-w-[100vw] max-h-[90vh] object-contain"
                 />

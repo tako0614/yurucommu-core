@@ -85,7 +85,7 @@ export function ScopeChip(props: ScopeChipProps) {
 
   return (
     <span
-      class={`inline-flex max-w-[40%] items-center gap-1 rounded-full border border-neutral-800 bg-neutral-900/60 px-2 py-0.5 text-[11px] font-medium text-neutral-400 ${
+      class={`inline-flex max-w-[35%] items-center gap-0.5 rounded-full border border-neutral-800 bg-neutral-900/60 px-1.5 py-0.5 text-[10px] font-medium leading-none text-neutral-400 ${
         props.class ?? ""
       }`}
       title={label()}

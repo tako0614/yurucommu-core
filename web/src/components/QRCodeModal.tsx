@@ -10,6 +10,7 @@ import { Html5Qrcode } from "html5-qrcode";
 import { Actor } from "../types/index.ts";
 import { fetchActor, follow, searchRemote } from "../lib/api.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
+import { useDialog } from "../lib/useDialog.ts";
 import { useI18n } from "../lib/i18n.tsx";
 
 interface QRCodeModalProps {
@@ -58,6 +59,15 @@ export function QRCodeModal(props: QRCodeModalProps) {
   const [followSuccess, setFollowSuccess] = createSignal(false);
   let scannerRef: Html5Qrcode | null = null;
   let scannerContainerRef!: HTMLDivElement;
+  let dialogRef: HTMLDivElement | undefined;
+
+  // The parent gates mounting behind a <Show>, so the dialog is open for its
+  // whole lifetime: trap focus, lock scroll, and close on Escape while mounted.
+  useDialog({
+    isOpen: () => true,
+    onClose: () => props.onClose(),
+    container: () => dialogRef,
+  });
 
   const stopScannerSafely = async () => {
     if (!scannerRef) return;
@@ -236,13 +246,24 @@ export function QRCodeModal(props: QRCodeModalProps) {
   };
 
   return (
-    <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+    <div
+      class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) props.onClose();
+      }}
+    >
       <Show when={copied()}>
         <div class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 bg-neutral-800 text-white text-sm rounded-full shadow-lg">
           {t("settings.linkCopied")}
         </div>
       </Show>
-      <div class="bg-neutral-900 rounded-2xl w-full max-w-md overflow-hidden">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="QR Code"
+        class="bg-neutral-900 rounded-2xl w-full max-w-md overflow-hidden"
+      >
         {/* Header */}
         <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
           <h2 class="text-lg font-bold text-white">QR Code</h2>

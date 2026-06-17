@@ -12,6 +12,9 @@ interface ProfileSummaryProps {
   profile: Actor;
   isOwnProfile: boolean;
   isFollowing: boolean;
+  // A private/remote follow can be awaiting the target's approval. While it is
+  // pending we must not present it as an accepted follow ("Unfollow").
+  followPending?: boolean;
   showMenu: boolean;
   onToggleMenu: () => void;
   onCloseMenu: () => void;
@@ -93,15 +96,20 @@ export function ProfileSummary(props: ProfileSummaryProps) {
             </div>
             <button
               onClick={props.onToggleFollow}
+              disabled={props.followPending}
               class={`px-4 py-2 rounded-full font-bold transition-colors ${
-                props.isFollowing
-                  ? "bg-transparent border border-neutral-600 text-white hover:border-red-500 hover:text-red-500"
-                  : "bg-white text-black hover:bg-neutral-200"
+                props.followPending
+                  ? "bg-transparent border border-neutral-700 text-neutral-400 cursor-default"
+                  : props.isFollowing
+                    ? "bg-transparent border border-neutral-600 text-white hover:border-red-500 hover:text-red-500"
+                    : "bg-white text-black hover:bg-neutral-200"
               }`}
             >
-              {props.isFollowing
-                ? props.t("profile.unfollow")
-                : props.t("profile.follow")}
+              {props.followPending
+                ? props.t("profile.followRequested")
+                : props.isFollowing
+                  ? props.t("profile.unfollow")
+                  : props.t("profile.follow")}
             </button>
           </Show>
           <Show when={props.isOwnProfile}>

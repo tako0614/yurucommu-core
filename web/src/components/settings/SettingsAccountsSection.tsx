@@ -1,13 +1,13 @@
 import { For, Show } from "solid-js";
+import { useAtomValue } from "solid-jotai";
 import type { AccountInfo } from "../../lib/api.ts";
-import type { Actor } from "../../types/index.ts";
+import { currentApIdAtom } from "../../atoms/timeline.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { CheckIcon, CloseIcon, PlusIcon } from "./SettingsIcons.tsx";
 import { SettingsSectionHeader } from "./SettingsSectionHeader.tsx";
 import type { Translate } from "../../lib/i18n.tsx";
 
 interface SettingsAccountsSectionProps {
-  actor: Actor;
   accounts: AccountInfo[];
   loading: boolean;
   switching: boolean;
@@ -27,6 +27,7 @@ interface SettingsAccountsSectionProps {
 }
 
 export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
+  const currentApId = useAtomValue(currentApIdAtom);
   return (
     <div class="flex flex-col h-full">
       <SettingsSectionHeader
@@ -63,7 +64,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                     @{account.preferred_username}
                   </div>
                 </div>
-                <Show when={account.ap_id === props.actor.ap_id}>
+                <Show when={account.ap_id === currentApId()}>
                   <CheckIcon />
                 </Show>
               </button>

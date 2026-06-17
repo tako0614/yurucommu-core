@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { useNavigate } from "@solidjs/router";
 import { useSetAtom } from "solid-jotai";
 import { Notification } from "../types/index.ts";
@@ -135,6 +136,46 @@ export function NotificationPage() {
   });
 
   const retryLoad = () => setReloadKey((k) => k + 1);
+
+  // Refresh the list in place (no skeleton flash) when the page becomes
+  // visible or regains focus, so an open notification view doesn't go stale
+  // while only the shared badge polls.
+  const refreshInPlace = async () => {
+    if (loading() || loadError()) return;
+    const currentFilter = filter();
+    try {
+      const data = await fetchNotifications({
+        type: currentFilter === "all" ? undefined : currentFilter,
+      });
+      // Ignore late responses if the filter changed mid-flight.
+      if (filter() !== currentFilter) return;
+      setNotifications(data);
+
+      const unread = data.filter((n) => !n.read);
+      if (unread.length > 0) {
+        await markNotificationsRead(unread.map((n) => n.id));
+        if (filter() === currentFilter) {
+          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+          void refreshUnread();
+        }
+      }
+    } catch (e) {
+      console.error("Failed to refresh notifications:", e);
+    }
+  };
+
+  createEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshInPlace();
+    };
+    const onFocus = () => void refreshInPlace();
+    document.addEventListener("visibilitychange", onVisible);
+    globalThis.addEventListener("focus", onFocus);
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", onVisible);
+      globalThis.removeEventListener("focus", onFocus);
+    });
+  });
 
   const handleFollowRequest = async (
     notification: Notification,
@@ -323,10 +364,16 @@ export function NotificationPage() {
       <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <h1 class="text-xl font-bold px-4 py-3">{t("notifications.title")}</h1>
         {/* Filter tabs */}
-        <div class="flex overflow-x-auto scrollbar-hide border-t border-neutral-900">
+        <div
+          role="tablist"
+          aria-label={t("notifications.title")}
+          class="flex overflow-x-auto scrollbar-hide border-t border-neutral-900"
+        >
           <For each={filterTabs}>
             {(tab) => (
               <button
+                role="tab"
+                aria-selected={filter() === tab.key}
                 onClick={() => setFilter(tab.key)}
                 class={`flex items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 ${
                   filter() === tab.key
@@ -378,72 +425,69 @@ export function NotificationPage() {
                   const target = notificationTarget(notification);
                   return (
                   <div
-                    role={target ? "link" : undefined}
-                    tabindex={target ? 0 : undefined}
-                    onClick={
-                      target
-                        ? () => handleRowActivate(notification)
-                        : undefined
-                    }
-                    onKeyDown={
-                      target
-                        ? (e) => {
-                            if (e.key === "Enter" || e.key === " ") {
+                    class={`flex items-start gap-3 px-4 py-3 border-b border-neutral-900 transition-colors ${
+                      !notification.read ? "bg-neutral-900/50" : ""
+                    }`}
+                  >
+                    <Dynamic
+                      component={target ? "a" : "div"}
+                      href={target ?? undefined}
+                      onClick={
+                        target
+                          ? (e: MouseEvent) => {
                               e.preventDefault();
                               handleRowActivate(notification);
                             }
+                          : undefined
+                      }
+                      class={`flex items-start gap-3 flex-1 min-w-0 rounded-md hover:bg-neutral-900/30 transition-colors ${
+                        target ? "cursor-pointer" : ""
+                      }`}
+                    >
+                      <div class="relative shrink-0">
+                        <UserAvatar
+                          avatarUrl={notification.actor.icon_url}
+                          name={
+                            notification.actor.name ||
+                            notification.actor.preferred_username
                           }
-                        : undefined
-                    }
-                    class={`flex items-start gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors ${
-                      target ? "cursor-pointer" : ""
-                    } ${!notification.read ? "bg-neutral-900/50" : ""}`}
-                  >
-                    <div class="relative shrink-0">
-                      <UserAvatar
-                        avatarUrl={notification.actor.icon_url}
-                        name={
-                          notification.actor.name ||
-                          notification.actor.preferred_username
-                        }
-                        size={40}
-                      />
-                      <span class="absolute -bottom-1 -right-1">
-                        {getNotificationIcon(notification.type)}
-                      </span>
-                    </div>
-                    <div class="flex-1 min-w-0">
-                      <p class="text-[15px] text-neutral-400">
-                        {getNotificationText(notification)}
-                      </p>
-                      <Show when={notification.type === "follow_request"}>
-                        <div class="mt-2 flex gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleFollowRequest(notification, "accept");
-                            }}
-                            disabled={pendingAction()[notification.id]}
-                            class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
-                          >
-                            {t("dm.accept")}
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleFollowRequest(notification, "reject");
-                            }}
-                            disabled={pendingAction()[notification.id]}
-                            class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
-                          >
-                            {t("dm.reject")}
-                          </button>
-                        </div>
-                      </Show>
-                      <p class="text-sm text-neutral-600 mt-1">
-                        {formatRelativeTime(notification.created_at)}
-                      </p>
-                    </div>
+                          size={40}
+                        />
+                        <span class="absolute -bottom-1 -right-1">
+                          {getNotificationIcon(notification.type)}
+                        </span>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <p class="text-[15px] text-neutral-400">
+                          {getNotificationText(notification)}
+                        </p>
+                        <p class="text-sm text-neutral-600 mt-1">
+                          {formatRelativeTime(notification.created_at)}
+                        </p>
+                      </div>
+                    </Dynamic>
+                    <Show when={notification.type === "follow_request"}>
+                      <div class="flex gap-2 shrink-0 self-center">
+                        <button
+                          onClick={() =>
+                            handleFollowRequest(notification, "accept")
+                          }
+                          disabled={pendingAction()[notification.id]}
+                          class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
+                        >
+                          {t("dm.accept")}
+                        </button>
+                        <button
+                          onClick={() =>
+                            handleFollowRequest(notification, "reject")
+                          }
+                          disabled={pendingAction()[notification.id]}
+                          class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                        >
+                          {t("dm.reject")}
+                        </button>
+                      </div>
+                    </Show>
                   </div>
                   );
                 }}

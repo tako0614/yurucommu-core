@@ -123,15 +123,20 @@ communitiesRouter.get("/", async (c) => {
     .limit(limit)
     .offset(offset);
 
-  // Batch load membership and join request status for current actor to avoid N+1
+  // Batch load membership (with role) and join request status for current actor
+  // to avoid N+1. member_role is needed so the client can build accurate scopes
+  // (atoms/scope.ts) instead of asserting a bogus role for joined communities.
   const communityApIds = communitiesList.map((c) => c.apId);
-  const membershipSet = new Set<string>();
+  const memberRoleMap = new Map<string, string>();
   const pendingRequestSet = new Set<string>();
 
   if (actorApIdVal && communityApIds.length > 0) {
     const [memberships, joinRequests] = await Promise.all([
       db
-        .select({ communityApId: communityMembers.communityApId })
+        .select({
+          communityApId: communityMembers.communityApId,
+          role: communityMembers.role,
+        })
         .from(communityMembers)
         .where(
           and(
@@ -151,12 +156,13 @@ communitiesRouter.get("/", async (c) => {
         ),
     ]);
 
-    for (const m of memberships) membershipSet.add(m.communityApId);
+    for (const m of memberships) memberRoleMap.set(m.communityApId, m.role);
     for (const r of joinRequests) pendingRequestSet.add(r.communityApId);
   }
 
   const result = communitiesList.map((community) => {
-    const isMember = membershipSet.has(community.apId);
+    const memberRole = memberRoleMap.get(community.apId) ?? null;
+    const isMember = memberRole !== null;
     const joinStatus =
       !isMember && pendingRequestSet.has(community.apId) ? "pending" : null;
 
@@ -173,6 +179,7 @@ communitiesRouter.get("/", async (c) => {
       created_at: community.createdAt,
       last_message_at: community.lastMessageAt,
       is_member: isMember,
+      member_role: memberRole,
       join_status: joinStatus,
     };
   });

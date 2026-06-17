@@ -426,7 +426,8 @@ export function CommunityProfilePage() {
         </div>
       </Show>
 
-      <Show when={!loading() && !community()}>
+      {/* Genuine not-found (404 leaves community() null without an error). */}
+      <Show when={!loading() && !community() && !error()}>
         <CommunityProfileHeader
           title={t("groups.title")}
           subtitle=""
@@ -434,6 +435,29 @@ export function CommunityProfilePage() {
         />
         <div class="p-8 text-center text-neutral-500">
           {t("community.notFound")}
+        </div>
+      </Show>
+
+      {/* Transient (non-404) failure: offer a retry instead of "not found". */}
+      <Show when={!loading() && !community() && error()}>
+        <CommunityProfileHeader
+          title={t("groups.title")}
+          subtitle=""
+          onBack={() => navigate(-1)}
+        />
+        <div class="flex flex-col items-center gap-3 p-8 text-center">
+          <div class="text-neutral-400">{error()}</div>
+          <button
+            type="button"
+            onClick={() => {
+              clearError();
+              setLoading(true);
+              loadCommunity();
+            }}
+            class="rounded-full bg-neutral-800 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700"
+          >
+            {t("common.retry")}
+          </button>
         </div>
       </Show>
 

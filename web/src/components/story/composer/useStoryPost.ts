@@ -18,6 +18,9 @@ interface UseStoryPostOptions {
   displayScale: number;
   ffmpegReady: boolean;
   overlays: StoryOverlay[];
+  // Optional caption/text the user typed in the composer footer. Persisted with
+  // the story and rendered in the viewer.
+  caption?: string;
   // Audience seam (B0.3): when the composer is opened inside a community scope,
   // the story is bound to that community (reach == community members). Personal
   // scope leaves this undefined so the story stays a personal (self + followed)
@@ -121,6 +124,7 @@ export function useStoryPost(opts: UseStoryPostOptions) {
           content_type: contentType,
         },
         displayDuration: `PT${Math.round(duration)}S`,
+        caption: opts.caption?.trim() ? opts.caption.trim() : undefined,
         overlays: opts.overlays.length > 0 ? opts.overlays : undefined,
         // Bind to the inhabited community scope when present (else personal).
         community_ap_id: opts.communityApId,

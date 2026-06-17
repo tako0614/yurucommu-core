@@ -15,6 +15,7 @@ import {
 } from "../../lib/api.ts";
 import { formatTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import { UserAvatar } from "../UserAvatar.tsx";
 
 interface DMChatPanelProps {
   contact: DMContact;
@@ -40,7 +41,23 @@ function mergeMessagesById(
 ): ChatMessage[] {
   const fetchedIds = new Set(fetched.map((m) => m.id));
   const pending = existing.filter((m) => !fetchedIds.has(m.id));
-  return pending.length > 0 ? [...fetched, ...pending] : fetched;
+  const merged = pending.length > 0 ? [...fetched, ...pending] : fetched;
+
+  // No-op guard: if the merged id-sequence is identical to the existing one,
+  // return the PREVIOUS array reference so the `messages` signal does not
+  // change identity on a poll that fetched nothing new. This stops the
+  // scroll-to-bottom effect from re-firing every poll interval.
+  if (merged.length === existing.length) {
+    let same = true;
+    for (let i = 0; i < merged.length; i++) {
+      if (merged[i].id !== existing[i].id) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return existing;
+  }
+  return merged;
 }
 
 export function DMChatPanel(props: DMChatPanelProps) {
@@ -51,7 +68,14 @@ export function DMChatPanel(props: DMChatPanelProps) {
   const [isTyping, setIsTyping] = createSignal(false);
   const [errorMessage, setErrorMessage] = createSignal<string | null>(null);
   let messagesEndRef!: HTMLDivElement;
+  let scrollContainerRef!: HTMLDivElement;
   let lastTypingSent = 0;
+  // Scroll-tracking: remember the previous last-message id and count so the
+  // auto-scroll effect only fires when the conversation actually grows, not on
+  // every 4s poll (which would yank the user away from history they are reading).
+  let prevLastId: string | null = null;
+  let prevCount = 0;
+  let didInitialScroll = false;
   const { t } = useI18n();
 
   // Fetch the latest messages for the open conversation. On `initial` load we
@@ -71,29 +95,42 @@ export function DMChatPanel(props: DMChatPanelProps) {
       if (contactType === "community") {
         const data = await fetchCommunityMessages(contactApId);
         if (isCancelled()) return;
-        setMessages((prev) =>
-          mode === "initial" ? data : mergeMessagesById(prev, data),
-        );
-        try {
-          await markCommunityAsRead(contactApId);
-          if (!isCancelled()) props.onRead?.();
-        } catch {
-          // Ignore read marking errors.
+        let changed = false;
+        setMessages((prev) => {
+          const next = mode === "initial" ? data : mergeMessagesById(prev, data);
+          changed = next !== prev;
+          return next;
+        });
+        // Only POST mark-as-read on the initial load or when genuinely new
+        // content arrived; otherwise every poll triggers a redundant write.
+        if (mode === "initial" || changed) {
+          try {
+            await markCommunityAsRead(contactApId);
+            if (!isCancelled()) props.onRead?.();
+          } catch {
+            // Ignore read marking errors.
+          }
         }
       } else {
         const { messages: loadedMessages } =
           await fetchUserDMMessages(contactApId);
         if (isCancelled()) return;
-        setMessages((prev) =>
-          mode === "initial"
-            ? loadedMessages
-            : mergeMessagesById(prev, loadedMessages),
-        );
-        try {
-          await markDMAsRead(contactApId);
-          if (!isCancelled()) props.onRead?.();
-        } catch {
-          // Ignore read marking errors.
+        let changed = false;
+        setMessages((prev) => {
+          const next =
+            mode === "initial"
+              ? loadedMessages
+              : mergeMessagesById(prev, loadedMessages);
+          changed = next !== prev;
+          return next;
+        });
+        if (mode === "initial" || changed) {
+          try {
+            await markDMAsRead(contactApId);
+            if (!isCancelled()) props.onRead?.();
+          } catch {
+            // Ignore read marking errors.
+          }
         }
       }
     } catch (e) {
@@ -115,6 +152,11 @@ export function DMChatPanel(props: DMChatPanelProps) {
     let cancelled = false;
     const isCancelled = () => cancelled;
 
+    // Reset scroll tracking so the new conversation jumps to its bottom once.
+    prevLastId = null;
+    prevCount = 0;
+    didInitialScroll = false;
+
     void refreshMessages(contactApId, contactType, "initial", isCancelled);
 
     // Re-fetch incoming messages while the conversation is open so messages
@@ -130,16 +172,40 @@ export function DMChatPanel(props: DMChatPanelProps) {
   });
 
   createEffect(() => {
-    // Track messages to scroll on change
-    messages();
-    messagesEndRef?.scrollIntoView({ behavior: "smooth" });
+    const list = messages();
+    const lastId = list.length > 0 ? list[list.length - 1].id : null;
+    const grewOrChanged = lastId !== prevLastId || list.length !== prevCount;
+
+    // On the very first non-empty render, jump to the bottom regardless of
+    // position. After that, only auto-scroll when the conversation actually
+    // changed (new/optimistic message) AND the user is already near the bottom,
+    // so reading back through history is not interrupted by a poll.
+    if (!grewOrChanged) {
+      return;
+    }
+
+    const isInitial = !didInitialScroll && list.length > 0;
+    const el = scrollContainerRef;
+    const nearBottom =
+      !el ||
+      el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+
+    prevLastId = lastId;
+    prevCount = list.length;
+
+    if (isInitial) {
+      didInitialScroll = true;
+      messagesEndRef?.scrollIntoView();
+    } else if (nearBottom) {
+      messagesEndRef?.scrollIntoView({ behavior: "smooth" });
+    }
   });
 
   createEffect(() => {
     const contactApId = props.contact.ap_id;
     const contactType = props.contact.type;
 
-    if (contactType !== "user") {
+    if (contactType !== "user" || isRemoteContact(contactApId)) {
       setIsTyping(false);
       return;
     }
@@ -225,6 +291,17 @@ export function DMChatPanel(props: DMChatPanelProps) {
     return msg.sender.ap_id;
   };
 
+  // A contact is remote when its AP-ID host differs from this instance's host.
+  // Typing indicators are local-only (no federation delivery), so polling a
+  // remote peer's typing state can never return true and is a dead 4s request.
+  const isRemoteContact = (apId: string): boolean => {
+    try {
+      return new URL(apId).host !== window.location.host;
+    } catch {
+      return false;
+    }
+  };
+
   return (
     <div class="flex flex-col h-full">
       <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 bg-neutral-900/80 backdrop-blur-sm">
@@ -307,7 +384,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
         </Show>
       </div>
 
-      <div class="flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scrollContainerRef!} class="flex-1 overflow-y-auto px-4 py-4">
         <Show
           when={!loading()}
           fallback={<div class="text-center text-neutral-500">Loading...</div>}
@@ -341,10 +418,13 @@ export function DMChatPanel(props: DMChatPanelProps) {
                       when={!isMine && showAvatar}
                       fallback={!isMine ? <div class="w-8 mr-2" /> : undefined}
                     >
-                      <img
-                        src={msg.sender.icon_url || ""}
-                        alt={msg.sender.name || msg.sender.preferred_username}
-                        class="w-8 h-8 rounded-full mr-2 object-cover"
+                      <UserAvatar
+                        avatarUrl={msg.sender.icon_url || null}
+                        name={
+                          msg.sender.name || msg.sender.preferred_username || "?"
+                        }
+                        size={32}
+                        class="mr-2"
                       />
                     </Show>
                     <div

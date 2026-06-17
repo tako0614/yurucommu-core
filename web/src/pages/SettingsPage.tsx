@@ -43,6 +43,9 @@ export function SettingsPage() {
   const [mutedUsers, setMutedUsers] = createSignal<Actor[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [deleteConfirm, setDeleteConfirm] = createSignal("");
+  // True while the irreversible delete request is in flight, to show progress
+  // and prevent a double-submit.
+  const [deletingAccount, setDeletingAccount] = createSignal(false);
 
   // Account switching — share the same atoms as the AppMenu switcher so the
   // list and current selection never go stale across the two surfaces.
@@ -188,10 +191,14 @@ export function SettingsPage() {
 
   const confirmDeleteAccount = async () => {
     setConfirmingDeleteAccount(false);
+    if (deletingAccount()) return;
+    setDeletingAccount(true);
     try {
       await deleteAccount();
+      // On success we navigate away; keep the in-flight state until then.
       globalThis.location.href = "/";
     } catch (e: unknown) {
+      setDeletingAccount(false);
       pushToast(
         setToasts,
         e instanceof Error ? e.message : t("settings.deleteAccountFailed"),
@@ -238,15 +245,16 @@ export function SettingsPage() {
         <SettingsDeleteSection
           actor={actor}
           deleteConfirm={deleteConfirm()}
+          deleting={deletingAccount()}
           onChangeConfirm={setDeleteConfirm}
           onDelete={handleDeleteAccount}
           onBack={() => setActiveSection("main")}
+          t={t}
         />
       </Show>
 
       <Show when={activeSection() === "accounts"}>
         <SettingsAccountsSection
-          actor={actor}
           accounts={accounts()}
           loading={accountsLoading()}
           switching={switching()}

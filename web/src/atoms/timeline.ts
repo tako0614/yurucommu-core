@@ -52,6 +52,11 @@ export const uploadedMediaAtom = atom<UploadedMedia[]>([]);
 export const uploadingAtom = atom(false);
 export const uploadErrorAtom = atom<string | null>(null);
 export const showPostModalAtom = atom(false);
+// Whether the shell-level ScopeSwitcherSheet is open. It is mounted once (in
+// GlobalPostComposer) so the home header pill, the scope rail's "+", and the
+// composer's audience re-aim all drive the same single instance rather than
+// each page owning a private copy (single-modal shell design).
+export const showScopeSwitcherAtom = atom(false);
 
 // --- New-posts indicator ---
 // Posts fetched from the timeline head that are newer than what is currently
@@ -69,7 +74,10 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
 
   try {
     const scope = get(scopeQueryAtom);
-    const head = await fetchTimeline({ limit: 20, community: scope?.community });
+    const head = await fetchTimeline({
+      limit: 20,
+      community: scope?.community,
+    });
     if (head.length === 0) return;
 
     const knownIds = new Set([
@@ -123,7 +131,10 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
   set(timelineHasMoreAtom, true);
   try {
     const scope = get(scopeQueryAtom);
-    const posts = await fetchTimeline({ limit: 20, community: scope?.community });
+    const posts = await fetchTimeline({
+      limit: 20,
+      community: scope?.community,
+    });
     set(timelinePostsAtom, posts);
     set(timelineHasMoreAtom, posts.length >= 20);
     // A full reload already shows the freshest head; drop any staged posts.
@@ -238,17 +249,26 @@ export const createPostAtom = atom(
     } catch (e) {
       console.error("Failed to create post:", e);
       // Map a server-side length rejection to a specific message so an
-      // over-length post is explained rather than a generic failure.
-      const isTooLong =
+      // over-length post is explained rather than a generic failure. A summary
+      // (content warning) overflow is mapped to its own message so it is never
+      // mislabelled as a body-too-long error.
+      const isLengthRejection =
         e instanceof ApiError &&
         e.status === 400 &&
         /too long/i.test(e.message);
-      const message = isTooLong
-        ? get(tAtom)("posts.tooLong").replace(
-            "{max}",
-            String(MAX_POST_CONTENT_LENGTH),
-          )
-        : get(tAtom)("feedback.postFailed");
+      const isSummaryRejection =
+        isLengthRejection && /summary|content warning/i.test(e.message);
+      let message: string;
+      if (isSummaryRejection) {
+        message = get(tAtom)("compose.cwTooLong");
+      } else if (isLengthRejection) {
+        message = get(tAtom)("posts.tooLong").replace(
+          "{max}",
+          String(MAX_POST_CONTENT_LENGTH),
+        );
+      } else {
+        message = get(tAtom)("feedback.postFailed");
+      }
       pushToast(toastWriter(set), message, {
         kind: "error",
       });

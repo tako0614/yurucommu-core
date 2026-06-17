@@ -50,13 +50,17 @@ export function StoryViewer(props: StoryViewerProps) {
     width: 0,
     height: 0,
   });
-  const [videoReady, setVideoReady] = createSignal(false);
+  // Bumped on every video progress event (canplay/timeupdate). The stall
+  // watchdog depends on it so genuine-but-slow playback resets the timer
+  // instead of being cut off.
+  const [videoActivityTick, setVideoActivityTick] = createSignal(0);
   const [mediaError, setMediaError] = createSignal(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isMuted, setIsMuted] = createSignal(true);
   const [toastMessage, setToastMessage] = createSignal<string | null>(null);
   let containerRef!: HTMLDivElement;
   let storyContainerRef!: HTMLDivElement;
+  let videoRef: HTMLVideoElement | undefined;
   let timerRef: ReturnType<typeof setTimeout> | null = null;
   let progressTimerRef: ReturnType<typeof setInterval> | null = null;
 
@@ -114,7 +118,7 @@ export function StoryViewer(props: StoryViewerProps) {
     actorIndex();
     storyIndex();
     setMediaError(false);
-    setVideoReady(false);
+    setVideoActivityTick(0);
     setShowDeleteConfirm(false);
   });
 
@@ -123,9 +127,19 @@ export function StoryViewer(props: StoryViewerProps) {
     () => currentStory()?.attachment?.mediaType?.startsWith("video/") ?? false,
   );
 
-  // Keep ref in sync with state for use in interval callback
+  // Keep ref in sync with state for use in interval callback, and drive the
+  // current video's playback from the pause state (hold-to-pause). Without this
+  // a held video would keep playing and progress would keep advancing.
   createEffect(() => {
-    isPausedRef = isPaused();
+    const paused = isPaused();
+    isPausedRef = paused;
+    if (isVideo() && videoRef) {
+      if (paused) {
+        videoRef.pause();
+      } else {
+        videoRef.play().catch(() => setMediaError(true));
+      }
+    }
   });
 
   // Navigation functions
@@ -219,15 +233,19 @@ export function StoryViewer(props: StoryViewerProps) {
   // Video stall watchdog: a broken or stalled video never fires `onEnded`
   // (auto-advance relies on it) and the image timer bails on `isVideo()`, so
   // without this a frozen video would trap the viewer forever. If the media
-  // errors, advance promptly; otherwise if it never becomes ready within the
-  // stall timeout, advance anyway.
+  // errors, advance promptly; otherwise the timer is (re)armed on every
+  // progress event (canplay/timeupdate via `videoActivityTick`), so a slow but
+  // genuinely-progressing video keeps resetting it and is never cut off. This
+  // also covers the "metadata ready but still paused / never progressing" case:
+  // if no progress arrives within the timeout, advance.
   createEffect(() => {
-    // Re-run when the story, readiness, or error state changes.
+    // Re-run when the story, error state, or video progress changes.
     actorIndex();
     storyIndex();
     const video = isVideo();
-    const ready = videoReady();
     const errored = mediaError();
+    // Track progress so each event re-arms the timer below.
+    videoActivityTick();
 
     if (!video) return;
 
@@ -235,7 +253,9 @@ export function StoryViewer(props: StoryViewerProps) {
     if (errored) {
       // Show the error fallback briefly, then move on.
       stallTimer = setTimeout(goNext, 1500);
-    } else if (!ready) {
+    } else if (!isPaused()) {
+      // Only arm the watchdog while we expect playback to progress; a
+      // user-held pause must not trip it.
       stallTimer = setTimeout(goNext, VIDEO_STALL_TIMEOUT_MS);
     }
 
@@ -245,21 +265,26 @@ export function StoryViewer(props: StoryViewerProps) {
   });
 
   const handleVote = async (storyApId: string, optionIndex: number) => {
-    const result = await voteOnStory(storyApId, optionIndex);
-    setLocalActorStories((prev) =>
-      prev.map((group) => ({
-        ...group,
-        stories: group.stories.map((story) => {
-          if (story.ap_id !== storyApId) return story;
-          return {
-            ...story,
-            votes: result.votes,
-            votes_total: result.total,
-            user_vote: result.user_vote,
-          };
-        }),
-      })),
-    );
+    try {
+      const result = await voteOnStory(storyApId, optionIndex);
+      setLocalActorStories((prev) =>
+        prev.map((group) => ({
+          ...group,
+          stories: group.stories.map((story) => {
+            if (story.ap_id !== storyApId) return story;
+            return {
+              ...story,
+              votes: result.votes,
+              votes_total: result.total,
+              user_vote: result.user_vote,
+            };
+          }),
+        })),
+      );
+    } catch (err) {
+      console.error("Failed to vote on story:", err);
+      setToastMessage(t("common.error"));
+    }
   };
 
   const handleLike = async () => {
@@ -368,12 +393,28 @@ export function StoryViewer(props: StoryViewerProps) {
     if (video.duration) {
       setProgress((video.currentTime / video.duration) * 100);
     }
+    // Real playback progress: reset the stall watchdog.
+    setVideoActivityTick((n) => n + 1);
   };
 
-  // Handle video loaded metadata
+  // Handle video loaded metadata: the element has no `autoplay`, so kick off
+  // playback explicitly (subject to the browser's autoplay policy — muted
+  // playback is allowed). Failure surfaces the media-error fallback.
   const handleVideoLoadedMetadata = () => {
-    setVideoReady(true);
     setProgress(0);
+    setVideoActivityTick((n) => n + 1);
+    if (videoRef && !isPaused()) {
+      videoRef.play().catch(() => setMediaError(true));
+    }
+  };
+
+  // `canplay` also indicates the pipeline is alive; reset the watchdog and
+  // ensure playback is running if it hasn't started yet.
+  const handleVideoCanPlay = () => {
+    setVideoActivityTick((n) => n + 1);
+    if (videoRef && !isPaused() && videoRef.paused) {
+      videoRef.play().catch(() => setMediaError(true));
+    }
   };
 
   // Handle media error
@@ -515,6 +556,7 @@ export function StoryViewer(props: StoryViewerProps) {
               }
             >
               <video
+                ref={videoRef}
                 src={
                   currentStory()!.attachment.url ||
                   `/media/${currentStory()!.attachment.r2_key.replace(
@@ -523,12 +565,12 @@ export function StoryViewer(props: StoryViewerProps) {
                   )}`
                 }
                 class="w-full h-full object-cover"
-                autoplay={videoReady()}
                 muted={isMuted()}
                 playsinline
                 onEnded={handleVideoEnded}
                 onTimeUpdate={handleVideoTimeUpdate}
                 onLoadedMetadata={handleVideoLoadedMetadata}
+                onCanPlay={handleVideoCanPlay}
                 onError={handleMediaError}
               />
             </Show>
@@ -540,6 +582,15 @@ export function StoryViewer(props: StoryViewerProps) {
                   <ErrorIcon />
                   <p class="mt-2">{t("story.mediaLoadFailed")}</p>
                 </div>
+              </div>
+            </Show>
+
+            {/* Caption (user-authored text shown over the story) */}
+            <Show when={currentStory()!.caption}>
+              <div class="absolute bottom-4 left-0 right-0 px-4 pointer-events-none">
+                <p class="text-white text-sm leading-snug whitespace-pre-wrap drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]">
+                  {currentStory()!.caption}
+                </p>
               </div>
             </Show>
 

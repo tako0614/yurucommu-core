@@ -15,6 +15,7 @@ import {
   removeMediaAtom,
   setMediaAltAtom,
   showPostModalAtom,
+  showScopeSwitcherAtom,
   uploadedMediaAtom,
   uploadErrorAtom,
   uploadingAtom,
@@ -101,8 +102,12 @@ export function GlobalPostComposer() {
   const uploadError = useAtomValue(uploadErrorAtom);
 
   // The scope switcher is reachable from inside the composer to re-aim the
-  // audience. It is a sibling overlay so it layers above the post modal.
-  const [scopeSwitcherOpen, setScopeSwitcherOpen] = createSignal(false);
+  // audience, and from the home header pill / scope rail. It is mounted once
+  // here (the shell-level owner) and shared via showScopeSwitcherAtom so no
+  // page owns a private duplicate.
+  const [scopeSwitcherOpen, setScopeSwitcherOpen] = useAtom(
+    showScopeSwitcherAtom,
+  );
 
   const doCreatePost = useSetAtom(createPostAtom);
   const doUploadMedia = useSetAtom(uploadMediaAtom);
@@ -130,8 +135,7 @@ export function GlobalPostComposer() {
       content: postContent(),
       summary: postSummary(),
       visibility: current.kind === "community" ? "public" : postVisibility(),
-      community_ap_id:
-        current.kind === "community" ? current.ap_id : undefined,
+      community_ap_id: current.kind === "community" ? current.ap_id : undefined,
     }).then((ok) => {
       // The send committed the user to the chosen room: keep the inhabited
       // scope there (no close-time revert) so the timeline shows the post.

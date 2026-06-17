@@ -48,6 +48,7 @@ type StoredStoryData = {
     height?: number;
   };
   displayDuration?: string;
+  caption?: string;
   overlays?: Overlay[];
 };
 
@@ -322,6 +323,7 @@ export function validateOverlays(overlays: unknown[]): {
 
 export function transformStoryData(attachmentsJson: string): {
   attachment: StoryAttachment;
+  caption?: string;
   displayDuration: string;
   overlays?: Overlay[];
 } {
@@ -353,6 +355,7 @@ export function transformStoryData(attachmentsJson: string): {
       width: stored.attachment?.width || 1080,
       height: stored.attachment?.height || 1920,
     },
+    caption: stored.caption || undefined,
     displayDuration: stored.displayDuration || "PT5S",
     overlays: stored.overlays || undefined,
   };

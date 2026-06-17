@@ -28,6 +28,7 @@ export async function fetchActorStories(
 export async function createStory(story: {
   attachment: { url?: string; r2_key: string; content_type: string };
   displayDuration: string;
+  caption?: string;
   overlays?: StoryOverlay[];
   community_ap_id?: string;
 }): Promise<Story> {

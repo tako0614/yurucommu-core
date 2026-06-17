@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { Actor } from "../../types/index.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { CloseIcon, CloseIconLarge, ImageIcon } from "./TimelineIcons.tsx";
@@ -14,6 +14,11 @@ import { useI18n } from "../../lib/i18n.tsx";
 // server stays the authority; this only powers the counter + a local submit
 // gate so an over-length post is caught before the round-trip.
 const MAX_CONTENT_LENGTH = 5000;
+
+// Mirrors the backend summary (content warning) limit. Like MAX_CONTENT_LENGTH
+// this only powers the local counter + submit gate; the server stays the
+// authority.
+const MAX_SUMMARY_LENGTH = 500;
 
 interface TimelinePostModalProps {
   isOpen: boolean;
@@ -95,6 +100,8 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   let dialogRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
+  let cwInputRef: HTMLInputElement | undefined;
+  let emojiPanelRef: HTMLDivElement | undefined;
 
   // The composer holds unsent work worth confirming before discarding.
   const isDirty = () =>
@@ -105,12 +112,14 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   // Length gate mirrors the server limit; trimmed to match what is actually
   // submitted (createPost trims before sending).
   const contentLength = () => props.postContent.trim().length;
-  const overLimit = () => contentLength() > MAX_CONTENT_LENGTH;
+  const summaryLength = () => props.postSummary.trim().length;
+  const contentOverLimit = () => contentLength() > MAX_CONTENT_LENGTH;
+  const summaryOverLimit = () => summaryLength() > MAX_SUMMARY_LENGTH;
+  const overLimit = () => contentOverLimit() || summaryOverLimit();
 
   const canSubmit = createMemo(
     () =>
-      (props.postContent.trim().length > 0 ||
-        props.uploadedMedia.length > 0) &&
+      (props.postContent.trim().length > 0 || props.uploadedMedia.length > 0) &&
       !props.posting &&
       !overLimit(),
   );
@@ -137,6 +146,33 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
     isOpen: () => props.isOpen && !showDiscard(),
     onClose: requestClose,
     container: () => dialogRef,
+    // Land focus on the textarea so the composer is type-ready on open, rather
+    // than stealing focus to the header close (X) button.
+    initialFocus: () => textareaRef,
+  });
+
+  // Belt-and-suspenders: focus the textarea on open. useDialog's initialFocus
+  // (above) is the canonical path, but this guarantees the composer is
+  // type-ready even if focus would otherwise settle on the header close button.
+  createEffect(() => {
+    if (props.isOpen && !showDiscard()) {
+      queueMicrotask(() => textareaRef?.focus());
+    }
+  });
+
+  // When the CW or emoji panel is toggled open, move focus into the newly
+  // shown control so keyboard users land on it without an extra Tab.
+  createEffect(() => {
+    if (showCw()) queueMicrotask(() => cwInputRef?.focus());
+  });
+  createEffect(() => {
+    if (showEmoji()) {
+      queueMicrotask(() => {
+        const first =
+          emojiPanelRef?.querySelector<HTMLElement>("button, [tabindex]");
+        first?.focus();
+      });
+    }
   });
 
   // Scope-shaped audience: the chip names where the post lands. A community
@@ -151,14 +187,24 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
     if (s.kind === "community") return s.icon_url ?? null;
     return props.actor.icon_url;
   };
-  // Read-only reach line — who the active scope ambiently surfaces the post to.
-  // Default post visibility stays public; this only describes the audience.
+  // Reach line — describes who actually sees the post. A community scope binds
+  // the audience to its members; a personal scope reflects the selected
+  // visibility so the line never under-states a default-public post.
   const reach = () => {
     const s = props.scope;
     if (s.kind === "community") {
       return t("scope.reachCommunity").replace("{name}", scopeName());
     }
-    return t("scope.reachPersonal");
+    switch (props.postVisibility) {
+      case "unlisted":
+        return t("compose.reachUnlisted");
+      case "followers":
+        return t("compose.reachFollowers");
+      case "direct":
+        return t("compose.reachDirect");
+      default:
+        return t("compose.reachPublic");
+    }
   };
 
   // Insert an emoji at the current caret position in the post textarea.
@@ -194,7 +240,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           role="dialog"
           aria-modal="true"
           aria-label={props.placeholder}
-          class="bg-neutral-900 w-full max-w-lg rounded-2xl border border-neutral-800"
+          class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border border-neutral-800"
         >
           {/* Modal Header */}
           <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
@@ -210,9 +256,8 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                   server limit. */}
               <span
                 class={`text-xs tabular-nums ${
-                  overLimit() ? "text-red-500" : "text-neutral-500"
+                  contentOverLimit() ? "text-red-500" : "text-neutral-500"
                 }`}
-                aria-live="polite"
               >
                 {t("posts.charCount")
                   .replace("{count}", String(contentLength()))
@@ -301,15 +346,36 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
 
             {/* Content warning input */}
             <Show when={showCw()}>
-              <input
-                type="text"
-                value={props.postSummary}
-                onInput={(e) =>
-                  props.onPostSummaryChange(e.currentTarget.value)
-                }
-                placeholder={t("posts.cwPlaceholder")}
-                class="w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 mb-3 text-sm outline-none border border-neutral-700 focus:border-blue-500 transition-colors"
-              />
+              <div class="mb-3">
+                <input
+                  ref={cwInputRef}
+                  type="text"
+                  value={props.postSummary}
+                  onInput={(e) =>
+                    props.onPostSummaryChange(e.currentTarget.value)
+                  }
+                  placeholder={t("posts.cwPlaceholder")}
+                  class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors focus:border-blue-500 ${
+                    summaryOverLimit() ? "border-red-500" : "border-neutral-700"
+                  }`}
+                />
+                <div class="mt-1 flex items-center justify-end gap-2 px-1">
+                  <Show when={summaryOverLimit()}>
+                    <span class="text-xs text-red-500">
+                      {t("compose.cwTooLong")}
+                    </span>
+                  </Show>
+                  <span
+                    class={`text-xs tabular-nums ${
+                      summaryOverLimit() ? "text-red-500" : "text-neutral-500"
+                    }`}
+                  >
+                    {t("posts.charCount")
+                      .replace("{count}", String(summaryLength()))
+                      .replace("{max}", String(MAX_SUMMARY_LENGTH))}
+                  </span>
+                </div>
+              </div>
             </Show>
 
             <div class="flex gap-3">
@@ -376,7 +442,10 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
 
             {/* Emoji picker */}
             <Show when={showEmoji()}>
-              <div class="mt-3 rounded-xl border border-neutral-800 bg-neutral-900 p-2">
+              <div
+                ref={emojiPanelRef}
+                class="mt-3 rounded-xl border border-neutral-800 bg-neutral-900 p-2"
+              >
                 <EmojiPicker onSelect={insertEmoji} />
               </div>
             </Show>

@@ -3,6 +3,7 @@ import { For, Show } from "solid-js";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { notificationUnreadAtom } from "../../atoms/notifications.ts";
+import { dmUnreadCountAtom } from "../../atoms/dm-unread.ts";
 import { showPostModalAtom } from "../../atoms/timeline.ts";
 import { NavBadge } from "./NavBadge.tsx";
 import { NAV_ITEMS, type NavItem } from "./navItems.ts";
@@ -13,10 +14,20 @@ export function BottomNav() {
   const { t } = useI18n();
   const location = useLocation();
   const unreadCount = useAtomValue(notificationUnreadAtom);
+  const dmUnread = useAtomValue(dmUnreadCountAtom);
   const openComposer = useSetAtom(showPostModalAtom);
+
+  // The badge count source depends on which nav item it is.
+  const badgeCount = (item: NavItem) =>
+    item.id === "messages" ? dmUnread() : unreadCount();
+  const badgeLabel = (item: NavItem) =>
+    item.id === "messages" ? t("nav.messages") : t("nav.notifications");
 
   const isActive = (route: string) => {
     if (route === "/") return location.pathname === "/";
+    // "/profile" is the OWN profile; foreign profiles live at
+    // "/profile/:actorId" and must not light up the Profile tab.
+    if (route === "/profile") return location.pathname === "/profile";
     return location.pathname.startsWith(route);
   };
   const active = (item: NavItem) =>
@@ -33,12 +44,9 @@ export function BottomNav() {
         {(item) => {
           const Icon = item.icon;
           const badge = () => (
-            <Show when={item.badge && unreadCount() > 0}>
+            <Show when={item.badge && badgeCount(item) > 0}>
               <span class="absolute -top-1 -right-2">
-                <NavBadge
-                  count={unreadCount()}
-                  label={t("nav.notifications")}
-                />
+                <NavBadge count={badgeCount(item)} label={badgeLabel(item)} />
               </span>
             </Show>
           );

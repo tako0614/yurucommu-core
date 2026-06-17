@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import {
   activities,
   communities,
@@ -119,9 +119,16 @@ messagesRouter.get("/:identifier/messages", async (c) => {
     return c.json({ messages: [] });
   }
 
+  // The group-chat reader must return CHAT messages only, not community feed
+  // posts. Feed posts are stored with `communityApId` set (and are surfaced by
+  // the community-scoped feed), whereas chat messages are addressed purely via
+  // object_recipients and leave `communityApId` NULL. Filtering on
+  // `communityApId IS NULL` keeps the chat object-set disjoint from the feed
+  // object-set, matching the unread count in GET /dm/contacts.
   const whereConditions = [
     inArray(objects.apId, objectApIds),
     eq(objects.type, "Note"),
+    isNull(objects.communityApId),
   ];
   if (before) {
     whereConditions.push(lt(objects.published, before));

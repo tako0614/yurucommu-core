@@ -3,11 +3,12 @@ import {
   createMemo,
   createSignal,
   For,
+  onCleanup,
   onMount,
   Show,
 } from "solid-js";
 import { A, useSearchParams } from "@solidjs/router";
-import { useSetAtom } from "solid-jotai";
+import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor, Post } from "../types/index.ts";
 import {
@@ -23,7 +24,10 @@ import {
   searchRemote,
   unlikePost,
 } from "../lib/api.ts";
-import { enterCommunityScopeAtom } from "../atoms/scope.ts";
+import {
+  enterCommunityScopeAtom,
+  scopeCommunitiesAtom,
+} from "../atoms/scope.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { formatRelativeTime } from "../lib/datetime.ts";
@@ -91,6 +95,10 @@ export function SearchPage() {
   const { t } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
   const enterCommunityScope = useSetAtom(enterCommunityScopeAtom);
+  // The owner's joined communities (single source of truth for membership).
+  // Changes here (a join elsewhere in the app) mean the discover list is stale,
+  // so it drives a re-fetch.
+  const scopeCommunities = useAtomValue(scopeCommunitiesAtom);
   const lightbox = useMediaLightbox();
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
@@ -128,6 +136,15 @@ export function SearchPage() {
     { tag: string; count: number }[]
   >([]);
 
+  // Pull the community list that backs the discover surface. Kept in a function
+  // so it can be re-run when the list goes stale (window refocus, membership
+  // change) rather than only once on mount.
+  const refreshDiscoverCommunities = () => {
+    fetchCommunities()
+      .then(setCommunities)
+      .catch((e) => console.error("Failed to fetch communities", e));
+  };
+
   onMount(() => {
     setSearchQuery("");
     setSearched(false);
@@ -136,12 +153,30 @@ export function SearchPage() {
     fetchTrendingHashtags(10)
       .catch(() => [])
       .then(setTrendingHashtags);
-    fetchCommunities()
-      .then(setCommunities)
-      .catch((e) => console.error("Failed to fetch communities", e));
+    refreshDiscoverCommunities();
     fetchFollowing(actor.ap_id)
       .then(setFollowing)
       .catch((e) => console.error("Failed to fetch following", e));
+
+    // Re-fetch when the tab regains focus so a join/leave that happened on
+    // another surface (or device) doesn't leave a stale discover list.
+    const onFocus = () => refreshDiscoverCommunities();
+    globalThis.addEventListener("focus", onFocus);
+    onCleanup(() => globalThis.removeEventListener("focus", onFocus));
+  });
+
+  // Re-fetch the discover list whenever joined-community membership changes
+  // (e.g. a join from the ScopeBar/picker), so already-joined communities drop
+  // out of discover without a manual reload. Skips the initial run since
+  // onMount already fetches.
+  let scopeHydrated = false;
+  createEffect(() => {
+    scopeCommunities();
+    if (!scopeHydrated) {
+      scopeHydrated = true;
+      return;
+    }
+    refreshDiscoverCommunities();
   });
 
   // Handle search query parameter from URL
@@ -173,7 +208,7 @@ export function SearchPage() {
     }
   };
 
-  const performSearch = async (query: string) => {
+  const performSearch = async (query: string, suppressAutoSelect = false) => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
 
@@ -204,12 +239,16 @@ export function SearchPage() {
 
       // If the active tab came back empty but another tab has hits, move the
       // owner to the first non-empty tab so a resolved search never lands on a
-      // blank screen while results are sitting one tab over.
-      autoSelectNonEmptyTab({
-        users: usersRes.length,
-        posts: postsRes.length,
-        communities: matchedCommunities.length,
-      });
+      // blank screen while results are sitting one tab over. Suppressed when the
+      // caller has an explicit tab intent (e.g. tapping a trending hashtag pins
+      // the posts tab) so it is never bounced off by an empty result.
+      if (!suppressAutoSelect) {
+        autoSelectNonEmptyTab({
+          users: usersRes.length,
+          posts: postsRes.length,
+          communities: matchedCommunities.length,
+        });
+      }
 
       // If the owner has remote lookup enabled and the query is a handle,
       // fan out to other servers and merge the extra actors in.
@@ -607,7 +646,9 @@ export function SearchPage() {
                               onClick={() => {
                                 setSearchQuery(`#${tag}`);
                                 setSearchTab("posts");
-                                performSearch(`#${tag}`);
+                                // Explicit posts-tab intent: keep it pinned even
+                                // if the search comes back empty.
+                                performSearch(`#${tag}`, true);
                               }}
                               class="block w-full text-left px-3 py-2.5 rounded-lg hover:bg-neutral-900/50 transition-colors"
                             >

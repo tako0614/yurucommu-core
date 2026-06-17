@@ -38,12 +38,21 @@ export function ProfilePage() {
   const [posts, setPosts] = createSignal<Post[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [isFollowing, setIsFollowing] = createSignal(false);
-  const [activeTab, setActiveTab] = createSignal<"posts" | "likes">("posts");
+  // A private/remote follow can be pending the target's approval; track it so we
+  // don't present a pending request as an accepted follow.
+  const [followPending, setFollowPending] = createSignal(false);
+  const [activeTab, setActiveTab] = createSignal<"posts">("posts");
   // Media grid is the IG-style default; a list toggle is available.
   const [postsView, setPostsView] = createSignal<"grid" | "list">("grid");
   const [showEditModal, setShowEditModal] = createSignal(false);
   const [editName, setEditName] = createSignal("");
   const [editSummary, setEditSummary] = createSignal("");
+  const [editIconUrl, setEditIconUrl] = createSignal<string | undefined>(
+    undefined,
+  );
+  const [editHeaderUrl, setEditHeaderUrl] = createSignal<string | undefined>(
+    undefined,
+  );
   const [saving, setSaving] = createSignal(false);
   const [showMenu, setShowMenu] = createSignal(false);
   const [showFollowModal, setShowFollowModal] = createSignal<
@@ -89,6 +98,7 @@ export function ProfilePage() {
       setProfile(null);
       setPosts([]);
       setIsFollowing(false);
+      setFollowPending(false);
       setError(null);
       setLoading(true);
       setShowEditModal(false);
@@ -104,21 +114,35 @@ export function ProfilePage() {
 
   const handleFollow = async () => {
     if (!profile()) return;
+    // A follow request that is awaiting approval should not be re-issued.
+    if (followPending()) return;
     try {
       if (isFollowing()) {
         await unfollow(profile()!.ap_id);
         setIsFollowing(false);
+        setFollowPending(false);
         setProfile((prev) =>
           prev ? { ...prev, follower_count: prev.follower_count - 1 } : null,
         );
         pushToast(setToasts, t("feedback.unfollowed"), { kind: "success" });
       } else {
-        await follow(profile()!.ap_id);
-        setIsFollowing(true);
-        setProfile((prev) =>
-          prev ? { ...prev, follower_count: prev.follower_count + 1 } : null,
-        );
-        pushToast(setToasts, t("feedback.followed"), { kind: "success" });
+        const { status } = await follow(profile()!.ap_id);
+        // A private/remote follow may land as a pending request that the target
+        // still has to approve. Only reflect an accepted follow in the UI; for a
+        // pending request keep the follow affordance and do NOT bump the count.
+        if (status === "pending") {
+          setFollowPending(true);
+          pushToast(setToasts, t("profile.followRequested"), {
+            kind: "success",
+          });
+        } else {
+          setIsFollowing(true);
+          setFollowPending(false);
+          setProfile((prev) =>
+            prev ? { ...prev, follower_count: prev.follower_count + 1 } : null,
+          );
+          pushToast(setToasts, t("feedback.followed"), { kind: "success" });
+        }
       }
     } catch (e) {
       console.error("Failed to toggle follow:", e);
@@ -141,6 +165,8 @@ export function ProfilePage() {
       setEditName(p.name || "");
       setEditSummary(p.summary || "");
       setEditIsPrivate(p.is_private || false);
+      setEditIconUrl(p.icon_url || undefined);
+      setEditHeaderUrl(p.header_url || undefined);
       setShowEditModal(true);
     }
   };
@@ -152,6 +178,8 @@ export function ProfilePage() {
       await updateProfile({
         name: editName().trim() || undefined,
         summary: editSummary().trim() || undefined,
+        icon_url: editIconUrl() || undefined,
+        header_url: editHeaderUrl() || undefined,
         is_private: editIsPrivate(),
       });
       setProfile((prev) =>
@@ -160,6 +188,8 @@ export function ProfilePage() {
               ...prev,
               name: editName().trim() || prev.preferred_username,
               summary: editSummary().trim(),
+              icon_url: editIconUrl() ?? prev.icon_url,
+              header_url: editHeaderUrl() ?? prev.header_url,
               is_private: editIsPrivate(),
             }
           : null,
@@ -255,6 +285,7 @@ export function ProfilePage() {
             profile={profile()!}
             isOwnProfile={isOwnProfile()}
             isFollowing={isFollowing()}
+            followPending={followPending()}
             showMenu={showMenu()}
             onToggleMenu={() => setShowMenu(!showMenu())}
             onCloseMenu={() => setShowMenu(false)}
@@ -281,12 +312,16 @@ export function ProfilePage() {
           editName={editName()}
           editSummary={editSummary()}
           editIsPrivate={editIsPrivate()}
+          editIconUrl={editIconUrl()}
+          editHeaderUrl={editHeaderUrl()}
           saving={saving()}
           onClose={() => setShowEditModal(false)}
           onSave={handleSaveProfile}
           onChangeName={(event) => setEditName(event.currentTarget.value)}
           onChangeSummary={(event) => setEditSummary(event.currentTarget.value)}
           onTogglePrivate={() => setEditIsPrivate(!editIsPrivate())}
+          onChangeIconUrl={setEditIconUrl}
+          onChangeHeaderUrl={setEditHeaderUrl}
           t={t}
         />
         <ProfileFollowModal

@@ -7,6 +7,7 @@ import {
   desc,
   eq,
   inArray,
+  isNull,
   ne,
   notInArray,
   sql,
@@ -189,7 +190,15 @@ contacts.get("/contacts", async (c) => {
     )
     .where(eq(communityMembers.actorApId, actor.ap_id));
 
-  // Batch get last messages for all communities to avoid N+1
+  // Batch get the last CHAT message for all communities to avoid N+1.
+  //
+  // The community contact's preview must reflect the last group-CHAT message,
+  // matching the (chat-vs-feed–separated) unread count below and the chat
+  // reader in communities/messages.ts. Chat messages are addressed via the
+  // object_recipients audience link and leave `communityApId` NULL, whereas
+  // feed posts carry `communityApId`. Querying the audience-linked,
+  // `communityApId IS NULL` object-set keeps the preview a chat message and not
+  // the last feed post. Communities with no chat message yet get no preview.
   const communityApIds = communityMemberships.map((cm) => cm.community.apId);
   const lastMessagesMap = new Map<
     string,
@@ -199,13 +208,24 @@ contacts.get("/contacts", async (c) => {
   if (communityApIds.length > 0) {
     const recentMessages = await db
       .select({
-        communityApId: objects.communityApId,
+        communityApId: objectRecipients.recipientApId,
         content: objects.content,
         attributedTo: objects.attributedTo,
         published: objects.published,
       })
       .from(objects)
-      .where(inArray(objects.communityApId, communityApIds))
+      .innerJoin(
+        objectRecipients,
+        eq(objectRecipients.objectApId, objects.apId),
+      )
+      .where(
+        and(
+          inArray(objectRecipients.recipientApId, communityApIds),
+          eq(objectRecipients.type, "audience"),
+          eq(objects.type, "Note"),
+          isNull(objects.communityApId),
+        ),
+      )
       .orderBy(desc(objects.published))
       .limit(communityApIds.length * 10);
 
@@ -237,8 +257,17 @@ contacts.get("/contacts", async (c) => {
     communityReadStatuses.map((r) => [r.communityApId, r.lastReadAt]),
   );
 
-  // Count unread community messages (published after the read baseline, not
-  // authored by the viewer) per community via object_recipients audience link.
+  // Count unread community CHAT messages (published after the read baseline,
+  // not authored by the viewer) per community via the object_recipients
+  // audience link.
+  //
+  // The unread badge must reflect unread group-CHAT messages only, NOT feed
+  // posts. A community feed post is stored with `communityApId` set (the
+  // community-scoped feed query filters on that column), whereas a group-chat
+  // message is addressed purely via object_recipients and leaves
+  // `communityApId` NULL. Restricting to `communityApId IS NULL` keeps feed
+  // posts out of the chat unread count so reading the feed does not leave a
+  // stuck chat badge (and posting to the feed does not bump it).
   const communityUnreadCounts = new Map<string, number>();
   if (communityApIds.length > 0) {
     await Promise.all(
@@ -260,6 +289,7 @@ contacts.get("/contacts", async (c) => {
               eq(objectRecipients.recipientApId, communityApId),
               eq(objectRecipients.type, "audience"),
               eq(objects.type, "Note"),
+              isNull(objects.communityApId),
               ne(objects.attributedTo, actor.ap_id),
               sql`${objects.published} > ${baseline}`,
             ),

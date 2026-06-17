@@ -92,23 +92,39 @@ function ToastItem(props: { toast: Toast }) {
  * Single mount point for the global toast stack. Lives in AppLayout. Positioned
  * bottom-center on mobile (clear of the BottomNav) and bottom-right on desktop.
  *
- * This wrapper is the one and only live region for toasts: aria-live="polite"
- * announces new messages without stealing focus. Individual toast items must
- * NOT carry their own role="alert"/"status" — nested live regions double- or
- * mis-announce, so the single layer here owns the announcement.
+ * Two sibling live regions own the announcements (so individual toast items
+ * still must NOT carry their own role — nested live regions double-announce):
+ * a polite `role="status"` region for success/info, and an assertive
+ * `role="alert"` region for errors, which should interrupt to surface
+ * failures. The two regions render into the same visual column so the stack
+ * looks unified.
  */
 export function ToastLayer() {
   const toasts = useAtomValue(toastsAtom);
 
   return (
     <Portal>
-      <div
-        role="status"
-        aria-live="polite"
-        aria-atomic="false"
-        class="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex flex-col items-center gap-2 px-4 md:inset-x-auto md:bottom-6 md:right-6 md:items-end"
-      >
-        <For each={toasts()}>{(toast) => <ToastItem toast={toast} />}</For>
+      <div class="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex flex-col items-center gap-2 px-4 md:inset-x-auto md:bottom-6 md:right-6 md:items-end">
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="false"
+          class="flex w-full flex-col items-center gap-2 md:items-end"
+        >
+          <For each={toasts().filter((toast) => toast.kind !== "error")}>
+            {(toast) => <ToastItem toast={toast} />}
+          </For>
+        </div>
+        <div
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="false"
+          class="flex w-full flex-col items-center gap-2 md:items-end"
+        >
+          <For each={toasts().filter((toast) => toast.kind === "error")}>
+            {(toast) => <ToastItem toast={toast} />}
+          </For>
+        </div>
       </div>
     </Portal>
   );

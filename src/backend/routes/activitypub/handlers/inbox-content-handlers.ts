@@ -426,6 +426,12 @@ export async function handleCreateStory(
     },
     displayDuration:
       (object as { displayDuration?: string }).displayDuration || "PT5S",
+    // The remote caption arrives as the AS2 Note `content`; persist it so the
+    // local renderer shows the same caption as the originating instance.
+    caption:
+      typeof object.content === "string" && object.content.trim().length > 0
+        ? object.content
+        : undefined,
     overlays,
   };
 

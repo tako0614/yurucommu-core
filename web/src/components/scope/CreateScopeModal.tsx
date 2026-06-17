@@ -13,10 +13,53 @@ interface CreateScopeModalProps {
 }
 
 // Mirrors the backend validateCommunityName contract (routes.ts): 2–32 chars,
-// [a-zA-Z0-9_]. We mirror it client-side only to gate the submit button and
-// give inline feedback; the backend stays the authority and its error surfaces
-// as a toast.
+// [a-zA-Z0-9_], plus the RESERVED_NAMES set. We mirror it client-side only to
+// gate the submit button and give inline feedback; the backend stays the
+// authority and its error surfaces as a toast.
 const NAME_PATTERN = /^[a-zA-Z0-9_]+$/;
+// Kept in sync with RESERVED_NAMES in src/backend/routes/communities/routes.ts.
+const RESERVED_NAMES = new Set([
+  "admin",
+  "administrator",
+  "system",
+  "root",
+  "moderator",
+  "mod",
+  "community",
+  "communities",
+  "group",
+  "groups",
+  "user",
+  "users",
+  "api",
+  "ap",
+  "activitypub",
+  "webfinger",
+  "well_known",
+  "settings",
+  "config",
+  "configuration",
+  "help",
+  "support",
+  "about",
+  "terms",
+  "privacy",
+  "legal",
+  "dmca",
+  "copyright",
+  "login",
+  "logout",
+  "register",
+  "signup",
+  "signin",
+  "auth",
+  "null",
+  "undefined",
+  "true",
+  "false",
+  "test",
+  "demo",
+]);
 const isNameValid = (name: string) => {
   const trimmed = name.trim();
   return (
@@ -25,7 +68,8 @@ const isNameValid = (name: string) => {
     NAME_PATTERN.test(trimmed) &&
     !trimmed.startsWith("_") &&
     !trimmed.endsWith("_") &&
-    !/^\d+$/.test(trimmed)
+    !/^\d+$/.test(trimmed) &&
+    !RESERVED_NAMES.has(trimmed.toLowerCase())
   );
 };
 
@@ -70,6 +114,13 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
 
   const canSubmit = () => isNameValid(name()) && !submitting();
 
+  // Inline reserved-name feedback so the owner sees it before submit rather than
+  // as a raw backend toast.
+  const isReserved = () => {
+    const trimmed = name().trim().toLowerCase();
+    return trimmed.length > 0 && RESERVED_NAMES.has(trimmed);
+  };
+
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     if (!canSubmit()) return;
@@ -94,8 +145,12 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
       props.onClose();
     } catch (err) {
       console.error("Failed to create community:", err);
+      // Strip a leading HTTP status prefix (e.g. "400: ...") so the toast shows
+      // the human-readable backend reason, not the raw status line.
+      const raw =
+        err instanceof Error && err.message ? err.message : "";
       const message =
-        err instanceof Error && err.message ? err.message : t("scope.createFailed");
+        raw.replace(/^\s*\d{3}:\s*/, "").trim() || t("scope.createFailed");
       pushToast(setToasts, message, { kind: "error" });
     } finally {
       setSubmitting(false);
@@ -145,9 +200,18 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
                   disabled={submitting()}
                   class="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white outline-none placeholder-neutral-600 focus:border-[var(--accent)] disabled:opacity-50"
                 />
-                <p class="mt-1 text-xs text-neutral-500">
-                  {t("scope.createNameHint")}
-                </p>
+                <Show
+                  when={isReserved()}
+                  fallback={
+                    <p class="mt-1 text-xs text-neutral-500">
+                      {t("scope.createNameHint")}
+                    </p>
+                  }
+                >
+                  <p class="mt-1 text-xs text-red-400">
+                    {t("community.nameReserved")}
+                  </p>
+                </Show>
               </div>
 
               <div>

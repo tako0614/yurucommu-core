@@ -14,7 +14,7 @@ import {
   useMediaLightbox,
 } from "../MediaLightbox.tsx";
 
-type ProfileTab = "posts" | "likes";
+type ProfileTab = "posts";
 type ProfileView = "grid" | "list";
 
 interface ProfilePostsSectionProps {
@@ -104,29 +104,10 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
       <div class="border-b border-neutral-900 flex">
         <button
           onClick={() => props.onChangeTab("posts")}
-          class={`flex-1 py-4 text-center font-bold transition-colors relative ${
-            props.activeTab === "posts"
-              ? "text-white"
-              : "text-neutral-500 hover:bg-neutral-900/50"
-          }`}
+          class="flex-1 py-4 text-center font-bold transition-colors relative text-white"
         >
           {props.t("profile.posts")}
-          <Show when={props.activeTab === "posts"}>
-            <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
-          </Show>
-        </button>
-        <button
-          onClick={() => props.onChangeTab("likes")}
-          class={`flex-1 py-4 text-center font-bold transition-colors relative ${
-            props.activeTab === "likes"
-              ? "text-white"
-              : "text-neutral-500 hover:bg-neutral-900/50"
-          }`}
-        >
-          {props.t("profile.likes")}
-          <Show when={props.activeTab === "likes"}>
-            <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
-          </Show>
+          <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
         </button>
       </div>
 
@@ -197,13 +178,6 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
             </For>
           </Show>
         </Show>
-      </Show>
-
-      {/* Likes Tab */}
-      <Show when={props.activeTab === "likes"}>
-        <div class="p-8 text-center text-neutral-500">
-          {props.t("profile.noLikes")}
-        </div>
       </Show>
     </>
   );

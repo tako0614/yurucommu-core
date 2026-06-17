@@ -48,17 +48,6 @@ const BackIcon = () => (
   </svg>
 );
 
-const ChevronDownIcon = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width={2}
-      d="M19 9l-7 7-7-7"
-    />
-  </svg>
-);
-
 const StickerIcon = () => (
   <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path
@@ -101,11 +90,6 @@ export function StoryComposerHeader(props: StoryComposerHeaderProps) {
           onClick={() => props.onToolClick("sticker")}
           active={props.activeTool === "sticker"}
         />
-        <button class="flex items-center justify-end w-full">
-          <span class="p-2 rounded-full bg-black/40">
-            <ChevronDownIcon />
-          </span>
-        </button>
       </div>
     </>
   );

@@ -35,13 +35,27 @@ interface TimelinePostItemProps {
 // Window (ms) inside which a second tap on the media counts as a double-tap.
 const DOUBLE_TAP_MS = 280;
 
+// True on touch/pen devices where the lightbox open must be deferred so a
+// second tap can be recognized as a double-tap. Mouse clicks act immediately.
+const isCoarsePointer = () =>
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(pointer: coarse)").matches;
+
 export function TimelinePostItem(props: TimelinePostItemProps) {
   const { t } = useI18n();
   const lightbox = useMediaLightbox();
   const [burst, setBurst] = createSignal(false);
+  // Shared content-warning reveal state: a single reveal un-hides both the
+  // text body (PostContent) and the media hero below it.
+  const [cwRevealed, setCwRevealed] = createSignal(false);
 
   const hasMedia = () =>
     !!props.post.attachments && props.post.attachments.length > 0;
+
+  const hasSummary = () => !!props.post.summary && !!props.post.summary.trim();
+  // The media hero is hidden behind the CW until revealed.
+  const mediaHidden = () => hasSummary() && !cwRevealed();
 
   // Single tap on the media opens the lightbox; a second tap within the window
   // is a double-tap that adds a like (Instagram-style: like-only, never
@@ -61,8 +75,25 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     if (burstTimer) clearTimeout(burstTimer);
   });
 
-  const fireBurst = () => {
+  // Anchor the heart burst at the tapped point (within the media hero) so it
+  // does not always land on the collage center for multi-image posts.
+  const [burstPos, setBurstPos] = createSignal<{ x: number; y: number } | null>(
+    null,
+  );
+
+  const fireBurst = (e?: MouseEvent) => {
     setBurst(false);
+    if (e) {
+      const host = (e.currentTarget as HTMLElement | null)?.closest(
+        "[data-media-hero]",
+      ) as HTMLElement | null;
+      if (host) {
+        const rect = host.getBoundingClientRect();
+        setBurstPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      } else {
+        setBurstPos(null);
+      }
+    }
     // Force a reflow-free restart of the animation on rapid repeat double-taps.
     if (burstTimer) clearTimeout(burstTimer);
     requestAnimationFrame(() => {
@@ -93,7 +124,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       pendingOpen = null;
       if (sameImage) {
         // Second tap on the same image within the window -> double-tap like.
-        fireBurst();
+        fireBurst(e);
         // Like-only: a double-tap never removes an existing like.
         if (!props.post.liked) props.onLike(props.post);
         return;
@@ -101,6 +132,12 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       // A first tap on a different image: cancel the stale pending open and
       // schedule this one so the lightbox still opens.
       scheduleOpen(index);
+      return;
+    }
+    // On mouse (fine pointers) there is no double-tap-to-like gesture, so open
+    // the lightbox immediately instead of deferring by the double-tap window.
+    if (!isCoarsePointer()) {
+      lightbox.open(props.post.attachments!, index);
       return;
     }
     scheduleOpen(index);
@@ -260,27 +297,81 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
               content={props.post.content}
               summary={props.post.summary}
               class="text-[15px] text-neutral-200"
+              revealed={cwRevealed()}
+              onToggleReveal={() => setCwRevealed((v) => !v)}
             />
           </A>
         </Show>
 
-        {/* Edge-to-edge media hero with double-tap-to-like. */}
+        {/* Edge-to-edge media hero with double-tap-to-like. When the post has a
+            content warning, the hero stays hidden behind a blurred placeholder
+            until the CW is revealed (shared with the text body above). */}
         <div
+          data-media-hero
           class="relative select-none"
           aria-label={t("post.doubleTapLike")}
         >
-          <AttachmentGrid
-            attachments={props.post.attachments!}
-            onOpen={handleMediaTap}
-            class="mt-0 rounded-none"
-          />
-          {/* Pink heart burst overlay */}
-          <Show when={burst()}>
-            <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div class="animate-heart-burst drop-shadow-lg">
-                <HeartIcon filled class="h-24 w-24 text-pink-500" />
+          <Show
+            when={mediaHidden()}
+            fallback={
+              <AttachmentGrid
+                attachments={props.post.attachments!}
+                onOpen={handleMediaTap}
+                class="mt-0 rounded-none"
+              />
+            }
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setCwRevealed(true);
+              }}
+              class="relative block w-full overflow-hidden"
+            >
+              <div class="pointer-events-none scale-110 blur-2xl">
+                <AttachmentGrid
+                  attachments={props.post.attachments!}
+                  onOpen={() => {}}
+                  class="mt-0 rounded-none"
+                />
               </div>
-            </div>
+              <div class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40 px-4 text-center">
+                <span class="text-sm font-bold text-white">
+                  {t("post.sensitiveContentHidden")}
+                </span>
+                <span class="rounded-full bg-neutral-800/90 px-3 py-1 text-sm font-bold text-neutral-100">
+                  {t("post.showSensitive")}
+                </span>
+              </div>
+            </button>
+          </Show>
+          {/* Pink heart burst overlay, anchored at the tapped point. */}
+          <Show when={burst()}>
+            <Show
+              when={burstPos()}
+              fallback={
+                <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div class="animate-heart-burst drop-shadow-lg">
+                    <HeartIcon filled class="h-24 w-24 text-pink-500" />
+                  </div>
+                </div>
+              }
+            >
+              <div
+                class="pointer-events-none absolute"
+                style={{
+                  left: `${burstPos()!.x}px`,
+                  top: `${burstPos()!.y}px`,
+                  transform: "translate(-50%, -50%)",
+                }}
+              >
+                <div class="animate-heart-burst drop-shadow-lg">
+                  <HeartIcon filled class="h-24 w-24 text-pink-500" />
+                </div>
+              </div>
+            </Show>
           </Show>
         </div>
 

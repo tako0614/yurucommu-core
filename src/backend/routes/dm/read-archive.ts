@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { and, desc, eq } from "drizzle-orm";
 import {
   communities,
+  communityMembers,
   dmArchivedConversations,
   dmCommunityReadStatus,
   dmReadStatus,
@@ -75,6 +76,21 @@ readArchive.post("/community/:encodedApId/read", async (c) => {
     .where(eq(communities.apId, communityApId))
     .get();
   if (!community) return c.json({ error: "Community not found" }, 404);
+
+  // Only members may track a read position for a community group chat: the
+  // unread baseline is meaningless for non-members and would let an arbitrary
+  // actor write read-status rows for communities they cannot see.
+  const membership = await db
+    .select({ actorApId: communityMembers.actorApId })
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.communityApId, communityApId),
+        eq(communityMembers.actorApId, actor.ap_id),
+      ),
+    )
+    .get();
+  if (!membership) return c.json({ error: "Not a community member" }, 403);
 
   const now = new Date().toISOString();
   await db

@@ -1,11 +1,12 @@
-import { createSignal, For, lazy, Show, Suspense } from "solid-js";
+import { For, lazy, Show, Suspense } from "solid-js";
 import { useNavigate } from "@solidjs/router";
+import { useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { StoryBar } from "../components/story/StoryBar.tsx";
 import { ScopeHeader } from "../components/scope/ScopeHeader.tsx";
 import { ScopeBar } from "../components/scope/ScopeBar.tsx";
-import { ScopeSwitcherSheet } from "../components/scope/ScopeSwitcherSheet.tsx";
-import { CreateScopeModal } from "../components/scope/CreateScopeModal.tsx";
+import { createScopeOpenAtom } from "../atoms/shell.ts";
+import { showScopeSwitcherAtom } from "../atoms/timeline.ts";
 import { LoadingSpinner } from "../components/LoadingSpinner.tsx";
 
 // Lazy load heavy components
@@ -25,12 +26,12 @@ export function TimelinePage() {
   const navigate = useNavigate();
   const state = useTimelineState();
 
-  // Shared open state for the scope switcher sheet — both the ScopeHeader pill
-  // and the ScopeBar's trailing "+" drive the same instance.
-  const [switcherOpen, setSwitcherOpen] = createSignal(false);
-  // The switcher's "Create" row hands off to the community composer; discovery
-  // routes to /search where non-member communities can be joined one-tap.
-  const [createOpen, setCreateOpen] = createSignal(false);
+  // The scope switcher sheet and the "create a community" modal are mounted
+  // once at shell level (GlobalPostComposer). The home header pill, the scope
+  // rail's "+", and the first-feed empty state drive those single instances via
+  // the shared atoms instead of mounting private duplicates here.
+  const openSwitcher = useSetAtom(showScopeSwitcherAtom);
+  const openCreateScope = useSetAtom(createScopeOpenAtom);
 
   return (
     <div class="relative flex flex-col h-full">
@@ -60,7 +61,7 @@ export function TimelinePage() {
 
       {/* Scope identity + ambient reach + DM/notify/compose (replaces the
           plain timeline title and absorbs the mobile shell header). */}
-      <ScopeHeader onOpenSwitcher={() => setSwitcherOpen(true)} />
+      <ScopeHeader onOpenSwitcher={() => openSwitcher(true)} />
 
       {/* Story Bar */}
       <StoryBar
@@ -71,58 +72,50 @@ export function TimelinePage() {
         onAddStory={state.handleAddStory}
       />
 
-      {/* One-tap inhabited-scope rail (second projection of the scope atom). */}
-      <ScopeBar onOpenSwitcher={() => setSwitcherOpen(true)} />
-
-      {/* Scope switcher sheet, shared by the header pill and the rail's "+".
-          Discover routes to /search; Create opens the community composer. */}
-      <ScopeSwitcherSheet
-        open={switcherOpen()}
-        onClose={() => setSwitcherOpen(false)}
-        onDiscover={() => navigate("/search")}
-        onCreate={() => setCreateOpen(true)}
-      />
-
-      {/* Community composer — the first caller of createCommunity(). On success
-          it selects the new community as the inhabited scope. */}
-      <CreateScopeModal
-        open={createOpen()}
-        onClose={() => setCreateOpen(false)}
-      />
-
-      {/* New-posts pill — prepends staged head posts and scrolls to top. */}
-      <Show when={state.newPostsCount() > 0}>
-        <div class="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center">
-          <button
-            onClick={state.handleShowNewPosts}
-            class="pointer-events-auto flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-bold text-white shadow-lg transition-colors"
-          >
-            <svg
-              class="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width={2}
-                d="M5 15l7-7 7 7"
-              />
-            </svg>
-            {state
-              .t()("timeline.newPosts")
-              .replace("{count}", String(state.newPostsCount()))}
-          </button>
-        </div>
-      </Show>
+      {/* One-tap inhabited-scope rail (second projection of the scope atom).
+          Both this and the header pill open the shell-mounted switcher sheet.
+          Hidden on mobile to tighten the stacked header/story/scope bars — the
+          header pill already names the scope and opens the same switcher there;
+          the rail is shown from md+ where vertical space is ample. */}
+      <div class="hidden md:block">
+        <ScopeBar onOpenSwitcher={() => openSwitcher(true)} />
+      </div>
 
       <div
         ref={(el) => {
           state.scrollContainerRef = el;
         }}
-        class="flex-1 overflow-y-auto"
+        class="relative flex-1 overflow-y-auto"
       >
+        {/* New-posts pill — anchored to the scroll container (sticky to its
+            viewport top) so it never collides with the header / story / scope
+            bars stacked above the scroll area. */}
+        <Show when={state.newPostsCount() > 0}>
+          <div class="pointer-events-none sticky top-2 z-20 flex h-0 justify-center">
+            <button
+              onClick={state.handleShowNewPosts}
+              class="pointer-events-auto flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-bold text-white shadow-lg transition-colors"
+            >
+              <svg
+                class="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width={2}
+                  d="M5 15l7-7 7 7"
+                />
+              </svg>
+              {state
+                .t()("timeline.newPosts")
+                .replace("{count}", String(state.newPostsCount()))}
+            </button>
+          </div>
+        </Show>
+
         <Show
           when={!(state.loadError() && state.posts().length === 0)}
           fallback={
@@ -142,7 +135,7 @@ export function TimelinePage() {
               fallback={
                 <FirstFeedEmptyState
                   onCreateStory={state.handleAddStory}
-                  onCreateCommunity={() => setCreateOpen(true)}
+                  onCreateCommunity={() => openCreateScope(true)}
                   onDiscoverCommunities={() => navigate("/search")}
                 />
               }
