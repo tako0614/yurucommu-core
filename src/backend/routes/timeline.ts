@@ -38,6 +38,26 @@ import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
 const MAX_BLOCK_MUTE_FILTER_ENTRIES = 1000;
 
+// Explicit column projection for timeline feeds. Selecting `*` pulls the large
+// `raw_json` blob (plus other unused columns like to_json/cc_json/audience_json/
+// conversation/end_time) on every row only for `formatPost` to discard them.
+// This list is exactly the set of fields `formatPost` reads — keep them in sync.
+const POST_FEED_COLUMNS = {
+  apId: objects.apId,
+  type: objects.type,
+  attributedTo: objects.attributedTo,
+  content: objects.content,
+  summary: objects.summary,
+  attachmentsJson: objects.attachmentsJson,
+  inReplyTo: objects.inReplyTo,
+  visibility: objects.visibility,
+  communityApId: objects.communityApId,
+  likeCount: objects.likeCount,
+  replyCount: objects.replyCount,
+  announceCount: objects.announceCount,
+  published: objects.published,
+} as const;
+
 type Attachment = {
   type?: string;
   mediaType?: string;
@@ -382,7 +402,7 @@ async function handleCommunityTimeline(
   if (before) conditions.push(lt(objects.published, before));
 
   const posts = await db
-    .select()
+    .select(POST_FEED_COLUMNS)
     .from(objects)
     .where(and(...conditions))
     .orderBy(desc(objects.published))
@@ -446,7 +466,7 @@ timeline.get(
     if (before) conditions.push(lt(objects.published, before));
 
     const posts = await db
-      .select()
+      .select(POST_FEED_COLUMNS)
       .from(objects)
       .where(and(...conditions))
       .orderBy(desc(objects.published))
@@ -512,7 +532,7 @@ timeline.get("/following", async (c) => {
   if (before) conditions.push(lt(objects.published, before));
 
   const posts = await db
-    .select()
+    .select(POST_FEED_COLUMNS)
     .from(objects)
     .where(and(...conditions))
     .orderBy(desc(objects.published))

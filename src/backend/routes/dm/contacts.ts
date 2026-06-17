@@ -7,9 +7,10 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   ne,
-  notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import {
@@ -25,13 +26,11 @@ import { formatUsername } from "../../federation-helpers.ts";
 import {
   buildActorInfoMap,
   byTimeDesc,
-  dmWhereForActor,
   findRepliedConversations,
   formatActorProfile,
   groupConversations,
   type HonoEnv,
   parseOtherApId,
-  recipientToJsonLike,
   uniqueValues,
 } from "./conversations-helpers.ts";
 
@@ -41,34 +40,36 @@ contacts.get("/contacts", async (c) => {
   const actor = c.get("actor");
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
-  const dmWhere = dmWhereForActor(actor.ap_id);
 
-  // Clean up orphaned read status entries for conversations that no longer exist
-  const validConversations = await db
-    .selectDistinct({
-      conversation: objects.conversation,
-    })
-    .from(objects)
-    .where(dmWhere!);
+  // DMs where this actor is the recipient are addressed via the
+  // `object_recipients` index (`recipient_ap_id = <actor>`, `type = 'to'`),
+  // written on every inbound/outbound DM whose recipient is this local actor
+  // (see dm/messages.ts, takos-tools/dm.ts, inbox-content-handlers.ts). Using
+  // that index instead of an unindexable `to_json LIKE '%"<apId>"%'` substring
+  // scan keeps the same membership semantics (recipient OR author) without a
+  // full-table scan.
+  const recipientObjectIds = db
+    .select({ objectApId: objectRecipients.objectApId })
+    .from(objectRecipients)
+    .where(
+      and(
+        eq(objectRecipients.recipientApId, actor.ap_id),
+        eq(objectRecipients.type, "to"),
+      ),
+    );
+  const dmWhere = and(
+    eq(objects.visibility, "direct"),
+    eq(objects.type, "Note"),
+    isNotNull(objects.conversation),
+    or(
+      eq(objects.attributedTo, actor.ap_id),
+      inArray(objects.apId, recipientObjectIds),
+    ),
+  );
 
-  const validConversationIds = validConversations
-    .map((c) => c.conversation)
-    .filter((c): c is string => c !== null);
-
-  if (validConversationIds.length > 0) {
-    await db
-      .delete(dmReadStatus)
-      .where(
-        and(
-          eq(dmReadStatus.actorApId, actor.ap_id),
-          notInArray(dmReadStatus.conversationId, validConversationIds),
-        ),
-      );
-  } else {
-    await db
-      .delete(dmReadStatus)
-      .where(eq(dmReadStatus.actorApId, actor.ap_id));
-  }
+  // GET must be side-effect-free: this handler no longer prunes orphaned
+  // dm_read_status rows. Read-status cleanup happens on the write paths that
+  // delete conversations/messages, not on this read.
 
   // Get archived conversation IDs to exclude
   const archivedConversations = await db
@@ -91,7 +92,7 @@ contacts.get("/contacts", async (c) => {
       content: objects.content,
     })
     .from(objects)
-    .where(dmWhere!)
+    .where(dmWhere)
     .orderBy(desc(objects.published))
     .limit(2000);
 
@@ -329,17 +330,26 @@ contacts.get("/contacts", async (c) => {
         a.name.localeCompare(b.name),
     );
 
-  // Count pending requests: DMs from people we haven't replied to
+  // Count pending requests: DMs from people we haven't replied to.
+  //
+  // "Incoming" = direct Notes addressed TO this actor, found via the indexed
+  // `object_recipients` link (`recipient_ap_id = <actor>`, `type = 'to'`)
+  // instead of an unindexable `to_json LIKE` substring scan. This matches the
+  // recipient-membership semantics of the conversation list above; the
+  // requests are conversations among these for which the actor has not yet
+  // replied (see findRepliedConversations).
   const incomingDMs = await db
     .selectDistinct({
       conversation: objects.conversation,
     })
     .from(objects)
+    .innerJoin(objectRecipients, eq(objectRecipients.objectApId, objects.apId))
     .where(
       and(
         eq(objects.visibility, "direct"),
         eq(objects.type, "Note"),
-        recipientToJsonLike(actor.ap_id),
+        eq(objectRecipients.recipientApId, actor.ap_id),
+        eq(objectRecipients.type, "to"),
       ),
     );
 

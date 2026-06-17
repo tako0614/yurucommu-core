@@ -16,8 +16,17 @@ import {
   tryParseRemoteActor,
 } from "../lib/activitypub-validators.ts";
 import { logger } from "../lib/logger.ts";
+import { withCache } from "../middleware/cache.ts";
 
 const log = logger.child({ component: "search" });
+
+// Trending hashtags are derived purely from public posts and carry no
+// per-viewer data, so the response is identical for every caller. Cache it
+// for 10 minutes to avoid re-scanning recent posts on every request.
+const TRENDING_HASHTAGS_TTL = 600;
+// Cap the post scan window; trending only needs recent activity and a smaller
+// window keeps the in-JS regex pass cheap on cache misses.
+const TRENDING_SCAN_LIMIT = 500;
 
 const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
@@ -496,44 +505,51 @@ search.get("/hashtag/:tag", async (c) => {
  * Get trending hashtags
  * GET /api/search/hashtags/trending?limit=10&days=7
  */
-search.get("/hashtags/trending", async (c) => {
-  const limit = parseLimit(c.req.query("limit"), 10, 50);
-  const days = parseLimit(c.req.query("days"), 7, 30);
-  const sinceDate = new Date(
-    Date.now() - days * 24 * 60 * 60 * 1000,
-  ).toISOString();
+search.get(
+  "/hashtags/trending",
+  withCache({
+    ttl: TRENDING_HASHTAGS_TTL,
+    queryParamsToInclude: ["limit", "days"],
+  }),
+  async (c) => {
+    const limit = parseLimit(c.req.query("limit"), 10, 50);
+    const days = parseLimit(c.req.query("days"), 7, 30);
+    const sinceDate = new Date(
+      Date.now() - days * 24 * 60 * 60 * 1000,
+    ).toISOString();
 
-  const db = c.get("db");
+    const db = c.get("db");
 
-  const posts = await db
-    .select({ content: objects.content })
-    .from(objects)
-    .where(
-      and(eq(objects.visibility, "public"), gt(objects.published, sinceDate)),
-    )
-    .orderBy(desc(objects.published))
-    .limit(1000);
+    const posts = await db
+      .select({ content: objects.content })
+      .from(objects)
+      .where(
+        and(eq(objects.visibility, "public"), gt(objects.published, sinceDate)),
+      )
+      .orderBy(desc(objects.published))
+      .limit(TRENDING_SCAN_LIMIT);
 
-  // Extract and count hashtags
-  const hashtagCounts: Record<string, number> = {};
-  const hashtagRegex =
-    /#([a-zA-Z0-9_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]+)/g;
+    // Extract and count hashtags
+    const hashtagCounts: Record<string, number> = {};
+    const hashtagRegex =
+      /#([a-zA-Z0-9_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]+)/g;
 
-  for (const post of posts) {
-    const content = post.content || "";
-    let match;
-    while ((match = hashtagRegex.exec(content)) !== null) {
-      const tagName = match[1].toLowerCase();
-      hashtagCounts[tagName] = (hashtagCounts[tagName] || 0) + 1;
+    for (const post of posts) {
+      const content = post.content || "";
+      let match;
+      while ((match = hashtagRegex.exec(content)) !== null) {
+        const tagName = match[1].toLowerCase();
+        hashtagCounts[tagName] = (hashtagCounts[tagName] || 0) + 1;
+      }
     }
-  }
 
-  const trending = Object.entries(hashtagCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(([tagName, count]) => ({ tag: tagName, count }));
+    const trending = Object.entries(hashtagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([tagName, count]) => ({ tag: tagName, count }));
 
-  return c.json({ trending });
-});
+    return c.json({ trending });
+  },
+);
 
 export default search;

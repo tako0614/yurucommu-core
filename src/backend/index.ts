@@ -146,23 +146,46 @@ function mountReadinessRoutes(app: YurucommuApp): void {
   });
 }
 
-const MEDIA_UPLOAD_BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10 MiB
+// media.ts advertises MAX_VIDEO_SIZE = 100MB (and MAX_IMAGE_SIZE = 20MB) and
+// returns a friendly 413 citing those numbers. The pre-route body cap MUST sit
+// at or above the largest advertised media size, otherwise an upload between
+// the body cap and the advertised limit is rejected by the cap FIRST with a
+// generic error, making the advertised limit unreachable and the friendly 413
+// dead. We size the cap to cover the 100MB video limit (100 * 1000 * 1000
+// bytes) plus multipart/form-data envelope overhead, rounded up to 110 MiB.
+// NOTE: media.ts buffers the whole file in Worker memory (formData() +
+// arrayBuffer()), so 100MB videos are near the Workers memory budget; the
+// safer long-term fix is to LOWER MAX_VIDEO_SIZE in media.ts — see deferred.
+const MEDIA_UPLOAD_BODY_LIMIT_BYTES = 110 * 1024 * 1024; // 110 MiB
 const INBOX_BODY_LIMIT_BYTES = 512 * 1024; // 512 KiB
 
 function applyBodyLimits(app: YurucommuApp): void {
-  // Per-route caps are registered BEFORE the global default cap so that the
-  // larger media-upload cap wins for /api/media/* and the stricter inbox cap
-  // wins for /ap/*/inbox. The default 1 MiB cap then applies everywhere else.
-  // ActivityPub inbox is unauthenticated and federation peers can hammer it,
-  // so the cap matches the rate-limit assumption (small JSON activities).
+  // Per-route caps are registered BEFORE the global default cap. The stricter
+  // inbox cap (512 KiB) wins for /ap/*/inbox; the LARGER media-upload cap
+  // (110 MiB) wins for /api/media/*. ActivityPub inbox is unauthenticated and
+  // federation peers can hammer it, so its cap matches the rate-limit
+  // assumption (small JSON activities).
   //
-  // This is the highest-risk route: the cap runs pre-auth, so a chunked body
-  // with no `Content-Length` could otherwise bypass the declared-length check
-  // entirely. We require `Content-Length` here and reject with 411 when it is
-  // missing — a conformant ActivityPub delivery always sets it, so this only
-  // refuses chunked-only senders (which are the DoS vector). Legitimate
-  // authenticated upload routes keep the default streaming cap instead so
-  // chunked uploads are not broken.
+  // IMPORTANT: Hono runs every matching `use()` middleware in registration
+  // order, and bodyLimit always calls next() when the request is within its
+  // own cap. That means the trailing default `*` cap below ALSO runs on
+  // /api/media/* and /ap/*/inbox. For the inbox routes that is harmless — the
+  // stricter 512 KiB cap already rejected anything the 1 MiB default would,
+  // and a body that passed 512 KiB trivially passes 1 MiB. For media it is
+  // NOT harmless: a 50 MB upload that passes the 110 MiB media cap would then
+  // be rejected by the 1 MiB default cap with a generic `body_too_large`,
+  // making the friendly per-size 413 in routes/media.ts (which advertises
+  // MAX_VIDEO_SIZE = 100MB / MAX_IMAGE_SIZE = 20MB) unreachable. So the default
+  // cap is registered with a path guard that SKIPS the media prefix, leaving
+  // /api/media/* governed solely by its own 110 MiB cap.
+  //
+  // The inbox cap runs pre-auth, so a chunked body with no `Content-Length`
+  // could otherwise bypass the declared-length check entirely. We require
+  // `Content-Length` there and reject with 411 when it is missing — a
+  // conformant ActivityPub delivery always sets it, so this only refuses
+  // chunked-only senders (which are the DoS vector). Legitimate authenticated
+  // upload routes keep the default streaming cap instead so chunked uploads
+  // are not broken.
   app.use(
     "/ap/*/inbox",
     bodyLimit({
@@ -182,14 +205,22 @@ function applyBodyLimits(app: YurucommuApp): void {
       requireContentLength: true,
     }),
   );
-  // Media uploads carry binary payloads (images, short videos). Cap is well
-  // below the Workers per-request budget but above typical post media.
+  // Media uploads carry binary payloads (images, short videos). The cap covers
+  // the largest advertised media size so routes/media.ts owns the friendly,
+  // per-size 413; see the MEDIA_UPLOAD_BODY_LIMIT_BYTES note above.
   app.use(
     "/api/media/*",
     bodyLimit({ maxBytes: MEDIA_UPLOAD_BODY_LIMIT_BYTES }),
   );
-  // Default global cap: 1 MiB covers JSON-shaped API traffic.
-  app.use("*", bodyLimit({ maxBytes: DEFAULT_BODY_LIMIT_BYTES }));
+  // Default global cap: 1 MiB covers JSON-shaped API traffic. It must NOT also
+  // clamp /api/media/* (whose intended cap is larger), so guard the prefix.
+  const defaultCap = bodyLimit({ maxBytes: DEFAULT_BODY_LIMIT_BYTES });
+  app.use("*", async (c, next) => {
+    if (c.req.path.startsWith("/api/media/")) {
+      return next();
+    }
+    return defaultCap(c, next);
+  });
 }
 
 function applyGlobalMiddleware(app: YurucommuApp): void {

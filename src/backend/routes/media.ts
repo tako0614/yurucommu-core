@@ -1,5 +1,5 @@
 import { type Context, Hono } from "hono";
-import { and, eq, like, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import type { Database } from "../../db/index.ts";
 import { follows, mediaUploads, objects } from "../../db/index.ts";
@@ -243,6 +243,67 @@ const DENY_NOT_AUTHORIZED: MediaAuthResult = {
 const ALLOW_PUBLIC: MediaAuthResult = { allowed: true, isPublic: true };
 const ALLOW_PRIVATE: MediaAuthResult = { allowed: true, isPublic: false };
 
+type ReferencingObject = {
+  apId: string;
+  attributedTo: string;
+  visibility: string;
+  toJson: string;
+};
+
+// Locate the object that attached this media using ONLY indexed lookups.
+//
+// Media is uploaded by an actor (media_uploads.uploader_ap_id, indexed) and
+// then attached to that actor's own object. The referencing object is found by
+// scanning that uploader's objects (objects.attributed_to, indexed) and
+// substring-matching the media reference in application code — instead of a
+// leading-wildcard LIKE over the full objects table, which is unindexable and
+// scans every row on every GET /media/:id.
+//
+// `r2Key` is the unique, indexed media identity (media_uploads_r2_key_idx); the
+// uploaderApId comes from that record. The author-scoped object set is small and
+// served by objects_attributed_to_idx.
+function attachmentMatches(
+  attachmentsJson: string,
+  mediaUrl: string,
+  r2Key: string,
+): boolean {
+  // Same substring semantics as the previous LIKE("%...%") match, evaluated in
+  // app code over the candidate (already indexed-narrowed) rows.
+  return attachmentsJson.includes(mediaUrl) || attachmentsJson.includes(r2Key);
+}
+
+async function findReferencingObject(
+  db: Database,
+  uploaderApId: string,
+  mediaUrl: string,
+  r2Key: string,
+): Promise<ReferencingObject | null> {
+  // Indexed equality scan over the uploader's own objects.
+  const candidates = await db
+    .select({
+      apId: objects.apId,
+      attributedTo: objects.attributedTo,
+      visibility: objects.visibility,
+      toJson: objects.toJson,
+      attachmentsJson: objects.attachmentsJson,
+    })
+    .from(objects)
+    .where(eq(objects.attributedTo, uploaderApId))
+    .all();
+
+  for (const row of candidates) {
+    if (attachmentMatches(row.attachmentsJson, mediaUrl, r2Key)) {
+      return {
+        apId: row.apId,
+        attributedTo: row.attributedTo,
+        visibility: row.visibility,
+        toJson: row.toJson,
+      };
+    }
+  }
+  return null;
+}
+
 // Check if user can access media based on associated object visibility
 async function checkMediaAuthorization(
   db: Database,
@@ -250,37 +311,31 @@ async function checkMediaAuthorization(
   currentActorApId: string | null,
   r2Key: string,
 ): Promise<MediaAuthResult> {
-  const obj = await db
-    .select({
-      apId: objects.apId,
-      attributedTo: objects.attributedTo,
-      visibility: objects.visibility,
-      toJson: objects.toJson,
-    })
-    .from(objects)
-    .where(
-      or(
-        like(objects.attachmentsJson, "%" + mediaUrl + "%"),
-        like(objects.attachmentsJson, "%" + r2Key + "%"),
-      ),
-    )
+  // Resolve media identity by its unique, indexed r2Key (media_uploads_r2_key_idx).
+  const uploadRecord = await db
+    .select({ uploaderApId: mediaUploads.uploaderApId })
+    .from(mediaUploads)
+    .where(eq(mediaUploads.r2Key, r2Key))
     .get();
 
-  // Unattached media: only the uploader may access
+  const obj = uploadRecord
+    ? await findReferencingObject(
+        db,
+        uploadRecord.uploaderApId,
+        mediaUrl,
+        r2Key,
+      )
+    : null;
+
+  // Unattached media (no upload record, or no referencing object found): only
+  // the uploader may access. Authorize against the indexed media_uploads row.
   if (!obj) {
     if (!currentActorApId) return DENY_AUTH_REQUIRED;
 
-    const uploadRecord = await db
-      .select()
-      .from(mediaUploads)
-      .where(
-        and(
-          eq(mediaUploads.r2Key, r2Key),
-          eq(mediaUploads.uploaderApId, currentActorApId),
-        ),
-      )
-      .get();
-    return uploadRecord
+    const isUploader = !!(
+      uploadRecord && uploadRecord.uploaderApId === currentActorApId
+    );
+    return isUploader
       ? ALLOW_PRIVATE
       : {
           allowed: false,
