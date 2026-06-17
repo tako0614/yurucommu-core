@@ -1,5 +1,6 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
   actorCache,
@@ -35,6 +36,29 @@ import {
 const log = logger.child({ component: "activitypub.inbox.content" });
 
 type ActorRow = typeof actors.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Atomic multi-statement commit (mirrors posts/interactions.ts `runBatch` and
+// the inbox-interaction / inbox-shared helper). D1 has no interactive
+// transactions, but both the D1 and libsql drivers expose `db.batch([...])`,
+// which commits a list of prepared statements atomically. The shared
+// `Database` union aliases the abstract `BaseSQLiteDatabase` base (which does
+// not surface `batch`), so we narrow to the concrete batch surface here.
+// ---------------------------------------------------------------------------
+
+type BatchStatement = BatchItem<"sqlite">;
+interface BatchableDb {
+  batch(
+    statements: readonly [BatchStatement, ...BatchStatement[]],
+  ): Promise<unknown>;
+}
+
+async function runBatch(
+  db: Database,
+  statements: readonly [BatchStatement, ...BatchStatement[]],
+): Promise<void> {
+  await (db as unknown as BatchableDb).batch(statements);
+}
 
 // Federation blocklist enforcement lives centrally in
 // `verifyAndParseInbox` (routes/activitypub/inbox.ts): every inbound
@@ -176,33 +200,55 @@ async function insertDirectNote(
   const publishedAt = object.published || new Date().toISOString();
   const toJson = JSON.stringify([recipient.apId]);
 
-  const inserted = await db
-    .insert(objects)
-    .values({
-      apId: objectId,
-      type: "Note",
-      attributedTo: actor,
-      content: object.content || "",
-      summary: object.summary || null,
-      attachmentsJson: attachments,
-      inReplyTo: object.inReplyTo || null,
-      visibility: "direct",
-      toJson,
-      conversation: conversationId,
-      communityApId: null,
-      published: publishedAt,
-      isLocal: 0,
-    })
-    .onConflictDoNothing()
-    .returning()
+  // Was the object already present BEFORE this dispatch? This decides whether
+  // this delivery is the one that creates the row (and therefore the one that
+  // owns the postCount +1 and the inbox surfacing). It is read once here and
+  // used only to gate the post-commit side effects; the counter itself is made
+  // crash-/retry-safe by the in-batch NOT-EXISTS guard below.
+  const existingObject = await db
+    .select({ apId: objects.apId })
+    .from(objects)
+    .where(eq(objects.apId, objectId))
     .get();
 
-  if (!inserted) return; // duplicate
+  // #3 (atomicity + idempotency): the object insert and the author postCount
+  // bump MUST commit together. Previously the row was inserted
+  // (onConflictDoNothing) and postCount bumped in a SEPARATE await; under the
+  // claim/processed re-dispatch model a crash between them left the row present
+  // but the count un-bumped, and a peer retry's no-op insert SKIPPED the bump →
+  // a permanent under-count. Co-commit both in one atomic batch. The postCount
+  // +1 runs BEFORE the insert and is guarded by a correlated NOT-EXISTS(object)
+  // subquery, so it fires only when THIS batch creates the row (mirrors the
+  // edge-absent guard in handleAdd); a duplicate / retry sees the row present →
+  // the guard is false and the insert is a no-op, so the count can neither
+  // double-bump nor under-count.
+  const objectAbsent = sql`NOT EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${objectId})`;
+  await runBatch(db, [
+    db
+      .update(actors)
+      .set({ postCount: sql`${actors.postCount} + 1` })
+      .where(and(eq(actors.apId, actor), objectAbsent)),
+    db
+      .insert(objects)
+      .values({
+        apId: objectId,
+        type: "Note",
+        attributedTo: actor,
+        content: object.content || "",
+        summary: object.summary || null,
+        attachmentsJson: attachments,
+        inReplyTo: object.inReplyTo || null,
+        visibility: "direct",
+        toJson,
+        conversation: conversationId,
+        communityApId: null,
+        published: publishedAt,
+        isLocal: 0,
+      })
+      .onConflictDoNothing(),
+  ]);
 
-  await db
-    .update(actors)
-    .set({ postCount: sql`${actors.postCount} + 1` })
-    .where(eq(actors.apId, actor));
+  if (existingObject) return; // duplicate: no inbox surfacing, no double count
 
   await db
     .insert(objectRecipients)
@@ -284,13 +330,17 @@ export async function handleCreate(
 
   const objectId = object.id || objectApId(baseUrl, generateId());
 
-  // Check if object already exists
-  const existing = await db
+  // Was the object already present BEFORE this dispatch? This is read ONCE and
+  // used only to gate the one-shot side effects (parent notification) below; it
+  // intentionally does NOT early-return, because the idempotent count batch must
+  // still run on a retry so a parent replyCount left stale by an interrupted
+  // prior attempt CONVERGES (mirrors handleInteraction, which always runs the
+  // recompute batch and uses the pre-read only to gate the notification).
+  const existingBeforeInsert = await db
     .select({ apId: objects.apId })
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
-  if (existing) return;
 
   const attachments = object.attachment
     ? JSON.stringify(object.attachment)
@@ -310,8 +360,23 @@ export async function handleCreate(
     ? activity.id || activityApId(baseUrl, generateId())
     : null;
 
-  // Try to insert object; if duplicate, skip
-  const insertResult = await db
+  // #3 (atomicity + idempotency): the object insert, the author postCount bump,
+  // and (for a reply) the parent replyCount bump MUST commit together.
+  // Previously the row was inserted (onConflictDoNothing) and the counts bumped
+  // in SEPARATE awaits; under the claim/processed re-dispatch model a crash
+  // between them left the row present but the counts un-bumped, and a peer
+  // retry's no-op insert SKIPPED the bumps → permanent postCount/replyCount
+  // drift. Co-commit them in one atomic batch:
+  //   - postCount +1 runs BEFORE the insert, guarded by a correlated
+  //     NOT-EXISTS(object) subquery so it fires only when THIS batch creates
+  //     the row (mirrors handleAdd's edge-absent guard); a duplicate / retry
+  //     observes the row present → guard false → no double-bump, no under-count.
+  //   - replyCount is RECOMPUTED from COUNT(*) of the reply edge set AFTER the
+  //     insert (mirrors the object-counter recompute in handleInteraction /
+  //     undoInteraction): exact and idempotent, so a retry after a mid-write
+  //     crash CONVERGES to the true reply count and a duplicate cannot inflate.
+  const objectAbsent = sql`NOT EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${objectId})`;
+  const insertObject = db
     .insert(objects)
     .values({
       apId: objectId,
@@ -330,23 +395,30 @@ export async function handleCreate(
       published: publishedAt,
       isLocal: 0,
     })
-    .onConflictDoNothing()
-    .returning()
-    .get();
+    .onConflictDoNothing();
 
-  if (!insertResult) return; // duplicate
-
-  await db
+  const bumpPostCount = db
     .update(actors)
     .set({ postCount: sql`${actors.postCount} + 1` })
-    .where(eq(actors.apId, actor));
+    .where(and(eq(actors.apId, actor), objectAbsent));
 
   if (object.inReplyTo) {
-    await db
-      .update(objects)
-      .set({ replyCount: sql`${objects.replyCount} + 1` })
-      .where(eq(objects.apId, object.inReplyTo));
+    const parentId = object.inReplyTo;
+    await runBatch(db, [
+      bumpPostCount,
+      insertObject,
+      db
+        .update(objects)
+        .set({
+          replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
+        })
+        .where(eq(objects.apId, parentId)),
+    ]);
+  } else {
+    await runBatch(db, [bumpPostCount, insertObject]);
   }
+
+  if (existingBeforeInsert) return; // duplicate: no double notification
 
   if (shouldNotifyParent && parentObj && replyActivityId) {
     await upsertActivityAndNotify(
@@ -532,23 +604,44 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
   // shared with the local DELETE /posts/:id path.
   await deleteObjectCascade(db, objectId, c.env.MEDIA);
 
-  await db.delete(objects).where(eq(objects.apId, objectId));
-
-  await db
+  // #3 (atomicity + idempotency): the object-row delete and the counter
+  // decrements MUST commit together. Previously the row was deleted and the
+  // counts decremented in SEPARATE awaits; under the claim/processed
+  // re-dispatch model a crash between them left the row gone but the counts
+  // un-decremented, and a peer retry early-returns on the absent row so the
+  // decrements were SKIPPED → permanent postCount/replyCount drift. Co-commit
+  // them in one atomic batch (the media cascade above is intentionally NOT
+  // moved into the batch — it must run first while attachments_json is still
+  // readable). Statement ordering inside the batch:
+  //   - postCount -1 runs BEFORE the delete, guarded by a correlated
+  //     EXISTS(object) subquery (so a duplicate Delete / retry on an
+  //     already-gone row is a no-op) plus a gt(postCount,0) underflow guard
+  //     (mirrors handleRemove).
+  //   - replyCount is RECOMPUTED from COUNT(*) of the remaining reply edge set
+  //     AFTER the delete (mirrors undoInteraction's object-counter recompute):
+  //     exact and idempotent, so a retry CONVERGES to the true reply count.
+  const objectExists = sql`EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${objectId})`;
+  const author = delObj.attributedTo;
+  const deleteObject = db.delete(objects).where(eq(objects.apId, objectId));
+  const decPostCount = db
     .update(actors)
     .set({ postCount: sql`${actors.postCount} - 1` })
-    .where(eq(actors.apId, delObj.attributedTo));
+    .where(and(eq(actors.apId, author), gt(actors.postCount, 0), objectExists));
 
-  // If the deleted object was a reply, decrement the parent's replyCount so the
-  // running tally does not inflate permanently (mirrors the increment in
-  // handleCreate and the local delete path). Guard against underflow.
   if (delObj.inReplyTo) {
-    await db
-      .update(objects)
-      .set({ replyCount: sql`${objects.replyCount} - 1` })
-      .where(
-        and(eq(objects.apId, delObj.inReplyTo), sql`${objects.replyCount} > 0`),
-      );
+    const parentId = delObj.inReplyTo;
+    await runBatch(db, [
+      decPostCount,
+      deleteObject,
+      db
+        .update(objects)
+        .set({
+          replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
+        })
+        .where(eq(objects.apId, parentId)),
+    ]);
+  } else {
+    await runBatch(db, [decPostCount, deleteObject]);
   }
 }
 

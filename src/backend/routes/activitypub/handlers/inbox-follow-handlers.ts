@@ -51,31 +51,73 @@ export async function handleFollow(
   const status = recipient.isPrivate ? "pending" : "accepted";
   const now = new Date().toISOString();
 
-  // Use insert + onConflictDoNothing to atomically create follow record (prevents race condition)
-  const insertResult = await db
-    .insert(follows)
-    .values({
-      followerApId: actor,
-      followingApId: recipient.apId,
-      status,
-      activityApId: activityId,
-      acceptedAt: status === "accepted" ? now : null,
-    })
-    .onConflictDoNothing()
-    .returning()
+  // Was the edge already present BEFORE this dispatch? This gates the one-shot
+  // owner notification / Accept reply below so a duplicate (re)delivery does not
+  // spam them — it does NOT gate the counter, which is reconciled atomically in
+  // the batch below against the edge table's pre-insert state.
+  const existingEdge = await db
+    .select({ followerApId: follows.followerApId })
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, actor),
+        eq(follows.followingApId, recipient.apId),
+      ),
+    )
     .get();
 
-  // If insert returned nothing, the follow already existed
-  const isNewFollow = !!insertResult;
-  if (!isNewFollow) return;
-
-  // Update counts if accepted
+  // #COUNTER-SYM (crash-retry convergence): the followers-edge insert and the
+  // recipient.followerCount +1 MUST commit together. Previously the edge was
+  // inserted (onConflictDoNothing) and, for an auto-accept recipient, the count
+  // was bumped in a SEPARATE statement gated on `isNewFollow`; under the
+  // claim/processed re-dispatch model a crash between the insert and the +1, then
+  // a peer retry (whose no-op insert sets isNewFollow=false → early return),
+  // permanently SKIPPED the increment → a follower UNDER-count. Co-commit the
+  // insert and the increment in one atomic batch (mirrors handleAccept / handleAdd).
+  //
+  // The increment runs BEFORE the insert, guarded by a correlated
+  // `NOT EXISTS(edge)` subquery, so it fires only when THIS batch is the one that
+  // creates the edge (the absent edge is observed in pre-insert state) AND only
+  // for an 'accepted' (non-private) recipient. A duplicate Follow, or a retry
+  // after the edge already existed, sees the edge present → the guard is false and
+  // the insert is a no-op, so the count can neither double-bump nor under-count.
+  // For a private recipient the edge inserts as 'pending' with no count change.
   if (status === "accepted") {
+    const edgeAbsent = sql`NOT EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${actor} AND ${follows.followingApId} = ${recipient.apId})`;
+    await runBatch(db, [
+      db
+        .update(actors)
+        .set({ followerCount: sql`${actors.followerCount} + 1` })
+        .where(and(eq(actors.apId, recipient.apId), edgeAbsent)),
+      db
+        .insert(follows)
+        .values({
+          followerApId: actor,
+          followingApId: recipient.apId,
+          status,
+          activityApId: activityId,
+          acceptedAt: now,
+        })
+        .onConflictDoNothing(),
+    ]);
+  } else {
+    // Private recipient: follow stays pending, no count change.
     await db
-      .update(actors)
-      .set({ followerCount: sql`${actors.followerCount} + 1` })
-      .where(eq(actors.apId, recipient.apId));
+      .insert(follows)
+      .values({
+        followerApId: actor,
+        followingApId: recipient.apId,
+        status,
+        activityApId: activityId,
+        acceptedAt: null,
+      })
+      .onConflictDoNothing();
   }
+
+  // If the edge already existed, this is a duplicate (re)delivery: the counter is
+  // already correct (the batch's no-op insert kept the NOT-EXISTS guard false),
+  // so do not re-notify the owner or re-send an Accept.
+  if (existingEdge) return;
 
   // Store activity and add to inbox (AP Native notification)
   await upsertActivityAndNotify(
@@ -380,33 +422,35 @@ async function undoLike(
   );
   if (handled) return;
 
-  // Last resort: delete any like from this actor for the recipient's objects
+  // Last resort: delete any like from this actor for the recipient's objects.
+  // #COUNTER-SYM: co-commit the edge delete and a COUNT(*) recompute of likeCount
+  // in one atomic batch (mirrors the primary undoInteraction path). Previously
+  // the delete committed first and the count was decremented (`- 1`) in a
+  // SEPARATE statement; a crash between them, then a peer retry whose delete
+  // matches 0 rows, permanently SKIPPED the decrement → a like OVER-count.
+  // Deriving each affected object's likeCount from COUNT(*) of the remaining like
+  // rows makes the fallback idempotent so a crash-then-retry CONVERGES instead of
+  // drifting.
   const recipientObjects = await db
     .select({ apId: objects.apId })
     .from(objects)
     .where(eq(objects.attributedTo, recipient.apId));
-  if (recipientObjects.length > 0) {
-    const deleted = await db
+  if (recipientObjects.length === 0) return;
+
+  const objectIds = recipientObjects.map((o) => o.apId);
+  await runBatch(db, [
+    db
       .delete(likes)
       .where(
-        and(
-          eq(likes.actorApId, actor),
-          inArray(
-            likes.objectApId,
-            recipientObjects.map((o) => o.apId),
-          ),
-        ),
-      )
-      .returning({ objectApId: likes.objectApId });
-    if (deleted.length > 0) {
-      await db
-        .update(objects)
-        .set({ likeCount: sql`${objects.likeCount} - 1` })
-        .where(
-          inArray(objects.apId, [...new Set(deleted.map((r) => r.objectApId))]),
-        );
-    }
-  }
+        and(eq(likes.actorApId, actor), inArray(likes.objectApId, objectIds)),
+      ),
+    db
+      .update(objects)
+      .set({
+        likeCount: sql`(SELECT COUNT(*) FROM ${likes} WHERE ${likes.objectApId} = ${objects.apId})`,
+      })
+      .where(inArray(objects.apId, objectIds)),
+  ]);
 }
 
 async function undoAnnounce(
