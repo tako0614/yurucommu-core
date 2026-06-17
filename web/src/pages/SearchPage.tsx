@@ -160,6 +160,19 @@ export function SearchPage() {
     REMOTE_ACTOR_QUERY_PATTERN.test(lastQuery()),
   );
 
+  // After a search resolves, if the active tab has no hits but another does,
+  // jump to the first non-empty tab (in tab order) so the owner sees results
+  // instead of an empty pane next to populated ones. If the active tab already
+  // has hits — or everything is empty — leave the selection alone.
+  const TAB_ORDER: SearchTab[] = ["users", "posts", "communities"];
+  const autoSelectNonEmptyTab = (counts: Record<SearchTab, number>) => {
+    if (counts[searchTab()] > 0) return;
+    const firstWithHits = TAB_ORDER.find((tab) => counts[tab] > 0);
+    if (firstWithHits) {
+      setSearchTab(firstWithHits);
+    }
+  };
+
   const performSearch = async (query: string) => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
@@ -182,13 +195,21 @@ export function SearchPage() {
 
       // Client-side community filter
       const lowerQuery = trimmedQuery.toLowerCase();
-      setFilteredCommunities(
-        communities().filter(
-          (c) =>
-            (c.display_name || c.name).toLowerCase().includes(lowerQuery) ||
-            (c.summary || "").toLowerCase().includes(lowerQuery),
-        ),
+      const matchedCommunities = communities().filter(
+        (c) =>
+          (c.display_name || c.name).toLowerCase().includes(lowerQuery) ||
+          (c.summary || "").toLowerCase().includes(lowerQuery),
       );
+      setFilteredCommunities(matchedCommunities);
+
+      // If the active tab came back empty but another tab has hits, move the
+      // owner to the first non-empty tab so a resolved search never lands on a
+      // blank screen while results are sitting one tab over.
+      autoSelectNonEmptyTab({
+        users: usersRes.length,
+        posts: postsRes.length,
+        communities: matchedCommunities.length,
+      });
 
       // If the owner has remote lookup enabled and the query is a handle,
       // fan out to other servers and merge the extra actors in.
@@ -231,6 +252,26 @@ export function SearchPage() {
     const next = !includeRemote();
     setIncludeRemote(next);
     if (next && lastQueryIsRemoteHandle() && !searchingRemote()) {
+      void runRemoteSearch(lastQuery());
+    }
+  };
+
+  // A handle-shaped query (@user@domain) with no local hit and remote lookup
+  // still off: the owner almost certainly meant a fediverse account, so offer
+  // an inline "search other servers" prompt instead of a bare no-results pane.
+  const showRemoteHandlePrompt = createMemo(
+    () =>
+      searchTab() === "users" &&
+      lastQueryIsRemoteHandle() &&
+      !includeRemote() &&
+      searchUsersResult().length === 0,
+  );
+
+  // Acting on the inline prompt enables remote for the intent and immediately
+  // fans out, so the toggle reflects the new state and results stream in.
+  const acceptRemoteHandlePrompt = () => {
+    setIncludeRemote(true);
+    if (lastQueryIsRemoteHandle() && !searchingRemote()) {
       void runRemoteSearch(lastQuery());
     }
   };
@@ -631,11 +672,40 @@ export function SearchPage() {
                 <Show
                   when={searchUsersResult().length > 0}
                   fallback={
-                    <EmptyState
-                      icon={<SearchEmptyIcon />}
-                      title={t("search.noResults")}
-                      hint={t("search.noResultsHint")}
-                    />
+                    <Show
+                      when={showRemoteHandlePrompt()}
+                      fallback={
+                        <EmptyState
+                          icon={<SearchEmptyIcon />}
+                          title={t("search.noResults")}
+                          hint={t("search.noResultsHint")}
+                        />
+                      }
+                    >
+                      {/* Handle-shaped query with no local hit: offer the
+                          remote lookup inline instead of a dead-end empty pane. */}
+                      <div class="px-4 py-8 text-center">
+                        <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-800 text-neutral-400">
+                          <SearchEmptyIcon />
+                        </div>
+                        <p class="text-sm font-medium text-white">
+                          {t("search.remoteHandlePromptTitle")}
+                        </p>
+                        <p class="mt-1 text-xs text-neutral-500">
+                          {t("search.remoteHandlePromptHint").replace(
+                            "{handle}",
+                            lastQuery(),
+                          )}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={acceptRemoteHandlePrompt}
+                          class="mt-4 inline-flex items-center rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110"
+                        >
+                          {t("search.searchOtherServers")}
+                        </button>
+                      </div>
+                    </Show>
                   }
                 >
                   <For each={searchUsersResult()}>

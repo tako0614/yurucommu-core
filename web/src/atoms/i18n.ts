@@ -407,6 +407,9 @@ const translations = {
       "@ユーザー@ドメイン の形式で他のサーバーを検索します",
     "search.searchingRemote": "他のサーバーを検索中...",
     "search.remoteFormatHint": "@ユーザー@ドメイン の形式で入力してください",
+    "search.remoteHandlePromptTitle": "他のサーバーのアカウントかもしれません",
+    "search.remoteHandlePromptHint":
+      "{handle} はこのサーバーには見つかりませんでした。他のサーバーを検索しますか？",
     "bookmarks.title": "ブックマーク",
     "bookmarks.empty": "ブックマークがありません",
     "bookmarks.emptyHint": "投稿をブックマークするとここに表示されます",
@@ -907,6 +910,9 @@ const translations = {
     "search.searchOtherServersHint": "Look up other servers as @user@domain",
     "search.searchingRemote": "Searching other servers...",
     "search.remoteFormatHint": "Enter as @user@domain",
+    "search.remoteHandlePromptTitle": "This may be an account on another server",
+    "search.remoteHandlePromptHint":
+      "{handle} wasn't found on this server. Search other servers?",
     "bookmarks.title": "Bookmarks",
     "bookmarks.empty": "No bookmarks yet",
     "bookmarks.emptyHint": "Posts you bookmark will appear here",
