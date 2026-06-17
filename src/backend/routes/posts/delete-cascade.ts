@@ -93,8 +93,6 @@ async function deleteAttachedMediaUploads(
 
   if (orphaned.length === 0) return;
 
-  const orphanedIds = orphaned.map((m) => m.id);
-
   // Before any R2 purge, find which of these `r2_key`s are still referenced by
   // ANOTHER (different `ap_id`), still-present object of the same author. Such
   // a key must NOT have its blob deleted — another object still shows it. We
@@ -122,14 +120,24 @@ async function deleteAttachedMediaUploads(
     );
   }
 
-  await db.delete(mediaUploads).where(inArray(mediaUploads.id, orphanedIds));
+  // Delete the media_uploads rows whose blob we are actually purging. Rows
+  // whose `r2_key` is still referenced by another present object are KEPT (row
+  // AND blob) so that, when that final referencer is later deleted, this same
+  // candidates scan still finds the row and can GC the now-orphaned blob —
+  // otherwise the shared blob would leak permanently once its DB row vanished.
+  // Without a `media` binding there is no R2 to GC, so all rows are removed.
+  const idsToDelete = media
+    ? orphaned.filter((m) => !stillReferencedKeys.has(m.r2Key)).map((m) => m.id)
+    : orphaned.map((m) => m.id);
+  if (idsToDelete.length > 0) {
+    await db.delete(mediaUploads).where(inArray(mediaUploads.id, idsToDelete));
+  }
 
-  // Best-effort purge the backing R2 blobs so storage does not leak. The DB
-  // rows are already gone regardless of object-store availability; never let an
-  // R2 error fail the delete (there is no orphaned-key GC fallback). Only purge
-  // keys whose reference count has dropped to zero — keys still embedded in
-  // another present object's `attachments_json` are kept so shared media is not
-  // lost.
+  // Best-effort purge the backing R2 blobs so storage does not leak. Never let
+  // an R2 error fail the delete. Only purge keys whose reference count has
+  // dropped to zero — keys still embedded in another present object's
+  // `attachments_json` are kept (blob + media_uploads row) so shared media is
+  // not lost and can still be GC'd when the last referencer is removed.
   if (media) {
     const keys = orphaned
       .map((m) => m.r2Key)

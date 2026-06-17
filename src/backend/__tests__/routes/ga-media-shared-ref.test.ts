@@ -166,23 +166,22 @@ test("deleting the last post referencing a shared r2_key finally purges the blob
     size: 123,
   });
 
-  // First delete post A: blob kept (covered above), upload row reaped.
+  // First delete post A: blob kept (covered above). The media_uploads row is
+  // ALSO kept (not reaped) precisely because its r2_key is still referenced by
+  // post B — so a later delete of the final referencer can still find the row
+  // and GC the now-orphaned blob (the leak this guards against).
   const first = recordingStorage();
   await deleteObjectCascade(db, postA, first.storage);
   await db.delete(objects).where(eq(objects.apId, postA));
   expect(first.deleted).not.toContain(sharedKey);
 
-  // The media_uploads row was already reaped by the first delete; re-add it so
-  // the last delete has a row to reap (mirrors a scenario where the row still
-  // exists, e.g. re-uploaded / not yet reaped). The reference-count gate is the
-  // unit under test: now only post B references sharedKey.
-  await db.insert(mediaUploads).values({
-    id: "media-shared-2",
-    r2Key: sharedKey,
-    uploaderApId: author,
-    contentType: "image/jpeg",
-    size: 123,
-  });
+  // The shared media_uploads row survived the first delete; confirm it is still
+  // present so the last-referencer delete below has a row to reap.
+  const surviving = await db
+    .select({ id: mediaUploads.id })
+    .from(mediaUploads)
+    .where(eq(mediaUploads.r2Key, sharedKey));
+  expect(surviving.length).toBe(1);
 
   const second = recordingStorage();
   await deleteObjectCascade(db, postB, second.storage);
