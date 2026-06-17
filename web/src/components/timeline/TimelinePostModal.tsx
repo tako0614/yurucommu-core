@@ -27,6 +27,10 @@ interface TimelinePostModalProps {
   placeholder: string;
   submitLabel: string;
   submittingLabel: string;
+  // Set when the chosen audience differs from the room the composer was opened
+  // on. Surfaced as an explicit warning so a re-aimed post is never a silent
+  // mis-post; null when the audience matches the viewed scope.
+  audienceDiffersHint?: string | null;
   onClose: () => void;
   onSubmit: () => Promise<boolean>;
   posting: boolean;
@@ -204,6 +208,20 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
 
             {/* "Who sees it = what you view." Read-only audience reach line. */}
             <p class="mb-3 px-1 text-xs text-neutral-500">{reach()}</p>
+
+            {/* Explicit warning when the chosen audience is a different room than
+                the one the user is viewing — avoids a silent mis-post. */}
+            <Show when={props.audienceDiffersHint}>
+              {(hint) => (
+                <p
+                  role="status"
+                  class="mb-3 flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300"
+                >
+                  <span aria-hidden="true">{"⚠️"}</span>
+                  <span>{hint()}</span>
+                </p>
+              )}
+            </Show>
 
             {/* Content warning input */}
             <Show when={showCw()}>

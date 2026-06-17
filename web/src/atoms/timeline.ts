@@ -210,11 +210,15 @@ export const createPostAtom = atom(
             : undefined,
       });
       if (newPost) {
-        // Optimistically prepend only for personal-scope posts: a community
-        // post switches the inhabited scope on submit, which resets and
-        // reloads the timeline (useTimelineState), so a prepend here would be
-        // wiped — let that reload surface it in the community feed instead.
-        if (!options.community_ap_id) {
+        // Optimistically prepend when the post lands in the scope the timeline
+        // is currently observing: a personal post (no community) always belongs
+        // to the personal feed, and a community post belongs to the head only
+        // when that community is the inhabited scope. Posting never changes the
+        // inhabited scope, so the visible list is not reloaded out from under us.
+        if (
+          !options.community_ap_id ||
+          get(scopeQueryAtom)?.community === options.community_ap_id
+        ) {
           set(timelinePostsAtom, (prev) => [newPost, ...prev]);
         }
         set(postContentAtom, "");

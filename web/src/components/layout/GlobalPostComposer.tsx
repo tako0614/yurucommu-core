@@ -1,8 +1,8 @@
-import { createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { actorAtom } from "../../atoms/auth.ts";
 import { tAtom } from "../../atoms/i18n.ts";
-import { inhabitedScopeAtom } from "../../atoms/scope.ts";
+import { type InhabitedScope, inhabitedScopeAtom } from "../../atoms/scope.ts";
 import {
   closePostModalAtom,
   createPostAtom,
@@ -32,11 +32,59 @@ import { ScopeSwitcherSheet } from "../scope/ScopeSwitcherSheet.tsx";
 // from inside the composer opens the ScopeSwitcherSheet, which writes the SAME
 // `inhabitedScopeAtom` — so changing the audience also changes the inhabited
 // scope, never divergent state.
+//
+// Because re-aiming the audience also moves the inhabited scope, the timeline
+// the user came from would otherwise shift silently underneath them. To avoid a
+// silent mis-post we snapshot the scope the composer opened on ("the room you're
+// viewing") and: (1) surface an explicit hint when the chosen audience differs
+// from it, and (2) revert the inhabited scope back to that snapshot if the
+// composer closes without a successful post. A successful post commits to the
+// chosen room (the user explicitly sent there), so the snapshot is dropped.
+function scopesEqual(a: InhabitedScope, b: InhabitedScope): boolean {
+  if (a.kind === "community" && b.kind === "community") {
+    return a.ap_id === b.ap_id;
+  }
+  return a.kind === b.kind;
+}
+
 export function GlobalPostComposer() {
   const t = useAtomValue(tAtom);
   const actor = useAtomValue(actorAtom);
   const [showModal] = useAtom(showPostModalAtom);
-  const scope = useAtomValue(inhabitedScopeAtom);
+  const [scope, setScope] = useAtom(inhabitedScopeAtom);
+
+  // The scope the composer was opened on (the timeline the user is viewing).
+  // Captured on open so a later audience change can be detected and reverted.
+  const [viewingScope, setViewingScope] = createSignal<InhabitedScope | null>(
+    null,
+  );
+  // Set once when a successful post commits to the chosen room, so the
+  // close-time revert is skipped (the move was intentional).
+  const [committed, setCommitted] = createSignal(false);
+
+  // Snapshot the viewing scope each time the composer opens.
+  createEffect(
+    on(showModal, (open) => {
+      if (open) {
+        setViewingScope(scope());
+        setCommitted(false);
+      }
+    }),
+  );
+
+  // The chosen audience differs from the room the user is viewing — naming the
+  // room they'll be moved to on submit (a community display name, else personal).
+  const audienceDiffHint = createMemo(() => {
+    const from = viewingScope();
+    if (!from || !showModal()) return null;
+    const to = scope();
+    if (scopesEqual(from, to)) return null;
+    const name =
+      to.kind === "community"
+        ? to.display_name || to.name
+        : t()("scope.personal");
+    return t()("posts.audienceDiffersFromView").replace("{name}", name);
+  });
 
   const [postContent, setPostContent] = useAtom(postContentAtom);
   const [postSummary, setPostSummary] = useAtom(postSummaryAtom);
@@ -78,7 +126,23 @@ export function GlobalPostComposer() {
       visibility: current.kind === "community" ? "public" : postVisibility(),
       community_ap_id:
         current.kind === "community" ? current.ap_id : undefined,
-    }).then((ok) => ok || false);
+    }).then((ok) => {
+      // The send committed the user to the chosen room: keep the inhabited
+      // scope there (no close-time revert) so the timeline shows the post.
+      if (ok) setCommitted(true);
+      return ok || false;
+    });
+  };
+
+  // Close the composer. If the audience was re-aimed but no post was sent,
+  // revert the inhabited scope to the room the user was viewing so opening the
+  // composer never silently moves their timeline.
+  const handleClose = () => {
+    const from = viewingScope();
+    if (from && !committed() && !scopesEqual(from, scope())) {
+      setScope(from);
+    }
+    doClosePostModal();
   };
 
   return (
@@ -99,7 +163,8 @@ export function GlobalPostComposer() {
             placeholder={t()("posts.placeholder")}
             submitLabel={t()("posts.post")}
             submittingLabel={t()("posts.posting")}
-            onClose={doClosePostModal}
+            audienceDiffersHint={audienceDiffHint()}
+            onClose={handleClose}
             onSubmit={handlePost}
             posting={posting()}
             onFileSelect={handleFileSelect}

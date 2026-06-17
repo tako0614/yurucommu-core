@@ -92,6 +92,8 @@ const translations = {
     "posts.audience": "投稿先",
     "posts.audienceHint": "見ている人に届きます",
     "posts.changeAudience": "投稿先を変更",
+    "posts.audienceDiffersFromView":
+      "今見ている場所とは別の投稿先です。投稿すると {name} に移動します。",
     "profile.posts": "投稿",
     "profile.likes": "いいね",
     "profile.noLikes": "まだいいねがありません",
@@ -569,6 +571,8 @@ const translations = {
     "posts.audience": "Audience",
     "posts.audienceHint": "Who sees it = what you view",
     "posts.changeAudience": "Change audience",
+    "posts.audienceDiffersFromView":
+      "This is a different room than the one you're viewing. Posting moves you to {name}.",
     "profile.posts": "Posts",
     "profile.likes": "Likes",
     "profile.noLikes": "No likes yet",
