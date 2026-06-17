@@ -3,11 +3,13 @@ import { useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor, Post } from "../types/index.ts";
 import {
+  blockUser,
   fetchActor,
   fetchActorPosts,
   fetchFollowers,
   fetchFollowing,
   follow,
+  muteUser,
   unfollow,
   updateProfile,
 } from "../lib/api.ts";
@@ -22,6 +24,7 @@ import { ProfilePostsSection } from "../components/profile/ProfilePostsSection.t
 import { ProfileEditModal } from "../components/profile/ProfileEditModal.tsx";
 import { ProfileFollowModal } from "../components/profile/ProfileFollowModal.tsx";
 import { QRCodeModal } from "../components/QRCodeModal.tsx";
+import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 
 export function ProfilePage() {
@@ -50,12 +53,21 @@ export function ProfilePage() {
   const [followModalActors, setFollowModalActors] = createSignal<Actor[]>([]);
   const [followModalLoading, setFollowModalLoading] = createSignal(false);
   const [showQr, setShowQr] = createSignal(false);
+  // Pending block/mute confirmation for the viewed (other) user.
+  const [pendingModeration, setPendingModeration] = createSignal<
+    "block" | "mute" | null
+  >(null);
 
   // Use current actor if no actorId in URL
   const targetActorId = () =>
     params.actorId ? decodeURIComponent(params.actorId) : actor.ap_id;
   const isOwnProfile = () => targetActorId() === actor.ap_id;
-  const displayUsername = () => profile()?.username || actor.username;
+  // The handle shown in the header. Once the profile is loaded we always use its
+  // own username. Before it loads (skeleton / error), only the OWN profile may
+  // fall back to the signed-in actor's handle — for another user's profile we
+  // must not leak the viewer's handle, so we show an empty header instead.
+  const displayUsername = () =>
+    profile()?.username || (isOwnProfile() ? actor.username : "");
 
   const loadProfile = async () => {
     try {
@@ -83,6 +95,7 @@ export function ProfilePage() {
       setShowFollowModal(null);
       setShowMenu(false);
       setShowQr(false);
+      setPendingModeration(null);
       setActiveTab("posts");
       setPostsView("grid");
       loadProfile();
@@ -178,6 +191,31 @@ export function ProfilePage() {
     }
   };
 
+  const confirmModeration = async () => {
+    const action = pendingModeration();
+    const p = profile();
+    setPendingModeration(null);
+    if (!action || !p) return;
+    try {
+      if (action === "block") {
+        await blockUser(p.ap_id);
+        pushToast(setToasts, t("feedback.blocked"), { kind: "success" });
+      } else {
+        await muteUser(p.ap_id);
+        pushToast(setToasts, t("feedback.muted"), { kind: "success" });
+      }
+    } catch (e) {
+      console.error(`Failed to ${action} user:`, e);
+      pushToast(
+        setToasts,
+        action === "block"
+          ? t("feedback.blockFailed")
+          : t("feedback.muteFailed"),
+        { kind: "error" },
+      );
+    }
+  };
+
   return (
     <div class="flex flex-col h-full">
       <Show when={error()}>
@@ -223,6 +261,8 @@ export function ProfilePage() {
             onToggleFollow={handleFollow}
             onOpenEdit={openEditModal}
             onOpenFollowModal={openFollowModal}
+            onBlock={() => setPendingModeration("block")}
+            onMute={() => setPendingModeration("mute")}
             t={t}
           />
           <ProfilePostsSection
@@ -266,6 +306,28 @@ export function ProfilePage() {
           onClose={() => setShowQr(false)}
         />
       </Show>
+
+      <ConfirmSheet
+        open={pendingModeration() !== null}
+        title={
+          pendingModeration() === "block"
+            ? t("confirm.blockTitle")
+            : t("confirm.muteTitle")
+        }
+        body={
+          pendingModeration() === "block"
+            ? t("confirm.blockBody")
+            : t("confirm.muteBody")
+        }
+        confirmLabel={
+          pendingModeration() === "block"
+            ? t("profile.block")
+            : t("profile.mute")
+        }
+        destructive={pendingModeration() === "block"}
+        onConfirm={confirmModeration}
+        onCancel={() => setPendingModeration(null)}
+      />
     </div>
   );
 }

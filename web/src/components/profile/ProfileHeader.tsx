@@ -53,9 +53,14 @@ export function ProfileHeader(props: ProfileHeaderProps) {
           </Show>
         </div>
 
-        {/* Center: prominent federated handle (user@domain) */}
-        <span class="min-w-0 truncate font-bold text-white" title={`@${props.handle}`}>
-          @{props.handle}
+        {/* Center: prominent federated handle (user@domain). Empty while another
+            user's profile is still loading — never falls back to the viewer's
+            own handle. */}
+        <span
+          class="min-w-0 truncate font-bold text-white"
+          title={props.handle ? `@${props.handle}` : undefined}
+        >
+          <Show when={props.handle}>@{props.handle}</Show>
         </span>
 
         {/* Right: QR / share (own profile) */}

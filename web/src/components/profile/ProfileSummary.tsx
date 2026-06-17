@@ -18,6 +18,8 @@ interface ProfileSummaryProps {
   onToggleFollow: () => void;
   onOpenEdit: () => void;
   onOpenFollowModal: (type: FollowModalType) => void;
+  onBlock: () => void;
+  onMute: () => void;
   t: Translate;
 }
 
@@ -68,10 +70,23 @@ export function ProfileSummary(props: ProfileSummaryProps) {
                 >
                   <button
                     role="menuitem"
-                    onClick={props.onCloseMenu}
+                    onClick={() => {
+                      props.onCloseMenu();
+                      props.onMute();
+                    }}
                     class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-800 transition-colors"
                   >
-                    {props.t("profile.report")}
+                    {props.t("profile.mute")}
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      props.onCloseMenu();
+                      props.onBlock();
+                    }}
+                    class="w-full flex items-center gap-3 px-4 py-3 text-left text-red-500 hover:bg-neutral-800 transition-colors"
+                  >
+                    {props.t("profile.block")}
                   </button>
                 </div>
               </Show>

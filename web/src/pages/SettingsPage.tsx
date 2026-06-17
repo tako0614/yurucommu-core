@@ -2,8 +2,16 @@ import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import type { Actor } from "../types/index.ts";
 import { useI18n } from "../lib/i18n.tsx";
-import { useSetAtom } from "solid-jotai";
+import { useAtomValue, useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
+import {
+  accountsAtom,
+  accountsLoadingAtom,
+  createAccountAtom,
+  currentApIdAtom,
+  loadAccountsAtom,
+  switchAccountAtom,
+} from "../atoms/timeline.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
@@ -12,14 +20,10 @@ import { SettingsDeleteSection } from "../components/settings/SettingsDeleteSect
 import { SettingsUserList } from "../components/settings/SettingsUserList.tsx";
 import { ChevronRightIcon } from "../components/settings/SettingsIcons.tsx";
 import {
-  AccountInfo,
-  createAccount,
   deleteAccount,
-  fetchAccounts,
   fetchBlockedUsers,
   fetchMutedUsers,
   logout as logoutRequest,
-  switchAccount,
   unblockUser,
   unmuteUser,
 } from "../lib/api.ts";
@@ -40,8 +44,14 @@ export function SettingsPage() {
   const [loading, setLoading] = createSignal(false);
   const [deleteConfirm, setDeleteConfirm] = createSignal("");
 
-  // Account switching
-  const [accounts, setAccounts] = createSignal<AccountInfo[]>([]);
+  // Account switching — share the same atoms as the AppMenu switcher so the
+  // list and current selection never go stale across the two surfaces.
+  const accounts = useAtomValue(accountsAtom);
+  const accountsLoading = useAtomValue(accountsLoadingAtom);
+  const currentApId = useAtomValue(currentApIdAtom);
+  const doLoadAccounts = useSetAtom(loadAccountsAtom);
+  const doSwitchAccount = useSetAtom(switchAccountAtom);
+  const doCreateAccount = useSetAtom(createAccountAtom);
   const [showCreateAccount, setShowCreateAccount] = createSignal(false);
   const [newUsername, setNewUsername] = createSignal("");
   const [newDisplayName, setNewDisplayName] = createSignal("");
@@ -105,23 +115,17 @@ export function SettingsPage() {
         })
         .finally(() => setLoading(false));
     } else if (section === "accounts") {
-      setLoading(true);
-      fetchAccounts()
-        .then((data) => setAccounts(data.accounts))
-        .catch((err) => {
-          console.error("Failed to load accounts:", err);
-          setError(t("common.error"));
-        })
-        .finally(() => setLoading(false));
+      // Shared atom owns the fetch + loading/error state; this just triggers it.
+      doLoadAccounts();
     }
   });
 
   const handleSwitchAccount = async (apId: string) => {
-    if (apId === actor.ap_id) return;
+    if (apId === currentApId()) return;
     setSwitching(true);
     try {
-      await switchAccount(apId);
-      globalThis.location.reload();
+      // switchAccountAtom reloads the page on success; only reached on error.
+      await doSwitchAccount(apId);
     } catch (e) {
       console.error("Failed to switch account:", e);
       setError(t("common.error"));
@@ -132,26 +136,23 @@ export function SettingsPage() {
 
   const handleCreateAccount = async () => {
     if (!normalizedUsername()) {
-      setCreateError("Username is required");
+      setCreateError(t("settings.usernameRequired"));
       return;
     }
     if (!usernamePattern.test(normalizedUsername())) {
-      setCreateError("Use letters, numbers, and underscores only");
+      setCreateError(t("settings.usernamePatternError"));
       return;
     }
     setCreateError(null);
     try {
-      const newAccount = await createAccount(
-        normalizedUsername(),
-        newDisplayName().trim() || undefined,
-      );
-      setAccounts((prev) => [...prev, newAccount]);
+      await doCreateAccount({
+        username: normalizedUsername(),
+        name: newDisplayName().trim() || undefined,
+      });
       resetCreateAccount();
     } catch (e: unknown) {
       setCreateError(
-        e instanceof Error
-          ? e.message
-          : String(e) || "Failed to create account",
+        e instanceof Error ? e.message : t("settings.createAccountFailed"),
       );
     }
   };
@@ -247,7 +248,7 @@ export function SettingsPage() {
         <SettingsAccountsSection
           actor={actor}
           accounts={accounts()}
-          loading={loading()}
+          loading={accountsLoading()}
           switching={switching()}
           showCreateAccount={showCreateAccount()}
           newUsername={newUsername()}

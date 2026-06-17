@@ -3,6 +3,7 @@ import type { ActorStories, Post } from "../types/index.ts";
 import { tAtom } from "./i18n.ts";
 import {
   type AccountInfo,
+  createAccount,
   createPost,
   fetchAccounts,
   fetchStories,
@@ -333,6 +334,19 @@ export const switchAccountAtom = atom(null, async (get, _set, apId: string) => {
   await switchAccount(apId);
   window.location.reload();
 });
+
+// Create a new account and push it into the shared account list so the
+// switcher (AppMenu / Settings) stays current without a refetch. The newly
+// created account is not made current here; the caller decides whether to
+// switch to it.
+export const createAccountAtom = atom(
+  null,
+  async (_get, set, payload: { username: string; name?: string }) => {
+    const account = await createAccount(payload.username, payload.name);
+    set(accountsAtom, (prev) => [...prev, account]);
+    return account;
+  },
+);
 
 export const closePostModalAtom = atom(null, (_get, set) => {
   set(showPostModalAtom, false);
