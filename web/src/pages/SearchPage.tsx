@@ -1,4 +1,11 @@
-import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onMount,
+  Show,
+} from "solid-js";
 import { A, useSearchParams } from "@solidjs/router";
 import { useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
@@ -97,6 +104,12 @@ export function SearchPage() {
   const [searched, setSearched] = createSignal(false);
   const [searchError, setSearchError] = createSignal<string | null>(null);
   const [lastQuery, setLastQuery] = createSignal("");
+  // Inward-first: search stays inside the owner's own graph / in-scope data
+  // (local actors, posts, joined communities) by default. Reaching out to
+  // remote servers via webfinger is an explicit, secondary opt-in so a
+  // personal instance does not silently fan out to the whole fediverse.
+  const [includeRemote, setIncludeRemote] = createSignal(false);
+  const [searchingRemote, setSearchingRemote] = createSignal(false);
 
   const [communities, setCommunities] = createSignal<CommunityDetail[]>([]);
   const [filteredCommunities, setFilteredCommunities] = createSignal<
@@ -141,33 +154,30 @@ export function SearchPage() {
     }
   });
 
+  // Whether the current query is a webfinger-style handle (@user@host). Remote
+  // lookup only makes sense for these; the toggle is hidden otherwise.
+  const lastQueryIsRemoteHandle = createMemo(() =>
+    REMOTE_ACTOR_QUERY_PATTERN.test(lastQuery()),
+  );
+
   const performSearch = async (query: string) => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
-
-    const shouldSearchRemote = REMOTE_ACTOR_QUERY_PATTERN.test(trimmedQuery);
 
     setSearching(true);
     setSearched(true);
     setSearchError(null);
     setLastQuery(trimmedQuery);
     try {
-      const [usersRes, postsRes, remoteUsersRes] = await Promise.all([
+      // Inward-first: only the owner's own instance (local actors / posts /
+      // joined communities). Remote servers are reached only when the owner
+      // explicitly toggles "search other servers".
+      const [usersRes, postsRes] = await Promise.all([
         searchActors(trimmedQuery),
         searchPosts(trimmedQuery),
-        shouldSearchRemote
-          ? searchRemote(trimmedQuery)
-          : Promise.resolve([] as Actor[]),
       ]);
 
-      const mergedUsers = [...usersRes];
-      for (const remoteUser of remoteUsersRes) {
-        if (!mergedUsers.some((u) => u.ap_id === remoteUser.ap_id)) {
-          mergedUsers.push(remoteUser);
-        }
-      }
-
-      setSearchUsersResult(mergedUsers);
+      setSearchUsersResult(usersRes);
       setSearchPostsResult(postsRes);
 
       // Client-side community filter
@@ -179,11 +189,49 @@ export function SearchPage() {
             (c.summary || "").toLowerCase().includes(lowerQuery),
         ),
       );
+
+      // If the owner has remote lookup enabled and the query is a handle,
+      // fan out to other servers and merge the extra actors in.
+      if (includeRemote() && REMOTE_ACTOR_QUERY_PATTERN.test(trimmedQuery)) {
+        await runRemoteSearch(trimmedQuery);
+      }
     } catch (e) {
       console.error("Search failed:", e);
       setSearchError(t("common.loadFailed"));
     } finally {
       setSearching(false);
+    }
+  };
+
+  // Secondary, opt-in remote (webfinger) lookup. Merges any remote actors not
+  // already present into the users result without disturbing the inward set.
+  const runRemoteSearch = async (query: string) => {
+    setSearchingRemote(true);
+    try {
+      const remoteUsersRes = await searchRemote(query);
+      setSearchUsersResult((prev) => {
+        const merged = [...prev];
+        for (const remoteUser of remoteUsersRes) {
+          if (!merged.some((u) => u.ap_id === remoteUser.ap_id)) {
+            merged.push(remoteUser);
+          }
+        }
+        return merged;
+      });
+    } catch (e) {
+      console.error("Remote search failed:", e);
+    } finally {
+      setSearchingRemote(false);
+    }
+  };
+
+  // Toggle remote lookup. Turning it on for an already-run handle query runs
+  // the remote fan-out immediately so the result updates without re-submitting.
+  const toggleIncludeRemote = () => {
+    const next = !includeRemote();
+    setIncludeRemote(next);
+    if (next && lastQueryIsRemoteHandle() && !searchingRemote()) {
+      void runRemoteSearch(lastQuery());
     }
   };
 
@@ -194,6 +242,7 @@ export function SearchPage() {
     setSearchUsersResult([]);
     setSearchPostsResult([]);
     setFilteredCommunities([]);
+    setSearchingRemote(false);
   };
 
   const handleLike = async (post: Post) => {
@@ -361,6 +410,14 @@ export function SearchPage() {
               </button>
             </Show>
           </form>
+          {/* Inward-first expectation: search starts within your own
+              connections; other servers are an explicit opt-in in the people
+              tab. */}
+          <Show when={!searched()}>
+            <p class="px-1 pt-2 text-xs text-neutral-500">
+              {t("search.scopeHint")}
+            </p>
+          </Show>
         </div>
 
         {/* Search result tabs */}
@@ -528,6 +585,49 @@ export function SearchPage() {
             >
               {/* Users tab */}
               <Show when={searchTab() === "users"}>
+                {/* Inward-first affordance: results above are from your own
+                    instance / connections. Reaching out to other servers is an
+                    explicit secondary toggle, not the default. */}
+                <div class="border-b border-neutral-900 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={toggleIncludeRemote}
+                    aria-pressed={includeRemote()}
+                    class="flex w-full items-center justify-between gap-3 text-left"
+                  >
+                    <div class="min-w-0">
+                      <div class="text-sm font-medium text-white">
+                        {t("search.searchOtherServers")}
+                      </div>
+                      <div class="text-xs text-neutral-500">
+                        {t("search.searchOtherServersHint")}
+                      </div>
+                    </div>
+                    <span
+                      class={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                        includeRemote()
+                          ? "bg-[var(--accent)]"
+                          : "bg-neutral-700"
+                      }`}
+                    >
+                      <span
+                        class={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                          includeRemote() ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </span>
+                  </button>
+                  <Show when={includeRemote() && !lastQueryIsRemoteHandle()}>
+                    <p class="mt-2 text-xs text-neutral-500">
+                      {t("search.remoteFormatHint")}
+                    </p>
+                  </Show>
+                  <Show when={searchingRemote()}>
+                    <p class="mt-2 text-xs text-neutral-400">
+                      {t("search.searchingRemote")}
+                    </p>
+                  </Show>
+                </div>
                 <Show
                   when={searchUsersResult().length > 0}
                   fallback={

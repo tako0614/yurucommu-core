@@ -104,9 +104,42 @@ export function ScopeHeader(props: ScopeHeaderProps) {
     return t("scope.reachPersonal");
   };
 
+  // Ambient per-scope tint. Personal uses the app accent (blue); each community
+  // gets a stable hue derived from its ap_id so standing in different rooms
+  // feels distinct. The tint is a faint top-down wash over the dark header — it
+  // is decorative ambience, never a visibility/affordance signal.
+  const tintHue = () => {
+    const s = scope();
+    if (s.kind !== "community") return null;
+    let hash = 0;
+    for (let i = 0; i < s.ap_id.length; i++) {
+      hash = (hash * 31 + s.ap_id.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash) % 360;
+  };
+
+  const tintStyle = () => {
+    const hue = tintHue();
+    // Personal: accent-blue wash. Community: derived-hue wash. Low alpha so the
+    // dark-only surface stays readable.
+    const top =
+      hue === null
+        ? "rgba(59, 130, 246, 0.16)"
+        : `hsla(${hue}, 70%, 55%, 0.18)`;
+    return {
+      "background-image": `linear-gradient(to bottom, ${top}, rgba(23, 23, 23, 0))`,
+    };
+  };
+
   return (
-    <header class="sticky top-0 z-30 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur-sm">
-      <div class="flex items-center gap-2 px-3 py-2.5">
+    <header class="sticky top-0 z-30 overflow-hidden border-b border-neutral-800 bg-neutral-900/80 backdrop-blur-sm">
+      {/* Ambient per-scope tint wash (decorative; behind content). */}
+      <div
+        aria-hidden="true"
+        class="pointer-events-none absolute inset-0 transition-colors duration-500"
+        style={tintStyle()}
+      />
+      <div class="relative flex items-center gap-2 px-3 py-2.5">
         {/* Mobile-only AppMenu trigger. Desktop reaches the menu via Sidebar. */}
         <Show when={actor()}>
           {(current) => (
