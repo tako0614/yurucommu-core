@@ -1,5 +1,6 @@
 import type { Database } from "../../../../db/index.ts";
 import { and, eq, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
   announces,
@@ -10,6 +11,30 @@ import {
 } from "../../../../db/index.ts";
 import { isLocal } from "../../../federation-helpers.ts";
 import type { Activity } from "../inbox-types.ts";
+
+// ---------------------------------------------------------------------------
+// Atomic multi-statement commit (mirrors posts/interactions.ts `runBatch`)
+//
+// D1 has no interactive transactions, but both the D1 and libsql drivers
+// expose `db.batch([...])`, which commits a list of prepared statements
+// atomically. The shared `Database` union aliases the abstract
+// `BaseSQLiteDatabase` base (which does not surface `batch`), so we narrow to
+// the concrete batch surface here rather than weakening the shared type.
+// ---------------------------------------------------------------------------
+
+type BatchStatement = BatchItem<"sqlite">;
+interface BatchableDb {
+  batch(
+    statements: readonly [BatchStatement, ...BatchStatement[]],
+  ): Promise<unknown>;
+}
+
+export async function runBatch(
+  db: Database,
+  statements: readonly [BatchStatement, ...BatchStatement[]],
+): Promise<void> {
+  await (db as unknown as BatchableDb).batch(statements);
+}
 
 // ---------------------------------------------------------------------------
 // Shared helpers used by multiple inbox handler files
@@ -56,36 +81,6 @@ const INTERACTION_TABLES: Record<"like" | "announce", InteractionTable> = {
   like: likes,
   announce: announces,
 };
-
-/**
- * Find a record by activityApId, then delete it using its compound key.
- * Returns the deleted record (or null if not found).
- */
-export async function findAndDeleteInteractionByActivityId(
-  db: Database,
-  kind: "like" | "announce",
-  activityApIdValue: string,
-): Promise<{ actorApId: string; objectApId: string } | null> {
-  const table = INTERACTION_TABLES[kind];
-  const record = await db
-    .select({
-      actorApId: table.actorApId,
-      objectApId: table.objectApId,
-    })
-    .from(table)
-    .where(eq(table.activityApId, activityApIdValue))
-    .get();
-  if (!record) return null;
-  await db
-    .delete(table)
-    .where(
-      and(
-        eq(table.actorApId, record.actorApId),
-        eq(table.objectApId, record.objectApId),
-      ),
-    );
-  return record;
-}
 
 /** Find a follow by activityApId and return it (or null). */
 export async function findFollowByActivityId(
@@ -174,8 +169,19 @@ const COUNT_FIELDS: Record<"like" | "announce", "likeCount" | "announceCount"> =
 
 /**
  * Generic undo for Like or Announce: delete by direct object ID or fallback
- * to findAndDeleteInteractionByActivityId, then decrement the count field.
+ * to the activityId lookup, then RECOMPUTE the count field.
  * Returns true if the deletion was handled, false otherwise.
+ *
+ * #COUNTER-SYM (crash-retry convergence): the edge delete and the counter
+ * maintenance MUST commit together. Previously the edge was deleted in one
+ * statement and the counter decremented (`- 1`) in a SEPARATE statement; under
+ * the claim/processed re-dispatch model an interruption between the two left
+ * the edge gone but the counter un-decremented, and the peer's retry matched 0
+ * rows so the decrement was SKIPPED → a permanent OVER-count. Group the delete
+ * and the counter update into a single atomic `db.batch`, and derive the
+ * counter from `COUNT(*)` of the edge table (idempotent recompute, mirrors the
+ * inbound insert path in handleInteraction) rather than a blind `- 1`, so a
+ * retry after a mid-write crash CONVERGES to the true edge count.
  */
 export async function undoInteraction(
   db: Database,
@@ -189,37 +195,55 @@ export async function undoInteraction(
   const cf = countField ?? COUNT_FIELDS[kind];
 
   if (directObjectId) {
-    // Gate the count decrement on a row actually being deleted, so a
-    // duplicate Undo (or an Undo of an interaction we never recorded) does
-    // not drift the count negative. `.returning()` yields the deleted rows
-    // across both D1 and libsql backends.
-    const deleted = await db
-      .delete(table)
-      .where(
-        and(eq(table.actorApId, actor), eq(table.objectApId, directObjectId)),
-      )
-      .returning({ objectApId: table.objectApId });
-    if (deleted.length > 0) {
-      await db
+    // Delete the edge and recompute the counter from the remaining edge rows
+    // atomically. A duplicate Undo (or an Undo of an interaction we never
+    // recorded) deletes 0 rows and the recompute is a no-op against the
+    // already-correct edge set, so the count cannot drift in either direction.
+    await runBatch(db, [
+      db
+        .delete(table)
+        .where(
+          and(eq(table.actorApId, actor), eq(table.objectApId, directObjectId)),
+        ),
+      db
         .update(objects)
-        .set({ [cf]: sql`${objects[cf]} - 1` })
-        .where(eq(objects.apId, directObjectId));
-    }
+        .set({
+          [cf]: sql`(SELECT COUNT(*) FROM ${table} WHERE ${table.objectApId} = ${directObjectId})`,
+        })
+        .where(eq(objects.apId, directObjectId)),
+    ]);
     return true;
   }
 
   if (!activityId) return false;
 
-  const record = await findAndDeleteInteractionByActivityId(
-    db,
-    kind,
-    activityId,
-  );
+  // Resolve the edge by its activity ID, then commit the delete + recompute in
+  // one batch keyed on the resolved objectApId.
+  const record = await db
+    .select({
+      actorApId: table.actorApId,
+      objectApId: table.objectApId,
+    })
+    .from(table)
+    .where(eq(table.activityApId, activityId))
+    .get();
   if (record) {
-    await db
-      .update(objects)
-      .set({ [cf]: sql`${objects[cf]} - 1` })
-      .where(eq(objects.apId, record.objectApId));
+    await runBatch(db, [
+      db
+        .delete(table)
+        .where(
+          and(
+            eq(table.actorApId, record.actorApId),
+            eq(table.objectApId, record.objectApId),
+          ),
+        ),
+      db
+        .update(objects)
+        .set({
+          [cf]: sql`(SELECT COUNT(*) FROM ${table} WHERE ${table.objectApId} = ${record.objectApId})`,
+        })
+        .where(eq(objects.apId, record.objectApId)),
+    ]);
     return true;
   }
 

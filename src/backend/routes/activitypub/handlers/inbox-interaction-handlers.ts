@@ -1,4 +1,4 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import {
   actors,
@@ -183,36 +183,40 @@ export async function handleAdd(
   const db = c.get("db");
   const now = new Date().toISOString();
 
-  // Atomically create the accepted follow edge. `returning().get()` only
-  // yields a row when a brand-new row was inserted; an existing edge hits the
-  // conflict clause and returns nothing. This gates the count maintenance so a
-  // duplicate Add cannot inflate the follower/following counters. Mirrors the
-  // new-row gating in `handleFollow`/`handleAccept`.
-  const inserted = await db
-    .insert(follows)
-    .values({
-      followerApId: recipient.apId,
-      followingApId,
-      status: "accepted",
-      activityApId: activity.id || null,
-      acceptedAt: now,
-    })
-    .onConflictDoNothing()
-    .returning()
-    .get();
-
-  if (!inserted) return; // edge already existed; counts unchanged
-
-  // A new accepted edge: recipient now follows `followingApId`. Mirror the
-  // count bookkeeping `handleAccept` performs on an accepted follow.
-  await db
-    .update(actors)
-    .set({ followingCount: sql`${actors.followingCount} + 1` })
-    .where(eq(actors.apId, recipient.apId));
-  await db
-    .update(actors)
-    .set({ followerCount: sql`${actors.followerCount} + 1` })
-    .where(eq(actors.apId, followingApId));
+  // #COUNTER-SYM (crash-retry convergence): the accepted-edge insert and the
+  // two +1s MUST commit together. Previously the edge was inserted
+  // (onConflictDoNothing) and the counters bumped in SEPARATE statements; a
+  // crash between them left the edge present but the counts un-bumped, and a
+  // duplicate Add's no-op insert SKIPPED the bump → a permanent UNDER-count.
+  // Co-commit them in one atomic batch.
+  //
+  // The two increments run BEFORE the insert and are each guarded by a
+  // correlated `NOT EXISTS(edge)` subquery, so they fire only when THIS batch
+  // is the one that creates the edge (the absent edge is observed in pre-insert
+  // state). A duplicate Add, or a retry after the edge already existed, sees the
+  // edge present → both guards are false and the insert is a no-op, so the
+  // counters can neither double-bump nor (on retry) under-count.
+  const edgeAbsent = sql`NOT EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${recipient.apId} AND ${follows.followingApId} = ${followingApId})`;
+  await runBatch(db, [
+    db
+      .update(actors)
+      .set({ followingCount: sql`${actors.followingCount} + 1` })
+      .where(and(eq(actors.apId, recipient.apId), edgeAbsent)),
+    db
+      .update(actors)
+      .set({ followerCount: sql`${actors.followerCount} + 1` })
+      .where(and(eq(actors.apId, followingApId), edgeAbsent)),
+    db
+      .insert(follows)
+      .values({
+        followerApId: recipient.apId,
+        followingApId,
+        status: "accepted",
+        activityApId: activity.id || null,
+        acceptedAt: now,
+      })
+      .onConflictDoNothing(),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -229,29 +233,49 @@ export async function handleRemove(
   if (!followingApId) return;
 
   const db = c.get("db");
-  const deleted = await db
-    .delete(follows)
-    .where(
-      and(
-        eq(follows.followerApId, recipient.apId),
-        eq(follows.followingApId, followingApId),
-      ),
-    )
-    .returning({ status: follows.status });
 
-  // Only decrement when an accepted edge was actually removed. A duplicate
-  // Remove or a Remove of a never-accepted (pending) edge must not drift the
-  // counters negative. Mirrors `undoFollow`'s rows-affected gating.
-  if (deleted.some((row) => row.status === "accepted")) {
-    await db
+  // #COUNTER-SYM (crash-retry convergence): the edge delete and both -1s MUST
+  // commit together. Previously the delete committed first and the decrements
+  // were SEPARATE statements; a crash between them left the edge gone but the
+  // counts un-decremented, and the peer's retry matched 0 rows so the decrements
+  // were SKIPPED → a permanent OVER-count. Co-commit them in one atomic batch.
+  //
+  // The two decrements run BEFORE the delete and are each guarded by a
+  // correlated `EXISTS(... status='accepted')` subquery (so a pending /
+  // never-counted edge, a duplicate Remove, or an unknown edge does not drift
+  // the counts) plus a `count > 0` underflow guard (mirrors the local API delete
+  // paths in posts/interactions.ts which batch + guard both sides).
+  const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${recipient.apId} AND ${follows.followingApId} = ${followingApId} AND ${follows.status} = 'accepted')`;
+  await runBatch(db, [
+    db
       .update(actors)
       .set({ followingCount: sql`${actors.followingCount} - 1` })
-      .where(eq(actors.apId, recipient.apId));
-    await db
+      .where(
+        and(
+          eq(actors.apId, recipient.apId),
+          gt(actors.followingCount, 0),
+          acceptedEdgeExists,
+        ),
+      ),
+    db
       .update(actors)
       .set({ followerCount: sql`${actors.followerCount} - 1` })
-      .where(eq(actors.apId, followingApId));
-  }
+      .where(
+        and(
+          eq(actors.apId, followingApId),
+          gt(actors.followerCount, 0),
+          acceptedEdgeExists,
+        ),
+      ),
+    db
+      .delete(follows)
+      .where(
+        and(
+          eq(follows.followerApId, recipient.apId),
+          eq(follows.followingApId, followingApId),
+        ),
+      ),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -271,42 +295,61 @@ export async function handleBlock(
   // Only act when the recipient is being blocked.
   if (blockedId !== recipient.apId) return;
 
-  // Best-effort: sever follow relations in both directions.
-  const deleted = await db
-    .delete(follows)
-    .where(
-      or(
-        and(
-          eq(follows.followerApId, recipient.apId),
-          eq(follows.followingApId, actor),
-        ),
-        and(
-          eq(follows.followerApId, actor),
-          eq(follows.followingApId, recipient.apId),
-        ),
-      ),
-    )
-    .returning({
-      followerApId: follows.followerApId,
-      followingApId: follows.followingApId,
-      status: follows.status,
-    });
+  // Best-effort: sever follow relations in both directions. #COUNTER-SYM
+  // (crash-retry convergence): handle each direction as its own atomic
+  // edge-delete + counter reconcile so a crash between the delete and the
+  // decrements cannot leave a counter permanently over-counted (the peer's
+  // retry would otherwise match 0 rows and skip the decrement).
+  await severFollowEdge(db, recipient.apId, actor); // recipient follows actor
+  await severFollowEdge(db, actor, recipient.apId); // actor follows recipient
+}
 
-  // Decrement counters per removed accepted edge: the follower loses a
-  // following, the followed loses a follower. Pending edges were never counted
-  // (mirrors `handleFollow`'s accepted-only increment), so skip them to avoid
-  // negative drift.
-  for (const row of deleted) {
-    if (row.status !== "accepted") continue;
-    await db
+/**
+ * Atomically delete a (followerApId -> followingApId) follow edge and reconcile
+ * both denormalized counters in a single batch.
+ *
+ * #COUNTER-SYM: the decrements run BEFORE the delete, each guarded by a
+ * correlated `EXISTS(... status='accepted')` subquery (pending edges were never
+ * counted) plus a `count > 0` underflow guard, so a pending edge, a duplicate
+ * Block, a never-existing edge, or a crash-then-retry is a clean no-op rather
+ * than permanently over-counting.
+ */
+async function severFollowEdge(
+  db: Database,
+  followerApId: string,
+  followingApId: string,
+): Promise<void> {
+  const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${followerApId} AND ${follows.followingApId} = ${followingApId} AND ${follows.status} = 'accepted')`;
+  await runBatch(db, [
+    db
       .update(actors)
       .set({ followingCount: sql`${actors.followingCount} - 1` })
-      .where(eq(actors.apId, row.followerApId));
-    await db
+      .where(
+        and(
+          eq(actors.apId, followerApId),
+          gt(actors.followingCount, 0),
+          acceptedEdgeExists,
+        ),
+      ),
+    db
       .update(actors)
       .set({ followerCount: sql`${actors.followerCount} - 1` })
-      .where(eq(actors.apId, row.followingApId));
-  }
+      .where(
+        and(
+          eq(actors.apId, followingApId),
+          gt(actors.followerCount, 0),
+          acceptedEdgeExists,
+        ),
+      ),
+    db
+      .delete(follows)
+      .where(
+        and(
+          eq(follows.followerApId, followerApId),
+          eq(follows.followingApId, followingApId),
+        ),
+      ),
+  ]);
 }
 
 // ---------------------------------------------------------------------------

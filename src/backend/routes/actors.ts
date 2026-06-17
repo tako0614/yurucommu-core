@@ -12,6 +12,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
   actorCache,
@@ -210,6 +211,61 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
   }
 
   return reaped;
+}
+
+/**
+ * Cancel the stranded outbound Delete(actor) for a tombstone that is about to be
+ * REVIVED (a freed handle re-registered onto the same deterministic apId).
+ *
+ * A tombstone keeps its OLD signing key precisely so the queued Delete(actor)
+ * delivery jobs can sign with it at send time (read live from the actor row).
+ * Re-registration rotates that row to a FRESH key + identity, which would make
+ * any still-pending Delete job sign with the wrong key (invalid signature) or
+ * target a now-live actor. So before reviving we cancel the stranded Delete:
+ * remove its non-terminal (pending / processing / failed / retry_wait)
+ * delivery_queue rows AND the preserved Delete activity rows, so re-registration
+ * starts clean and no half-signed Delete is sent.
+ *
+ * Mirrors the activity/queue cleanup `reapDrainedTombstones` performs, but is
+ * unconditional (the revive supersedes the Delete) and only scoped to non-
+ * terminal delivery rows; terminal rows are removed alongside the activity.
+ * Returns the number of Delete activities cancelled.
+ */
+// D1 has no interactive transactions, but both the D1 and libsql drivers expose
+// `db.batch([...])`, which commits a list of prepared statements atomically. The
+// shared `Database` union aliases the abstract `BaseSQLiteDatabase` base (which
+// does not surface `batch`), so we narrow to the concrete batch surface here
+// rather than weakening the shared type (mirrors inbox-interaction-handlers.ts).
+type BatchStatement = BatchItem<"sqlite">;
+interface BatchableDb {
+  batch(
+    statements: readonly [BatchStatement, ...BatchStatement[]],
+  ): Promise<unknown>;
+}
+
+export async function cancelTombstoneDelete(
+  db: Database,
+  apId: string,
+): Promise<number> {
+  const deleteActivities = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(and(eq(activities.actorApId, apId), eq(activities.type, "Delete")));
+  const deleteActivityIds = deleteActivities.map((a) => a.apId);
+  if (deleteActivityIds.length === 0) return 0;
+
+  // Atomic: drop every delivery_queue row for those Delete activities (any
+  // status — the Delete is superseded, including in-flight retry_wait jobs)
+  // together with the preserved Delete activity rows, so no signer can pick up
+  // a job referencing an activity whose actor row has been rotated.
+  await (db as unknown as BatchableDb).batch([
+    db
+      .delete(deliveryQueue)
+      .where(inArray(deliveryQueue.activityApId, deleteActivityIds)),
+    db.delete(activities).where(inArray(activities.apId, deleteActivityIds)),
+  ]);
+
+  return deleteActivityIds.length;
 }
 
 // Best-effort, opportunistic tombstone reaping on the read path. This Worker

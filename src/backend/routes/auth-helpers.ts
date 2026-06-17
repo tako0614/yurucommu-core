@@ -12,6 +12,7 @@ import type { Database } from "../../db/index.ts";
 import { and, count, eq, isNotNull } from "drizzle-orm";
 import { actors, notDeleted, sessions } from "../../db/index.ts";
 import { parseJsonObject, parseNonEmptyString } from "../lib/parse-helpers.ts";
+import { cancelTombstoneDelete } from "./actors.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "auth.helpers" });
@@ -215,6 +216,16 @@ export async function createActor(
     .get();
 
   if (tombstone) {
+    // The tombstone preserved the OLD signing key so any still-queued
+    // Delete(actor) delivery jobs could sign with it at send time. Reviving the
+    // row below rotates to a FRESH key + identity, which would make those
+    // in-flight Delete jobs sign with the wrong key (invalid signature) or
+    // target a now-live actor. Cancel the stranded Delete FIRST — drop its
+    // pending/retry_wait/failed delivery_queue rows and the preserved Delete
+    // activity rows — so re-registration starts clean and no half-signed Delete
+    // is sent (#revive).
+    await cancelTombstoneDelete(db, apId);
+
     return await db
       .update(actors)
       .set({

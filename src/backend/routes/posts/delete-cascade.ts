@@ -19,7 +19,7 @@
  * the remote `handleDelete` inbox path so neither can orphan rows.
  */
 
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import {
@@ -54,6 +54,14 @@ import {
  * reaped uploads are best-effort deleted by `r2_key` (mirroring the
  * account-delete teardown in `routes/actors.ts`). R2 errors never fail the DB
  * delete; without this the blobs leak forever (there is no orphaned-key GC).
+ *
+ * A blob is only purged when its `r2_key` is no longer referenced by any OTHER
+ * still-present object of the same author (an `r2_key`/media URL can be embedded
+ * in more than one object's `attachments_json` even though the `media_uploads`
+ * row is unique). Deleting the blob while another object still shows it would
+ * data-loss the shared media, so the R2 delete is gated on the reference count
+ * dropping to zero. The DB-row delete is unconditional (the reaped rows belong
+ * to this object's reap set regardless).
  */
 async function deleteAttachedMediaUploads(
   db: Database,
@@ -87,17 +95,51 @@ async function deleteAttachedMediaUploads(
 
   const orphanedIds = orphaned.map((m) => m.id);
 
+  // Before any R2 purge, find which of these `r2_key`s are still referenced by
+  // ANOTHER (different `ap_id`), still-present object of the same author. Such
+  // a key must NOT have its blob deleted — another object still shows it. We
+  // run this read while the rows are still present so an OTHER object whose
+  // `attachments_json` happens to point back at this object's reap set is
+  // honoured; the lookup is scoped to the author's own objects (indexed) and
+  // excludes the object being reaped.
+  let stillReferencedKeys = new Set<string>();
+  if (media) {
+    const otherObjects = await db
+      .select({ attachmentsJson: objects.attachmentsJson })
+      .from(objects)
+      .where(
+        and(
+          eq(objects.attributedTo, obj.attributedTo),
+          ne(objects.apId, objectApId),
+        ),
+      );
+    stillReferencedKeys = new Set(
+      orphaned
+        .filter((m) =>
+          otherObjects.some((o) => o.attachmentsJson?.includes(m.r2Key)),
+        )
+        .map((m) => m.r2Key),
+    );
+  }
+
   await db.delete(mediaUploads).where(inArray(mediaUploads.id, orphanedIds));
 
   // Best-effort purge the backing R2 blobs so storage does not leak. The DB
   // rows are already gone regardless of object-store availability; never let an
-  // R2 error fail the delete (there is no orphaned-key GC fallback).
+  // R2 error fail the delete (there is no orphaned-key GC fallback). Only purge
+  // keys whose reference count has dropped to zero — keys still embedded in
+  // another present object's `attachments_json` are kept so shared media is not
+  // lost.
   if (media) {
-    const keys = orphaned.map((m) => m.r2Key);
-    try {
-      await media.delete(keys);
-    } catch {
-      // Swallow: storage purge is best-effort and must not fail the DB delete.
+    const keys = orphaned
+      .map((m) => m.r2Key)
+      .filter((k) => !stillReferencedKeys.has(k));
+    if (keys.length > 0) {
+      try {
+        await media.delete(keys);
+      } catch {
+        // Swallow: storage purge is best-effort and must not fail the DB delete.
+      }
     }
   }
 }

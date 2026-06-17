@@ -1,5 +1,5 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import {
   activities,
   actors,
@@ -22,8 +22,8 @@ import {
 } from "../inbox-types.ts";
 import {
   deleteFollowByCompoundKey,
-  findAndDeleteInteractionByActivityId,
   findFollowByActivityId,
+  runBatch,
   undoInteraction,
   upsertActivityAndNotify,
 } from "./inbox-shared-helpers.ts";
@@ -130,31 +130,42 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
   const now = new Date().toISOString();
 
   try {
-    // Conditional pending->accepted transition. The `status='pending'` guard
-    // makes a duplicate Accept a no-op (zero rows), so concurrent duplicate
-    // Accepts cannot increment the follower/following counts more than once.
-    const accepted = await db
-      .update(follows)
-      .set({ status: "accepted", acceptedAt: now })
-      .where(
-        and(
-          eq(follows.followerApId, follow.followerApId),
-          eq(follows.followingApId, follow.followingApId),
-          eq(follows.status, "pending"),
+    // #COUNTER-SYM (crash-retry convergence): the pending->accepted flip and
+    // both +1s MUST commit together. Previously the flip committed first and the
+    // increments were SEPARATE statements; a crash between them left the edge
+    // 'accepted' while the counts were un-bumped, and the peer's retry saw an
+    // already-accepted edge (the early-return above) so the increments were
+    // SKIPPED → a permanent UNDER-count. Co-commit the flip and the increments
+    // in one atomic batch so the whole transition is all-or-nothing.
+    //
+    // The two increments run BEFORE the flip and are each guarded by a
+    // correlated `EXISTS(... status='pending')` subquery, so they fire only when
+    // THIS batch is the one performing the transition (the still-pending edge is
+    // observed in pre-flip state). A concurrent duplicate Accept, or a retry
+    // after the flip already committed, sees a non-pending edge → both guards
+    // are false and the flip's `status='pending'` predicate is a no-op, so the
+    // counts can neither double-bump nor (on retry) under-count.
+    const pendingEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${follow.followerApId} AND ${follows.followingApId} = ${follow.followingApId} AND ${follows.status} = 'pending')`;
+    await runBatch(db, [
+      db
+        .update(actors)
+        .set({ followingCount: sql`${actors.followingCount} + 1` })
+        .where(and(eq(actors.apId, follow.followerApId), pendingEdgeExists)),
+      db
+        .update(actors)
+        .set({ followerCount: sql`${actors.followerCount} + 1` })
+        .where(and(eq(actors.apId, follow.followingApId), pendingEdgeExists)),
+      db
+        .update(follows)
+        .set({ status: "accepted", acceptedAt: now })
+        .where(
+          and(
+            eq(follows.followerApId, follow.followerApId),
+            eq(follows.followingApId, follow.followingApId),
+            eq(follows.status, "pending"),
+          ),
         ),
-      )
-      .returning()
-      .get();
-    if (!accepted) return;
-
-    await db
-      .update(actors)
-      .set({ followingCount: sql`${actors.followingCount} + 1` })
-      .where(eq(actors.apId, follow.followerApId));
-    await db
-      .update(actors)
-      .set({ followerCount: sql`${actors.followerCount} + 1` })
-      .where(eq(actors.apId, follow.followingApId));
+    ]);
   } catch (e) {
     log.error("Error in handleAccept", {
       event: "ap.accept.handler_error",
@@ -257,22 +268,12 @@ async function resolveUndoByActivityId(
   if (originalActivity.type === "Follow") {
     const follow = await findFollowByActivityId(db, objectId);
     if (follow) {
-      const deleted = await deleteFollowByCompoundKey(
+      await undoFollowEdge(
         db,
         follow.followerApId,
         follow.followingApId,
+        recipient.apId,
       );
-      // Only decrement when a row was actually removed AND it had been
-      // counted. `handleFollow` only increments followerCount for an
-      // 'accepted' follow (a 'pending' follow never bumped the count), so a
-      // duplicate Undo or an Undo of a never-accepted follow must not drift
-      // the count negative. Mirrors the gating in `undoInteraction`.
-      if (deleted.some((row) => row.status === "accepted")) {
-        await db
-          .update(actors)
-          .set({ followerCount: sql`${actors.followerCount} - 1` })
-          .where(eq(actors.apId, recipient.apId));
-      }
     }
     return true;
   }
@@ -288,23 +289,59 @@ async function resolveUndoByActivityId(
         : ("announce" as const);
     const countField =
       kind === "like" ? ("likeCount" as const) : ("announceCount" as const);
-    // Only decrement when a row was actually deleted, so a duplicate Undo or
-    // an Undo of an interaction we never recorded cannot drift the count.
-    const removed = await findAndDeleteInteractionByActivityId(
-      db,
-      kind,
-      objectId,
-    );
-    if (removed) {
-      await db
-        .update(objects)
-        .set({ [countField]: sql`${objects[countField]} - 1` })
-        .where(eq(objects.apId, originalActivity.objectApId));
-    }
+    // #COUNTER-SYM: delegate to `undoInteraction`'s activityId path, which now
+    // co-commits the edge delete and a COUNT(*) recompute in one atomic batch.
+    // A crash-then-retry converges (the recompute is idempotent against the true
+    // edge set) instead of permanently over-counting on the retry's no-op
+    // delete. The actor-mismatch guard above still constrains who may undo.
+    await undoInteraction(db, kind, countField, undefined, objectId, actor);
     return true;
   }
 
   return true;
+}
+
+/**
+ * Atomically remove a follow edge and reconcile `followerCount`.
+ *
+ * #COUNTER-SYM (crash-retry convergence): the edge delete and the -1 MUST
+ * commit together. Previously the delete committed first and the decrement was
+ * a SEPARATE statement; a crash between them left the edge gone but the count
+ * un-decremented, and the peer's retry matched 0 rows so the decrement was
+ * SKIPPED → a permanent OVER-count. Co-commit both in one batch. The decrement
+ * runs BEFORE the delete and is guarded by a correlated
+ * `EXISTS(... status='accepted')` subquery (so a pending/never-counted edge,
+ * a duplicate Undo, or an unknown edge does not drift the count) plus a
+ * `followerCount > 0` underflow guard (mirrors the local API delete paths in
+ * posts/interactions.ts which batch + guard both sides).
+ */
+async function undoFollowEdge(
+  db: Database,
+  followerApId: string,
+  followingApId: string,
+  recipientApId: string,
+): Promise<void> {
+  const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${followerApId} AND ${follows.followingApId} = ${followingApId} AND ${follows.status} = 'accepted')`;
+  await runBatch(db, [
+    db
+      .update(actors)
+      .set({ followerCount: sql`${actors.followerCount} - 1` })
+      .where(
+        and(
+          eq(actors.apId, recipientApId),
+          gt(actors.followerCount, 0),
+          acceptedEdgeExists,
+        ),
+      ),
+    db
+      .delete(follows)
+      .where(
+        and(
+          eq(follows.followerApId, followerApId),
+          eq(follows.followingApId, followingApId),
+        ),
+      ),
+  ]);
 }
 
 async function undoFollow(
@@ -315,36 +352,15 @@ async function undoFollow(
 ): Promise<void> {
   const follow = objectId ? await findFollowByActivityId(db, objectId) : null;
 
-  let deleted: Array<{ status: string }>;
-  if (follow) {
-    deleted = await deleteFollowByCompoundKey(
-      db,
-      follow.followerApId,
-      follow.followingApId,
-    );
-  } else {
-    deleted = await db
-      .delete(follows)
-      .where(
-        and(
-          eq(follows.followerApId, actor),
-          eq(follows.followingApId, recipient.apId),
-        ),
-      )
-      .returning({ status: follows.status });
-  }
-
-  // Only decrement when a row was actually removed AND it had been counted.
-  // `handleFollow` increments followerCount only for an 'accepted' follow, so
-  // a duplicate Undo, an Undo of a never-accepted (pending) follow, or an Undo
-  // of an unknown follow must not drift the count negative. Mirrors
-  // `undoInteraction`'s rows-affected gating.
-  if (deleted.some((row) => row.status === "accepted")) {
-    await db
-      .update(actors)
-      .set({ followerCount: sql`${actors.followerCount} - 1` })
-      .where(eq(actors.apId, recipient.apId));
-  }
+  // #COUNTER-SYM: co-commit the edge delete and the followerCount -1 atomically
+  // (see `undoFollowEdge`). `handleFollow` increments followerCount only for an
+  // 'accepted' follow, so the decrement is gated on the edge being accepted; a
+  // duplicate Undo, an Undo of a never-accepted (pending) follow, or an Undo of
+  // an unknown follow is a clean no-op and a crash-then-retry converges instead
+  // of permanently over-counting.
+  const followerApId = follow ? follow.followerApId : actor;
+  const followingApId = follow ? follow.followingApId : recipient.apId;
+  await undoFollowEdge(db, followerApId, followingApId, recipient.apId);
 }
 
 async function undoLike(
