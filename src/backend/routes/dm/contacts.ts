@@ -15,7 +15,9 @@ import {
   communities,
   communityMembers,
   dmArchivedConversations,
+  dmCommunityReadStatus,
   dmReadStatus,
+  objectRecipients,
   objects,
 } from "../../../db/index.ts";
 import { formatUsername } from "../../federation-helpers.ts";
@@ -27,6 +29,7 @@ import {
   formatActorProfile,
   groupConversations,
   type HonoEnv,
+  parseOtherApId,
   recipientToJsonLike,
   uniqueValues,
 } from "./conversations-helpers.ts";
@@ -170,6 +173,7 @@ contacts.get("/contacts", async (c) => {
   const communityMemberships = await db
     .select({
       communityApId: communityMembers.communityApId,
+      joinedAt: communityMembers.joinedAt,
       community: {
         apId: communities.apId,
         preferredUsername: communities.preferredUsername,
@@ -216,6 +220,58 @@ contacts.get("/contacts", async (c) => {
     }
   }
 
+  // Per-community read position for the viewer. The unread baseline is the
+  // later of the viewer's last-read time and their join time, so a freshly
+  // joined member is not blasted with a badge for the whole backlog.
+  const communityReadStatuses =
+    communityApIds.length > 0
+      ? await db
+          .select({
+            communityApId: dmCommunityReadStatus.communityApId,
+            lastReadAt: dmCommunityReadStatus.lastReadAt,
+          })
+          .from(dmCommunityReadStatus)
+          .where(eq(dmCommunityReadStatus.actorApId, actor.ap_id))
+      : [];
+  const communityReadMap = new Map(
+    communityReadStatuses.map((r) => [r.communityApId, r.lastReadAt]),
+  );
+
+  // Count unread community messages (published after the read baseline, not
+  // authored by the viewer) per community via object_recipients audience link.
+  const communityUnreadCounts = new Map<string, number>();
+  if (communityApIds.length > 0) {
+    await Promise.all(
+      communityMemberships.map(async (cm) => {
+        const communityApId = cm.community.apId;
+        const baseline =
+          communityReadMap.get(communityApId) ??
+          cm.joinedAt ??
+          "1970-01-01T00:00:00Z";
+        const result = await db
+          .select({ count: count() })
+          .from(objects)
+          .innerJoin(
+            objectRecipients,
+            eq(objectRecipients.objectApId, objects.apId),
+          )
+          .where(
+            and(
+              eq(objectRecipients.recipientApId, communityApId),
+              eq(objectRecipients.type, "audience"),
+              eq(objects.type, "Note"),
+              ne(objects.attributedTo, actor.ap_id),
+              sql`${objects.published} > ${baseline}`,
+            ),
+          )
+          .get();
+        if (result?.count) {
+          communityUnreadCounts.set(communityApId, result.count);
+        }
+      }),
+    );
+  }
+
   const communitiesResult = communityMemberships
     .map((cm) => {
       const lastMessage = lastMessagesMap.get(cm.community.apId);
@@ -234,6 +290,7 @@ contacts.get("/contacts", async (c) => {
             }
           : null,
         last_message_at: lastMessage?.published || null,
+        unread_count: communityUnreadCounts.get(cm.community.apId) || 0,
       };
     })
     .sort(
@@ -273,6 +330,66 @@ contacts.get("/contacts", async (c) => {
     mutual_followers: contactsResult,
     communities: communitiesResult,
     request_count: requestCount,
+  });
+});
+
+// GET /contact/:encodedApId - Resolve a single DM contact (user or community)
+// by AP-ID. Lets a deep-link to a conversation that is not in the loaded
+// contact list (e.g. a brand-new thread, or a community the viewer just
+// reached) render instead of dead-ending. Returns a minimal DMContact shape.
+contacts.get("/contact/:encodedApId", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const db = c.get("db");
+
+  const apId = parseOtherApId(c);
+  if (!apId) return c.json({ error: "ap_id required" }, 400);
+
+  // Community first: a Group AP-ID resolves to a community contact.
+  const community = await db
+    .select({
+      apId: communities.apId,
+      preferredUsername: communities.preferredUsername,
+      name: communities.name,
+      iconUrl: communities.iconUrl,
+      memberCount: communities.memberCount,
+    })
+    .from(communities)
+    .where(eq(communities.apId, apId))
+    .get();
+
+  if (community) {
+    return c.json({
+      contact: {
+        type: "community" as const,
+        ap_id: community.apId,
+        username: formatUsername(community.apId),
+        preferred_username: community.preferredUsername,
+        name: community.name,
+        icon_url: community.iconUrl,
+        member_count: community.memberCount,
+        last_message: null,
+        last_message_at: null,
+        unread_count: 0,
+      },
+    });
+  }
+
+  // Otherwise treat it as a user (local actor or cached remote actor).
+  const infoMap = await buildActorInfoMap(db, [apId]);
+  const info = infoMap.get(apId);
+  if (!info) return c.json({ error: "Contact not found" }, 404);
+
+  const profile = formatActorProfile(apId, info);
+  return c.json({
+    contact: {
+      type: "user" as const,
+      ...profile,
+      conversation_id: null,
+      last_message: null,
+      last_message_at: null,
+      unread_count: 0,
+    },
   });
 });
 

@@ -7,6 +7,7 @@ import {
   fetchCommunityMessages,
   fetchUserDMMessages,
   fetchUserDMTyping,
+  markCommunityAsRead,
   markDMAsRead,
   sendCommunityMessage,
   sendUserDMMessage,
@@ -22,10 +23,28 @@ interface DMChatPanelProps {
   onRead?: () => void;
 }
 
+type ChatMessage = DMMessage | CommunityMessage;
+
+// Poll interval for re-fetching incoming messages on the open conversation.
+const MESSAGE_POLL_MS = 4000;
+
+/**
+ * Merge a freshly-fetched message list into the existing list, deduplicating
+ * by message id. The server-ordered `fetched` list is authoritative; any
+ * existing message not yet present in it (e.g. an optimistic send the server
+ * has not indexed yet) is appended at the end so it does not flicker out.
+ */
+function mergeMessagesById(
+  existing: ChatMessage[],
+  fetched: ChatMessage[],
+): ChatMessage[] {
+  const fetchedIds = new Set(fetched.map((m) => m.id));
+  const pending = existing.filter((m) => !fetchedIds.has(m.id));
+  return pending.length > 0 ? [...fetched, ...pending] : fetched;
+}
+
 export function DMChatPanel(props: DMChatPanelProps) {
-  const [messages, setMessages] = createSignal<
-    (DMMessage | CommunityMessage)[]
-  >([]);
+  const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
@@ -35,51 +54,78 @@ export function DMChatPanel(props: DMChatPanelProps) {
   let lastTypingSent = 0;
   const { t } = useI18n();
 
+  // Fetch the latest messages for the open conversation. On `initial` load we
+  // show the spinner and replace state; on poll refreshes we merge by id so
+  // optimistic sends are not lost and there is no flicker.
+  const refreshMessages = async (
+    contactApId: string,
+    contactType: DMContact["type"],
+    mode: "initial" | "poll",
+    isCancelled: () => boolean,
+  ) => {
+    if (mode === "initial") {
+      setErrorMessage(null);
+      setLoading(true);
+    }
+    try {
+      if (contactType === "community") {
+        const data = await fetchCommunityMessages(contactApId);
+        if (isCancelled()) return;
+        setMessages((prev) =>
+          mode === "initial" ? data : mergeMessagesById(prev, data),
+        );
+        try {
+          await markCommunityAsRead(contactApId);
+          if (!isCancelled()) props.onRead?.();
+        } catch {
+          // Ignore read marking errors.
+        }
+      } else {
+        const { messages: loadedMessages } =
+          await fetchUserDMMessages(contactApId);
+        if (isCancelled()) return;
+        setMessages((prev) =>
+          mode === "initial"
+            ? loadedMessages
+            : mergeMessagesById(prev, loadedMessages),
+        );
+        try {
+          await markDMAsRead(contactApId);
+          if (!isCancelled()) props.onRead?.();
+        } catch {
+          // Ignore read marking errors.
+        }
+      }
+    } catch (e) {
+      if (!isCancelled() && mode === "initial") {
+        console.error("Failed to load messages:", e);
+        setErrorMessage(t("common.error"));
+      }
+      // Poll failures are transient; keep the last good state silently.
+    } finally {
+      if (!isCancelled() && mode === "initial") {
+        setLoading(false);
+      }
+    }
+  };
+
   createEffect(() => {
     const contactApId = props.contact.ap_id;
     const contactType = props.contact.type;
     let cancelled = false;
+    const isCancelled = () => cancelled;
 
-    const loadMessages = async () => {
-      setErrorMessage(null);
-      setLoading(true);
-      try {
-        if (contactType === "community") {
-          const data = await fetchCommunityMessages(contactApId);
-          if (!cancelled) {
-            setMessages(data);
-          }
-        } else {
-          const { messages: loadedMessages } =
-            await fetchUserDMMessages(contactApId);
-          if (!cancelled) {
-            setMessages(loadedMessages);
-          }
-          try {
-            await markDMAsRead(contactApId);
-            if (!cancelled) {
-              props.onRead?.();
-            }
-          } catch {
-            // Ignore read marking errors.
-          }
-        }
-      } catch (e) {
-        if (!cancelled) {
-          console.error("Failed to load messages:", e);
-          setErrorMessage(t("common.error"));
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
+    void refreshMessages(contactApId, contactType, "initial", isCancelled);
 
-    loadMessages();
+    // Re-fetch incoming messages while the conversation is open so messages
+    // sent by the other side appear without leaving and re-entering the thread.
+    const intervalId = window.setInterval(() => {
+      void refreshMessages(contactApId, contactType, "poll", isCancelled);
+    }, MESSAGE_POLL_MS);
 
     onCleanup(() => {
       cancelled = true;
+      window.clearInterval(intervalId);
     });
   });
 
@@ -145,13 +191,18 @@ export function DMChatPanel(props: DMChatPanelProps) {
           props.contact.ap_id,
           input().trim(),
         );
-        setMessages((prev) => [...prev, newMsg]);
+        // Dedupe by id: a concurrent poll may have already merged this message.
+        setMessages((prev) =>
+          prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg],
+        );
       } else {
         const { message } = await sendUserDMMessage(
           props.contact.ap_id,
           input().trim(),
         );
-        setMessages((prev) => [...prev, message]);
+        setMessages((prev) =>
+          prev.some((m) => m.id === message.id) ? prev : [...prev, message],
+        );
       }
       setInput("");
     } catch (e) {

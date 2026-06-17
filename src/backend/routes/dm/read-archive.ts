@@ -3,7 +3,9 @@
 import { Hono } from "hono";
 import { and, desc, eq } from "drizzle-orm";
 import {
+  communities,
   dmArchivedConversations,
+  dmCommunityReadStatus,
   dmReadStatus,
   objects,
 } from "../../../db/index.ts";
@@ -48,6 +50,45 @@ readArchive.post("/user/:encodedApId/read", async (c) => {
     })
     .onConflictDoUpdate({
       target: [dmReadStatus.actorApId, dmReadStatus.conversationId],
+      set: { lastReadAt: now },
+    });
+
+  return c.json({ success: true, last_read_at: now });
+});
+
+// Mark a community (group chat) as read for the current viewer.
+// Mirrors the one-to-one DM read endpoint above; the unread baseline used by
+// GET /contacts is the recorded `last_read_at`.
+readArchive.post("/community/:encodedApId/read", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const db = c.get("db");
+
+  const communityApId = parseOtherApId(c);
+  if (!communityApId) return c.json({ error: "ap_id required" }, 400);
+
+  // Only track read state for communities that actually exist; otherwise an
+  // arbitrary AP-ID could accumulate orphan rows.
+  const community = await db
+    .select({ apId: communities.apId })
+    .from(communities)
+    .where(eq(communities.apId, communityApId))
+    .get();
+  if (!community) return c.json({ error: "Community not found" }, 404);
+
+  const now = new Date().toISOString();
+  await db
+    .insert(dmCommunityReadStatus)
+    .values({
+      actorApId: actor.ap_id,
+      communityApId,
+      lastReadAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        dmCommunityReadStatus.actorApId,
+        dmCommunityReadStatus.communityApId,
+      ],
       set: { lastReadAt: now },
     });
 

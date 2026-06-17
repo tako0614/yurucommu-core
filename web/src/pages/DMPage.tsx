@@ -12,6 +12,7 @@ import {
   acceptDMRequest,
   DMContact,
   DMRequest,
+  fetchDMContact,
   fetchDMContacts,
   fetchDMRequests,
   rejectDMRequest,
@@ -130,6 +131,9 @@ export function DMPage() {
   const [selectedContact, setSelectedContact] = createSignal<DMContact | null>(
     null,
   );
+  // Deep-link resolution state for a contactId not present in the loaded list.
+  const [resolving, setResolving] = createSignal(false);
+  const [notFound, setNotFound] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
   const [listError, setListError] = createSignal<string | null>(null);
   const [activeTab, setActiveTab] = createSignal<TabType>("all");
@@ -180,16 +184,62 @@ export function DMPage() {
     }
   };
 
+  // Resolve a contactId that is not present in the loaded contact list by
+  // fetching the actor/community directly. This turns an otherwise silent
+  // dead-end (e.g. a brand-new thread, or a freshly reached community) into
+  // either an opened conversation or an explicit not-found state.
+  const resolveDeepLink = async (vcId: string) => {
+    setResolving(true);
+    setNotFound(false);
+    try {
+      const contact = await fetchDMContact(vcId);
+      // Guard against a stale resolve if the URL changed while in flight.
+      if (validContactId() !== vcId) return;
+      if (contact) {
+        setSelectedContact(contact);
+      } else {
+        setSelectedContact(null);
+        setNotFound(true);
+      }
+    } catch (e) {
+      if (validContactId() !== vcId) return;
+      console.error("Failed to resolve contact:", e);
+      setSelectedContact(null);
+      setNotFound(true);
+    } finally {
+      if (validContactId() === vcId) setResolving(false);
+    }
+  };
+
+  // Select the contact matching the current URL param, falling back to a
+  // direct fetch when it is not in the loaded list.
+  const selectFromContactId = (vcId: string) => {
+    const allContacts = [...contacts(), ...communities()];
+    const contact = allContacts.find((c) => c.ap_id === vcId);
+    if (contact) {
+      setNotFound(false);
+      setResolving(false);
+      setSelectedContact(contact);
+    } else {
+      void resolveDeepLink(vcId);
+    }
+  };
+
   // Initial load of contacts
   onMount(async () => {
     setSearchQuery("");
     const data = await loadContacts();
 
     // Select contact from URL param after initial load
-    if (data && validContactId()) {
+    const vcId = validContactId();
+    if (data && vcId) {
       const allContacts = [...data.mutual_followers, ...data.communities];
-      const contact = allContacts.find((c) => c.ap_id === validContactId());
-      setSelectedContact(contact || null);
+      const contact = allContacts.find((c) => c.ap_id === vcId);
+      if (contact) {
+        setSelectedContact(contact);
+      } else {
+        void resolveDeepLink(vcId);
+      }
     }
   });
 
@@ -197,11 +247,11 @@ export function DMPage() {
   createEffect(() => {
     const vcId = validContactId();
     if (!loading() && vcId) {
-      const allContacts = [...contacts(), ...communities()];
-      const contact = allContacts.find((c) => c.ap_id === vcId);
-      setSelectedContact(contact || null);
+      selectFromContactId(vcId);
     } else if (!vcId) {
       setSelectedContact(null);
+      setNotFound(false);
+      setResolving(false);
     }
   });
 
@@ -213,12 +263,16 @@ export function DMPage() {
   });
 
   const handleSelectContact = (contact: DMContact) => {
+    setNotFound(false);
+    setResolving(false);
     setSelectedContact(contact);
     navigate(`/dm/${encodeURIComponent(contact.ap_id)}`);
   };
 
   const handleBack = () => {
     setSelectedContact(null);
+    setNotFound(false);
+    setResolving(false);
     navigate("/dm");
   };
 
@@ -272,6 +326,11 @@ export function DMPage() {
 
   const showChat = () => selectedContact() !== null;
 
+  // Whether to render the deep-link resolving / not-found overlay instead of
+  // the contact list (a contactId is in the URL but no contact is selected).
+  const showDeepLinkState = () =>
+    !showChat() && !!validContactId() && (resolving() || notFound());
+
   // Get current tab's content with search filter
   const currentContacts = createMemo(() => {
     let result: DMContact[] = [];
@@ -314,10 +373,15 @@ export function DMPage() {
 
   // Handle onRead
   const handleRead = () => {
-    // Clear unread count locally for this contact
+    // Clear unread count locally for this contact (user or community).
     const sc = selectedContact();
-    if (sc?.type === "user") {
+    if (!sc) return;
+    if (sc.type === "user") {
       setContacts((prev) =>
+        prev.map((c) => (c.ap_id === sc.ap_id ? { ...c, unread_count: 0 } : c)),
+      );
+    } else {
+      setCommunities((prev) =>
         prev.map((c) => (c.ap_id === sc.ap_id ? { ...c, unread_count: 0 } : c)),
       );
     }
@@ -329,9 +393,52 @@ export function DMPage() {
       <Show
         when={showChat()}
         fallback={
-          <>
-            {/* Header - LINE style */}
-            <header class="sticky top-0 bg-neutral-900/95 backdrop-blur-sm z-10">
+          <Show
+            when={!showDeepLinkState()}
+            fallback={
+              <div class="flex-1 flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
+                <Show
+                  when={!resolving()}
+                  fallback={
+                    <p class="text-neutral-400 text-lg font-medium">
+                      {t("common.loading")}
+                    </p>
+                  }
+                >
+                  <div class="w-20 h-20 mb-4 rounded-full bg-neutral-800 flex items-center justify-center">
+                    <svg
+                      class="w-10 h-10 text-neutral-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width={1.5}
+                        d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                  </div>
+                  <p class="text-neutral-400 mb-2 text-lg font-medium">
+                    {t("dm.contactNotFound")}
+                  </p>
+                  <p class="text-neutral-500 text-sm mb-4">
+                    {t("dm.contactNotFoundHint")}
+                  </p>
+                  <button
+                    onClick={handleBack}
+                    class="px-4 py-2 rounded-full bg-neutral-800 text-white text-sm font-medium hover:bg-neutral-700 transition-colors"
+                  >
+                    {t("common.back")}
+                  </button>
+                </Show>
+              </div>
+            }
+          >
+            <>
+              {/* Header - LINE style */}
+              <header class="sticky top-0 bg-neutral-900/95 backdrop-blur-sm z-10">
               {/* Title bar with icons */}
               <div class="flex items-center justify-between px-4 py-3">
                 <div class="min-w-0">
@@ -622,7 +729,8 @@ export function DMPage() {
                 </div>
               </Show>
             </div>
-          </>
+            </>
+          </Show>
         }
       >
         <DMChatPanel

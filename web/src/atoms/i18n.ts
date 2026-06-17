@@ -236,6 +236,9 @@ const translations = {
       "参加しているコミュニティのトークがここに表示されます",
     "dm.openCommunityProfile": "コミュニティを表示",
     "dm.directReachHint": "ダイレクトは相手とのトークとして届きます",
+    "dm.contactNotFound": "トークが見つかりません",
+    "dm.contactNotFoundHint":
+      "この相手やコミュニティは見つかりませんでした。削除されたか、まだ届いていない可能性があります。",
     "story.shareCopied": "リンクをコピーしました",
     "story.shareFailed": "共有に失敗しました",
     "story.shareRecordFailed": "共有の記録に失敗しました",
@@ -741,6 +744,9 @@ const translations = {
     "dm.emptyGroupsHint": "Talks from communities you've joined appear here",
     "dm.openCommunityProfile": "View community",
     "dm.directReachHint": "Direct posts arrive as a talk with that person",
+    "dm.contactNotFound": "Talk not found",
+    "dm.contactNotFoundHint":
+      "We couldn't find this person or community. It may have been removed, or hasn't reached you yet.",
     "story.shareCopied": "Link copied",
     "story.shareFailed": "Failed to share story",
     "story.shareRecordFailed": "Failed to record share",

@@ -159,3 +159,22 @@ export async function markDMAsRead(userApId: string): Promise<void> {
   );
   await assertOk(res, "Failed to mark as read");
 }
+
+// Mark a community (group chat) as read so its unread badge clears.
+export async function markCommunityAsRead(communityApId: string): Promise<void> {
+  const res = await apiPost(
+    `/api/dm/community/${encodeURIComponent(communityApId)}/read`,
+  );
+  await assertOk(res, "Failed to mark as read");
+}
+
+// Resolve a single DM contact (user or community) by AP-ID. Used to render a
+// deep-linked conversation that is not present in the loaded contact list.
+// Returns null when no such actor/community is known.
+export async function fetchDMContact(apId: string): Promise<DMContact | null> {
+  const res = await apiFetch(`/api/dm/contact/${encodeURIComponent(apId)}`);
+  if (res.status === 404) return null;
+  await assertOk(res, "Failed to resolve contact");
+  const data = (await res.json()) as { contact?: DMContact };
+  return data.contact ? normalizeActor(data.contact) : null;
+}

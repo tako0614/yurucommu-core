@@ -8,7 +8,7 @@
  * - schema/social.ts: follows, blocks, mutes
  * - schema/communities.ts: communities, communityMembers, communityJoinRequests, communityInvites
  * - schema/stories.ts: storyViews, storyVotes, storyShares
- * - schema/messaging.ts: activities, deliveryQueue, deliveryCircuit, inbox, notificationArchived, dm*, mediaUploads
+ * - schema/messaging.ts: activities, deliveryQueue, deliveryCircuit, inbox, notificationArchived, dm*, dmCommunityReadStatus, mediaUploads
  * - schema/relations.ts: all Drizzle relation definitions
  */
 

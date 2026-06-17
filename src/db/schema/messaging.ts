@@ -173,6 +173,23 @@ export const dmReadStatus = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// DM_COMMUNITY_READ_STATUS
+// ---------------------------------------------------------------------------
+
+export const dmCommunityReadStatus = sqliteTable(
+  "dm_community_read_status",
+  {
+    actorApId: text("actor_ap_id").notNull(),
+    communityApId: text("community_ap_id").notNull(),
+    lastReadAt: text("last_read_at").notNull().$defaultFn(nowIso),
+  },
+  (t) => [
+    primaryKey({ columns: [t.actorApId, t.communityApId] }),
+    index("dm_community_read_status_actor_idx").on(t.actorApId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // DM_ARCHIVED_CONVERSATIONS
 // ---------------------------------------------------------------------------
 
