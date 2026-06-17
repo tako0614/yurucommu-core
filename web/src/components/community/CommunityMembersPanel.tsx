@@ -35,20 +35,22 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
         <div class="border-b border-neutral-900">
           <div class="px-4 py-3">
             <div class="text-sm font-semibold text-neutral-400">
-              Join Requests
+              {props.t("members.joinRequests")}
             </div>
           </div>
           <Show
             when={!props.loadingRequests}
             fallback={
-              <div class="px-4 pb-4 text-sm text-neutral-500">Loading...</div>
+              <div class="px-4 pb-4 text-sm text-neutral-500">
+                {props.t("common.loading")}
+              </div>
             }
           >
             <Show
               when={props.joinRequests.length > 0}
               fallback={
                 <div class="px-4 pb-4 text-sm text-neutral-500">
-                  No pending requests
+                  {props.t("members.noPendingRequests")}
                 </div>
               }
             >
@@ -74,14 +76,14 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                         disabled={props.requestAction[request.ap_id]}
                         class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
                       >
-                        Accept
+                        {props.t("dm.accept")}
                       </button>
                       <button
                         onClick={() => props.onRejectRequest(request)}
                         disabled={props.requestAction[request.ap_id]}
                         class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
                       >
-                        Reject
+                        {props.t("dm.reject")}
                       </button>
                     </div>
                   </div>
@@ -167,7 +169,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
       <Show when={props.canManage && props.joinPolicy === "invite"}>
         <div class="mt-4 p-3 bg-neutral-900/50 rounded-lg">
           <div class="text-sm font-semibold text-neutral-300 mb-2">
-            Invite Code
+            {props.t("members.inviteCode")}
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <button
@@ -175,7 +177,9 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
               disabled={props.creatingInvite}
               class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
             >
-              {props.creatingInvite ? "Creating..." : "Create"}
+              {props.creatingInvite
+                ? props.t("members.creatingInvite")
+                : props.t("members.createInvite")}
             </button>
             <Show when={props.inviteCode}>
               <span class="px-2 py-1 text-xs bg-neutral-800 text-neutral-200 rounded">

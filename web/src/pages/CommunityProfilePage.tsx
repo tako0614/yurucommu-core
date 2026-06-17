@@ -1,6 +1,10 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import { useNavigate, useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
+import { ApiError } from "../lib/api/fetch.ts";
+import { useDialog } from "../lib/useDialog.ts";
+import { enterCommunityScopeAtom } from "../atoms/scope.ts";
 import {
   acceptCommunityJoinRequest,
   CommunityDetail,
@@ -33,8 +37,12 @@ export function CommunityProfilePage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
+  const enterCommunityScope = useSetAtom(enterCommunityScopeAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
+  // Styled invite-code prompt (replaces window.prompt for invite-only joins).
+  const [invitePromptOpen, setInvitePromptOpen] = createSignal(false);
+  const [inviteInput, setInviteInput] = createSignal("");
   // Pending join-request action, staged so the shared ConfirmSheet can gate it.
   const [pendingRequest, setPendingRequest] = createSignal<{
     request: CommunityJoinRequest;
@@ -79,6 +87,14 @@ export function CommunityProfilePage() {
     }
   });
 
+  // Esc / backdrop handling for the invite-code prompt sheet.
+  let invitePromptRef: HTMLFormElement | undefined;
+  useDialog({
+    isOpen: () => invitePromptOpen(),
+    onClose: () => setInvitePromptOpen(false),
+    container: () => invitePromptRef,
+  });
+
   createEffect(() => {
     const name = params.name;
     if (name) {
@@ -118,7 +134,12 @@ export function CommunityProfilePage() {
       }
     } catch (e) {
       console.error("Failed to load community:", e);
-      setError(t("common.error"));
+      // A 404 is a genuine not-found; the dedicated empty state already covers
+      // that (community() stays null). Other failures are surfaced as an error
+      // banner so they aren't silently collapsed into "not found".
+      if (!(e instanceof ApiError && e.status === 404)) {
+        setError(t("common.error"));
+      }
     } finally {
       setLoading(false);
     }
@@ -127,33 +148,48 @@ export function CommunityProfilePage() {
   const handleJoin = async () => {
     const comm = community();
     if (!comm || joining()) return;
+    // Invite-only communities need a code: open the styled prompt sheet instead
+    // of a raw window.prompt. The sheet's submit calls runJoin with the code.
+    if (comm.join_policy === "invite") {
+      setInviteInput("");
+      setInvitePromptOpen(true);
+      return;
+    }
+    await runJoin();
+  };
+
+  const submitInviteJoin = async (e: Event) => {
+    e.preventDefault();
+    const code = inviteInput().trim();
+    if (!code || joining()) return;
+    setInvitePromptOpen(false);
+    await runJoin(code);
+  };
+
+  const runJoin = async (inviteId?: string) => {
+    const comm = community();
+    if (!comm || joining()) return;
     setJoining(true);
     try {
-      let inviteId: string | undefined;
-      if (comm.join_policy === "invite") {
-        const input = window.prompt("Invite code");
-        if (!input) {
-          setJoining(false);
-          return;
-        }
-        inviteId = input.trim();
-      }
       const result = await joinCommunity(comm.name, { inviteId });
       if (result.status === "pending") {
         setCommunity((prev) =>
           prev ? { ...prev, join_status: "pending" } : null,
         );
       } else {
-        setCommunity((prev) =>
-          prev
-            ? {
-                ...prev,
-                is_member: true,
-                join_status: null,
-                member_count: prev.member_count + 1,
-              }
-            : null,
-        );
+        const updated: CommunityDetail | null = community()
+          ? {
+              ...community()!,
+              is_member: true,
+              member_role: community()!.member_role ?? "member",
+              join_status: null,
+              member_count: community()!.member_count + 1,
+            }
+          : null;
+        setCommunity(updated);
+        // Parity with the discovery-surface join: stand in the community just
+        // joined so it becomes the active inhabited scope (a new ScopeBar pill).
+        if (updated) await enterCommunityScope(updated);
       }
     } catch (e) {
       console.error("Failed to join:", e);
@@ -522,6 +558,66 @@ export function CommunityProfilePage() {
         onConfirm={confirmRequest}
         onCancel={() => setPendingRequest(null)}
       />
+      <Show when={invitePromptOpen()}>
+        <Portal>
+          <div
+            class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setInvitePromptOpen(false);
+            }}
+          >
+            <form
+              ref={invitePromptRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t("community.joinWithInvite")}
+              onSubmit={submitInviteJoin}
+              class="w-full max-w-sm rounded-t-2xl border border-neutral-800 bg-neutral-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:pb-5"
+            >
+              <h2 class="text-base font-bold text-white">
+                {t("community.joinWithInvite")}
+              </h2>
+              <div class="mt-4">
+                <label
+                  for="community-invite-code"
+                  class="mb-1 block text-sm font-medium text-neutral-300"
+                >
+                  {t("members.inviteCode")}
+                </label>
+                <input
+                  id="community-invite-code"
+                  type="text"
+                  value={inviteInput()}
+                  onInput={(e) => setInviteInput(e.currentTarget.value)}
+                  placeholder={t("community.inviteCodePlaceholder")}
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck={false}
+                  disabled={joining()}
+                  class="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white outline-none placeholder-neutral-600 focus:border-[var(--accent)] disabled:opacity-50"
+                />
+              </div>
+              <div class="mt-5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setInvitePromptOpen(false)}
+                  disabled={joining()}
+                  class="flex-1 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-50"
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  type="submit"
+                  disabled={!inviteInput().trim() || joining()}
+                  class="flex-1 rounded-full bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+                >
+                  {t("community.joinWithInvite")}
+                </button>
+              </div>
+            </form>
+          </div>
+        </Portal>
+      </Show>
     </div>
   );
 }
