@@ -1,6 +1,6 @@
-import { For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
-import type { Post } from "../../types/index.ts";
+import type { MediaAttachment, Post } from "../../types/index.ts";
 import { formatRelativeTime } from "../../lib/datetime.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { PostContent } from "../PostContent.tsx";
@@ -9,22 +9,95 @@ import type { Translate } from "../../lib/i18n.tsx";
 import { ScopeChip } from "../scope/ScopeChip.tsx";
 import {
   AttachmentGrid,
+  mediaAttachmentUrl,
   MediaLightbox,
   useMediaLightbox,
 } from "../MediaLightbox.tsx";
 
 type ProfileTab = "posts" | "likes";
+type ProfileView = "grid" | "list";
 
 interface ProfilePostsSectionProps {
   activeTab: ProfileTab;
   onChangeTab: (tab: ProfileTab) => void;
+  view: ProfileView;
+  onChangeView: (view: ProfileView) => void;
   posts: Post[];
   actorApId: string;
   t: Translate;
   onLike: (post: Post) => void;
 }
 
+function isVideo(m: MediaAttachment): boolean {
+  return (m.content_type || "").startsWith("video/");
+}
+
+const GridIcon = () => (
+  <svg
+    class="h-5 w-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M4 5h6v6H4V5zm10 0h6v6h-6V5zM4 13h6v6H4v-6zm10 0h6v6h-6v-6z"
+    />
+  </svg>
+);
+
+const ListIcon = () => (
+  <svg
+    class="h-5 w-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M4 6h16M4 12h16M4 18h16"
+    />
+  </svg>
+);
+
+const VideoBadge = () => (
+  <span class="absolute right-1.5 top-1.5 text-white drop-shadow">
+    <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  </span>
+);
+
+const MultiBadge = () => (
+  <span class="absolute right-1.5 top-1.5 text-white drop-shadow">
+    <svg
+      class="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      stroke-width={2}
+      viewBox="0 0 24 24"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M8 8h12v12H8zM4 4h12v12"
+      />
+    </svg>
+  </span>
+);
+
 export function ProfilePostsSection(props: ProfilePostsSectionProps) {
+  // Media grid is the IG-style default: only posts that carry an attachment.
+  const mediaPosts = createMemo(() =>
+    props.posts.filter((p) => p.attachments && p.attachments.length > 0),
+  );
+
   return (
     <>
       {/* Tabs */}
@@ -57,25 +130,72 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
         </button>
       </div>
 
-      {/* Posts */}
+      {/* Posts tab */}
       <Show when={props.activeTab === "posts"}>
-        <Show
-          when={props.posts.length > 0}
-          fallback={
-            <div class="p-8 text-center text-neutral-500">
-              {props.t("timeline.empty")}
-            </div>
-          }
-        >
-          <For each={props.posts}>
-            {(post) => (
-              <ProfilePostItem
-                post={post}
-                actorApId={props.actorApId}
-                onLike={props.onLike}
-              />
-            )}
-          </For>
+        {/* View toggle: media grid (default) vs. detailed list */}
+        <div class="flex items-center justify-end gap-1 border-b border-neutral-900 px-3 py-1.5">
+          <button
+            type="button"
+            onClick={() => props.onChangeView("grid")}
+            aria-label={props.t("profile.viewGrid")}
+            aria-pressed={props.view === "grid"}
+            class={`rounded-lg p-1.5 transition-colors ${
+              props.view === "grid"
+                ? "text-white"
+                : "text-neutral-500 hover:text-neutral-300"
+            }`}
+          >
+            <GridIcon />
+          </button>
+          <button
+            type="button"
+            onClick={() => props.onChangeView("list")}
+            aria-label={props.t("profile.viewList")}
+            aria-pressed={props.view === "list"}
+            class={`rounded-lg p-1.5 transition-colors ${
+              props.view === "list"
+                ? "text-white"
+                : "text-neutral-500 hover:text-neutral-300"
+            }`}
+          >
+            <ListIcon />
+          </button>
+        </div>
+
+        {/* Grid view */}
+        <Show when={props.view === "grid"}>
+          <Show
+            when={mediaPosts().length > 0}
+            fallback={
+              <div class="p-8 text-center text-neutral-500">
+                {props.t("profile.noMedia")}
+              </div>
+            }
+          >
+            <ProfileMediaGrid posts={mediaPosts()} t={props.t} />
+          </Show>
+        </Show>
+
+        {/* List view */}
+        <Show when={props.view === "list"}>
+          <Show
+            when={props.posts.length > 0}
+            fallback={
+              <div class="p-8 text-center text-neutral-500">
+                {props.t("timeline.empty")}
+              </div>
+            }
+          >
+            <For each={props.posts}>
+              {(post) => (
+                <ProfilePostItem
+                  post={post}
+                  actorApId={props.actorApId}
+                  onLike={props.onLike}
+                />
+              )}
+            </For>
+          </Show>
         </Show>
       </Show>
 
@@ -84,6 +204,67 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
         <div class="p-8 text-center text-neutral-500">
           {props.t("profile.noLikes")}
         </div>
+      </Show>
+    </>
+  );
+}
+
+interface ProfileMediaGridProps {
+  posts: Post[];
+  t: Translate;
+}
+
+// 3-column media grid of posts-with-media. Tapping a cell opens the post's
+// attachments in the shared lightbox (first attachment first).
+function ProfileMediaGrid(props: ProfileMediaGridProps) {
+  const lightbox = useMediaLightbox();
+  return (
+    <>
+      <div class="grid grid-cols-3 gap-0.5">
+        <For each={props.posts}>
+          {(post) => {
+            const first = post.attachments[0];
+            const multiple = post.attachments.length > 1;
+            return (
+              <button
+                type="button"
+                onClick={() => lightbox.open(post.attachments, 0)}
+                aria-label={props.t("lightbox.zoomIn")}
+                class="relative block aspect-square w-full overflow-hidden bg-neutral-900"
+              >
+                <Show
+                  when={isVideo(first)}
+                  fallback={
+                    <img
+                      src={mediaAttachmentUrl(first)}
+                      alt={first.name || ""}
+                      class="h-full w-full object-cover transition-opacity hover:opacity-90"
+                    />
+                  }
+                >
+                  <video
+                    src={mediaAttachmentUrl(first)}
+                    class="h-full w-full object-cover"
+                    preload="metadata"
+                  />
+                </Show>
+                <Show when={isVideo(first)}>
+                  <VideoBadge />
+                </Show>
+                <Show when={!isVideo(first) && multiple}>
+                  <MultiBadge />
+                </Show>
+              </button>
+            );
+          }}
+        </For>
+      </div>
+      <Show when={lightbox.isOpen()}>
+        <MediaLightbox
+          attachments={lightbox.attachments()}
+          index={lightbox.index()}
+          onClose={lightbox.close}
+        />
       </Show>
     </>
   );

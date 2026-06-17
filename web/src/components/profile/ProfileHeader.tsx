@@ -1,141 +1,77 @@
-import { For, Show } from "solid-js";
+import { Show } from "solid-js";
 import { A } from "@solidjs/router";
-import type { AccountInfo } from "../../lib/api.ts";
-import { UserAvatar } from "../UserAvatar.tsx";
 import { BackIcon } from "./ProfileIcons.tsx";
 import { useI18n } from "../../lib/i18n.tsx";
 
 interface ProfileHeaderProps {
   actorId?: string;
   isOwnProfile: boolean;
-  username: string;
-  showAccountSwitcher: boolean;
-  onToggleAccountSwitcher: () => void;
-  onCloseAccountSwitcher: () => void;
-  accounts: AccountInfo[];
-  accountsLoading: boolean;
-  currentApId: string;
-  onSwitchAccount: (apId: string) => void;
+  // The federated handle (user@domain) of the profile being viewed.
+  handle: string;
+  // Opens the QR / handle-share modal (own profile only).
+  onOpenQr: () => void;
 }
 
+// Federated-handle (`@user@domain`) marker — the canonical cross-instance
+// identity the owner shares. A small QR glyph hangs off it on the own profile.
+const QrIcon = () => (
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 3h3m-3 3h6v-6m0 6v.01M17 14h3"
+    />
+  </svg>
+);
+
+// Profile top bar. The account switcher / Bookmarks / Settings now live in the
+// shared AppMenu (Phase A), so this header no longer duplicates account-switch
+// logic — it only carries the back affordance, the prominent federated handle,
+// and (on the own profile) a QR/share trigger.
 export function ProfileHeader(props: ProfileHeaderProps) {
   const { t } = useI18n();
   return (
-    <>
-      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <div class="flex items-center justify-between px-4 py-3">
-          {/* Left: Back button (only when viewing other's profile) */}
-          <div class="w-10">
-            <Show when={props.actorId}>
-              <A
-                href="/"
-                aria-label={t("common.back")}
-                class="p-2 -ml-2 hover:bg-neutral-900 rounded-full inline-block"
-              >
-                <BackIcon />
-              </A>
-            </Show>
-          </div>
-
-          {/* Center: Username with account switcher (own profile only) */}
-          <Show
-            when={props.isOwnProfile}
-            fallback={
-              <span class="font-bold text-white">@{props.username}</span>
-            }
-          >
-            <button
-              onClick={props.onToggleAccountSwitcher}
-              aria-label={t("settings.switchAccount")}
-              aria-haspopup="menu"
-              aria-expanded={props.showAccountSwitcher}
-              class="flex items-center gap-1 hover:bg-neutral-900 px-3 py-1 rounded-full transition-colors"
+    <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
+      <div class="flex items-center justify-between px-4 py-3">
+        {/* Left: Back button (only when viewing another's profile) */}
+        <div class="w-10">
+          <Show when={props.actorId}>
+            <A
+              href="/"
+              aria-label={t("common.back")}
+              class="p-2 -ml-2 hover:bg-neutral-900 rounded-full inline-block"
             >
-              <span class="font-bold text-white">@{props.username}</span>
-              <svg
-                class={`w-4 h-4 transition-transform ${
-                  props.showAccountSwitcher ? "rotate-180" : ""
-                }`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width={2}
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-            </button>
+              <BackIcon />
+            </A>
           </Show>
-
-          {/* Right: Placeholder for balance */}
-          <div class="w-10" />
         </div>
 
-        {/* Account Switcher Dropdown */}
-        <Show when={props.showAccountSwitcher && props.isOwnProfile}>
-          <div class="absolute left-1/2 -translate-x-1/2 top-14 bg-neutral-900 rounded-xl shadow-lg border border-neutral-800 min-w-[250px] z-20">
-            <Show
-              when={!props.accountsLoading}
-              fallback={
-                <div class="p-4 text-center text-neutral-500">
-                  {t("common.loading")}
-                </div>
-              }
-            >
-              <div class="py-2">
-                <For each={props.accounts}>
-                  {(account) => (
-                    <button
-                      onClick={() => props.onSwitchAccount(account.ap_id)}
-                      class={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800 transition-colors ${
-                        account.ap_id === props.currentApId
-                          ? "bg-neutral-800/50"
-                          : ""
-                      }`}
-                    >
-                      <UserAvatar
-                        avatarUrl={account.icon_url}
-                        name={account.name || account.preferred_username}
-                        size={40}
-                      />
-                      <div class="flex-1 text-left">
-                        <p class="font-bold text-white">
-                          {account.name || account.preferred_username}
-                        </p>
-                        <p class="text-sm text-neutral-500">
-                          @{account.preferred_username}
-                        </p>
-                      </div>
-                      <Show when={account.ap_id === props.currentApId}>
-                        <svg
-                          class="w-5 h-5 text-blue-500"
-                          fill="currentColor"
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                        </svg>
-                      </Show>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-        </Show>
-      </header>
+        {/* Center: prominent federated handle (user@domain) */}
+        <span class="min-w-0 truncate font-bold text-white" title={`@${props.handle}`}>
+          @{props.handle}
+        </span>
 
-      {/* Backdrop for account switcher */}
-      <Show when={props.showAccountSwitcher}>
-        <div
-          class="fixed inset-0 z-10"
-          onClick={props.onCloseAccountSwitcher}
-        />
-      </Show>
-    </>
+        {/* Right: QR / share (own profile) */}
+        <div class="flex w-10 justify-end">
+          <Show when={props.isOwnProfile}>
+            <button
+              type="button"
+              onClick={props.onOpenQr}
+              aria-label={t("profile.showQr")}
+              class="p-2 -mr-2 rounded-full text-white transition-colors hover:bg-neutral-900"
+            >
+              <QrIcon />
+            </button>
+          </Show>
+        </div>
+      </div>
+    </header>
   );
 }

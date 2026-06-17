@@ -3,6 +3,7 @@ import type { Actor } from "../../types/index.ts";
 import { formatMonthYear } from "../../lib/datetime.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { CalendarIcon, MoreIcon } from "./ProfileIcons.tsx";
+import { ProfileScopeRow } from "./ProfileScopeRow.tsx";
 import type { Translate } from "../../lib/i18n.tsx";
 
 type FollowModalType = "followers" | "following";
@@ -98,12 +99,17 @@ export function ProfileSummary(props: ProfileSummaryProps) {
           </Show>
         </div>
 
-        {/* Name & Username */}
+        {/* Name & federated handle (user@domain, shown prominently) */}
         <div class="mb-3">
           <div class="text-xl font-bold text-white">
             {props.profile.name || props.profile.preferred_username}
           </div>
-          <div class="text-neutral-500">@{props.profile.username}</div>
+          <div
+            class="select-all text-sm font-medium text-[var(--accent)]"
+            title={`@${props.profile.username}`}
+          >
+            @{props.profile.username}
+          </div>
         </div>
 
         {/* Bio */}
@@ -122,6 +128,11 @@ export function ProfileSummary(props: ProfileSummaryProps) {
               .replace("{date}", formatMonthYear(props.profile.created_at))}
           </span>
         </div>
+
+        {/* Your observation scope (own profile only) */}
+        <Show when={props.isOwnProfile}>
+          <ProfileScopeRow />
+        </Show>
 
         {/* Follow Stats */}
         <div class="flex gap-4 text-sm">

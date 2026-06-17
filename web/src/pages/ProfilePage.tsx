@@ -1,16 +1,13 @@
-import { createEffect, createSignal, on, onMount, Show } from "solid-js";
+import { createEffect, createSignal, on, Show } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor, Post } from "../types/index.ts";
 import {
-  AccountInfo,
-  fetchAccounts,
   fetchActor,
   fetchActorPosts,
   fetchFollowers,
   fetchFollowing,
   follow,
-  switchAccount,
   unfollow,
   updateProfile,
 } from "../lib/api.ts";
@@ -24,6 +21,7 @@ import { ProfileSummary } from "../components/profile/ProfileSummary.tsx";
 import { ProfilePostsSection } from "../components/profile/ProfilePostsSection.tsx";
 import { ProfileEditModal } from "../components/profile/ProfileEditModal.tsx";
 import { ProfileFollowModal } from "../components/profile/ProfileFollowModal.tsx";
+import { QRCodeModal } from "../components/QRCodeModal.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 
 export function ProfilePage() {
@@ -38,6 +36,8 @@ export function ProfilePage() {
   const [loading, setLoading] = createSignal(true);
   const [isFollowing, setIsFollowing] = createSignal(false);
   const [activeTab, setActiveTab] = createSignal<"posts" | "likes">("posts");
+  // Media grid is the IG-style default; a list toggle is available.
+  const [postsView, setPostsView] = createSignal<"grid" | "list">("grid");
   const [showEditModal, setShowEditModal] = createSignal(false);
   const [editName, setEditName] = createSignal("");
   const [editSummary, setEditSummary] = createSignal("");
@@ -49,51 +49,13 @@ export function ProfilePage() {
   const [editIsPrivate, setEditIsPrivate] = createSignal(false);
   const [followModalActors, setFollowModalActors] = createSignal<Actor[]>([]);
   const [followModalLoading, setFollowModalLoading] = createSignal(false);
-  const [showAccountSwitcher, setShowAccountSwitcher] = createSignal(false);
-  const [accounts, setAccounts] = createSignal<AccountInfo[]>([]);
-  const [currentApId, setCurrentApId] = createSignal<string>("");
-  const [accountsLoading, setAccountsLoading] = createSignal(false);
+  const [showQr, setShowQr] = createSignal(false);
 
   // Use current actor if no actorId in URL
   const targetActorId = () =>
     params.actorId ? decodeURIComponent(params.actorId) : actor.ap_id;
   const isOwnProfile = () => targetActorId() === actor.ap_id;
   const displayUsername = () => profile()?.username || actor.username;
-
-  const loadAccounts = async () => {
-    setAccountsLoading(true);
-    try {
-      const data = await fetchAccounts();
-      setAccounts(data.accounts);
-      setCurrentApId(data.current_ap_id);
-    } catch (e) {
-      console.error("Failed to load accounts:", e);
-      setError(t("common.error"));
-    } finally {
-      setAccountsLoading(false);
-    }
-  };
-
-  const handleSwitchAccount = async (apId: string) => {
-    if (apId === currentApId()) {
-      setShowAccountSwitcher(false);
-      return;
-    }
-    try {
-      await switchAccount(apId);
-      window.location.reload();
-    } catch (e) {
-      console.error("Failed to switch account:", e);
-      setError(t("common.error"));
-    }
-  };
-
-  const toggleAccountSwitcher = () => {
-    if (!showAccountSwitcher()) {
-      loadAccounts();
-    }
-    setShowAccountSwitcher(!showAccountSwitcher());
-  };
 
   const loadProfile = async () => {
     try {
@@ -120,7 +82,9 @@ export function ProfilePage() {
       setShowEditModal(false);
       setShowFollowModal(null);
       setShowMenu(false);
+      setShowQr(false);
       setActiveTab("posts");
+      setPostsView("grid");
       loadProfile();
     }),
   );
@@ -223,14 +187,8 @@ export function ProfilePage() {
         <ProfileHeader
           actorId={params.actorId}
           isOwnProfile={isOwnProfile()}
-          username={displayUsername()}
-          showAccountSwitcher={showAccountSwitcher()}
-          onToggleAccountSwitcher={toggleAccountSwitcher}
-          onCloseAccountSwitcher={() => setShowAccountSwitcher(false)}
-          accounts={accounts()}
-          accountsLoading={accountsLoading()}
-          currentApId={currentApId()}
-          onSwitchAccount={handleSwitchAccount}
+          handle={displayUsername()}
+          onOpenQr={() => setShowQr(true)}
         />
         <div class="flex-1 overflow-y-auto">
           <PostSkeleton count={5} />
@@ -241,14 +199,8 @@ export function ProfilePage() {
         <ProfileHeader
           actorId={params.actorId}
           isOwnProfile={isOwnProfile()}
-          username={displayUsername()}
-          showAccountSwitcher={showAccountSwitcher()}
-          onToggleAccountSwitcher={toggleAccountSwitcher}
-          onCloseAccountSwitcher={() => setShowAccountSwitcher(false)}
-          accounts={accounts()}
-          accountsLoading={accountsLoading()}
-          currentApId={currentApId()}
-          onSwitchAccount={handleSwitchAccount}
+          handle={displayUsername()}
+          onOpenQr={() => setShowQr(true)}
         />
         <div class="p-8 text-center text-neutral-500">{t("common.error")}</div>
       </Show>
@@ -257,14 +209,8 @@ export function ProfilePage() {
         <ProfileHeader
           actorId={params.actorId}
           isOwnProfile={isOwnProfile()}
-          username={profile()!.username}
-          showAccountSwitcher={showAccountSwitcher()}
-          onToggleAccountSwitcher={toggleAccountSwitcher}
-          onCloseAccountSwitcher={() => setShowAccountSwitcher(false)}
-          accounts={accounts()}
-          accountsLoading={accountsLoading()}
-          currentApId={currentApId()}
-          onSwitchAccount={handleSwitchAccount}
+          handle={profile()!.username}
+          onOpenQr={() => setShowQr(true)}
         />
         <div class="flex-1 overflow-y-auto">
           <ProfileSummary
@@ -282,6 +228,8 @@ export function ProfilePage() {
           <ProfilePostsSection
             activeTab={activeTab()}
             onChangeTab={setActiveTab}
+            view={postsView()}
+            onChangeView={setPostsView}
             posts={posts()}
             actorApId={actor.ap_id}
             onLike={handleLike}
@@ -307,6 +255,15 @@ export function ProfilePage() {
           loading={followModalLoading()}
           onClose={() => setShowFollowModal(null)}
           t={t}
+        />
+      </Show>
+
+      {/* QR / handle-share modal (own profile). Uses the loaded profile when
+          available, falling back to the signed-in actor. */}
+      <Show when={showQr() && isOwnProfile()}>
+        <QRCodeModal
+          actor={profile() ?? actor}
+          onClose={() => setShowQr(false)}
         />
       </Show>
     </div>
