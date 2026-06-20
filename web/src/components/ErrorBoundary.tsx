@@ -1,5 +1,6 @@
 import { ErrorBoundary as SolidErrorBoundary, Show } from "solid-js";
 import type { JSX } from "solid-js";
+import { useI18n } from "../lib/i18n.tsx";
 
 interface AppErrorBoundaryProps {
   children: JSX.Element;
@@ -11,6 +12,9 @@ interface AppErrorBoundaryProps {
  * Prevents the entire app from crashing when a component throws an error
  */
 export function ErrorBoundary(props: AppErrorBoundaryProps) {
+  // Safe to read here: useI18n is backed by global jotai atoms (no provider
+  // context that a caught render error could have torn down).
+  const { t } = useI18n();
   const isDev = Boolean(
     (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV,
   );
@@ -49,16 +53,16 @@ export function ErrorBoundary(props: AppErrorBoundaryProps) {
               </div>
 
               <h1 class="text-xl font-bold text-white mb-2">
-                Something went wrong
+                {t("error.title")}
               </h1>
-              <p class="text-neutral-400 mb-6">
-                An unexpected error occurred. Please try again.
-              </p>
+              <p class="text-neutral-400 mb-6">{t("error.message")}</p>
 
               {/* Show error message in development */}
               <Show when={isDev && error}>
                 <div class="mb-6 p-3 bg-neutral-800 rounded-lg text-left">
-                  <p class="text-xs text-neutral-500 mb-1">Error details:</p>
+                  <p class="text-xs text-neutral-500 mb-1">
+                    {t("error.details")}
+                  </p>
                   <p class="text-sm text-red-400 font-mono break-all">
                     {error.message}
                   </p>
@@ -70,13 +74,13 @@ export function ErrorBoundary(props: AppErrorBoundaryProps) {
                   onClick={reset}
                   class="px-4 py-2 bg-neutral-800 text-white rounded-lg hover:bg-neutral-700 transition-colors"
                 >
-                  Try again
+                  {t("common.retry")}
                 </button>
                 <button
                   onClick={handleReload}
                   class="px-4 py-2 bg-accent text-white rounded-lg transition-colors"
                 >
-                  Reload page
+                  {t("error.reload")}
                 </button>
               </div>
             </div>

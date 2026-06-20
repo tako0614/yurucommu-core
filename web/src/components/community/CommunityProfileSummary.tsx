@@ -152,7 +152,7 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
           <span
             class={`px-2 py-1 text-xs rounded-full ${
               props.community.visibility === "public"
-                ? "bg-green-500/20 text-green-400"
+                ? "bg-accent-soft text-accent"
                 : "bg-neutral-700 text-neutral-300"
             }`}
           >
