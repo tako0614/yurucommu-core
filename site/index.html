@@ -18,7 +18,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Noto+Serif+JP:wght@500;600;700;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap"
       rel="stylesheet"
     />
     <style>
@@ -29,19 +29,19 @@
       }
 
       :root {
-        --bg-primary: #0b0a09;
-        --bg-secondary: #110f0d;
-        --bg-card: #181613;
-        --text-primary: #f6f2ea;
-        --text-secondary: #b0a89c;
-        --text-muted: #6f675c;
-        --accent: #f0a93a;
-        --accent-2: #ff6b4a;
-        --accent-hover: #ffbe54;
-        --accent-soft: rgba(240, 169, 58, 0.12);
-        --accent-line: rgba(240, 169, 58, 0.22);
-        --border: #2a2620;
-        --serif: "Noto Serif JP", "Times New Roman", serif;
+        --bg-primary: #0a0c10;
+        --bg-secondary: #10131a;
+        --bg-card: #161a22;
+        --text-primary: #eef2f7;
+        --text-secondary: #99a4b3;
+        --text-muted: #5f6b7a;
+        --accent: #4f8dff;
+        --accent-2: #7bb8ff;
+        --accent-hover: #69a0ff;
+        --accent-soft: rgba(79, 141, 255, 0.13);
+        --accent-line: rgba(79, 141, 255, 0.28);
+        --border: #232a35;
+        --serif: "Noto Sans JP", -apple-system, sans-serif;
         --sans: "Noto Sans JP", -apple-system, BlinkMacSystemFont, sans-serif;
       }
 
@@ -59,7 +59,7 @@
 
       ::selection {
         background: var(--accent);
-        color: #1a1206;
+        color: #0a0c10;
       }
 
       a {
@@ -116,7 +116,7 @@
         gap: 0.5rem;
         padding: 0.6rem 1.2rem;
         background: var(--accent);
-        color: #1c1305;
+        color: #fff;
         border-radius: 9999px;
         font-weight: 700;
         font-size: 0.875rem;
@@ -140,46 +140,35 @@
         isolation: isolate;
       }
 
-      /* Signature motif: concentric "reach" rings rippling from a focal point,
-         with a warm glow at the centre — your circle of reach. */
+      /* Soft, friendly "bubble" glow — overlapping circles of reach, kept loose
+         and calm (ゆる) rather than a hard technical grid. */
       .hero::before {
-        content: "";
-        position: absolute;
-        inset: -10% -10% -10% -10%;
-        z-index: -2;
-        background:
-          radial-gradient(
-            circle at 50% 40%,
-            var(--accent-soft) 0%,
-            transparent 40%
-          ),
-          repeating-radial-gradient(
-            circle at 50% 40%,
-            transparent 0 78px,
-            rgba(240, 169, 58, 0.05) 78px 79px
-          ),
-          radial-gradient(circle at 50% 40%, #17120b 0%, var(--bg-primary) 58%);
-        -webkit-mask: radial-gradient(
-          circle at 50% 40%,
-          #000 0%,
-          #000 45%,
-          transparent 78%
-        );
-        mask: radial-gradient(
-          circle at 50% 40%,
-          #000 0%,
-          #000 45%,
-          transparent 78%
-        );
-      }
-
-      .hero::after {
         content: "";
         position: absolute;
         inset: 0;
         z-index: -1;
-        background: var(--bg-primary);
-        opacity: 0.35;
+        background:
+          radial-gradient(
+            circle at 24% 26%,
+            rgba(79, 141, 255, 0.2) 0%,
+            transparent 24%
+          ),
+          radial-gradient(
+            circle at 82% 20%,
+            rgba(123, 184, 255, 0.16) 0%,
+            transparent 22%
+          ),
+          radial-gradient(
+            circle at 72% 80%,
+            rgba(79, 141, 255, 0.14) 0%,
+            transparent 26%
+          ),
+          radial-gradient(
+            circle at 50% 48%,
+            rgba(79, 141, 255, 0.1) 0%,
+            transparent 60%
+          );
+        filter: blur(8px);
       }
 
       .hero-content {
@@ -204,11 +193,10 @@
       }
 
       .hero-title {
-        font-family: var(--serif);
-        font-size: clamp(2.9rem, 9vw, 5.75rem);
-        font-weight: 700;
-        line-height: 1.06;
-        letter-spacing: -0.01em;
+        font-size: clamp(2.9rem, 9vw, 5.5rem);
+        font-weight: 900;
+        line-height: 1.08;
+        letter-spacing: -0.035em;
         margin-bottom: 1.75rem;
       }
 
@@ -242,17 +230,17 @@
         gap: 0.5rem;
         padding: 0.95rem 2rem;
         background: linear-gradient(120deg, var(--accent), var(--accent-hover));
-        color: #1c1305;
+        color: #fff;
         border-radius: 9999px;
         font-weight: 700;
         font-size: 1rem;
-        box-shadow: 0 8px 30px -10px rgba(240, 169, 58, 0.55);
+        box-shadow: 0 8px 30px -10px rgba(79, 141, 255, 0.55);
         transition: all 0.2s ease;
       }
 
       .btn-primary:hover {
         transform: translateY(-2px);
-        box-shadow: 0 14px 38px -10px rgba(240, 169, 58, 0.7);
+        box-shadow: 0 14px 38px -10px rgba(79, 141, 255, 0.7);
       }
 
       .btn-secondary {
@@ -348,7 +336,7 @@
       .philosophy-card:hover {
         border-color: var(--accent-line);
         transform: translateY(-5px);
-        box-shadow: 0 24px 50px -28px rgba(240, 169, 58, 0.4);
+        box-shadow: 0 24px 50px -28px rgba(79, 141, 255, 0.4);
       }
 
       .philosophy-icon {
@@ -455,9 +443,9 @@
         font-family: var(--serif);
         font-size: 1.5rem;
         font-weight: 700;
-        color: #1c1305;
+        color: #fff;
         margin: 0 auto 1.5rem;
-        box-shadow: 0 10px 30px -12px rgba(240, 169, 58, 0.6);
+        box-shadow: 0 10px 30px -12px rgba(79, 141, 255, 0.6);
       }
 
       .step-title {
@@ -550,16 +538,16 @@
         z-index: -1;
         background:
           radial-gradient(
-            circle at 50% 120%,
-            var(--accent-soft) 0%,
-            transparent 55%
+            circle at 30% 120%,
+            rgba(79, 141, 255, 0.18) 0%,
+            transparent 45%
           ),
-          repeating-radial-gradient(
-            circle at 50% 120%,
-            transparent 0 64px,
-            rgba(240, 169, 58, 0.05) 64px 65px
+          radial-gradient(
+            circle at 75% 130%,
+            rgba(123, 184, 255, 0.14) 0%,
+            transparent 42%
           ),
-          linear-gradient(180deg, #15110b 0%, var(--bg-primary) 70%);
+          linear-gradient(180deg, #0d1320 0%, var(--bg-primary) 72%);
       }
 
       .cta-title {
@@ -636,6 +624,128 @@
       .footer-copy {
         color: var(--text-muted);
         font-size: 0.875rem;
+      }
+
+      /* Hero product preview — a peek at the actual yurucommu timeline */
+      .hero-preview {
+        margin: 3.5rem auto 0;
+        max-width: 420px;
+        perspective: 1400px;
+      }
+
+      .hp-window {
+        text-align: left;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 1.5rem;
+        padding: 1rem;
+        box-shadow:
+          0 40px 90px -40px rgba(0, 0, 0, 0.8),
+          0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+        transform: rotateX(6deg);
+      }
+
+      .hp-stories {
+        display: flex;
+        gap: 0.85rem;
+        padding: 0.25rem 0.25rem 1rem;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 1rem;
+      }
+
+      .hp-story {
+        width: 3rem;
+        height: 3rem;
+        border-radius: 50%;
+        padding: 2px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        flex-shrink: 0;
+      }
+
+      .hp-story.muted {
+        background: var(--border);
+      }
+
+      .hp-ava {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #fff;
+        background: linear-gradient(135deg, #3f6fd8, #6f8bff);
+        border: 2px solid var(--bg-card);
+      }
+
+      .hp-ava.b {
+        background: linear-gradient(135deg, #d86aa6, #ff9ec4);
+      }
+      .hp-ava.c {
+        background: linear-gradient(135deg, #4cc4a8, #66e0c0);
+      }
+      .hp-ava.d {
+        background: linear-gradient(135deg, #e0a24c, #ffce7a);
+      }
+
+      .hp-post {
+        display: flex;
+        gap: 0.85rem;
+        padding: 0.25rem;
+      }
+
+      .hp-post .hp-ava {
+        width: 2.75rem;
+        height: 2.75rem;
+        flex-shrink: 0;
+        border: none;
+      }
+
+      .hp-meta {
+        font-size: 0.9rem;
+        margin-bottom: 0.35rem;
+        color: var(--text-primary);
+      }
+
+      .hp-meta span {
+        color: var(--text-muted);
+        font-weight: 400;
+        font-size: 0.8125rem;
+      }
+
+      .hp-text {
+        font-size: 0.95rem;
+        color: var(--text-secondary);
+        line-height: 1.65;
+        margin-bottom: 0.85rem;
+      }
+
+      .hp-tag {
+        color: var(--accent);
+      }
+
+      .hp-actions {
+        display: flex;
+        gap: 1.5rem;
+        color: var(--text-muted);
+      }
+
+      .hp-actions span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.8125rem;
+      }
+
+      .hp-actions svg {
+        width: 1.05rem;
+        height: 1.05rem;
+      }
+
+      .hp-actions .liked {
+        color: #f4326b;
       }
 
       /* Responsive */
@@ -744,6 +854,79 @@
             </svg>
           </a>
           <a href="#philosophy" class="btn-secondary"> 詳しく見る </a>
+        </div>
+
+        <!-- A peek at the actual app -->
+        <div class="hero-preview" aria-hidden="true">
+          <div class="hp-window">
+            <div class="hp-stories">
+              <div class="hp-story"><span class="hp-ava">あ</span></div>
+              <div class="hp-story"><span class="hp-ava b">き</span></div>
+              <div class="hp-story"><span class="hp-ava c">の</span></div>
+              <div class="hp-story muted"><span class="hp-ava d">み</span></div>
+            </div>
+            <div class="hp-post">
+              <span class="hp-ava c">の</span>
+              <div>
+                <div class="hp-meta">
+                  <b>のどか</b> <span>@nodoka · 2分</span>
+                </div>
+                <p class="hp-text">
+                  海の見える街に引っ越しました🌊 ゆるく繋がれる人、この
+                  <span class="hp-tag">#輪</span> の中だけで十分かも。
+                </p>
+                <div class="hp-actions">
+                  <span>
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"
+                      />
+                    </svg>
+                    3
+                  </span>
+                  <span>
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path d="M17 1l4 4-4 4" />
+                      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                      <path d="M7 23l-4-4 4-4" />
+                      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                    </svg>
+                    1
+                  </span>
+                  <span class="liked">
+                    <svg fill="currentColor" viewBox="0 0 24 24">
+                      <path
+                        d="M12 21s-7.5-4.6-10-9A5.5 5.5 0 0 1 12 5.5 5.5 5.5 0 0 1 22 12c-2.5 4.4-10 9-10 9z"
+                      />
+                    </svg>
+                    12
+                  </span>
+                  <span style="margin-left: auto">
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"
+                      />
+                    </svg>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>

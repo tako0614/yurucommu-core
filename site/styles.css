@@ -5,19 +5,18 @@
 }
 
 :root {
-  --bg-primary: #0b0a09;
-  --bg-secondary: #110f0d;
-  --bg-card: #181613;
-  --text-primary: #f6f2ea;
-  --text-secondary: #b0a89c;
-  --text-muted: #6f675c;
-  --accent: #f0a93a;
-  --accent-2: #ff6b4a;
-  --accent-hover: #ffbe54;
-  --accent-soft: rgba(240, 169, 58, 0.12);
-  --accent-line: rgba(240, 169, 58, 0.22);
-  --border: #2a2620;
-  --serif: "Noto Serif JP", "Times New Roman", serif;
+  --bg-primary: #0a0c10;
+  --bg-secondary: #10131a;
+  --bg-card: #161a22;
+  --text-primary: #eef2f7;
+  --text-secondary: #99a4b3;
+  --text-muted: #5f6b7a;
+  --accent: #4f8dff;
+  --accent-2: #7bb8ff;
+  --accent-hover: #69a0ff;
+  --accent-soft: rgba(79, 141, 255, 0.13);
+  --accent-line: rgba(79, 141, 255, 0.28);
+  --border: #232a35;
 }
 
 html {
@@ -515,7 +514,7 @@ a {
 }
 
 .category-section.federation {
-  background: rgba(240, 169, 58, 0.03);
+  background: rgba(79, 141, 255, 0.04);
   border-color: var(--accent-line);
 }
 
