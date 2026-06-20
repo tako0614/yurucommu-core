@@ -307,7 +307,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
       <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 bg-neutral-900/80 backdrop-blur-sm">
         <button
           onClick={props.onBack}
-          aria-label="Back"
+          aria-label={t("common.back")}
           class="text-neutral-400 hover:text-white transition-colors"
         >
           <svg

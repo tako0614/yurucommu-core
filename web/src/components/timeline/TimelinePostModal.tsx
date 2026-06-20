@@ -408,7 +408,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                             />
                             <button
                               onClick={() => props.onRemoveMedia(idx())}
-                              aria-label="Remove media"
+                              aria-label={t("compose.removeMedia")}
                               class="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-neutral-900"
                             >
                               <CloseIcon />

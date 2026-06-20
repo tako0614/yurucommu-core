@@ -219,7 +219,7 @@ export function PostDetailPage() {
         <div class="flex items-center gap-4 px-4 py-3">
           <button
             onClick={() => navigate(-1)}
-            aria-label="Back"
+            aria-label={t("common.back")}
             class="p-1 hover:bg-neutral-800 rounded-full"
           >
             <BackIcon />
@@ -422,7 +422,7 @@ export function PostDetailPage() {
                     <Show when={reply.author.ap_id === actor.ap_id}>
                       <button
                         onClick={() => handleDelete(reply, true)}
-                        aria-label="Delete reply"
+                        aria-label={t("common.delete")}
                         class="ml-auto p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
                       >
                         <TrashIcon />
@@ -437,7 +437,9 @@ export function PostDetailPage() {
                   <div class="flex items-center gap-6 mt-2">
                     <button
                       onClick={() => handleLike(reply, true)}
-                      aria-label={reply.liked ? "Unlike reply" : "Like reply"}
+                      aria-label={
+                        reply.liked ? t("posts.unlike") : t("posts.like")
+                      }
                       aria-pressed={reply.liked}
                       class={`flex items-center gap-2 transition-colors ${
                         reply.liked

@@ -467,7 +467,7 @@ export function SearchPage() {
           >
             <button
               type="submit"
-              aria-label="Search"
+              aria-label={t("common.search")}
               class="text-neutral-500 hover:text-white transition-colors"
             >
               <SearchIcon />
@@ -483,7 +483,7 @@ export function SearchPage() {
               <button
                 type="button"
                 onClick={clearSearch}
-                aria-label="Clear search"
+                aria-label={t("search.clear")}
                 class="text-neutral-500 hover:text-white"
               >
                 <CloseIcon />
