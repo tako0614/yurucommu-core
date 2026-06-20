@@ -335,6 +335,62 @@ test("a content-warning post federates summary + sensitive on the delivered Crea
   expect(activity.object.sensitive).toEqual(true);
 });
 
+test("editing a post's content warning syncs `sensitive` on the delivered Update", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "alice");
+  const app = postApp(db, fakeActor(authorApId, "alice"));
+
+  const createRes = await app.fetch(
+    new Request(`${APP_URL}/api/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "to be edited", visibility: "public" }),
+    }),
+    envFor(db),
+  );
+  const created = (await createRes.json()) as { ap_id: string };
+  const hash = created.ap_id.slice(`${APP_URL}/ap/objects/`.length);
+
+  // Edit in a content warning -> the Update must mark sensitive: true.
+  const addCw = await app.fetch(
+    new Request(`${APP_URL}/api/posts/${hash}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ summary: "Edited spoilers" }),
+    }),
+    envFor(db),
+  );
+  expect(addCw.status).toEqual(200);
+  const updates1 = await db
+    .select({ rawJson: activities.rawJson })
+    .from(activities)
+    .where(eq(activities.type, "Update"));
+  const u1 = JSON.parse(updates1[updates1.length - 1].rawJson) as {
+    object: { summary?: string; sensitive?: boolean };
+  };
+  expect(u1.object.summary).toEqual("Edited spoilers");
+  expect(u1.object.sensitive).toEqual(true);
+
+  // Remove the content warning -> the Update must push sensitive: false to clear it.
+  const removeCw = await app.fetch(
+    new Request(`${APP_URL}/api/posts/${hash}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ summary: "" }),
+    }),
+    envFor(db),
+  );
+  expect(removeCw.status).toEqual(200);
+  const updates2 = await db
+    .select({ rawJson: activities.rawJson })
+    .from(activities)
+    .where(eq(activities.type, "Update"));
+  const u2 = JSON.parse(updates2[updates2.length - 1].rawJson) as {
+    object: { sensitive?: boolean };
+  };
+  expect(u2.object.sensitive).toEqual(false);
+});
+
 test("a plain post's delivered Create is not marked sensitive", async () => {
   const db = await freshDb();
   const authorApId = await insertLocalActor(db, "alice");

@@ -567,6 +567,11 @@ posts.patch("/:id", async (c) => {
       attributedTo: actor.ap_id,
       content: nextContent,
       summary: nextSummary,
+      // Keep the CW's `sensitive` flag in sync on edit. Unlike the create path
+      // this is always a boolean (not omitted) so that REMOVING a content
+      // warning pushes `sensitive: false` and clears it on followers who act on
+      // the Update without re-fetching the object.
+      sensitive: Boolean(nextSummary),
       updated: now,
     },
   };
