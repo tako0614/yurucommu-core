@@ -84,18 +84,27 @@ export function ProfilePage() {
   const displayUsername = () =>
     profile()?.username || (isOwnProfile() ? actor.username : "");
 
+  // Generation guard: a fast profile→profile navigation must not let a slow
+  // prior load overwrite the new one, and the id is captured ONCE so the actor
+  // and its posts can't come from two different profiles (split-await mismatch).
+  let profileLoadGen = 0;
   const loadProfile = async () => {
+    const id = targetActorId();
+    const gen = ++profileLoadGen;
     try {
-      const profileData = await fetchActor(targetActorId());
+      const profileData = await fetchActor(id);
+      if (gen !== profileLoadGen) return;
       setProfile(profileData);
       setIsFollowing(profileData.is_following || false);
-      const postsData = await fetchActorPosts(targetActorId());
+      const postsData = await fetchActorPosts(id);
+      if (gen !== profileLoadGen) return;
       setPosts(postsData);
     } catch (e) {
+      if (gen !== profileLoadGen) return;
       console.error("Failed to load profile:", e);
       setError(t("common.error"));
     } finally {
-      setLoading(false);
+      if (gen === profileLoadGen) setLoading(false);
     }
   };
 

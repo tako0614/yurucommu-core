@@ -105,15 +105,24 @@ export function NotificationPage() {
         if (cancelled) return;
         setNotifications(data);
 
-        // Mark unread as read
+        // Mark unread as read — in its OWN try/catch so a failed mark-read POST
+        // does NOT discard the notifications we just loaded successfully (it
+        // would otherwise hit the outer catch and replace the list with the
+        // error-retry UI).
         const unread = data.filter((n) => !n.read);
         if (unread.length > 0) {
-          await markNotificationsRead(unread.map((n) => n.id));
-          if (!cancelled) {
-            setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-            // Re-sync the shared badge from the backend (a filtered view may
-            // not have marked every unread item, so don't blindly zero it).
-            void refreshUnread();
+          try {
+            await markNotificationsRead(unread.map((n) => n.id));
+            if (!cancelled) {
+              setNotifications((prev) =>
+                prev.map((n) => ({ ...n, read: true })),
+              );
+              // Re-sync the shared badge from the backend (a filtered view may
+              // not have marked every unread item, so don't blindly zero it).
+              void refreshUnread();
+            }
+          } catch (markErr) {
+            console.error("Failed to mark notifications read:", markErr);
           }
         }
       } catch (e) {

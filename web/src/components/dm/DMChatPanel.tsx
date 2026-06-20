@@ -157,6 +157,10 @@ export function DMChatPanel(props: DMChatPanelProps) {
     prevLastId = null;
     prevCount = 0;
     didInitialScroll = false;
+    // Clear the previous thread's messages immediately — otherwise, if the new
+    // conversation's fetch fails, conversation A's bubbles render under B's
+    // header + the error line.
+    setMessages([]);
 
     void refreshMessages(contactApId, contactType, "initial", isCancelled);
 
