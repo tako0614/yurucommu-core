@@ -450,6 +450,35 @@ export class BunStorage implements IObjectStorage {
 /**
  * Static file server for Bun
  */
+// Extension -> MIME fallback for static assets, used when Bun.file.type is
+// empty. Mirrors the worker's getMimeType so the self-host (Bun) path serves
+// the same Content-Types as the Cloudflare ASSETS binding.
+const ASSET_MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".map": "application/json; charset=utf-8",
+  ".wasm": "application/wasm",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+function mimeFromExt(filePath: string): string {
+  const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+  return ASSET_MIME[ext] || "application/octet-stream";
+}
+
 export class BunAssets implements IStaticAssets {
   private basePath: string;
   private realBasePath: string | null = null;
@@ -513,7 +542,14 @@ export class BunAssets implements IStaticAssets {
       }
 
       if (await file.exists()) {
-        return new Response(file);
+        // Set Content-Type explicitly from the file extension: the global
+        // response pipeline emits X-Content-Type-Options: nosniff, so a missing
+        // type makes the browser refuse to render the SPA / execute its module
+        // scripts. (new Response(Bun.file) does not reliably propagate a type
+        // through the Hono pipeline here, so set it ourselves.)
+        return new Response(file, {
+          headers: { "Content-Type": mimeFromExt(filePath) },
+        });
       }
 
       // SPA fallback - serve index.html for non-existent paths
