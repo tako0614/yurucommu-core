@@ -3,6 +3,7 @@ import { A } from "@solidjs/router";
 import type { Actor } from "../../types/index.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { CloseIcon } from "./ProfileIcons.tsx";
+import { InlineErrorRetry } from "../InlineErrorRetry.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
 import type { Translate } from "../../lib/i18n.tsx";
 
@@ -12,6 +13,10 @@ interface ProfileFollowModalProps {
   type: FollowModalType;
   actors: Actor[];
   loading: boolean;
+  // A load failure — shown as a retry affordance instead of a false "no
+  // followers yet" empty state.
+  error?: string | null;
+  onRetry?: () => void;
   onClose: () => void;
   t: Translate;
 }
@@ -60,46 +65,57 @@ export function ProfileFollowModal(props: ProfileFollowModalProps) {
           </div>
           <div class="flex-1 overflow-y-auto">
             <Show
-              when={!props.loading}
+              when={!props.error}
               fallback={
-                <div class="p-8 text-center text-neutral-500">
-                  {props.t("common.loading")}
-                </div>
+                <InlineErrorRetry
+                  message={props.error!}
+                  retryLabel={props.t("common.retry")}
+                  onRetry={() => props.onRetry?.()}
+                />
               }
             >
               <Show
-                when={props.actors.length > 0}
+                when={!props.loading}
                 fallback={
                   <div class="p-8 text-center text-neutral-500">
-                    {props.type === "followers"
-                      ? props.t("profile.noFollowersYet")
-                      : props.t("profile.notFollowingAnyone")}
+                    {props.t("common.loading")}
                   </div>
                 }
               >
-                <For each={props.actors}>
-                  {(actor) => (
-                    <A
-                      href={`/profile/${encodeURIComponent(actor.ap_id)}`}
-                      onClick={props.onClose}
-                      class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-800 transition-colors"
-                    >
-                      <UserAvatar
-                        avatarUrl={actor.icon_url}
-                        name={actor.name || actor.preferred_username}
-                        size={48}
-                      />
-                      <div class="flex-1 min-w-0">
-                        <div class="font-bold text-white truncate">
-                          {actor.name || actor.preferred_username}
+                <Show
+                  when={props.actors.length > 0}
+                  fallback={
+                    <div class="p-8 text-center text-neutral-500">
+                      {props.type === "followers"
+                        ? props.t("profile.noFollowersYet")
+                        : props.t("profile.notFollowingAnyone")}
+                    </div>
+                  }
+                >
+                  <For each={props.actors}>
+                    {(actor) => (
+                      <A
+                        href={`/profile/${encodeURIComponent(actor.ap_id)}`}
+                        onClick={props.onClose}
+                        class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-800 transition-colors"
+                      >
+                        <UserAvatar
+                          avatarUrl={actor.icon_url}
+                          name={actor.name || actor.preferred_username}
+                          size={48}
+                        />
+                        <div class="flex-1 min-w-0">
+                          <div class="font-bold text-white truncate">
+                            {actor.name || actor.preferred_username}
+                          </div>
+                          <div class="text-neutral-500 truncate">
+                            @{actor.username}
+                          </div>
                         </div>
-                        <div class="text-neutral-500 truncate">
-                          @{actor.username}
-                        </div>
-                      </div>
-                    </A>
-                  )}
-                </For>
+                      </A>
+                    )}
+                  </For>
+                </Show>
               </Show>
             </Show>
           </div>

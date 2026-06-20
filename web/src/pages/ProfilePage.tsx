@@ -18,6 +18,7 @@ import { useI18n } from "../lib/i18n.tsx";
 import { useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
+import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { ProfileHeader } from "../components/profile/ProfileHeader.tsx";
 import { ProfileSummary } from "../components/profile/ProfileSummary.tsx";
 import { ProfilePostsSection } from "../components/profile/ProfilePostsSection.tsx";
@@ -67,6 +68,9 @@ export function ProfilePage() {
   const [editIsPrivate, setEditIsPrivate] = createSignal(false);
   const [followModalActors, setFollowModalActors] = createSignal<Actor[]>([]);
   const [followModalLoading, setFollowModalLoading] = createSignal(false);
+  const [followModalError, setFollowModalError] = createSignal<string | null>(
+    null,
+  );
   const [showQr, setShowQr] = createSignal(false);
   // Pending block/mute confirmation for the viewed (other) user.
   const [pendingModeration, setPendingModeration] = createSignal<
@@ -232,6 +236,7 @@ export function ProfilePage() {
     setShowFollowModal(type);
     setFollowModalLoading(true);
     setFollowModalActors([]);
+    setFollowModalError(null);
     try {
       const data =
         type === "followers"
@@ -240,6 +245,9 @@ export function ProfilePage() {
       setFollowModalActors(data);
     } catch (e) {
       console.error(`Failed to load ${type}:`, e);
+      // Surface the failure instead of letting the modal show a false
+      // "no followers yet" empty state.
+      setFollowModalError(t("common.loadFailed"));
     } finally {
       setFollowModalLoading(false);
     }
@@ -294,7 +302,11 @@ export function ProfilePage() {
           handle={displayUsername()}
           onOpenQr={() => setShowQr(true)}
         />
-        <div class="p-8 text-center text-neutral-500">{t("common.error")}</div>
+        <InlineErrorRetry
+          message={t("common.loadFailed")}
+          retryLabel={t("common.retry")}
+          onRetry={loadProfile}
+        />
       </Show>
 
       <Show when={!loading() && profile()}>
@@ -354,6 +366,11 @@ export function ProfilePage() {
           type={showFollowModal()}
           actors={followModalActors()}
           loading={followModalLoading()}
+          error={followModalError()}
+          onRetry={() => {
+            const tp = showFollowModal();
+            if (tp) void openFollowModal(tp);
+          }}
           onClose={() => setShowFollowModal(null)}
           t={t}
         />
