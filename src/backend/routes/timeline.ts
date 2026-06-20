@@ -464,6 +464,10 @@ async function handleCommunityTimeline(
     eq(objects.type, "Note"),
     isNull(objects.inReplyTo),
     isNull(objects.deletedAt),
+    // A direct post narrowed to this community must never surface here — direct
+    // belongs in /dm. The communityApId leg below has no visibility filter, so
+    // gate it at the base.
+    ne(objects.visibility, "direct"),
   ];
   if (excludedApIds.length > 0) {
     conditions.push(notInArray(objects.attributedTo, excludedApIds));
@@ -539,6 +543,11 @@ timeline.get(
       eq(objects.type, "Note"),
       isNull(objects.inReplyTo),
       isNull(objects.deletedAt),
+      // Direct posts (DMs) are stored as audienceJson="[]" too, so they would
+      // otherwise slip into the ununion — the own-author branch leg has no
+      // visibility filter, and the community branch has none either. They belong
+      // only in /dm, never in any timeline feed; exclude them at the base.
+      ne(objects.visibility, "direct"),
     ];
     if (excludedApIds.length > 0) {
       base.push(notInArray(objects.attributedTo, excludedApIds));
@@ -678,6 +687,9 @@ timeline.get("/following", async (c) => {
     eq(objects.audienceJson, "[]"),
     inArray(objects.attributedTo, allowedAuthors),
     isNull(objects.deletedAt),
+    // Exclude directs: the own-author leg below is unconditional, so a DM the
+    // viewer sent would otherwise appear in their own following feed.
+    ne(objects.visibility, "direct"),
     or(
       eq(objects.attributedTo, viewerApId),
       and(

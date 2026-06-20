@@ -217,6 +217,35 @@ async function insertCommunityPost(
   });
 }
 
+// A direct post (DM-style). A plain DM is stored visibility="direct" with the
+// default audienceJson="[]" (like createDmNote); a direct post deliberately
+// narrowed to a community carries that community in communityApId. Neither must
+// ever surface in a timeline feed — directs belong only in /dm.
+async function insertDirectPost(
+  db: Database,
+  opts: {
+    apId: string;
+    author: string;
+    content: string;
+    published: string;
+    communityApId?: string;
+  },
+): Promise<void> {
+  await db.insert(objects).values({
+    apId: opts.apId,
+    type: "Note",
+    attributedTo: opts.author,
+    content: opts.content,
+    visibility: "direct",
+    communityApId: opts.communityApId ?? null,
+    audienceJson: opts.communityApId
+      ? JSON.stringify([opts.communityApId])
+      : "[]",
+    published: opts.published,
+    isLocal: 1,
+  });
+}
+
 type TimelineBody = { posts?: Array<{ ap_id: string }>; error?: string };
 
 async function getHome(
@@ -418,4 +447,62 @@ test("community filter: narrows home to the community's members (+ narrowed post
   expect(filtered).toContain(`${APP_URL}/ap/objects/townie-public`);
   expect(filtered).toContain(`${APP_URL}/ap/objects/town-narrowed`);
   expect(filtered).not.toContain(`${APP_URL}/ap/objects/outsider-public`);
+});
+
+// ---------------------------------------------------------------------------
+// Direct posts (DMs) never surface in any timeline feed.
+// ---------------------------------------------------------------------------
+
+test("unified home: the viewer's own direct posts (DMs) do not appear in home", async () => {
+  const db = await freshDb();
+  const me = await insertLocalActor(db, "me");
+
+  await insertPersonalPost(db, {
+    apId: `${APP_URL}/ap/objects/public`,
+    author: me,
+    content: "a normal public post",
+    published: "2026-01-02T00:00:00.000Z",
+  });
+  // A DM the viewer sent: visibility="direct", audienceJson="[]" (createDmNote).
+  await insertDirectPost(db, {
+    apId: `${APP_URL}/ap/objects/my-dm`,
+    author: me,
+    content: "see you at 8",
+    published: "2026-01-01T00:00:00.000Z",
+  });
+
+  const ids = await getHome(db, fakeActor(me, "me"));
+  expect(ids).toContain(`${APP_URL}/ap/objects/public`);
+  expect(ids).not.toContain(`${APP_URL}/ap/objects/my-dm`);
+});
+
+test("direct + community: a direct post narrowed to a community leaks to no member feed", async () => {
+  const db = await freshDb();
+  const me = await insertLocalActor(db, "me");
+  const coMember = await insertLocalActor(db, "comember");
+
+  const town = await insertCommunity(db, "town", { visibility: "public" });
+  await joinCommunity(db, town, me);
+  await joinCommunity(db, town, coMember);
+
+  // A co-member posts something direct-visibility but tagged to the community.
+  await insertDirectPost(db, {
+    apId: `${APP_URL}/ap/objects/co-direct-community`,
+    author: coMember,
+    communityApId: town,
+    content: "direct yet community-tagged",
+    published: "2026-01-01T00:00:00.000Z",
+  });
+
+  // Neither the unified home (branch 3 = my communities)...
+  const home = await getHome(db, fakeActor(me, "me"));
+  expect(home).not.toContain(`${APP_URL}/ap/objects/co-direct-community`);
+
+  // ...nor the community filter (communityApId leg) surfaces it.
+  const filtered = await getHome(
+    db,
+    fakeActor(me, "me"),
+    `?community=${encodeURIComponent(town)}`,
+  );
+  expect(filtered).not.toContain(`${APP_URL}/ap/objects/co-direct-community`);
 });
