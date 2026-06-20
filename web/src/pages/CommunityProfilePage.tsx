@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useNavigate, useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
@@ -95,19 +95,28 @@ export function CommunityProfilePage() {
     container: () => invitePromptRef,
   });
 
-  createEffect(() => {
-    const name = params.name;
-    if (name) {
-      setCommunity(null);
-      setMembers([]);
-      setJoinRequests([]);
-      setActiveTab("about");
-      setError(null);
-      setInviteCode(null);
-      setLoading(true);
-      loadCommunity();
-    }
-  });
+  // Track ONLY the route param. `loadCommunity()` reads `community()` synchronously
+  // (before its first await) to decide the loading state, so running it inside a
+  // bare createEffect would make the effect depend on `community()` — and its own
+  // `setCommunity(data)` would then re-trigger it forever (observed: an infinite
+  // refetch loop that hammered the API into 429). `on(() => params.name, …)` runs
+  // the callback untracked, so the reload fires once per community, not per fetch.
+  createEffect(
+    on(
+      () => params.name,
+      (name) => {
+        if (!name) return;
+        setCommunity(null);
+        setMembers([]);
+        setJoinRequests([]);
+        setActiveTab("about");
+        setError(null);
+        setInviteCode(null);
+        setLoading(true);
+        loadCommunity();
+      },
+    ),
+  );
 
   const loadCommunity = async () => {
     const name = params.name;
