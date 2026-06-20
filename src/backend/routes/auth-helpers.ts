@@ -134,10 +134,13 @@ export async function rotateSession(
 
   // Set cookie. The cookie carries the RAW session id (the only place it
   // exists); the DB stores only its salted hash. SameSite=Strict to reduce
-  // CSRF / cross-site leakage surface.
+  // CSRF / cross-site leakage surface. Secure unless the instance is explicitly
+  // served over plain http:// — a hardcoded Secure made an http self-host
+  // un-loginnable (the browser never sends a Secure cookie over http), so honour
+  // the operator's APP_URL protocol while defaulting to Secure for https/unknown.
   setCookie(c, "session", sessionId, {
     httpOnly: true,
-    secure: true,
+    secure: !(c.env.APP_URL ?? "").startsWith("http://"),
     sameSite: "Strict",
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,

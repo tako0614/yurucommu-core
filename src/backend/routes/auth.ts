@@ -223,9 +223,10 @@ auth.get("/login/:provider", async (c) => {
     nonce,
   });
   // Bind OAuth state to this browser session to prevent login CSRF (Issue 107).
+  // Secure unless served over explicit http:// (see the session cookie).
   setCookie(c, "oauth_nonce", nonce, {
     httpOnly: true,
-    secure: true,
+    secure: !(c.env.APP_URL ?? "").startsWith("http://"),
     sameSite: "Lax",
     path: "/",
     maxAge: 600,
