@@ -6,7 +6,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { useNavigate, useParams } from "@solidjs/router";
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import {
   DMContact,
@@ -122,6 +122,7 @@ type TabType = "all" | "friends" | "communities" | "requests";
 export function DMPage() {
   const actor = useRequiredActor();
   const params = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [contacts, setContacts] = createSignal<DMContact[]>([]);
   const [communities, setCommunities] = createSignal<DMContact[]>([]);
@@ -140,9 +141,18 @@ export function DMPage() {
   let tabContainerRef!: HTMLDivElement;
   const { t } = useI18n();
 
-  // Validate and decode contactId
+  // Validate and decode the open-conversation id. The canonical form is the
+  // `?c=` query param: an ActivityPub id is a full URL, and a path segment
+  // (`/dm/:contactId`) gets its `%2F` decoded on a server round-trip (refresh /
+  // bookmark / share), splitting it into multiple segments so the route no
+  // longer matches and the page renders blank. Query params survive that
+  // round-trip intact. The legacy path param is still read as a fallback so an
+  // in-session client navigation to the old shape keeps working.
   const validContactId = createMemo(() =>
-    validateAndDecodeContactId(params.contactId),
+    validateAndDecodeContactId(
+      (typeof searchParams.c === "string" ? searchParams.c : undefined) ??
+        params.contactId,
+    ),
   );
 
   // Touch handling for swipe
@@ -261,7 +271,7 @@ export function DMPage() {
     setNotFound(false);
     setResolving(false);
     setSelectedContact(contact);
-    navigate(`/dm/${encodeURIComponent(contact.ap_id)}`);
+    navigate(`/dm?c=${encodeURIComponent(contact.ap_id)}`);
   };
 
   const handleBack = () => {

@@ -6,8 +6,10 @@ import { useI18n } from "../lib/i18n.tsx";
 /**
  * Community chat has been folded into the unified DM hybrid surface (DMPage).
  * This route is kept as a stable deep-link: `/groups/:name/chat` resolves the
- * community's ActivityPub id and redirects to `/dm/:apId`, where the same
- * community conversation is rendered by DMChatPanel. Members and the "leave"
+ * community's ActivityPub id and redirects to `/dm?c=<apId>`, where the same
+ * community conversation is rendered by DMChatPanel. The conversation id rides
+ * in a query param (not a path segment) so it survives a server round-trip:
+ * `%2F` in a path is decoded on reload and would break the route. Members and the "leave"
  * affordance now live on the community profile (`/groups/:name`).
  */
 export function CommunityChatPage() {
@@ -26,7 +28,7 @@ export function CommunityChatPage() {
       try {
         const community = await fetchCommunity(name);
         if (cancelled) return;
-        navigate(`/dm/${encodeURIComponent(community.ap_id)}`, {
+        navigate(`/dm?c=${encodeURIComponent(community.ap_id)}`, {
           replace: true,
         });
       } catch (e) {

@@ -105,7 +105,7 @@ export function FriendsListPage() {
   };
 
   const handleStartDM = (friendApId: string) => {
-    navigate(`/dm/${encodeURIComponent(friendApId)}`);
+    navigate(`/dm?c=${encodeURIComponent(friendApId)}`);
   };
 
   const currentList = () =>
