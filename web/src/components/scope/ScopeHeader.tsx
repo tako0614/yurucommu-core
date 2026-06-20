@@ -1,15 +1,10 @@
-import { createMemo, For, Show } from "solid-js";
-import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
+import { createMemo, Show } from "solid-js";
+import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { actorAtom } from "../../atoms/auth.ts";
 import { appMenuOpenAtom } from "../../atoms/shell.ts";
 import { showPostModalAtom } from "../../atoms/timeline.ts";
-import {
-  communityToScope,
-  inhabitedScopeAtom,
-  scopeCommunitiesAtom,
-  type InhabitedScope,
-} from "../../atoms/scope.ts";
+import { inhabitedScopeAtom, scopeCommunitiesAtom } from "../../atoms/scope.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 
 const ComposeIcon = () => (
@@ -29,9 +24,9 @@ const ComposeIcon = () => (
   </svg>
 );
 
-const PlusIcon = () => (
+const ChevronDownIcon = () => (
   <svg
-    class="h-4 w-4"
+    class="h-4 w-4 shrink-0 text-neutral-500"
     fill="none"
     stroke="currentColor"
     viewBox="0 0 24 24"
@@ -41,55 +36,44 @@ const PlusIcon = () => (
       stroke-linecap="round"
       stroke-linejoin="round"
       stroke-width={2}
-      d="M12 4v16m8-8H4"
+      d="M19 9l-7 7-7-7"
     />
   </svg>
 );
 
 interface ScopeHeaderProps {
-  // Opens the filter picker / community discovery sheet from the trailing "+".
+  // Opens the filter picker / community discovery sheet.
   onOpenSwitcher: () => void;
 }
 
 /**
- * Home header. The individual is the base, so home is just home — there is no
- * "inhabited scope" to name or switch. This single bar carries:
- *   - the mobile AppMenu trigger (desktop reaches the menu via the Sidebar),
- *   - the home VIEW filter inline ("すべて" + each joined community + "＋") when
- *     there is anything to filter by — otherwise a plain "ホーム" title so the bar
- *     is never empty and gives context (chiefly on mobile, which has no sidebar),
- *   - the desktop compose affordance.
+ * Home header. The individual is the base, so home is just home. This single bar
+ * carries the mobile AppMenu trigger, the desktop compose affordance, and — when
+ * the owner belongs to any community — a compact home VIEW filter rendered as the
+ * title itself: "ホーム ▾" while unfiltered, or the community's avatar + name once
+ * narrowed. Tapping it opens the picker sheet (which also hosts Discover / Create),
+ * so there is no separate pill rail or add button cluttering the bar. When there
+ * is nothing to filter by, the title is a plain, non-interactive "ホーム".
  *
- * Folding the filter into the header (instead of a third stacked bar under the
- * StoryBar) keeps the top of home calm. Writes the transient
- * {@link inhabitedScopeAtom}; the filter never changes where a post lands.
+ * The filter is a transient view lens ({@link inhabitedScopeAtom}); it never
+ * changes where a post lands.
  */
 export function ScopeHeader(props: ScopeHeaderProps) {
   const { t } = useI18n();
   const actor = useAtomValue(actorAtom);
   const openMenu = useSetAtom(appMenuOpenAtom);
   const openComposer = useSetAtom(showPostModalAtom);
-  const [scope, setScope] = useAtom(inhabitedScopeAtom);
+  const scope = useAtomValue(inhabitedScopeAtom);
   const communities = useAtomValue(scopeCommunitiesAtom);
 
   const joined = createMemo(() =>
     communities().filter((c) => c.is_member && c.member_role !== null),
   );
 
-  const isAllActive = () => scope().kind === "personal";
-  const isCommunityActive = (apId: string) => {
+  const activeCommunity = () => {
     const s = scope();
-    return s.kind === "community" && s.ap_id === apId;
+    return s.kind === "community" ? s : null;
   };
-
-  const pillClass = (active: boolean) =>
-    `flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
-      active
-        ? "border-transparent bg-accent text-white"
-        : "border-neutral-800 bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
-    }`;
-
-  const setFilter = (next: InhabitedScope) => setScope(next);
 
   return (
     <header class="sticky top-0 z-30 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur-sm">
@@ -113,65 +97,49 @@ export function ScopeHeader(props: ScopeHeaderProps) {
           )}
         </Show>
 
-        {/* Inline home filter, or a plain title when there is nothing to filter. */}
-        <Show
-          when={joined().length > 0}
-          fallback={
-            <h1 class="min-w-0 flex-1 truncate text-base font-bold text-white">
-              {t("nav.home")}
-            </h1>
-          }
-        >
-          <div
-            role="tablist"
-            aria-label={t("scope.filterLabel")}
-            class="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto scrollbar-hide"
+        {/* Title doubles as the home filter when there are communities to switch
+            between; otherwise it is a plain label. */}
+        <div class="min-w-0 flex-1">
+          <Show
+            when={joined().length > 0}
+            fallback={
+              <h1 class="truncate text-base font-bold text-white">
+                {t("nav.home")}
+              </h1>
+            }
           >
             <button
               type="button"
-              role="tab"
-              onClick={() => setFilter({ kind: "personal" })}
-              aria-selected={isAllActive()}
-              class={pillClass(isAllActive())}
-            >
-              {t("scope.all")}
-            </button>
-
-            <For each={joined()}>
-              {(community) => {
-                const next = communityToScope(community);
-                if (!next) return null;
-                const label = community.display_name || community.name;
-                const active = () => isCommunityActive(community.ap_id);
-                return (
-                  <button
-                    type="button"
-                    role="tab"
-                    onClick={() => setFilter(next)}
-                    aria-selected={active()}
-                    class={`${pillClass(active())} pl-1`}
-                  >
-                    <UserAvatar
-                      avatarUrl={community.icon_url}
-                      name={label}
-                      size={22}
-                    />
-                    <span class="max-w-32 truncate">{label}</span>
-                  </button>
-                );
-              }}
-            </For>
-
-            <button
-              type="button"
               onClick={props.onOpenSwitcher}
-              aria-label={t("scope.addCommunity")}
-              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-neutral-800 bg-neutral-900 text-neutral-300 transition-colors hover:bg-neutral-800"
+              aria-haspopup="dialog"
+              aria-label={t("scope.filterLabel")}
+              class="-ml-2 flex max-w-full items-center gap-1.5 rounded-full px-2 py-1 transition-colors hover:bg-neutral-800"
             >
-              <PlusIcon />
+              <Show
+                when={activeCommunity()}
+                fallback={
+                  <span class="truncate text-base font-bold text-white">
+                    {t("nav.home")}
+                  </span>
+                }
+              >
+                {(c) => (
+                  <>
+                    <UserAvatar
+                      avatarUrl={c().icon_url ?? null}
+                      name={c().display_name || c().name}
+                      size={24}
+                    />
+                    <span class="truncate text-base font-bold text-white">
+                      {c().display_name || c().name}
+                    </span>
+                  </>
+                )}
+              </Show>
+              <ChevronDownIcon />
             </button>
-          </div>
-        </Show>
+          </Show>
+        </div>
 
         <button
           type="button"
