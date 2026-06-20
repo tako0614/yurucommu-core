@@ -3,25 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Yurucommu — ゆるく繋がる、自分だけのSNS</title>
+    <title>yurucommu — 大きなSNSを、そっと降りる。</title>
     <meta
       name="description"
-      content="Yurucommuは、セルフホスト型・一人用のActivityPub SNS。アルゴリズムに左右されず、自分の輪の中だけで、ゆるく親密に繋がる。"
+      content="yurucommu は、自分ひとりのためのセルフホスト型 ActivityPub SNS。アルゴリズムも、知らない誰かもいない。自分が広げた輪の中だけで、ゆっくり過ごす。"
     />
     <meta
       property="og:title"
-      content="Yurucommu — ゆるく繋がる、自分だけのSNS"
+      content="yurucommu — 大きなSNSを、そっと降りる。"
     />
     <meta
       property="og:description"
-      content="セルフホスト型・一人用のActivityPub SNS。自分の輪の中だけで、ゆるく繋がる。"
+      content="自分ひとりのためのセルフホスト型 ActivityPub SNS。"
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://yurucommu.com" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
     <style>
@@ -34,25 +34,18 @@
       }
 
       :root {
-        --bg: #0c0e12;
-        --bg-2: #11141a;
-        --card: #161a21;
-        --card-2: #1b212a;
-        --ink: #eef2f6;
-        --dim: #98a2b0;
-        --mute: #616b78;
-        --line: #232a34;
-        --line-2: #2c3540;
-        --mint: #2dd4a8;
-        --mint-2: #59e6c4;
-        --mint-ink: #04231b;
-        --mint-soft: rgba(45, 212, 168, 0.12);
-        --mint-line: rgba(45, 212, 168, 0.26);
-        --pink: #f06595;
-        --r: 1.5rem;
-        --r-lg: 2rem;
-        --maxw: 1080px;
+        --bg: #0a0a0c;
+        --bg-2: #0e0e11;
+        --ink: #e9e9ec;
+        --dim: #8a8a92;
+        --faint: #565660;
+        --line: #1c1c21;
+        --line-2: #26262d;
+        --accent: #9aa6d6;
+        --accent-soft: rgba(154, 166, 214, 0.1);
+        --w: 940px;
         --sans: "Noto Sans JP", -apple-system, BlinkMacSystemFont, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
       }
 
       html {
@@ -63,7 +56,8 @@
         font-family: var(--sans);
         background: var(--bg);
         color: var(--ink);
-        line-height: 1.8;
+        line-height: 1.85;
+        font-size: 16px;
         -webkit-font-smoothing: antialiased;
         overflow-x: hidden;
       }
@@ -74,597 +68,343 @@
       }
 
       ::selection {
-        background: var(--mint);
-        color: var(--mint-ink);
+        background: var(--accent);
+        color: #0a0a0c;
       }
 
       .wrap {
         width: 100%;
-        max-width: var(--maxw);
+        max-width: var(--w);
         margin: 0 auto;
-        padding: 0 1.5rem;
+        padding: 0 1.75rem;
       }
 
-      .eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.55rem;
-        font-size: 0.8125rem;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        color: var(--mint);
+      .mono {
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--faint);
       }
 
-      .eyebrow::before {
-        content: "";
-        width: 0.5rem;
-        height: 0.5rem;
-        border-radius: 50%;
-        background: var(--mint);
-        box-shadow: 0 0 0 4px var(--mint-soft);
+      .link {
+        color: var(--dim);
+        transition: color 0.2s;
+      }
+      .link:hover {
+        color: var(--ink);
       }
 
-      /* ---------- Nav ---------- */
+      .arrow {
+        color: var(--ink);
+        border-bottom: 1px solid var(--line-2);
+        padding-bottom: 2px;
+        transition:
+          border-color 0.2s,
+          color 0.2s;
+      }
+      .arrow:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+      .arrow span {
+        display: inline-block;
+        transition: transform 0.2s;
+      }
+      .arrow:hover span {
+        transform: translateX(3px);
+      }
+
+      /* ---- nav ---- */
       .nav {
         position: fixed;
         inset: 0 0 auto 0;
-        z-index: 100;
-        backdrop-filter: blur(14px);
-        background: rgba(12, 14, 18, 0.72);
+        z-index: 50;
+        background: rgba(10, 10, 12, 0.7);
+        backdrop-filter: blur(12px);
         border-bottom: 1px solid transparent;
         transition: border-color 0.3s;
       }
-
       .nav.scrolled {
         border-bottom-color: var(--line);
       }
-
-      .nav-inner {
-        max-width: var(--maxw);
+      .nav-in {
+        max-width: var(--w);
         margin: 0 auto;
-        padding: 1rem 1.5rem;
+        padding: 1.1rem 1.75rem;
         display: flex;
         align-items: center;
         justify-content: space-between;
       }
-
       .brand {
         display: inline-flex;
         align-items: center;
-        gap: 0.6rem;
-        font-weight: 900;
-        font-size: 1.2rem;
-        letter-spacing: -0.01em;
+        gap: 0.55rem;
+        font-weight: 700;
+        font-size: 0.95rem;
+        letter-spacing: 0.01em;
       }
-
-      .brand .mark {
-        width: 1.5rem;
-        height: 1.5rem;
+      .dot {
+        width: 0.6rem;
+        height: 0.6rem;
         border-radius: 50%;
-        background: radial-gradient(
-          circle at 35% 30%,
-          var(--mint-2),
-          var(--mint)
-        );
-        box-shadow: 0 0 0 4px var(--mint-soft);
+        background: var(--accent);
+      }
+      .nav-links {
+        display: flex;
+        gap: 1.5rem;
+        font-size: 0.85rem;
       }
 
-      .nav-links {
+      /* ---- hero ---- */
+      .hero {
+        position: relative;
+        padding: 11rem 0 7rem;
+        overflow: hidden;
+      }
+      .ring {
+        position: absolute;
+        top: 46%;
+        right: -14rem;
+        width: 42rem;
+        height: 42rem;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+      }
+      .ring::after {
+        content: "";
+        position: absolute;
+        inset: 18%;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+      }
+      .hero-in {
+        position: relative;
+        max-width: 30rem;
+      }
+      .hero h1 {
+        font-size: clamp(2.3rem, 6vw, 3.5rem);
+        font-weight: 700;
+        line-height: 1.45;
+        letter-spacing: -0.01em;
+        margin: 1.6rem 0 0;
+      }
+      .hero p {
+        color: var(--dim);
+        margin-top: 1.6rem;
+        font-size: 1.0125rem;
+        max-width: 26rem;
+      }
+      .hero-act {
+        margin-top: 2.6rem;
         display: flex;
         align-items: center;
         gap: 1.75rem;
+        font-size: 0.95rem;
       }
 
-      .nav-links a {
-        font-size: 0.875rem;
-        color: var(--dim);
-        transition: color 0.2s;
+      /* ---- generic band ---- */
+      .band {
+        border-top: 1px solid var(--line);
+        padding: 7rem 0;
       }
-
-      .nav-links a:hover {
-        color: var(--ink);
+      .statement {
+        padding: 6.5rem 0;
+        border-top: 1px solid var(--line);
       }
-
-      .btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        border-radius: 9999px;
+      .statement p {
+        font-size: clamp(1.5rem, 3.6vw, 2.2rem);
         font-weight: 700;
-        cursor: pointer;
-        transition:
-          transform 0.2s ease,
-          box-shadow 0.2s ease,
-          background 0.2s,
-          border-color 0.2s;
+        line-height: 1.7;
+        letter-spacing: -0.01em;
+        max-width: 24ch;
+      }
+      .statement .soft {
+        color: var(--faint);
         white-space: nowrap;
       }
 
-      .btn svg {
-        width: 1.1em;
-        height: 1.1em;
+      .sec-head {
+        display: flex;
+        align-items: baseline;
+        gap: 1rem;
+        margin-bottom: 3.25rem;
+      }
+      .sec-head h2 {
+        font-size: 1.15rem;
+        font-weight: 700;
       }
 
-      .btn-mint {
-        background: var(--mint);
-        color: var(--mint-ink);
-        padding: 0.9rem 1.6rem;
-        box-shadow: 0 10px 30px -12px rgba(45, 212, 168, 0.6);
+      /* ---- principles ---- */
+      .princ {
+        display: grid;
+        gap: 0;
       }
-
-      .btn-mint:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 16px 40px -12px rgba(45, 212, 168, 0.75);
+      .princ .row {
+        display: grid;
+        grid-template-columns: 4rem 1fr;
+        gap: 1.5rem;
+        padding: 2.5rem 0;
+        border-top: 1px solid var(--line);
+        align-items: start;
       }
-
-      .btn-ghost {
-        background: transparent;
-        color: var(--ink);
-        border: 1px solid var(--line-2);
-        padding: 0.9rem 1.6rem;
+      .princ .row:last-child {
+        border-bottom: 1px solid var(--line);
       }
-
-      .btn-ghost:hover {
-        border-color: var(--mint-line);
-        background: var(--mint-soft);
+      .princ .n {
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        color: var(--accent);
+        padding-top: 0.5rem;
       }
-
-      .nav .btn-mint {
-        padding: 0.6rem 1.2rem;
-        font-size: 0.875rem;
+      .princ h3 {
+        font-size: 1.45rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        margin-bottom: 0.7rem;
       }
-
-      /* ---------- Hero ---------- */
-      .hero {
-        position: relative;
-        padding: 9.5rem 0 5rem;
-        text-align: center;
-      }
-
-      .hero-h1 {
-        font-size: clamp(2.6rem, 7.5vw, 4.75rem);
-        font-weight: 900;
-        line-height: 1.16;
-        letter-spacing: -0.04em;
-        margin: 1.4rem 0 0;
-      }
-
-      .hero-h1 .accent {
-        color: var(--mint);
-      }
-
-      .hero-sub {
-        font-size: clamp(1rem, 2.3vw, 1.2rem);
+      .princ p {
         color: var(--dim);
-        margin: 1.5rem auto 0;
-        max-width: 30rem;
+        max-width: 38rem;
+        font-size: 0.975rem;
       }
 
-      .hero-cta {
+      /* ---- capabilities ---- */
+      .caps {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 3.5rem;
+        border-top: 1px solid var(--line);
+      }
+      .cap {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1.35rem 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .cap b {
+        font-weight: 500;
+      }
+      .cap span {
+        color: var(--faint);
+        font-size: 0.85rem;
+        text-align: right;
+        max-width: 16rem;
+      }
+
+      /* ---- product still ---- */
+      .still {
+        display: flex;
+        justify-content: center;
+        padding: 1rem 0 0;
+      }
+      .post {
+        width: 100%;
+        max-width: 30rem;
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        padding: 1.35rem 1.5rem;
+      }
+      .post-top {
         display: flex;
         gap: 0.85rem;
-        justify-content: center;
-        flex-wrap: wrap;
-        margin-top: 2.5rem;
-      }
-
-      /* The 輪 — your circle of reach */
-      .ring-stage {
-        position: relative;
-        width: min(560px, 92vw);
-        aspect-ratio: 1;
-        margin: 3.5rem auto 0;
-      }
-
-      .ring-stage .glow {
-        position: absolute;
-        inset: 12%;
-        border-radius: 50%;
-        background: radial-gradient(
-          circle,
-          var(--mint-soft) 0%,
-          transparent 68%
-        );
-        filter: blur(6px);
-      }
-
-      .orbit {
-        position: absolute;
-        inset: 0;
-        border-radius: 50%;
-        border: 1px dashed var(--line-2);
-      }
-
-      .orbit.o2 {
-        inset: 16%;
-        border-style: solid;
-        border-color: var(--line);
-      }
-
-      .orbit.o3 {
-        inset: 32%;
-        border-color: var(--mint-line);
-      }
-
-      .node {
-        position: absolute;
-        top: var(--t, 50%);
-        left: var(--l, 50%);
-        display: flex;
-        flex-direction: column;
         align-items: center;
-        gap: 0.45rem;
-        transform: translate(-50%, -50%);
+        margin-bottom: 0.85rem;
       }
-
-      .ava {
-        width: var(--s, 3.25rem);
-        height: var(--s, 3.25rem);
+      .pa {
+        width: 2.4rem;
+        height: 2.4rem;
         border-radius: 50%;
-        display: grid;
-        place-items: center;
-        font-weight: 700;
-        color: #fff;
-        font-size: calc(var(--s, 3.25rem) * 0.4);
-        border: 3px solid var(--bg);
-        box-shadow: 0 8px 22px -8px rgba(0, 0, 0, 0.7);
-      }
-
-      .ava.me {
-        --s: 5.5rem;
-        background: radial-gradient(
-          circle at 35% 30%,
-          var(--mint-2),
-          var(--mint)
-        );
-        color: var(--mint-ink);
-        box-shadow:
-          0 0 0 6px var(--mint-soft),
-          0 14px 34px -10px rgba(45, 212, 168, 0.5);
-      }
-
-      .ava.a {
-        background: linear-gradient(135deg, #5b8def, #7aa8ff);
-      }
-      .ava.b {
-        background: linear-gradient(135deg, #e06baa, #ff9ec4);
-      }
-      .ava.c {
-        background: linear-gradient(135deg, #e0a24c, #ffce7a);
-      }
-      .ava.d {
-        background: linear-gradient(135deg, #9b7bf0, #c4abff);
-      }
-      .ava.e {
-        background: linear-gradient(135deg, #4cc4a8, #66e0c0);
-      }
-
-      .node .tag {
-        font-size: 0.7rem;
-        color: var(--mute);
-        background: var(--card);
-        border: 1px solid var(--line);
-        padding: 0.1rem 0.5rem;
-        border-radius: 9999px;
-        white-space: nowrap;
-      }
-
-      /* ---------- Manifesto band ---------- */
-      .band {
-        padding: 6rem 0;
-        text-align: center;
-      }
-
-      .band p {
-        font-size: clamp(1.6rem, 4.4vw, 2.75rem);
-        font-weight: 900;
-        line-height: 1.5;
-        letter-spacing: -0.02em;
-        max-width: 22ch;
-        margin: 0 auto;
-      }
-
-      .band .soft {
-        color: var(--mute);
-      }
-      .band .mint {
-        color: var(--mint);
-      }
-
-      /* ---------- Section scaffolding ---------- */
-      section.block {
-        padding: 5.5rem 0;
-      }
-
-      .block.tint {
-        background: var(--bg-2);
-      }
-
-      .head {
-        max-width: 36rem;
-        margin-bottom: 3rem;
-      }
-
-      .head.center {
-        margin-left: auto;
-        margin-right: auto;
-        text-align: center;
-      }
-
-      .head h2 {
-        font-size: clamp(1.9rem, 4.5vw, 2.7rem);
-        font-weight: 900;
-        letter-spacing: -0.03em;
-        line-height: 1.25;
-        margin: 0.9rem 0 0;
-      }
-
-      .head p {
-        color: var(--dim);
-        margin-top: 0.85rem;
-      }
-
-      /* ---------- Why (philosophy) ---------- */
-      .why {
-        display: grid;
-        gap: 1.1rem;
-      }
-
-      .why-row {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 1.5rem;
-        align-items: start;
-        padding: 1.9rem;
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: var(--r);
-        transition:
-          transform 0.25s,
-          border-color 0.25s;
-      }
-
-      .why-row:hover {
-        transform: translateY(-3px);
-        border-color: var(--mint-line);
-      }
-
-      .why-ico {
-        width: 3.25rem;
-        height: 3.25rem;
-        border-radius: 1rem;
-        display: grid;
-        place-items: center;
-        background: var(--mint-soft);
-        border: 1px solid var(--mint-line);
-        color: var(--mint);
+        background: linear-gradient(135deg, #4c6b8a, #6f8bb0);
         flex-shrink: 0;
       }
-
-      .why-ico svg {
-        width: 1.5rem;
-        height: 1.5rem;
+      .post-top b {
+        font-weight: 500;
+        font-size: 0.95rem;
       }
-
-      .why-row h3 {
-        font-size: 1.2rem;
-        font-weight: 700;
-        margin-bottom: 0.4rem;
+      .post-top span {
+        color: var(--faint);
+        font-size: 0.8rem;
       }
-
-      .why-row p {
+      .post-body {
         color: var(--dim);
         font-size: 0.95rem;
         line-height: 1.75;
       }
+      .post-body .t {
+        color: var(--accent);
+      }
+      .post-act {
+        display: flex;
+        gap: 1.5rem;
+        margin-top: 1.1rem;
+        color: var(--faint);
+        font-family: var(--mono);
+        font-size: 0.72rem;
+      }
 
-      /* ---------- Features ---------- */
-      .feat {
+      /* ---- start ---- */
+      .start {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-        gap: 1rem;
+        gap: 0;
       }
-
-      .tile {
-        padding: 1.5rem;
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: var(--r);
-        transition:
-          transform 0.22s,
-          border-color 0.22s,
-          background 0.22s;
-      }
-
-      .tile:hover {
-        transform: translateY(-3px);
-        border-color: var(--mint-line);
-        background: var(--card-2);
-      }
-
-      .tile .ti {
-        width: 2.6rem;
-        height: 2.6rem;
-        border-radius: 0.85rem;
+      .start .s {
         display: grid;
-        place-items: center;
-        background: var(--mint-soft);
-        color: var(--mint);
-        margin-bottom: 1rem;
+        grid-template-columns: 4rem 1fr auto;
+        gap: 1.5rem;
+        align-items: center;
+        padding: 1.6rem 0;
+        border-top: 1px solid var(--line);
       }
-
-      .tile .ti svg {
-        width: 1.3rem;
-        height: 1.3rem;
+      .start .s:last-of-type {
+        border-bottom: 1px solid var(--line);
       }
-
-      .tile h3 {
-        font-size: 1.02rem;
-        font-weight: 700;
-        margin-bottom: 0.35rem;
+      .start .n {
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        color: var(--accent);
       }
-
-      .tile p {
-        color: var(--dim);
-        font-size: 0.875rem;
-        line-height: 1.7;
+      .start .s b {
+        font-weight: 500;
       }
-
-      /* ---------- Steps ---------- */
-      .steps {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 1rem;
-        counter-reset: s;
+      .start .s span {
+        color: var(--faint);
+        font-size: 0.85rem;
       }
-
-      .step {
-        position: relative;
-        padding: 1.9rem;
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: var(--r);
-      }
-
-      .step .n {
-        width: 2.6rem;
-        height: 2.6rem;
-        border-radius: 50%;
-        display: grid;
-        place-items: center;
-        font-weight: 900;
-        background: var(--mint);
-        color: var(--mint-ink);
-        margin-bottom: 1rem;
-      }
-
-      .step h3 {
-        font-size: 1.05rem;
-        font-weight: 700;
-        margin-bottom: 0.4rem;
-      }
-
-      .step p {
-        color: var(--dim);
+      .start-note {
+        margin-top: 1.75rem;
+        color: var(--faint);
         font-size: 0.9rem;
       }
 
-      /* ---------- FAQ ---------- */
-      .faq {
-        max-width: 44rem;
-        margin: 0 auto;
+      /* ---- close ---- */
+      .close {
+        border-top: 1px solid var(--line);
+        padding: 8rem 0;
       }
-
-      .qa {
-        border-bottom: 1px solid var(--line);
-      }
-
-      .qa button {
-        width: 100%;
-        background: none;
-        border: 0;
-        color: var(--ink);
-        font-family: inherit;
-        font-size: 1.05rem;
+      .close h2 {
+        font-size: clamp(1.9rem, 5vw, 2.75rem);
         font-weight: 700;
-        text-align: left;
-        padding: 1.4rem 0;
+        letter-spacing: -0.01em;
+        line-height: 1.5;
+      }
+      .close .act {
+        margin-top: 2.5rem;
         display: flex;
-        justify-content: space-between;
+        gap: 1.75rem;
         align-items: center;
-        gap: 1rem;
-        cursor: pointer;
-      }
-
-      .qa button:hover {
-        color: var(--mint);
-      }
-
-      .qa .ic {
-        flex-shrink: 0;
-        width: 1.4rem;
-        height: 1.4rem;
-        color: var(--mute);
-        transition: transform 0.3s;
-      }
-
-      .qa.open .ic {
-        transform: rotate(45deg);
-        color: var(--mint);
-      }
-
-      .qa .a {
-        max-height: 0;
-        overflow: hidden;
-        transition: max-height 0.3s ease;
-      }
-
-      .qa.open .a {
-        max-height: 340px;
-      }
-
-      .qa .a p {
-        color: var(--dim);
-        padding-bottom: 1.4rem;
         font-size: 0.95rem;
-        line-height: 1.85;
       }
 
-      /* ---------- CTA ---------- */
-      .cta {
-        position: relative;
-        text-align: center;
-        padding: 6.5rem 0;
-        overflow: hidden;
-        isolation: isolate;
-      }
-
-      .cta::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        z-index: -1;
-        background:
-          radial-gradient(
-            circle at 50% 120%,
-            var(--mint-soft) 0%,
-            transparent 55%
-          ),
-          var(--bg-2);
-      }
-
-      .cta h2 {
-        font-size: clamp(1.9rem, 5vw, 3rem);
-        font-weight: 900;
-        letter-spacing: -0.03em;
-        line-height: 1.25;
-      }
-
-      .cta p {
-        color: var(--dim);
-        margin: 1rem auto 2.25rem;
-        max-width: 32rem;
-      }
-
-      .cta-btns {
-        display: flex;
-        gap: 0.85rem;
-        justify-content: center;
-        flex-wrap: wrap;
-      }
-
-      .cta .note {
-        margin-top: 1.5rem;
-        font-size: 0.85rem;
-        color: var(--mute);
-      }
-
-      /* ---------- Footer ---------- */
+      /* ---- footer ---- */
       footer {
         border-top: 1px solid var(--line);
         padding: 2.5rem 0;
       }
-
       .foot {
         display: flex;
         flex-wrap: wrap;
@@ -672,37 +412,26 @@
         align-items: center;
         justify-content: space-between;
       }
-
       .foot .links {
         display: flex;
         flex-wrap: wrap;
         gap: 1.5rem;
+        font-size: 0.85rem;
+      }
+      .foot .c {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--faint);
       }
 
-      .foot a {
-        color: var(--dim);
-        font-size: 0.875rem;
-        transition: color 0.2s;
-      }
-
-      .foot a:hover {
-        color: var(--ink);
-      }
-
-      .foot .copy {
-        color: var(--mute);
-        font-size: 0.8125rem;
-      }
-
-      /* ---------- Reveal (safe: visible by default, animates in on scroll) -- */
+      /* ---- reveal ---- */
       .reveal.in {
-        animation: rise 0.6s ease both;
+        animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
       }
-
       @keyframes rise {
         from {
           opacity: 0;
-          transform: translateY(18px);
+          transform: translateY(14px);
         }
         to {
           opacity: 1;
@@ -710,530 +439,240 @@
         }
       }
 
-      /* ---------- Responsive ---------- */
-      @media (max-width: 760px) {
+      @media (max-width: 720px) {
         .nav-links {
           display: none;
         }
-        .steps {
+        .caps {
           grid-template-columns: 1fr;
         }
-        .band {
-          padding: 4.5rem 0;
+        .cap span {
+          max-width: 11rem;
         }
-        .hero {
-          padding: 8rem 0 3rem;
+        .ring {
+          right: -22rem;
+          opacity: 0.6;
         }
-        .cta-btns .btn,
-        .hero-cta .btn {
-          width: 100%;
-          justify-content: center;
+        .princ .row,
+        .start .s {
+          grid-template-columns: 2.5rem 1fr;
+        }
+        .start .s {
+          grid-template-columns: 2.5rem 1fr;
+        }
+        .start .s span {
+          grid-column: 2;
         }
       }
 
       @media (prefers-reduced-motion: reduce) {
         .reveal {
-          opacity: 1;
-          transform: none;
-          transition: none;
+          animation: none !important;
+        }
+        html {
+          scroll-behavior: auto;
         }
       }
     </style>
   </head>
   <body>
-    <!-- Nav -->
     <nav class="nav" id="nav">
-      <div class="nav-inner">
-        <a href="/" class="brand"><span class="mark"></span>Yurucommu</a>
+      <div class="nav-in">
+        <a href="/" class="brand"><span class="dot"></span>yurucommu</a>
         <div class="nav-links">
-          <a href="#why">思想</a>
-          <a href="#features">機能</a>
-          <a href="/help/">Docs</a>
-          <a href="/specs/">Specs</a>
+          <a href="/help/" class="link">Docs</a>
+          <a href="/specs/" class="link">Specs</a>
+          <a href="https://github.com/tako0614/yurucommu" class="link"
+            >GitHub</a
+          >
         </div>
-        <a href="#start" class="btn btn-mint">はじめる</a>
       </div>
     </nav>
 
     <!-- Hero -->
     <header class="hero">
-      <div class="wrap">
-        <span class="eyebrow">セルフホスト・一人用の ActivityPub SNS</span>
-        <h1 class="hero-h1">
-          ゆるく繋がる、<br /><span class="accent">自分だけのSNS。</span>
-        </h1>
-        <p class="hero-sub">
-          アルゴリズムに振り回されない。プラットフォームに縛られない。
-          自分の<strong>輪</strong>の中だけで、本当に大切な人と繋がる居場所。
+      <span class="ring" aria-hidden="true"></span>
+      <div class="wrap hero-in">
+        <span class="mono">Self-hosted · ActivityPub</span>
+        <h1>大きなSNSを、<br />そっと降りる。</h1>
+        <p>
+          自分ひとりのための、小さなSNS。アルゴリズムも、知らない誰かもいない。自分が広げた輪の中だけで、ゆっくり過ごす。
         </p>
-        <div class="hero-cta">
-          <a href="#start" class="btn btn-mint">
-            はじめる
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
-          </a>
-          <a href="#why" class="btn btn-ghost">どんな思想？</a>
-        </div>
-
-        <!-- 輪 : your circle of reach -->
-        <div class="ring-stage" aria-hidden="true">
-          <div class="glow"></div>
-          <div class="orbit"></div>
-          <div class="orbit o2"></div>
-          <div class="orbit o3"></div>
-          <div class="node" style="--t: 50%; --l: 50%">
-            <span class="ava me">あ</span>
-          </div>
-          <div class="node" style="--t: 12%; --l: 50%">
-            <span class="ava a">き</span>
-          </div>
-          <div class="node" style="--t: 33%; --l: 84%">
-            <span class="ava b">の</span>
-          </div>
-          <div class="node" style="--t: 74%; --l: 72%">
-            <span class="ava c">み</span>
-          </div>
-          <div class="node" style="--t: 74%; --l: 28%">
-            <span class="ava d">ゆ</span>
-          </div>
-          <div class="node" style="--t: 33%; --l: 16%">
-            <span class="ava e">こ</span>
-          </div>
+        <div class="hero-act">
+          <a href="#start" class="arrow">はじめる <span>→</span></a>
+          <a href="https://github.com/tako0614/yurucommu" class="link"
+            >GitHub</a
+          >
         </div>
       </div>
     </header>
 
-    <!-- Manifesto -->
+    <!-- Statement -->
+    <section class="statement">
+      <div class="wrap reveal">
+        <p>
+          届く範囲は、<br />自分が広げた輪の中だけで、<span class="soft"
+            >いい。</span
+          >
+        </p>
+      </div>
+    </section>
+
+    <!-- Principles -->
+    <section class="band" id="why">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="mono">考え方</span>
+        </div>
+        <div class="princ">
+          <div class="row reveal">
+            <span class="n">01</span>
+            <div>
+              <h3>アルゴリズムを、手放す。</h3>
+              <p>
+                タイムラインはただの時系列。おすすめも、バズもない。流れてくるのは、自分がフォローした人の声だけ。
+              </p>
+            </div>
+          </div>
+          <div class="row reveal">
+            <span class="n">02</span>
+            <div>
+              <h3>輪は、小さくていい。</h3>
+              <p>
+                興味でつくる小さなコミュニティが、そのまま「届く範囲」になる。薄く広い繋がりより、濃くて小さな繋がりを。
+              </p>
+            </div>
+          </div>
+          <div class="row reveal">
+            <span class="n">03</span>
+            <div>
+              <h3>居場所は、自分のもの。</h3>
+              <p>
+                セルフホストだから、データも、続けるかどうかも、すべて自分の手の中に。凍結も、サービス終了もない。ActivityPub
+                で、外の世界とは繋がったまま。
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Capabilities -->
     <section class="band">
       <div class="wrap">
-        <p>
-          SNSは、<span class="mint">もっと静かでいい。</span><br /><span
-            class="soft"
-            >届く範囲は、自分が広げた輪の中だけで十分。</span
-          >
-        </p>
-      </div>
-    </section>
-
-    <!-- Why -->
-    <section class="block tint" id="why">
-      <div class="wrap">
-        <div class="head reveal">
-          <span class="eyebrow">思想</span>
-          <h2>大きなSNSを、降りる。</h2>
-          <p>大規模SNSの息苦しさを手放す、新しいソーシャルの形。</p>
+        <div class="sec-head reveal">
+          <span class="mono">できること</span>
+          <h2>シンプルに、ちゃんと。</h2>
         </div>
-        <div class="why">
-          <div class="why-row reveal">
-            <span class="why-ico">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <line x1="2" y1="12" x2="22" y2="12" />
-                <path
-                  d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
-                />
-              </svg>
-            </span>
-            <div>
-              <h3>アルゴリズムからの解放</h3>
-              <p>
-                タイムラインは純粋な時系列。「おすすめ」や「バズ」に振り回されることなく、自分がフォローした人の投稿だけが流れてきます。
-              </p>
-            </div>
+        <div class="caps reveal">
+          <div class="cap">
+            <b>投稿 / Note</b><span>時系列のタイムライン</span>
           </div>
-          <div class="why-row reveal">
-            <span class="why-ico">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-            </span>
-            <div>
-              <h3>コミュニティ単位の繋がり</h3>
-              <p>
-                興味や趣味で小さな輪を形成。親密な関係を構築できる。大規模SNSの「薄い繋がり」ではなく「濃い繋がり」を実現します。
-              </p>
-            </div>
+          <div class="cap">
+            <b>コミュニティ</b><span>興味でつくる小さな輪</span>
           </div>
-          <div class="why-row reveal">
-            <span class="why-ico">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-            </span>
-            <div>
-              <h3>プラットフォームからの独立</h3>
-              <p>
-                セルフホストで自分のデータは自分で管理。サービス終了やアカウント凍結のリスクなし。あなたのSNSは、あなたのものです。
-              </p>
-            </div>
+          <div class="cap">
+            <b>メッセージ</b><span>1対1のプライベートな会話</span>
+          </div>
+          <div class="cap">
+            <b>ストーリー</b><span>24時間で消える近況</span>
+          </div>
+          <div class="cap"><b>画像投稿</b><span>テキストと画像</span></div>
+          <div class="cap"><b>QR交換</b><span>その場でフォロー</span></div>
+          <div class="cap"><b>ブックマーク</b><span>後で見返す</span></div>
+          <div class="cap">
+            <b>ActivityPub</b><span>Mastodon / Misskey と越境</span>
           </div>
         </div>
-      </div>
-    </section>
-
-    <!-- Features -->
-    <section class="block" id="features">
-      <div class="wrap">
-        <div class="head center reveal">
-          <span class="eyebrow">機能</span>
-          <h2>シンプルに、ちゃんと揃ってる。</h2>
-        </div>
-        <div class="feat">
-          <div class="tile reveal">
-            <span class="ti"
-              ><svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                /></svg
-            ></span>
-            <h3>ActivityPub対応</h3>
-            <p>
-              federation を手段に、Mastodon や Misskey
-              など他のサーバーと越境して繋ぐ。
+        <div class="still reveal" style="margin-top: 3.5rem">
+          <div class="post">
+            <div class="post-top">
+              <span class="pa"></span>
+              <div><b>のどか</b> <span>@nodoka · 2分</span></div>
+            </div>
+            <p class="post-body">
+              海の見える街に引っ越しました。ゆるく繋がれる人、この
+              <span class="t">#輪</span> の中だけで十分かも。
             </p>
-          </div>
-          <div class="tile reveal">
-            <span class="ti"
-              ><svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg
-            ></span>
-            <h3>コミュニティ</h3>
-            <p>トピックベースの輪で、同じ興味を持つ人と交流。</p>
-          </div>
-          <div class="tile reveal">
-            <span class="ti"
-              ><svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
-                /></svg
-            ></span>
-            <h3>ダイレクトメッセージ</h3>
-            <p>プライベートな1対1の会話。</p>
-          </div>
-          <div class="tile reveal">
-            <span class="ti"
-              ><svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" /></svg
-            ></span>
-            <h3>ストーリー</h3>
-            <p>24時間で消える、気軽な近況の共有。</p>
-          </div>
-          <div class="tile reveal">
-            <span class="ti"
-              ><svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <rect x="3" y="3" width="7" height="7" />
-                <rect x="14" y="3" width="7" height="7" />
-                <rect x="14" y="14" width="7" height="7" />
-                <rect x="3" y="14" width="7" height="7" /></svg
-            ></span>
-            <h3>QRコード交換</h3>
-            <p>スキャンするだけで簡単にフォロー。</p>
-          </div>
-          <div class="tile reveal">
-            <span class="ti"
-              ><svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
-                />
-                <polyline points="22,6 12,13 2,6" /></svg
-            ></span>
-            <h3>画像投稿</h3>
-            <p>テキストと画像を組み合わせた投稿。</p>
-          </div>
-          <div class="tile reveal">
-            <span class="ti"
-              ><svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"
-                /></svg
-            ></span>
-            <h3>ブックマーク</h3>
-            <p>気になる投稿を後で見返せるように保存。</p>
+            <div class="post-act">
+              <span>RE 3</span><span>RP 1</span><span>LIKE 12</span>
+            </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Start / steps -->
-    <section class="block tint" id="start">
+    <!-- Start -->
+    <section class="band" id="start">
       <div class="wrap">
-        <div class="head center reveal">
-          <span class="eyebrow">はじめ方</span>
+        <div class="sec-head reveal">
+          <span class="mono">はじめ方</span>
           <h2>3ステップで、自分の居場所。</h2>
-          <p>Cloudflare の無料枠で運用できます。</p>
         </div>
-        <div class="steps">
-          <div class="step reveal">
-            <span class="n">1</span>
-            <h3>クローン</h3>
-            <p>GitHub から Yurucommu のソースコードを取得します。</p>
+        <div class="start">
+          <div class="s reveal">
+            <span class="n">01</span><b>クローン</b
+            ><span>GitHub からソースを取得</span>
           </div>
-          <div class="step reveal">
-            <span class="n">2</span>
-            <h3>デプロイ</h3>
-            <p>Workers / D1 / R2 を使って自分のドメインにデプロイ。</p>
+          <div class="s reveal">
+            <span class="n">02</span><b>デプロイ</b
+            ><span>Workers / D1 / R2 で自分のドメインへ</span>
           </div>
-          <div class="step reveal">
-            <span class="n">3</span>
-            <h3>アカウント作成</h3>
-            <p>自分だけのインスタンスでアカウントを作って完了。</p>
+          <div class="s reveal">
+            <span class="n">03</span><b>アカウント作成</b
+            ><span>自分だけのインスタンスで完了</span>
           </div>
         </div>
-      </div>
-    </section>
-
-    <!-- FAQ -->
-    <section class="block" id="faq">
-      <div class="wrap">
-        <div class="head center reveal">
-          <span class="eyebrow">FAQ</span>
-          <h2>よくある質問</h2>
-        </div>
-        <div class="faq">
-          <div class="qa">
-            <button>
-              なぜセルフホストなのですか？<svg
-                class="ic"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-            <div class="a">
-              <p>
-                プラットフォームに依存すると、アカウント凍結やサービス終了のリスクがあります。セルフホストすることで、自分のデータを自分で管理し、永続的に使い続けることができます。また、アルゴリズムによる操作もありません。
-              </p>
-            </div>
-          </div>
-          <div class="qa">
-            <button>
-              ActivityPubとは何ですか？<svg
-                class="ic"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-            <div class="a">
-              <p>
-                ActivityPubは、異なるSNSサービス間で情報をやり取りするための標準規格です。これにより、MastodonやMisskeyなど他のActivityPub対応サービスのユーザーとフォローしたり、投稿を見たりすることができます。
-              </p>
-            </div>
-          </div>
-          <div class="qa">
-            <button>
-              運用コストはどのくらいですか？<svg
-                class="ic"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-            <div class="a">
-              <p>
-                Cloudflare Workers / D1 / R2
-                の無料枠内で運用できます。個人利用であれば、ほぼ無料で運用可能です。ドメイン代のみ別途必要になります。
-              </p>
-            </div>
-          </div>
-          <div class="qa">
-            <button>
-              一人用とはどういう意味ですか？<svg
-                class="ic"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-            <div class="a">
-              <p>
-                1つのインスタンスに1人のユーザーという設計です。自分専用のSNSサーバーを持つことで、完全な自己管理が可能になります。他のユーザーとは
-                ActivityPub を通じて繋がります。
-              </p>
-            </div>
-          </div>
-          <div class="qa">
-            <button>
-              コミュニティ機能はどう使いますか？<svg
-                class="ic"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-            <div class="a">
-              <p>
-                コミュニティは興味や趣味に基づいた輪です。同じコミュニティに参加している人同士で投稿を共有でき、親密な人間関係を構築するのに役立ちます。
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- CTA -->
-    <section class="cta">
-      <div class="wrap">
-        <h2>自分の輪を、自分の手で。</h2>
-        <p>
-          アルゴリズムに支配されない、本当の繋がりを。自分のドメインに、自分だけのインスタンスを。
+        <p class="start-note reveal">
+          Cloudflare の無料枠で動く。かかるのは、ドメイン代だけ。
         </p>
-        <div class="cta-btns">
-          <a href="/help/deployment.html" class="btn btn-mint">
-            デプロイ手順を見る
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M5 12h14M13 6l6 6-6 6" />
-            </svg>
-          </a>
+      </div>
+    </section>
+
+    <!-- Close -->
+    <section class="close">
+      <div class="wrap reveal">
+        <h2>自分の輪を、<br />自分の手で。</h2>
+        <div class="act">
+          <a href="/help/deployment.html" class="arrow"
+            >デプロイ手順を見る <span>→</span></a
+          >
           <a
             href="https://github.com/tako0614/yurucommu"
-            class="btn btn-ghost"
+            class="link"
             rel="noopener"
+            >GitHub</a
           >
-            GitHub で見る
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"
-              />
-            </svg>
-          </a>
         </div>
-        <p class="note">
-          yurucommu は Takos の bundled app の 1 つ。単体でも、Takos
-          と一緒にでも install できる。
-        </p>
       </div>
     </section>
 
-    <!-- Footer -->
     <footer>
       <div class="wrap foot">
-        <a href="/" class="brand"><span class="mark"></span>Yurucommu</a>
+        <a href="/" class="brand"><span class="dot"></span>yurucommu</a>
         <div class="links">
-          <a href="#why">思想</a>
-          <a href="#features">機能</a>
-          <a href="/help/">Docs</a>
-          <a href="/specs/">Specs</a>
-          <a href="https://github.com/tako0614/yurucommu">GitHub</a>
+          <a href="#why" class="link">考え方</a>
+          <a href="/help/" class="link">Docs</a>
+          <a href="/specs/" class="link">Specs</a>
+          <a href="https://github.com/tako0614/yurucommu" class="link"
+            >GitHub</a
+          >
         </div>
-        <span class="copy">&copy; 2026 Yurucommu · AGPL v3</span>
+        <span class="c">© 2026 · AGPL v3</span>
       </div>
     </footer>
 
     <script>
-      // nav border on scroll
       const nav = document.getElementById("nav");
       const onScroll = () =>
         nav.classList.toggle("scrolled", window.scrollY > 8);
       onScroll();
       window.addEventListener("scroll", onScroll, { passive: true });
 
-      // FAQ accordion
-      document.querySelectorAll(".qa button").forEach((b) => {
-        b.addEventListener("click", () =>
-          b.parentElement.classList.toggle("open"),
-        );
-      });
-
-      // reveal on scroll
       const io = new IntersectionObserver(
         (es) =>
           es.forEach((e) => e.isIntersecting && e.target.classList.add("in")),
-        { threshold: 0.12 },
+        { threshold: 0.14 },
       );
       document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
     </script>
