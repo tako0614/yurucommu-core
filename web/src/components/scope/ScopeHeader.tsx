@@ -1,14 +1,11 @@
 import { Show } from "solid-js";
-import { A } from "@solidjs/router";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { actorAtom } from "../../atoms/auth.ts";
 import { inhabitedScopeAtom } from "../../atoms/scope.ts";
 import { appMenuOpenAtom } from "../../atoms/shell.ts";
-import { notificationUnreadAtom } from "../../atoms/notifications.ts";
 import { showPostModalAtom } from "../../atoms/timeline.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
-import { NavBadge } from "../layout/NavBadge.tsx";
 import { ScopePill } from "./ScopePill.tsx";
 
 interface ScopeHeaderProps {
@@ -16,40 +13,6 @@ interface ScopeHeaderProps {
   // sheet instance is shared with the ScopeBar's trailing affordance.
   onOpenSwitcher: () => void;
 }
-
-const MessageIcon = () => (
-  <svg
-    class="h-6 w-6"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-    aria-hidden="true"
-  >
-    <path
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width={2}
-      d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-    />
-  </svg>
-);
-
-const BellIcon = () => (
-  <svg
-    class="h-6 w-6"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-    aria-hidden="true"
-  >
-    <path
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width={2}
-      d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-    />
-  </svg>
-);
 
 const ComposeIcon = () => (
   <svg
@@ -88,7 +51,6 @@ export function ScopeHeader(props: ScopeHeaderProps) {
   const actor = useAtomValue(actorAtom);
   const scope = useAtomValue(inhabitedScopeAtom);
   const openMenu = useSetAtom(appMenuOpenAtom);
-  const unreadCount = useAtomValue(notificationUnreadAtom);
   const openComposer = useSetAtom(showPostModalAtom);
 
   // Read-only ambient reach line. A community scope reaches its members; the
@@ -166,31 +128,12 @@ export function ScopeHeader(props: ScopeHeaderProps) {
           <p class="truncate pl-1 text-xs text-neutral-500">{reach()}</p>
         </div>
 
-        {/* Right cluster: DM, notifications, compose. Hidden on mobile where the
-            BottomNav already surfaces these destinations; shown on desktop. */}
+        {/* Right cluster: scope-aware compose only. DM and notifications are
+            intentionally NOT duplicated here — the desktop sidebar and the
+            mobile BottomNav already surface those destinations, so repeating
+            them in the column header is redundant clutter. Compose stays
+            because it posts to the CURRENT inhabited scope. */}
         <div class="hidden shrink-0 items-center gap-1 md:flex">
-          <A
-            href="/dm"
-            aria-label={t("menu.messages")}
-            class="p-2 text-white transition-colors hover:text-neutral-400"
-          >
-            <MessageIcon />
-          </A>
-          <A
-            href="/notifications"
-            aria-label={t("menu.notifications")}
-            class="relative p-2 text-white transition-colors hover:text-neutral-400"
-          >
-            <BellIcon />
-            <Show when={unreadCount() > 0}>
-              <span class="absolute right-0.5 top-0.5">
-                <NavBadge
-                  count={unreadCount()}
-                  label={t("nav.notifications")}
-                />
-              </span>
-            </Show>
-          </A>
           <button
             type="button"
             onClick={() => openComposer(true)}

@@ -42,8 +42,11 @@ export function ProfilePage() {
   // don't present a pending request as an accepted follow.
   const [followPending, setFollowPending] = createSignal(false);
   const [activeTab, setActiveTab] = createSignal<"posts">("posts");
-  // Media grid is the IG-style default; a list toggle is available.
-  const [postsView, setPostsView] = createSignal<"grid" | "list">("grid");
+  // List is the default: Note (text) is yurucommu's primary content type, so
+  // the profile must show text posts up front rather than a media-only grid
+  // that reads "no media posts" for a text-first poster. A media grid toggle
+  // remains available.
+  const [postsView, setPostsView] = createSignal<"grid" | "list">("list");
   const [showEditModal, setShowEditModal] = createSignal(false);
   const [editName, setEditName] = createSignal("");
   const [editSummary, setEditSummary] = createSignal("");
@@ -110,7 +113,7 @@ export function ProfilePage() {
       setShowQr(false);
       setPendingModeration(null);
       setActiveTab("posts");
-      setPostsView("grid");
+      setPostsView("list");
       loadProfile();
     }),
   );
