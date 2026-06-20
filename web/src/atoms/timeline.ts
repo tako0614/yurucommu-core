@@ -125,7 +125,17 @@ export const accountsErrorAtom = atom<string | null>(null);
 export const showAccountSwitcherAtom = atom(false);
 
 // --- Actions ---
+
+// Monotonic generation guards. Switching the home filter fires a fresh load; a
+// slow prior fetch must NOT land its result over a newer view (last-writer-wins
+// would let a slow "すべて" response overwrite the community you just picked).
+// Each full reload bumps the counter and bails if superseded; loadMore captures
+// the counter and bails if a reload happened mid-flight.
+let timelineLoadGen = 0;
+let storiesLoadGen = 0;
+
 export const loadTimelineAtom = atom(null, async (get, set) => {
+  const gen = ++timelineLoadGen;
   if (get(timelinePostsAtom).length === 0) set(timelineLoadingAtom, true);
   set(timelineLoadErrorAtom, null);
   set(timelineHasMoreAtom, true);
@@ -135,15 +145,17 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
       limit: 20,
       community: scope?.community,
     });
+    if (gen !== timelineLoadGen) return; // a newer load superseded this one
     set(timelinePostsAtom, posts);
     set(timelineHasMoreAtom, posts.length >= 20);
     // A full reload already shows the freshest head; drop any staged posts.
     set(pendingNewPostsAtom, []);
   } catch (e) {
+    if (gen !== timelineLoadGen) return;
     console.error("Failed to load timeline:", e);
     set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {
-    set(timelineLoadingAtom, false);
+    if (gen === timelineLoadGen) set(timelineLoadingAtom, false);
   }
 });
 
@@ -154,6 +166,7 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
   if (loadingMore || !hasMore || posts.length === 0) return;
 
   set(timelineLoadingMoreAtom, true);
+  const gen = timelineLoadGen;
   try {
     const lastPost = posts[posts.length - 1];
     const scope = get(scopeQueryAtom);
@@ -162,8 +175,11 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
       before: lastPost.ap_id,
       community: scope?.community,
     });
+    // A full reload (e.g. filter switch) happened mid-flight → these are the
+    // previous scope's next page; do not append them onto the new feed.
+    if (gen !== timelineLoadGen) return;
     if (newPosts.length > 0) {
-      set(timelinePostsAtom, [...posts, ...newPosts]);
+      set(timelinePostsAtom, [...get(timelinePostsAtom), ...newPosts]);
     }
     set(timelineHasMoreAtom, newPosts.length >= 20);
   } catch (e) {
@@ -177,6 +193,7 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
 });
 
 export const loadStoriesAtom = atom(null, async (get, set) => {
+  const gen = ++storiesLoadGen;
   set(storiesErrorAtom, null);
   try {
     // Filter the StoryBar by the inhabited scope: personal observes self +
@@ -184,12 +201,14 @@ export const loadStoriesAtom = atom(null, async (get, set) => {
     // backend returns only that community's members' stories (member-gated).
     const scope = get(scopeQueryAtom);
     const data = await fetchStories(scope?.community);
+    if (gen !== storiesLoadGen) return; // superseded by a newer scope load
     set(actorStoriesAtom, data);
   } catch (e) {
+    if (gen !== storiesLoadGen) return;
     console.error("Failed to load stories:", e);
     set(storiesErrorAtom, get(tAtom)("story.loadFailed"));
   } finally {
-    set(storiesLoadingAtom, false);
+    if (gen === storiesLoadGen) set(storiesLoadingAtom, false);
   }
 });
 
