@@ -324,21 +324,11 @@ export function DMChatPanel(props: DMChatPanelProps) {
             />
           </svg>
         </button>
-        <Show
-          when={props.contact.icon_url}
-          fallback={
-            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
-              {(props.contact.name ||
-                props.contact.preferred_username)?.[0]?.toUpperCase() || "?"}
-            </div>
-          }
-        >
-          <img
-            src={props.contact.icon_url ?? undefined}
-            alt={props.contact.name || props.contact.preferred_username}
-            class="w-10 h-10 rounded-full object-cover"
-          />
-        </Show>
+        <UserAvatar
+          avatarUrl={props.contact.icon_url ?? null}
+          name={props.contact.name || props.contact.preferred_username || "?"}
+          size={40}
+        />
         <div class="flex-1 min-w-0">
           <div class="font-semibold text-white truncate">
             {props.contact.name || props.contact.preferred_username}

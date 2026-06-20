@@ -2,6 +2,7 @@ import { Show } from "solid-js";
 import { DMContact } from "../../lib/api.ts";
 import { formatConversationListTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import { UserAvatar } from "../UserAvatar.tsx";
 
 interface DMContactItemProps {
   contact: DMContact;
@@ -18,23 +19,13 @@ export function DMContactItem(props: DMContactItemProps) {
       class="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 active:bg-neutral-800 transition-colors"
     >
       <div class="relative flex-shrink-0">
-        <Show
-          when={props.contact.icon_url}
-          fallback={
-            <div class="w-14 h-14 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-xl">
-              {(props.contact.name ||
-                props.contact.preferred_username)?.[0]?.toUpperCase() || "?"}
-            </div>
-          }
-        >
-          <img
-            src={props.contact.icon_url ?? undefined}
-            alt={props.contact.name || props.contact.preferred_username}
-            class="w-14 h-14 rounded-full object-cover"
-          />
-        </Show>
+        <UserAvatar
+          avatarUrl={props.contact.icon_url ?? null}
+          name={props.contact.name || props.contact.preferred_username || "?"}
+          size={56}
+        />
         <Show when={props.isPinned}>
-          <div class="absolute -top-1 -left-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-black">
+          <div class="absolute -top-1 -left-1 w-5 h-5 bg-accent rounded-full flex items-center justify-center border-2 border-black">
             <svg
               class="w-3 h-3 text-white"
               fill="currentColor"
