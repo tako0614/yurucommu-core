@@ -6,12 +6,14 @@ import {
   bookmarkPost,
   createPost,
   deletePost,
+  editPost,
   fetchPost,
   fetchReplies,
   likePost,
   unbookmarkPost,
   unlikePost,
 } from "../lib/api.ts";
+import { EditPostModal } from "../components/timeline/EditPostModal.tsx";
 import { useI18n } from "../lib/i18n.tsx";
 import { decodeApIdParam } from "../lib/routeApId.ts";
 import { useSetAtom } from "solid-jotai";
@@ -50,6 +52,17 @@ const TrashIcon = () => (
       stroke-linejoin="round"
       stroke-width={2}
       d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+    />
+  </svg>
+);
+
+const EditIcon = () => (
+  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
     />
   </svg>
 );
@@ -175,6 +188,38 @@ export function PostDetailPage() {
     setPendingDelete({ post: targetPost, isReply });
   };
 
+  // Edit your own post or reply. Mirrors the timeline edit path: PATCH the
+  // content/CW and merge the server's confirmed fields into whichever of the
+  // main post / replies matches by ap_id (no refetch). The same modal serves
+  // both since a reply is just a Post.
+  const [editingPost, setEditingPost] = createSignal<Post | null>(null);
+  const [savingEdit, setSavingEdit] = createSignal(false);
+
+  const handleSaveEdit = async (data: {
+    content: string;
+    summary: string | null;
+  }) => {
+    const target = editingPost();
+    if (!target || savingEdit()) return;
+    setSavingEdit(true);
+    try {
+      const updated = await editPost(target.ap_id, data);
+      const merge = (p: Post) =>
+        p.ap_id === target.ap_id
+          ? { ...p, content: updated.content, summary: updated.summary }
+          : p;
+      setPost((prev) => (prev ? merge(prev) : prev));
+      setReplies((prev) => prev.map(merge));
+      setEditingPost(null);
+      pushToast(setToasts, t("feedback.postEdited"), { kind: "success" });
+    } catch (e) {
+      console.error("Failed to edit post:", e);
+      pushToast(setToasts, t("feedback.editFailed"), { kind: "error" });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const confirmDelete = async () => {
     const pending = pendingDelete();
     if (!pending) return;
@@ -271,12 +316,22 @@ export function PostDetailPage() {
                 <div class="text-neutral-500">@{post()!.author.username}</div>
               </div>
               <Show when={post()!.author.ap_id === actor.ap_id}>
-                <button
-                  onClick={() => handleDelete(post()!)}
-                  class="p-2 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
-                >
-                  <TrashIcon />
-                </button>
+                <div class="flex items-center gap-1">
+                  <button
+                    onClick={() => setEditingPost(post()!)}
+                    aria-label={t("posts.edit")}
+                    class="p-2 text-neutral-500 hover:text-accent hover:bg-[var(--accent)]/10 rounded-full transition-colors"
+                  >
+                    <EditIcon />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(post()!)}
+                    aria-label={t("common.delete")}
+                    class="p-2 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
               </Show>
             </div>
             <PostContent
@@ -441,13 +496,22 @@ export function PostDetailPage() {
                       {formatDateTime(reply.published)}
                     </span>
                     <Show when={reply.author.ap_id === actor.ap_id}>
-                      <button
-                        onClick={() => handleDelete(reply, true)}
-                        aria-label={t("common.delete")}
-                        class="ml-auto p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
-                      >
-                        <TrashIcon />
-                      </button>
+                      <div class="ml-auto flex items-center gap-1">
+                        <button
+                          onClick={() => setEditingPost(reply)}
+                          aria-label={t("posts.edit")}
+                          class="p-1 text-neutral-500 hover:text-accent hover:bg-[var(--accent)]/10 rounded-full transition-colors"
+                        >
+                          <EditIcon />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(reply, true)}
+                          aria-label={t("common.delete")}
+                          class="p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
                     </Show>
                   </div>
                   <PostContent
@@ -507,6 +571,18 @@ export function PostDetailPage() {
         onConfirm={confirmDelete}
         onCancel={() => setPendingDelete(null)}
       />
+      {/* Edit modal — keyed so re-opening on a different post/reply re-mounts it
+          and re-initialises its content/CW signals from that target. */}
+      <Show when={editingPost()} keyed>
+        {(target) => (
+          <EditPostModal
+            post={target}
+            saving={savingEdit()}
+            onClose={() => setEditingPost(null)}
+            onSave={handleSaveEdit}
+          />
+        )}
+      </Show>
     </div>
   );
 }
