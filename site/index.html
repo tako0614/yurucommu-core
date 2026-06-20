@@ -3,15 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Yurucommu - 自分だけのSNS</title>
+    <title>Yurucommu — ゆるく繋がる、自分だけのSNS</title>
     <meta
       name="description"
-      content="Yurucommuは、セルフホスト型・一人用のActivityPub SNS。アルゴリズムに左右されず、コミュニティ単位で親密な人間関係を構築できます。"
+      content="Yurucommuは、セルフホスト型・一人用のActivityPub SNS。アルゴリズムに左右されず、自分の輪の中だけで、ゆるく親密に繋がる。"
     />
-    <meta property="og:title" content="Yurucommu - 自分だけのSNS" />
+    <meta
+      property="og:title"
+      content="Yurucommu — ゆるく繋がる、自分だけのSNS"
+    />
     <meta
       property="og:description"
-      content="セルフホスト型・一人用のActivityPub SNS"
+      content="セルフホスト型・一人用のActivityPub SNS。自分の輪の中だけで、ゆるく繋がる。"
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://yurucommu.com" />
@@ -22,26 +25,33 @@
       rel="stylesheet"
     />
     <style>
-      * {
+      *,
+      *::before,
+      *::after {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
       }
 
       :root {
-        --bg-primary: #0a0c10;
-        --bg-secondary: #10131a;
-        --bg-card: #161a22;
-        --text-primary: #eef2f7;
-        --text-secondary: #99a4b3;
-        --text-muted: #5f6b7a;
-        --accent: #4f8dff;
-        --accent-2: #7bb8ff;
-        --accent-hover: #69a0ff;
-        --accent-soft: rgba(79, 141, 255, 0.13);
-        --accent-line: rgba(79, 141, 255, 0.28);
-        --border: #232a35;
-        --serif: "Noto Sans JP", -apple-system, sans-serif;
+        --bg: #0c0e12;
+        --bg-2: #11141a;
+        --card: #161a21;
+        --card-2: #1b212a;
+        --ink: #eef2f6;
+        --dim: #98a2b0;
+        --mute: #616b78;
+        --line: #232a34;
+        --line-2: #2c3540;
+        --mint: #2dd4a8;
+        --mint-2: #59e6c4;
+        --mint-ink: #04231b;
+        --mint-soft: rgba(45, 212, 168, 0.12);
+        --mint-line: rgba(45, 212, 168, 0.26);
+        --pink: #f06595;
+        --r: 1.5rem;
+        --r-lg: 2rem;
+        --maxw: 1080px;
         --sans: "Noto Sans JP", -apple-system, BlinkMacSystemFont, sans-serif;
       }
 
@@ -51,15 +61,11 @@
 
       body {
         font-family: var(--sans);
-        background: var(--bg-primary);
-        color: var(--text-primary);
-        line-height: 1.75;
+        background: var(--bg);
+        color: var(--ink);
+        line-height: 1.8;
         -webkit-font-smoothing: antialiased;
-      }
-
-      ::selection {
-        background: var(--accent);
-        color: #0a0c10;
+        overflow-x: hidden;
       }
 
       a {
@@ -67,466 +73,548 @@
         text-decoration: none;
       }
 
-      /* Header */
-      .header {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        z-index: 100;
-        background: rgba(0, 0, 0, 0.8);
-        backdrop-filter: blur(12px);
-        border-bottom: 1px solid var(--border);
+      ::selection {
+        background: var(--mint);
+        color: var(--mint-ink);
       }
 
-      .header-inner {
-        max-width: 1200px;
+      .wrap {
+        width: 100%;
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 0 1.5rem;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        font-size: 0.8125rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: var(--mint);
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: var(--mint);
+        box-shadow: 0 0 0 4px var(--mint-soft);
+      }
+
+      /* ---------- Nav ---------- */
+      .nav {
+        position: fixed;
+        inset: 0 0 auto 0;
+        z-index: 100;
+        backdrop-filter: blur(14px);
+        background: rgba(12, 14, 18, 0.72);
+        border-bottom: 1px solid transparent;
+        transition: border-color 0.3s;
+      }
+
+      .nav.scrolled {
+        border-bottom-color: var(--line);
+      }
+
+      .nav-inner {
+        max-width: var(--maxw);
         margin: 0 auto;
         padding: 1rem 1.5rem;
         display: flex;
-        justify-content: space-between;
         align-items: center;
+        justify-content: space-between;
       }
 
-      .logo {
-        font-size: 1.5rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.6rem;
+        font-weight: 900;
+        font-size: 1.2rem;
+        letter-spacing: -0.01em;
       }
 
-      .header-links {
+      .brand .mark {
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 35% 30%,
+          var(--mint-2),
+          var(--mint)
+        );
+        box-shadow: 0 0 0 4px var(--mint-soft);
+      }
+
+      .nav-links {
         display: flex;
         align-items: center;
-        gap: 1.5rem;
+        gap: 1.75rem;
       }
 
-      .header-link {
-        color: var(--text-secondary);
+      .nav-links a {
         font-size: 0.875rem;
+        color: var(--dim);
         transition: color 0.2s;
       }
 
-      .header-link:hover {
-        color: var(--text-primary);
+      .nav-links a:hover {
+        color: var(--ink);
       }
 
-      .header-cta {
+      .btn {
         display: inline-flex;
         align-items: center;
         gap: 0.5rem;
-        padding: 0.6rem 1.2rem;
-        background: var(--accent);
-        color: #fff;
         border-radius: 9999px;
         font-weight: 700;
+        cursor: pointer;
+        transition:
+          transform 0.2s ease,
+          box-shadow 0.2s ease,
+          background 0.2s,
+          border-color 0.2s;
+        white-space: nowrap;
+      }
+
+      .btn svg {
+        width: 1.1em;
+        height: 1.1em;
+      }
+
+      .btn-mint {
+        background: var(--mint);
+        color: var(--mint-ink);
+        padding: 0.9rem 1.6rem;
+        box-shadow: 0 10px 30px -12px rgba(45, 212, 168, 0.6);
+      }
+
+      .btn-mint:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 16px 40px -12px rgba(45, 212, 168, 0.75);
+      }
+
+      .btn-ghost {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--line-2);
+        padding: 0.9rem 1.6rem;
+      }
+
+      .btn-ghost:hover {
+        border-color: var(--mint-line);
+        background: var(--mint-soft);
+      }
+
+      .nav .btn-mint {
+        padding: 0.6rem 1.2rem;
         font-size: 0.875rem;
-        transition: all 0.2s;
       }
 
-      .header-cta:hover {
-        background: var(--accent-hover);
-        transform: translateY(-1px);
-      }
-
-      /* Hero */
+      /* ---------- Hero ---------- */
       .hero {
         position: relative;
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 8rem 1.5rem 5rem;
-        overflow: hidden;
-        isolation: isolate;
-      }
-
-      /* Soft, friendly "bubble" glow — overlapping circles of reach, kept loose
-         and calm (ゆる) rather than a hard technical grid. */
-      .hero::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        z-index: -1;
-        background:
-          radial-gradient(
-            circle at 24% 26%,
-            rgba(79, 141, 255, 0.2) 0%,
-            transparent 24%
-          ),
-          radial-gradient(
-            circle at 82% 20%,
-            rgba(123, 184, 255, 0.16) 0%,
-            transparent 22%
-          ),
-          radial-gradient(
-            circle at 72% 80%,
-            rgba(79, 141, 255, 0.14) 0%,
-            transparent 26%
-          ),
-          radial-gradient(
-            circle at 50% 48%,
-            rgba(79, 141, 255, 0.1) 0%,
-            transparent 60%
-          );
-        filter: blur(8px);
-      }
-
-      .hero-content {
-        max-width: 880px;
+        padding: 9.5rem 0 5rem;
         text-align: center;
-        position: relative;
       }
 
-      .hero-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.45rem 1rem;
-        background: var(--accent-soft);
-        border: 1px solid var(--accent-line);
-        border-radius: 9999px;
-        font-size: 0.8125rem;
-        font-weight: 500;
-        letter-spacing: 0.02em;
-        color: var(--accent);
-        margin-bottom: 2.25rem;
-      }
-
-      .hero-title {
-        font-size: clamp(2.9rem, 9vw, 5.5rem);
+      .hero-h1 {
+        font-size: clamp(2.6rem, 7.5vw, 4.75rem);
         font-weight: 900;
-        line-height: 1.08;
-        letter-spacing: -0.035em;
-        margin-bottom: 1.75rem;
+        line-height: 1.16;
+        letter-spacing: -0.04em;
+        margin: 1.4rem 0 0;
       }
 
-      .hero-title span {
-        background: linear-gradient(120deg, var(--accent), var(--accent-2));
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+      .hero-h1 .accent {
+        color: var(--mint);
       }
 
-      .hero-description {
-        font-size: clamp(1.0625rem, 2.2vw, 1.3rem);
-        color: var(--text-secondary);
-        line-height: 1.85;
-        margin-bottom: 2.75rem;
-        max-width: 600px;
-        margin-left: auto;
-        margin-right: auto;
+      .hero-sub {
+        font-size: clamp(1rem, 2.3vw, 1.2rem);
+        color: var(--dim);
+        margin: 1.5rem auto 0;
+        max-width: 30rem;
       }
 
-      .hero-buttons {
+      .hero-cta {
         display: flex;
-        gap: 1rem;
+        gap: 0.85rem;
         justify-content: center;
         flex-wrap: wrap;
+        margin-top: 2.5rem;
       }
 
-      .btn-primary {
-        display: inline-flex;
+      /* The 輪 — your circle of reach */
+      .ring-stage {
+        position: relative;
+        width: min(560px, 92vw);
+        aspect-ratio: 1;
+        margin: 3.5rem auto 0;
+      }
+
+      .ring-stage .glow {
+        position: absolute;
+        inset: 12%;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle,
+          var(--mint-soft) 0%,
+          transparent 68%
+        );
+        filter: blur(6px);
+      }
+
+      .orbit {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 1px dashed var(--line-2);
+      }
+
+      .orbit.o2 {
+        inset: 16%;
+        border-style: solid;
+        border-color: var(--line);
+      }
+
+      .orbit.o3 {
+        inset: 32%;
+        border-color: var(--mint-line);
+      }
+
+      .node {
+        position: absolute;
+        top: var(--t, 50%);
+        left: var(--l, 50%);
+        display: flex;
+        flex-direction: column;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.95rem 2rem;
-        background: linear-gradient(120deg, var(--accent), var(--accent-hover));
-        color: #fff;
-        border-radius: 9999px;
+        gap: 0.45rem;
+        transform: translate(-50%, -50%);
+      }
+
+      .ava {
+        width: var(--s, 3.25rem);
+        height: var(--s, 3.25rem);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
         font-weight: 700;
-        font-size: 1rem;
-        box-shadow: 0 8px 30px -10px rgba(79, 141, 255, 0.55);
-        transition: all 0.2s ease;
+        color: #fff;
+        font-size: calc(var(--s, 3.25rem) * 0.4);
+        border: 3px solid var(--bg);
+        box-shadow: 0 8px 22px -8px rgba(0, 0, 0, 0.7);
       }
 
-      .btn-primary:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 14px 38px -10px rgba(79, 141, 255, 0.7);
+      .ava.me {
+        --s: 5.5rem;
+        background: radial-gradient(
+          circle at 35% 30%,
+          var(--mint-2),
+          var(--mint)
+        );
+        color: var(--mint-ink);
+        box-shadow:
+          0 0 0 6px var(--mint-soft),
+          0 14px 34px -10px rgba(45, 212, 168, 0.5);
       }
 
-      .btn-secondary {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.95rem 2rem;
-        background: transparent;
-        color: var(--text-primary);
-        border: 1px solid var(--border);
+      .ava.a {
+        background: linear-gradient(135deg, #5b8def, #7aa8ff);
+      }
+      .ava.b {
+        background: linear-gradient(135deg, #e06baa, #ff9ec4);
+      }
+      .ava.c {
+        background: linear-gradient(135deg, #e0a24c, #ffce7a);
+      }
+      .ava.d {
+        background: linear-gradient(135deg, #9b7bf0, #c4abff);
+      }
+      .ava.e {
+        background: linear-gradient(135deg, #4cc4a8, #66e0c0);
+      }
+
+      .node .tag {
+        font-size: 0.7rem;
+        color: var(--mute);
+        background: var(--card);
+        border: 1px solid var(--line);
+        padding: 0.1rem 0.5rem;
         border-radius: 9999px;
-        font-weight: 600;
-        font-size: 1rem;
-        transition: all 0.2s ease;
+        white-space: nowrap;
       }
 
-      .btn-secondary:hover {
-        background: var(--bg-card);
-        border-color: var(--accent-line);
+      /* ---------- Manifesto band ---------- */
+      .band {
+        padding: 6rem 0;
+        text-align: center;
       }
 
-      /* Philosophy */
-      .philosophy {
-        padding: 6rem 1.5rem;
-        background: var(--bg-secondary);
-      }
-
-      .section-inner {
-        max-width: 1200px;
+      .band p {
+        font-size: clamp(1.6rem, 4.4vw, 2.75rem);
+        font-weight: 900;
+        line-height: 1.5;
+        letter-spacing: -0.02em;
+        max-width: 22ch;
         margin: 0 auto;
       }
 
-      .section-header {
+      .band .soft {
+        color: var(--mute);
+      }
+      .band .mint {
+        color: var(--mint);
+      }
+
+      /* ---------- Section scaffolding ---------- */
+      section.block {
+        padding: 5.5rem 0;
+      }
+
+      .block.tint {
+        background: var(--bg-2);
+      }
+
+      .head {
+        max-width: 36rem;
+        margin-bottom: 3rem;
+      }
+
+      .head.center {
+        margin-left: auto;
+        margin-right: auto;
         text-align: center;
-        margin-bottom: 4rem;
       }
 
-      .section-label {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.6rem;
-        font-size: 0.8125rem;
-        font-weight: 600;
-        color: var(--accent);
-        text-transform: uppercase;
-        letter-spacing: 0.18em;
-        margin-bottom: 1.1rem;
+      .head h2 {
+        font-size: clamp(1.9rem, 4.5vw, 2.7rem);
+        font-weight: 900;
+        letter-spacing: -0.03em;
+        line-height: 1.25;
+        margin: 0.9rem 0 0;
       }
 
-      .section-label::before {
-        content: "";
-        width: 1.75rem;
-        height: 1px;
-        background: var(--accent);
-        opacity: 0.6;
+      .head p {
+        color: var(--dim);
+        margin-top: 0.85rem;
       }
 
-      .section-title {
-        font-family: var(--serif);
-        font-size: clamp(2rem, 5vw, 3.15rem);
+      /* ---------- Why (philosophy) ---------- */
+      .why {
+        display: grid;
+        gap: 1.1rem;
+      }
+
+      .why-row {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 1.5rem;
+        align-items: start;
+        padding: 1.9rem;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--r);
+        transition:
+          transform 0.25s,
+          border-color 0.25s;
+      }
+
+      .why-row:hover {
+        transform: translateY(-3px);
+        border-color: var(--mint-line);
+      }
+
+      .why-ico {
+        width: 3.25rem;
+        height: 3.25rem;
+        border-radius: 1rem;
+        display: grid;
+        place-items: center;
+        background: var(--mint-soft);
+        border: 1px solid var(--mint-line);
+        color: var(--mint);
+        flex-shrink: 0;
+      }
+
+      .why-ico svg {
+        width: 1.5rem;
+        height: 1.5rem;
+      }
+
+      .why-row h3 {
+        font-size: 1.2rem;
         font-weight: 700;
-        letter-spacing: -0.01em;
-        line-height: 1.2;
+        margin-bottom: 0.4rem;
+      }
+
+      .why-row p {
+        color: var(--dim);
+        font-size: 0.95rem;
+        line-height: 1.75;
+      }
+
+      /* ---------- Features ---------- */
+      .feat {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 1rem;
+      }
+
+      .tile {
+        padding: 1.5rem;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--r);
+        transition:
+          transform 0.22s,
+          border-color 0.22s,
+          background 0.22s;
+      }
+
+      .tile:hover {
+        transform: translateY(-3px);
+        border-color: var(--mint-line);
+        background: var(--card-2);
+      }
+
+      .tile .ti {
+        width: 2.6rem;
+        height: 2.6rem;
+        border-radius: 0.85rem;
+        display: grid;
+        place-items: center;
+        background: var(--mint-soft);
+        color: var(--mint);
         margin-bottom: 1rem;
       }
 
-      .section-description {
-        font-size: 1.125rem;
-        color: var(--text-secondary);
-        max-width: 600px;
-        margin: 0 auto;
-        line-height: 1.85;
+      .tile .ti svg {
+        width: 1.3rem;
+        height: 1.3rem;
       }
 
-      .philosophy-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 2rem;
-      }
-
-      .philosophy-card {
-        padding: 2.25rem;
-        background: linear-gradient(
-          180deg,
-          var(--bg-card),
-          var(--bg-secondary)
-        );
-        border: 1px solid var(--border);
-        border-radius: 1.25rem;
-        transition: all 0.3s ease;
-      }
-
-      .philosophy-card:hover {
-        border-color: var(--accent-line);
-        transform: translateY(-5px);
-        box-shadow: 0 24px 50px -28px rgba(79, 141, 255, 0.4);
-      }
-
-      .philosophy-icon {
-        width: 3.25rem;
-        height: 3.25rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: var(--accent-soft);
-        border: 1px solid var(--accent-line);
-        border-radius: 0.85rem;
-        margin-bottom: 1.5rem;
-        color: var(--accent);
-      }
-
-      .philosophy-icon svg {
-        width: 1.5rem;
-        height: 1.5rem;
-      }
-
-      .philosophy-title {
-        font-size: 1.25rem;
-        font-weight: 600;
-        margin-bottom: 0.75rem;
-      }
-
-      .philosophy-description {
-        color: var(--text-secondary);
-        font-size: 0.9375rem;
-      }
-
-      /* Features */
-      .features {
-        padding: 6rem 1.5rem;
-        background: var(--bg-primary);
-      }
-
-      .features-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 1.5rem;
-      }
-
-      .feature-card {
-        padding: 1.75rem;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 1rem;
-        transition: all 0.25s ease;
-      }
-
-      .feature-card:hover {
-        border-color: var(--accent-line);
-        background: var(--bg-secondary);
-        transform: translateY(-3px);
-      }
-
-      .feature-title {
-        font-size: 1.0625rem;
+      .tile h3 {
+        font-size: 1.02rem;
         font-weight: 700;
-        margin-bottom: 0.5rem;
-        display: flex;
-        align-items: center;
-        gap: 0.6rem;
+        margin-bottom: 0.35rem;
       }
 
-      .feature-title svg {
-        width: 1.25rem;
-        height: 1.25rem;
-        color: var(--accent);
-      }
-
-      .feature-description {
-        color: var(--text-secondary);
+      .tile p {
+        color: var(--dim);
         font-size: 0.875rem;
+        line-height: 1.7;
       }
 
-      /* How it works */
-      .how-it-works {
-        padding: 6rem 1.5rem;
-        background: var(--bg-secondary);
-      }
-
+      /* ---------- Steps ---------- */
       .steps {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 3rem;
-        margin-top: 4rem;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        counter-reset: s;
       }
 
       .step {
-        text-align: center;
         position: relative;
+        padding: 1.9rem;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--r);
       }
 
-      .step-number {
-        width: 3.75rem;
-        height: 3.75rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      .step .n {
+        width: 2.6rem;
+        height: 2.6rem;
         border-radius: 50%;
-        font-family: var(--serif);
-        font-size: 1.5rem;
+        display: grid;
+        place-items: center;
+        font-weight: 900;
+        background: var(--mint);
+        color: var(--mint-ink);
+        margin-bottom: 1rem;
+      }
+
+      .step h3 {
+        font-size: 1.05rem;
         font-weight: 700;
-        color: #fff;
-        margin: 0 auto 1.5rem;
-        box-shadow: 0 10px 30px -12px rgba(79, 141, 255, 0.6);
+        margin-bottom: 0.4rem;
       }
 
-      .step-title {
-        font-size: 1.25rem;
-        font-weight: 600;
-        margin-bottom: 0.75rem;
+      .step p {
+        color: var(--dim);
+        font-size: 0.9rem;
       }
 
-      .step-description {
-        color: var(--text-secondary);
-        font-size: 0.9375rem;
-      }
-
-      /* FAQ */
+      /* ---------- FAQ ---------- */
       .faq {
-        padding: 6rem 1.5rem;
-        background: var(--bg-primary);
-      }
-
-      .faq-list {
-        max-width: 800px;
+        max-width: 44rem;
         margin: 0 auto;
       }
 
-      .faq-item {
-        border-bottom: 1px solid var(--border);
+      .qa {
+        border-bottom: 1px solid var(--line);
       }
 
-      .faq-question {
+      .qa button {
         width: 100%;
-        padding: 1.5rem 0;
+        background: none;
+        border: 0;
+        color: var(--ink);
+        font-family: inherit;
+        font-size: 1.05rem;
+        font-weight: 700;
+        text-align: left;
+        padding: 1.4rem 0;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        background: none;
-        border: none;
-        color: var(--text-primary);
-        font-size: 1.125rem;
-        font-weight: 500;
-        text-align: left;
+        gap: 1rem;
         cursor: pointer;
-        font-family: inherit;
       }
 
-      .faq-question:hover {
-        color: var(--accent);
+      .qa button:hover {
+        color: var(--mint);
       }
 
-      .faq-icon {
+      .qa .ic {
         flex-shrink: 0;
-        width: 1.5rem;
-        height: 1.5rem;
-        color: var(--text-muted);
+        width: 1.4rem;
+        height: 1.4rem;
+        color: var(--mute);
         transition: transform 0.3s;
       }
 
-      .faq-item.active .faq-icon {
+      .qa.open .ic {
         transform: rotate(45deg);
+        color: var(--mint);
       }
 
-      .faq-answer {
+      .qa .a {
         max-height: 0;
         overflow: hidden;
-        transition: max-height 0.3s ease-out;
+        transition: max-height 0.3s ease;
       }
 
-      .faq-item.active .faq-answer {
-        max-height: 300px;
+      .qa.open .a {
+        max-height: 340px;
       }
 
-      .faq-answer-inner {
-        padding-bottom: 1.5rem;
-        color: var(--text-secondary);
-        line-height: 1.8;
+      .qa .a p {
+        color: var(--dim);
+        padding-bottom: 1.4rem;
+        font-size: 0.95rem;
+        line-height: 1.85;
       }
 
-      /* CTA */
+      /* ---------- CTA ---------- */
       .cta {
         position: relative;
-        padding: 7rem 1.5rem;
         text-align: center;
+        padding: 6.5rem 0;
         overflow: hidden;
         isolation: isolate;
       }
@@ -538,412 +626,212 @@
         z-index: -1;
         background:
           radial-gradient(
-            circle at 30% 120%,
-            rgba(79, 141, 255, 0.18) 0%,
-            transparent 45%
+            circle at 50% 120%,
+            var(--mint-soft) 0%,
+            transparent 55%
           ),
-          radial-gradient(
-            circle at 75% 130%,
-            rgba(123, 184, 255, 0.14) 0%,
-            transparent 42%
-          ),
-          linear-gradient(180deg, #0d1320 0%, var(--bg-primary) 72%);
+          var(--bg-2);
       }
 
-      .cta-title {
-        font-family: var(--serif);
-        font-size: clamp(2.1rem, 5vw, 3.25rem);
-        font-weight: 700;
-        letter-spacing: -0.01em;
+      .cta h2 {
+        font-size: clamp(1.9rem, 5vw, 3rem);
+        font-weight: 900;
+        letter-spacing: -0.03em;
         line-height: 1.25;
-        margin-bottom: 1rem;
       }
 
-      .cta-description {
-        font-size: 1.125rem;
-        color: var(--text-secondary);
-        margin-bottom: 2rem;
-        max-width: 540px;
-        margin-left: auto;
-        margin-right: auto;
-        line-height: 1.7;
+      .cta p {
+        color: var(--dim);
+        margin: 1rem auto 2.25rem;
+        max-width: 32rem;
       }
 
-      .cta-buttons {
+      .cta-btns {
         display: flex;
-        gap: 1rem;
+        gap: 0.85rem;
         justify-content: center;
         flex-wrap: wrap;
-        margin-bottom: 1.5rem;
       }
 
-      .cta-meta {
-        font-size: 0.875rem;
-        color: var(--text-muted);
-        margin-top: 1rem;
+      .cta .note {
+        margin-top: 1.5rem;
+        font-size: 0.85rem;
+        color: var(--mute);
       }
 
-      /* Footer */
-      .footer {
-        padding: 3rem 1.5rem;
-        background: var(--bg-primary);
-        border-top: 1px solid var(--border);
+      /* ---------- Footer ---------- */
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 2.5rem 0;
       }
 
-      .footer-inner {
-        max-width: 1200px;
-        margin: 0 auto;
+      .foot {
         display: flex;
-        flex-direction: column;
+        flex-wrap: wrap;
+        gap: 1rem 2rem;
         align-items: center;
+        justify-content: space-between;
+      }
+
+      .foot .links {
+        display: flex;
+        flex-wrap: wrap;
         gap: 1.5rem;
       }
 
-      .footer-logo {
-        font-size: 1.25rem;
-        font-weight: 700;
-      }
-
-      .footer-links {
-        display: flex;
-        gap: 2rem;
-        flex-wrap: wrap;
-        justify-content: center;
-      }
-
-      .footer-link {
-        color: var(--text-secondary);
+      .foot a {
+        color: var(--dim);
         font-size: 0.875rem;
         transition: color 0.2s;
       }
 
-      .footer-link:hover {
-        color: var(--text-primary);
+      .foot a:hover {
+        color: var(--ink);
       }
 
-      .footer-copy {
-        color: var(--text-muted);
-        font-size: 0.875rem;
-      }
-
-      /* Hero product preview — a peek at the actual yurucommu timeline */
-      .hero-preview {
-        margin: 3.5rem auto 0;
-        max-width: 420px;
-        perspective: 1400px;
-      }
-
-      .hp-window {
-        text-align: left;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 1.5rem;
-        padding: 1rem;
-        box-shadow:
-          0 40px 90px -40px rgba(0, 0, 0, 0.8),
-          0 0 0 1px rgba(255, 255, 255, 0.02) inset;
-        transform: rotateX(6deg);
-      }
-
-      .hp-stories {
-        display: flex;
-        gap: 0.85rem;
-        padding: 0.25rem 0.25rem 1rem;
-        border-bottom: 1px solid var(--border);
-        margin-bottom: 1rem;
-      }
-
-      .hp-story {
-        width: 3rem;
-        height: 3rem;
-        border-radius: 50%;
-        padding: 2px;
-        background: linear-gradient(135deg, var(--accent), var(--accent-2));
-        flex-shrink: 0;
-      }
-
-      .hp-story.muted {
-        background: var(--border);
-      }
-
-      .hp-ava {
-        width: 100%;
-        height: 100%;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: #fff;
-        background: linear-gradient(135deg, #3f6fd8, #6f8bff);
-        border: 2px solid var(--bg-card);
-      }
-
-      .hp-ava.b {
-        background: linear-gradient(135deg, #d86aa6, #ff9ec4);
-      }
-      .hp-ava.c {
-        background: linear-gradient(135deg, #4cc4a8, #66e0c0);
-      }
-      .hp-ava.d {
-        background: linear-gradient(135deg, #e0a24c, #ffce7a);
-      }
-
-      .hp-post {
-        display: flex;
-        gap: 0.85rem;
-        padding: 0.25rem;
-      }
-
-      .hp-post .hp-ava {
-        width: 2.75rem;
-        height: 2.75rem;
-        flex-shrink: 0;
-        border: none;
-      }
-
-      .hp-meta {
-        font-size: 0.9rem;
-        margin-bottom: 0.35rem;
-        color: var(--text-primary);
-      }
-
-      .hp-meta span {
-        color: var(--text-muted);
-        font-weight: 400;
+      .foot .copy {
+        color: var(--mute);
         font-size: 0.8125rem;
       }
 
-      .hp-text {
-        font-size: 0.95rem;
-        color: var(--text-secondary);
-        line-height: 1.65;
-        margin-bottom: 0.85rem;
+      /* ---------- Reveal (safe: visible by default, animates in on scroll) -- */
+      .reveal.in {
+        animation: rise 0.6s ease both;
       }
 
-      .hp-tag {
-        color: var(--accent);
-      }
-
-      .hp-actions {
-        display: flex;
-        gap: 1.5rem;
-        color: var(--text-muted);
-      }
-
-      .hp-actions span {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.3rem;
-        font-size: 0.8125rem;
-      }
-
-      .hp-actions svg {
-        width: 1.05rem;
-        height: 1.05rem;
-      }
-
-      .hp-actions .liked {
-        color: #f4326b;
-      }
-
-      /* Responsive */
-      @media (max-width: 640px) {
-        .header-inner {
-          padding: 0.75rem 1rem;
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(18px);
         }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
 
-        .header-links {
+      /* ---------- Responsive ---------- */
+      @media (max-width: 760px) {
+        .nav-links {
           display: none;
         }
-
+        .steps {
+          grid-template-columns: 1fr;
+        }
+        .band {
+          padding: 4.5rem 0;
+        }
         .hero {
-          padding: 5rem 1rem 3rem;
+          padding: 8rem 0 3rem;
         }
-
-        .hero-buttons {
-          flex-direction: column;
-          width: 100%;
-        }
-
-        .btn-primary,
-        .btn-secondary {
+        .cta-btns .btn,
+        .hero-cta .btn {
           width: 100%;
           justify-content: center;
         }
+      }
 
-        .philosophy,
-        .features,
-        .how-it-works,
-        .faq,
-        .cta {
-          padding: 4rem 1rem;
-        }
-
-        .steps {
-          gap: 2rem;
+      @media (prefers-reduced-motion: reduce) {
+        .reveal {
+          opacity: 1;
+          transform: none;
+          transition: none;
         }
       }
     </style>
   </head>
   <body>
-    <!-- Header -->
-    <header class="header">
-      <div class="header-inner">
-        <a href="/" class="logo">Yurucommu</a>
-        <div class="header-links">
-          <a href="#philosophy" class="header-link">思想</a>
-          <a href="#features" class="header-link">機能</a>
-          <a href="#install" class="header-link">Install</a>
-          <a href="/help/" class="header-link">Docs</a>
-          <a href="/specs/" class="header-link">Specs</a>
+    <!-- Nav -->
+    <nav class="nav" id="nav">
+      <div class="nav-inner">
+        <a href="/" class="brand"><span class="mark"></span>Yurucommu</a>
+        <div class="nav-links">
+          <a href="#why">思想</a>
+          <a href="#features">機能</a>
+          <a href="/help/">Docs</a>
+          <a href="/specs/">Specs</a>
         </div>
-        <a href="/help/deployment.html" class="header-cta">
-          Deploy docs
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M5 12h14M13 6l6 6-6 6" />
-          </svg>
-        </a>
+        <a href="#start" class="btn btn-mint">はじめる</a>
       </div>
-    </header>
+    </nav>
 
     <!-- Hero -->
-    <section class="hero">
-      <div class="hero-content">
-        <div class="hero-badge">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-            <polyline points="22 4 12 14.01 9 11.01" />
-          </svg>
-          セルフホスト・一人用
-        </div>
-        <h1 class="hero-title">自分だけの<br /><span>SNS</span></h1>
-        <p class="hero-description">
-          アルゴリズムに支配されない。プラットフォームに依存しない。<br />
-          コミュニティ単位で、本当に大切な人との繋がりを築く。
+    <header class="hero">
+      <div class="wrap">
+        <span class="eyebrow">セルフホスト・一人用の ActivityPub SNS</span>
+        <h1 class="hero-h1">
+          ゆるく繋がる、<br /><span class="accent">自分だけのSNS。</span>
+        </h1>
+        <p class="hero-sub">
+          アルゴリズムに振り回されない。プラットフォームに縛られない。
+          自分の<strong>輪</strong>の中だけで、本当に大切な人と繋がる居場所。
         </p>
-        <div class="hero-buttons">
-          <a href="https://github.com/tako0614/yurucommu" class="btn-primary">
-            セルフホストする
+        <div class="hero-cta">
+          <a href="#start" class="btn btn-mint">
+            はじめる
             <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              stroke-width="2"
+              stroke-width="2.2"
+              viewBox="0 0 24 24"
             >
               <path d="M5 12h14M12 5l7 7-7 7" />
             </svg>
           </a>
-          <a href="#philosophy" class="btn-secondary"> 詳しく見る </a>
+          <a href="#why" class="btn btn-ghost">どんな思想？</a>
         </div>
 
-        <!-- A peek at the actual app -->
-        <div class="hero-preview" aria-hidden="true">
-          <div class="hp-window">
-            <div class="hp-stories">
-              <div class="hp-story"><span class="hp-ava">あ</span></div>
-              <div class="hp-story"><span class="hp-ava b">き</span></div>
-              <div class="hp-story"><span class="hp-ava c">の</span></div>
-              <div class="hp-story muted"><span class="hp-ava d">み</span></div>
-            </div>
-            <div class="hp-post">
-              <span class="hp-ava c">の</span>
-              <div>
-                <div class="hp-meta">
-                  <b>のどか</b> <span>@nodoka · 2分</span>
-                </div>
-                <p class="hp-text">
-                  海の見える街に引っ越しました🌊 ゆるく繋がれる人、この
-                  <span class="hp-tag">#輪</span> の中だけで十分かも。
-                </p>
-                <div class="hp-actions">
-                  <span>
-                    <svg
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"
-                      />
-                    </svg>
-                    3
-                  </span>
-                  <span>
-                    <svg
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      viewBox="0 0 24 24"
-                    >
-                      <path d="M17 1l4 4-4 4" />
-                      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                      <path d="M7 23l-4-4 4-4" />
-                      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-                    </svg>
-                    1
-                  </span>
-                  <span class="liked">
-                    <svg fill="currentColor" viewBox="0 0 24 24">
-                      <path
-                        d="M12 21s-7.5-4.6-10-9A5.5 5.5 0 0 1 12 5.5 5.5 5.5 0 0 1 22 12c-2.5 4.4-10 9-10 9z"
-                      />
-                    </svg>
-                    12
-                  </span>
-                  <span style="margin-left: auto">
-                    <svg
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"
-                      />
-                    </svg>
-                  </span>
-                </div>
-              </div>
-            </div>
+        <!-- 輪 : your circle of reach -->
+        <div class="ring-stage" aria-hidden="true">
+          <div class="glow"></div>
+          <div class="orbit"></div>
+          <div class="orbit o2"></div>
+          <div class="orbit o3"></div>
+          <div class="node" style="--t: 50%; --l: 50%">
+            <span class="ava me">あ</span>
+          </div>
+          <div class="node" style="--t: 12%; --l: 50%">
+            <span class="ava a">き</span>
+          </div>
+          <div class="node" style="--t: 33%; --l: 84%">
+            <span class="ava b">の</span>
+          </div>
+          <div class="node" style="--t: 74%; --l: 72%">
+            <span class="ava c">み</span>
+          </div>
+          <div class="node" style="--t: 74%; --l: 28%">
+            <span class="ava d">ゆ</span>
+          </div>
+          <div class="node" style="--t: 33%; --l: 16%">
+            <span class="ava e">こ</span>
           </div>
         </div>
       </div>
+    </header>
+
+    <!-- Manifesto -->
+    <section class="band">
+      <div class="wrap">
+        <p>
+          SNSは、<span class="mint">もっと静かでいい。</span><br /><span
+            class="soft"
+            >届く範囲は、自分が広げた輪の中だけで十分。</span
+          >
+        </p>
+      </div>
     </section>
 
-    <!-- Philosophy -->
-    <section class="philosophy" id="philosophy">
-      <div class="section-inner">
-        <div class="section-header">
-          <p class="section-label">Philosophy</p>
-          <h2 class="section-title">Yurucommuが目指すもの</h2>
-          <p class="section-description">
-            大規模SNSの問題を解決する、新しいソーシャルネットワークの形
-          </p>
+    <!-- Why -->
+    <section class="block tint" id="why">
+      <div class="wrap">
+        <div class="head reveal">
+          <span class="eyebrow">思想</span>
+          <h2>大きなSNSを、降りる。</h2>
+          <p>大規模SNSの息苦しさを手放す、新しいソーシャルの形。</p>
         </div>
-        <div class="philosophy-grid">
-          <div class="philosophy-card">
-            <div class="philosophy-icon">
+        <div class="why">
+          <div class="why-row reveal">
+            <span class="why-ico">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -956,15 +844,16 @@
                   d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
                 />
               </svg>
+            </span>
+            <div>
+              <h3>アルゴリズムからの解放</h3>
+              <p>
+                タイムラインは純粋な時系列。「おすすめ」や「バズ」に振り回されることなく、自分がフォローした人の投稿だけが流れてきます。
+              </p>
             </div>
-            <h3 class="philosophy-title">アルゴリズムからの解放</h3>
-            <p class="philosophy-description">
-              タイムラインは純粋な時系列。「おすすめ」や「バズ」に振り回されることなく、
-              自分がフォローした人の投稿だけが流れてきます。
-            </p>
           </div>
-          <div class="philosophy-card">
-            <div class="philosophy-icon">
+          <div class="why-row reveal">
+            <span class="why-ico">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -976,15 +865,16 @@
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
                 <path d="M16 3.13a4 4 0 0 1 0 7.75" />
               </svg>
+            </span>
+            <div>
+              <h3>コミュニティ単位の繋がり</h3>
+              <p>
+                興味や趣味で小さな輪を形成。親密な関係を構築できる。大規模SNSの「薄い繋がり」ではなく「濃い繋がり」を実現します。
+              </p>
             </div>
-            <h3 class="philosophy-title">コミュニティ単位の繋がり</h3>
-            <p class="philosophy-description">
-              興味や趣味でグループを形成。小さなコミュニティで親密な関係を構築。
-              大規模SNSの「薄い繋がり」ではなく「濃い繋がり」を実現します。
-            </p>
           </div>
-          <div class="philosophy-card">
-            <div class="philosophy-icon">
+          <div class="why-row reveal">
+            <span class="why-ico">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -994,31 +884,29 @@
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
+            </span>
+            <div>
+              <h3>プラットフォームからの独立</h3>
+              <p>
+                セルフホストで自分のデータは自分で管理。サービス終了やアカウント凍結のリスクなし。あなたのSNSは、あなたのものです。
+              </p>
             </div>
-            <h3 class="philosophy-title">プラットフォームからの独立</h3>
-            <p class="philosophy-description">
-              セルフホストで自分のデータは自分で管理。サービス終了やアカウント凍結のリスクなし。
-              あなたのSNSは、あなたのものです。
-            </p>
           </div>
         </div>
       </div>
     </section>
 
     <!-- Features -->
-    <section class="features" id="features">
-      <div class="section-inner">
-        <div class="section-header">
-          <p class="section-label">Features</p>
-          <h2 class="section-title">機能</h2>
-          <p class="section-description">
-            シンプルだけど、必要な機能は全て揃っています
-          </p>
+    <section class="block" id="features">
+      <div class="wrap">
+        <div class="head center reveal">
+          <span class="eyebrow">機能</span>
+          <h2>シンプルに、ちゃんと揃ってる。</h2>
         </div>
-        <div class="features-grid">
-          <div class="feature-card">
-            <h3 class="feature-title">
-              <svg
+        <div class="feat">
+          <div class="tile reveal">
+            <span class="ti"
+              ><svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1026,18 +914,17 @@
               >
                 <path
                   d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                />
-              </svg>
-              ActivityPub対応
-            </h3>
-            <p class="feature-description">
+                /></svg
+            ></span>
+            <h3>ActivityPub対応</h3>
+            <p>
               federation を手段に、Mastodon や Misskey
-              など他のサーバーとつながりやコミュニティを越境して繋ぐ
+              など他のサーバーと越境して繋ぐ。
             </p>
           </div>
-          <div class="feature-card">
-            <h3 class="feature-title">
-              <svg
+          <div class="tile reveal">
+            <span class="ti"
+              ><svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1046,17 +933,14 @@
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                 <circle cx="9" cy="7" r="4" />
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              コミュニティ
-            </h3>
-            <p class="feature-description">
-              トピックベースのグループで、同じ興味を持つ人と交流
-            </p>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg
+            ></span>
+            <h3>コミュニティ</h3>
+            <p>トピックベースの輪で、同じ興味を持つ人と交流。</p>
           </div>
-          <div class="feature-card">
-            <h3 class="feature-title">
-              <svg
+          <div class="tile reveal">
+            <span class="ti"
+              ><svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1064,30 +948,28 @@
               >
                 <path
                   d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
-                />
-              </svg>
-              ダイレクトメッセージ
-            </h3>
-            <p class="feature-description">プライベートな1対1の会話機能</p>
+                /></svg
+            ></span>
+            <h3>ダイレクトメッセージ</h3>
+            <p>プライベートな1対1の会話。</p>
           </div>
-          <div class="feature-card">
-            <h3 class="feature-title">
-              <svg
+          <div class="tile reveal">
+            <span class="ti"
+              ><svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
               >
                 <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-              ストーリー
-            </h3>
-            <p class="feature-description">24時間で消える、気軽な近況の共有</p>
+                <polyline points="12 6 12 12 16 14" /></svg
+            ></span>
+            <h3>ストーリー</h3>
+            <p>24時間で消える、気軽な近況の共有。</p>
           </div>
-          <div class="feature-card">
-            <h3 class="feature-title">
-              <svg
+          <div class="tile reveal">
+            <span class="ti"
+              ><svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1096,15 +978,14 @@
                 <rect x="3" y="3" width="7" height="7" />
                 <rect x="14" y="3" width="7" height="7" />
                 <rect x="14" y="14" width="7" height="7" />
-                <rect x="3" y="14" width="7" height="7" />
-              </svg>
-              QRコード交換
-            </h3>
-            <p class="feature-description">スキャンするだけで簡単にフォロー</p>
+                <rect x="3" y="14" width="7" height="7" /></svg
+            ></span>
+            <h3>QRコード交換</h3>
+            <p>スキャンするだけで簡単にフォロー。</p>
           </div>
-          <div class="feature-card">
-            <h3 class="feature-title">
-              <svg
+          <div class="tile reveal">
+            <span class="ti"
+              ><svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1113,79 +994,70 @@
                 <path
                   d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
                 />
-                <polyline points="22,6 12,13 2,6" />
-              </svg>
-              画像投稿
-            </h3>
-            <p class="feature-description">テキストと画像を組み合わせた投稿</p>
+                <polyline points="22,6 12,13 2,6" /></svg
+            ></span>
+            <h3>画像投稿</h3>
+            <p>テキストと画像を組み合わせた投稿。</p>
           </div>
-          <div class="feature-card">
-            <h3 class="feature-title">
-              <svg
+          <div class="tile reveal">
+            <span class="ti"
+              ><svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
               >
-                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-              </svg>
-              ブックマーク
-            </h3>
-            <p class="feature-description">
-              気になる投稿を後で見返せるように保存
-            </p>
+                <path
+                  d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"
+                /></svg
+            ></span>
+            <h3>ブックマーク</h3>
+            <p>気になる投稿を後で見返せるように保存。</p>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- How it works -->
-    <section class="how-it-works" id="how-it-works">
-      <div class="section-inner">
-        <div class="section-header">
-          <p class="section-label">Getting Started</p>
-          <h2 class="section-title">始め方</h2>
-          <p class="section-description">Cloudflare の無料枠で運用できます</p>
+    <!-- Start / steps -->
+    <section class="block tint" id="start">
+      <div class="wrap">
+        <div class="head center reveal">
+          <span class="eyebrow">はじめ方</span>
+          <h2>3ステップで、自分の居場所。</h2>
+          <p>Cloudflare の無料枠で運用できます。</p>
         </div>
         <div class="steps">
-          <div class="step">
-            <div class="step-number">1</div>
-            <h3 class="step-title">リポジトリをクローン</h3>
-            <p class="step-description">
-              GitHubからYurucommuのソースコードを取得します。
-            </p>
+          <div class="step reveal">
+            <span class="n">1</span>
+            <h3>クローン</h3>
+            <p>GitHub から Yurucommu のソースコードを取得します。</p>
           </div>
-          <div class="step">
-            <div class="step-number">2</div>
-            <h3 class="step-title">Cloudflareにデプロイ</h3>
-            <p class="step-description">
-              Workers、D1、R2を使って自分のドメインにデプロイ。
-            </p>
+          <div class="step reveal">
+            <span class="n">2</span>
+            <h3>デプロイ</h3>
+            <p>Workers / D1 / R2 を使って自分のドメインにデプロイ。</p>
           </div>
-          <div class="step">
-            <div class="step-number">3</div>
-            <h3 class="step-title">アカウント作成</h3>
-            <p class="step-description">
-              自分だけのインスタンスでアカウントを作成して完了。
-            </p>
+          <div class="step reveal">
+            <span class="n">3</span>
+            <h3>アカウント作成</h3>
+            <p>自分だけのインスタンスでアカウントを作って完了。</p>
           </div>
         </div>
       </div>
     </section>
 
     <!-- FAQ -->
-    <section class="faq" id="faq">
-      <div class="section-inner">
-        <div class="section-header">
-          <p class="section-label">FAQ</p>
-          <h2 class="section-title">よくある質問</h2>
+    <section class="block" id="faq">
+      <div class="wrap">
+        <div class="head center reveal">
+          <span class="eyebrow">FAQ</span>
+          <h2>よくある質問</h2>
         </div>
-        <div class="faq-list">
-          <div class="faq-item">
-            <button class="faq-question">
-              なぜセルフホストなのですか？
-              <svg
-                class="faq-icon"
+        <div class="faq">
+          <div class="qa">
+            <button>
+              なぜセルフホストなのですか？<svg
+                class="ic"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1195,19 +1067,16 @@
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <div class="faq-answer">
-              <div class="faq-answer-inner">
-                プラットフォームに依存すると、アカウント凍結やサービス終了のリスクがあります。
-                セルフホストすることで、自分のデータを自分で管理し、永続的に使い続けることができます。
-                また、アルゴリズムによる操作もありません。
-              </div>
+            <div class="a">
+              <p>
+                プラットフォームに依存すると、アカウント凍結やサービス終了のリスクがあります。セルフホストすることで、自分のデータを自分で管理し、永続的に使い続けることができます。また、アルゴリズムによる操作もありません。
+              </p>
             </div>
           </div>
-          <div class="faq-item">
-            <button class="faq-question">
-              ActivityPubとは何ですか？
-              <svg
-                class="faq-icon"
+          <div class="qa">
+            <button>
+              ActivityPubとは何ですか？<svg
+                class="ic"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1217,19 +1086,16 @@
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <div class="faq-answer">
-              <div class="faq-answer-inner">
-                ActivityPubは、異なるSNSサービス間で情報をやり取りするための標準規格です。
-                これにより、MastodonやMisskeyなど他のActivityPub対応サービスのユーザーと
-                フォローしたり、投稿を見たりすることができます。
-              </div>
+            <div class="a">
+              <p>
+                ActivityPubは、異なるSNSサービス間で情報をやり取りするための標準規格です。これにより、MastodonやMisskeyなど他のActivityPub対応サービスのユーザーとフォローしたり、投稿を見たりすることができます。
+              </p>
             </div>
           </div>
-          <div class="faq-item">
-            <button class="faq-question">
-              運用コストはどのくらいですか？
-              <svg
-                class="faq-icon"
+          <div class="qa">
+            <button>
+              運用コストはどのくらいですか？<svg
+                class="ic"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1239,19 +1105,17 @@
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <div class="faq-answer">
-              <div class="faq-answer-inner">
-                Cloudflare Workers、D1、R2の無料枠内で運用できます。
-                個人利用であれば、ほぼ無料で運用可能です。
-                ドメイン代のみ別途必要になります。
-              </div>
+            <div class="a">
+              <p>
+                Cloudflare Workers / D1 / R2
+                の無料枠内で運用できます。個人利用であれば、ほぼ無料で運用可能です。ドメイン代のみ別途必要になります。
+              </p>
             </div>
           </div>
-          <div class="faq-item">
-            <button class="faq-question">
-              一人用とはどういう意味ですか？
-              <svg
-                class="faq-icon"
+          <div class="qa">
+            <button>
+              一人用とはどういう意味ですか？<svg
+                class="ic"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1261,19 +1125,17 @@
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <div class="faq-answer">
-              <div class="faq-answer-inner">
-                1つのインスタンスに1人のユーザーという設計です。
-                自分専用のSNSサーバーを持つことで、完全な自己管理が可能になります。
-                他のユーザーとはActivityPubを通じて繋がります。
-              </div>
+            <div class="a">
+              <p>
+                1つのインスタンスに1人のユーザーという設計です。自分専用のSNSサーバーを持つことで、完全な自己管理が可能になります。他のユーザーとは
+                ActivityPub を通じて繋がります。
+              </p>
             </div>
           </div>
-          <div class="faq-item">
-            <button class="faq-question">
-              コミュニティ機能はどう使いますか？
-              <svg
-                class="faq-icon"
+          <div class="qa">
+            <button>
+              コミュニティ機能はどう使いますか？<svg
+                class="ic"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1283,55 +1145,46 @@
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <div class="faq-answer">
-              <div class="faq-answer-inner">
-                コミュニティは興味や趣味に基づいたグループです。
-                同じコミュニティに参加している人同士で投稿を共有でき、
-                親密な人間関係を構築するのに役立ちます。
-              </div>
+            <div class="a">
+              <p>
+                コミュニティは興味や趣味に基づいた輪です。同じコミュニティに参加している人同士で投稿を共有でき、親密な人間関係を構築するのに役立ちます。
+              </p>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- CTA / Install -->
-    <section class="cta" id="install">
-      <div class="section-inner">
-        <h2 class="cta-title">自分だけのSNSを始めよう</h2>
-        <p class="cta-description">
-          アルゴリズムに支配されない、本当の繋がりを。<br />
-          デプロイ手順を確認して、自分のドメインに自分のインスタンスを。
+    <!-- CTA -->
+    <section class="cta">
+      <div class="wrap">
+        <h2>自分の輪を、自分の手で。</h2>
+        <p>
+          アルゴリズムに支配されない、本当の繋がりを。自分のドメインに、自分だけのインスタンスを。
         </p>
-        <div class="cta-buttons">
-          <a href="/help/deployment.html" class="btn-primary">
-            Deploy docs
+        <div class="cta-btns">
+          <a href="/help/deployment.html" class="btn btn-mint">
+            デプロイ手順を見る
             <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+              stroke-width="2.2"
+              viewBox="0 0 24 24"
             >
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
           </a>
           <a
             href="https://github.com/tako0614/yurucommu"
-            class="btn-secondary"
+            class="btn btn-ghost"
             rel="noopener"
           >
             GitHub で見る
             <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
               stroke-width="2"
+              viewBox="0 0 24 24"
             >
               <path
                 d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"
@@ -1339,59 +1192,50 @@
             </svg>
           </a>
         </div>
-        <p class="cta-meta">
-          yurucommu は Takos の bundled app の 1 つ。 単体でも、 Takos
+        <p class="note">
+          yurucommu は Takos の bundled app の 1 つ。単体でも、Takos
           と一緒にでも install できる。
         </p>
       </div>
     </section>
 
     <!-- Footer -->
-    <footer class="footer">
-      <div class="footer-inner">
-        <div class="footer-logo">Yurucommu</div>
-        <div class="footer-links">
-          <a href="#philosophy" class="footer-link">思想</a>
-          <a href="#features" class="footer-link">機能</a>
-          <a href="/help/" class="footer-link">Docs</a>
-          <a href="/specs/" class="footer-link">Specs</a>
-          <a href="https://github.com/tako0614/yurucommu" class="footer-link"
-            >GitHub</a
-          >
+    <footer>
+      <div class="wrap foot">
+        <a href="/" class="brand"><span class="mark"></span>Yurucommu</a>
+        <div class="links">
+          <a href="#why">思想</a>
+          <a href="#features">機能</a>
+          <a href="/help/">Docs</a>
+          <a href="/specs/">Specs</a>
+          <a href="https://github.com/tako0614/yurucommu">GitHub</a>
         </div>
-        <p class="footer-copy">&copy; 2026 Yurucommu. AGPL v3.</p>
+        <span class="copy">&copy; 2026 Yurucommu · AGPL v3</span>
       </div>
     </footer>
 
     <script>
+      // nav border on scroll
+      const nav = document.getElementById("nav");
+      const onScroll = () =>
+        nav.classList.toggle("scrolled", window.scrollY > 8);
+      onScroll();
+      window.addEventListener("scroll", onScroll, { passive: true });
+
       // FAQ accordion
-      document.querySelectorAll(".faq-question").forEach((button) => {
-        button.addEventListener("click", () => {
-          const item = button.parentElement;
-          const isActive = item.classList.contains("active");
-
-          // Close all items
-          document
-            .querySelectorAll(".faq-item")
-            .forEach((i) => i.classList.remove("active"));
-
-          // Open clicked item if it wasn't active
-          if (!isActive) {
-            item.classList.add("active");
-          }
-        });
+      document.querySelectorAll(".qa button").forEach((b) => {
+        b.addEventListener("click", () =>
+          b.parentElement.classList.toggle("open"),
+        );
       });
 
-      // Smooth scroll for anchor links
-      document.querySelectorAll('a[href^="#"]').forEach((anchor) => {
-        anchor.addEventListener("click", function (e) {
-          e.preventDefault();
-          const target = document.querySelector(this.getAttribute("href"));
-          if (target) {
-            target.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
-        });
-      });
+      // reveal on scroll
+      const io = new IntersectionObserver(
+        (es) =>
+          es.forEach((e) => e.isIntersecting && e.target.classList.add("in")),
+        { threshold: 0.12 },
+      );
+      document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
     </script>
   </body>
 </html>
