@@ -5,15 +5,19 @@
 }
 
 :root {
-  --bg-primary: #000000;
-  --bg-secondary: #0a0a0a;
-  --bg-card: #111111;
-  --text-primary: #ffffff;
-  --text-secondary: #a3a3a3;
-  --text-muted: #525252;
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --border: #262626;
+  --bg-primary: #0b0a09;
+  --bg-secondary: #110f0d;
+  --bg-card: #181613;
+  --text-primary: #f6f2ea;
+  --text-secondary: #b0a89c;
+  --text-muted: #6f675c;
+  --accent: #f0a93a;
+  --accent-2: #ff6b4a;
+  --accent-hover: #ffbe54;
+  --accent-soft: rgba(240, 169, 58, 0.12);
+  --accent-line: rgba(240, 169, 58, 0.22);
+  --border: #2a2620;
+  --serif: "Noto Serif JP", "Times New Roman", serif;
 }
 
 html {
@@ -262,7 +266,7 @@ a {
 }
 
 .docs-sidebar-nav a.active {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
@@ -446,7 +450,7 @@ a {
 .card-tag {
   display: inline-block;
   padding: 0.25rem 0.5rem;
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--accent-soft);
   color: var(--accent);
   border-radius: 0.25rem;
   font-size: 0.75rem;
@@ -493,8 +497,8 @@ a {
 }
 
 .spec-scope.federation {
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .spec-scope.local {
@@ -511,8 +515,8 @@ a {
 }
 
 .category-section.federation {
-  background: rgba(59, 130, 246, 0.03);
-  border-color: rgba(59, 130, 246, 0.2);
+  background: rgba(240, 169, 58, 0.03);
+  border-color: var(--accent-line);
 }
 
 .category-section.local {
@@ -538,7 +542,7 @@ a {
 }
 
 .category-icon.federation {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--accent-soft);
 }
 
 .category-icon.local {
