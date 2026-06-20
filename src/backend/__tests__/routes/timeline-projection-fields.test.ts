@@ -175,6 +175,8 @@ function expectedRichPost(author: string): FormattedPost {
     reply_count: 2,
     announce_count: 1,
     published: "2026-01-01T00:00:00.000Z",
+    // Never-edited post: `updated` is NULL, so `edited_at` is null.
+    edited_at: null,
     liked: false,
     bookmarked: false,
     reposted: false,
@@ -202,6 +204,50 @@ test("public feed: every formatPost field survives the column projection", async
   const body = (await res.json()) as TimelineBody;
   expect(body.posts?.length).toEqual(1);
   expect(body.posts?.[0]).toMatchObject(expectedRichPost(author));
+});
+
+test("public feed: an edited post surfaces edited_at (= updated), unedited is null", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author", {
+    name: "Author Name",
+    iconUrl: "https://x/icon.png",
+  });
+  // Edited post: `updated` differs from `published`.
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/edited`,
+    type: "Note",
+    attributedTo: author,
+    content: "edited body",
+    visibility: "public",
+    audienceJson: "[]",
+    published: "2026-01-01T00:00:00.000Z",
+    updated: "2026-01-02T12:00:00.000Z",
+    isLocal: 1,
+  });
+  // Unedited post inserted later so it sorts to the head.
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/unedited`,
+    type: "Note",
+    attributedTo: author,
+    content: "unedited body",
+    visibility: "public",
+    audienceJson: "[]",
+    published: "2026-01-03T00:00:00.000Z",
+    isLocal: 1,
+  });
+
+  const app = appWith(db, fakeActor(author, "author"));
+  const res = await app.fetch(
+    new Request(`${APP_URL}/`, { method: "GET" }),
+    envFor(db),
+  );
+  expect(res.status).toEqual(200);
+  const body = (await res.json()) as TimelineBody;
+  const byId = new Map(body.posts?.map((p) => [p.ap_id, p]));
+  expect(byId.get(`${APP_URL}/ap/objects/edited`)?.edited_at).toEqual(
+    "2026-01-02T12:00:00.000Z",
+  );
+  expect(byId.get(`${APP_URL}/ap/objects/unedited`)?.edited_at).toEqual(null);
 });
 
 test("following feed: every formatPost field survives the column projection", async () => {

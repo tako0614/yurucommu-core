@@ -21,6 +21,7 @@ export type PostRow = {
   reply_count: number;
   announce_count: number;
   published: string;
+  updated?: string | null;
   liked?: number | boolean;
 };
 
@@ -44,6 +45,7 @@ export type FormattedPost = {
   reply_count: number;
   announce_count: number;
   published: string;
+  edited_at: string | null;
   liked: boolean;
 };
 
@@ -96,6 +98,8 @@ export function formatPost(
     reply_count: p.reply_count,
     announce_count: p.announce_count,
     published: p.published,
+    // Surfaced only when the post was actually edited (see timeline.formatPost).
+    edited_at: p.updated && p.updated !== p.published ? p.updated : null,
     liked: currentActorApId ? !!p.liked : false,
   };
 }

@@ -222,6 +222,7 @@ export function toPostRow(
     replyCount: number;
     announceCount: number;
     published: string;
+    updated?: string | null;
     toJson?: string | null;
   },
   author: AuthorInfo,
@@ -244,6 +245,7 @@ export function toPostRow(
     reply_count: post.replyCount,
     announce_count: post.announceCount,
     published: post.published,
+    updated: post.updated ?? null,
     liked: flags.liked ? 1 : 0,
     ...(flags.bookmarked !== undefined
       ? { bookmarked: flags.bookmarked ? 1 : 0 }

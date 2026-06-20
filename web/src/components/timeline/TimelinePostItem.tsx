@@ -161,6 +161,15 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       <span class="text-sm text-neutral-500">
         {formatRelativeTime(props.post.published)}
       </span>
+      <Show when={props.post.edited_at}>
+        <span class="text-neutral-500">{"·"}</span>
+        <span
+          class="text-sm text-neutral-500"
+          title={formatRelativeTime(props.post.edited_at!)}
+        >
+          {t("posts.edited")}
+        </span>
+      </Show>
       <ScopeChip
         communityApId={props.post.community_ap_id}
         class="ml-auto self-center"

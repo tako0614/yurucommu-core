@@ -72,6 +72,8 @@ export interface Post {
   reply_count: number;
   announce_count: number;
   published: string;
+  // Set to the post's `updated` timestamp when it has been edited (else null).
+  edited_at: string | null;
   liked: boolean;
   bookmarked: boolean;
   reposted: boolean;

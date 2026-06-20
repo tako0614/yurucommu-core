@@ -57,6 +57,7 @@ const POST_FEED_COLUMNS = {
   replyCount: objects.replyCount,
   announceCount: objects.announceCount,
   published: objects.published,
+  updated: objects.updated,
 } as const;
 
 type Attachment = {
@@ -308,6 +309,7 @@ function formatPost(
     replyCount: number;
     announceCount: number;
     published: string | null;
+    updated?: string | null;
   },
   authorMap: Map<string, AuthorInfo>,
   interactions: {
@@ -337,6 +339,11 @@ function formatPost(
     reply_count: p.replyCount,
     announce_count: p.announceCount,
     published: p.published,
+    // `edited_at` is the post's `updated` timestamp, surfaced only when it
+    // differs from `published` (create leaves `updated` NULL; an edit sets it).
+    // The client renders an "編集済み" marker, matching the `updated` that
+    // federation peers already receive on the Update(Note).
+    edited_at: p.updated && p.updated !== p.published ? p.updated : null,
     liked: interactions.likedSet.has(p.apId),
     bookmarked: interactions.bookmarkedSet.has(p.apId),
     reposted: interactions.repostedSet.has(p.apId),

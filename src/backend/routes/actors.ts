@@ -776,6 +776,7 @@ actorsRoute.get("/:identifier/posts", async (c) => {
       reply_count: p.replyCount,
       announce_count: p.announceCount,
       published: p.published,
+      edited_at: p.updated && p.updated !== p.published ? p.updated : null,
       liked: interactions.likedIds.has(p.apId),
       bookmarked: interactions.bookmarkedIds.has(p.apId),
       reposted: interactions.repostedIds.has(p.apId),

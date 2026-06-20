@@ -25,6 +25,7 @@ function makePost(overrides: Partial<Post> = {}): Post {
     reply_count: 0,
     announce_count: 0,
     published: "2026-01-01T00:00:00.000Z",
+    edited_at: null,
     liked: false,
     bookmarked: false,
     reposted: false,

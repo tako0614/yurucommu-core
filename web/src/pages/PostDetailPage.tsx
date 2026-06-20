@@ -375,6 +375,11 @@ export function PostDetailPage() {
             </Show>
             <div class="text-neutral-500 text-sm mt-3">
               {formatDateTime(post()!.published)}
+              <Show when={post()!.edited_at}>
+                <span class="ml-2" title={formatDateTime(post()!.edited_at!)}>
+                  {"·"} {t("posts.edited")}
+                </span>
+              </Show>
             </div>
             <div class="flex items-center gap-6 mt-3 pt-3 border-t border-neutral-800">
               <div class="text-sm">
@@ -495,6 +500,14 @@ export function PostDetailPage() {
                     <span class="text-neutral-500 text-sm">
                       {formatDateTime(reply.published)}
                     </span>
+                    <Show when={reply.edited_at}>
+                      <span
+                        class="text-neutral-500 text-sm"
+                        title={formatDateTime(reply.edited_at!)}
+                      >
+                        {"·"} {t("posts.edited")}
+                      </span>
+                    </Show>
                     <Show when={reply.author.ap_id === actor.ap_id}>
                       <div class="ml-auto flex items-center gap-1">
                         <button
