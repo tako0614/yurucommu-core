@@ -523,26 +523,44 @@ export class BunAssets implements IStaticAssets {
 
     const realBasePath = await this.getRealBasePath();
 
+    // A request is a static ASSET request only when its path ends in a known
+    // asset extension. Everything else (/, /search, /profile, /post/<id>, ...)
+    // is a CLIENT-SIDE route that must fall back to the SPA's index.html, so a
+    // deep link / page refresh / shared URL loads the app instead of 404ing.
+    const lastDot = url.pathname.lastIndexOf(".");
+    const ext = lastDot >= 0 ? url.pathname.slice(lastDot).toLowerCase() : "";
+    const isAssetPath = ext !== "" && ext !== ".html" && ext in ASSET_MIME;
+
+    let realFilePath: string;
     try {
-      const realFilePath = await realpath(filePath);
+      realFilePath = await realpath(filePath);
+    } catch {
+      // Path does not exist: a real asset is a genuine 404, but a client route
+      // falls back to the SPA shell.
+      return isAssetPath
+        ? new Response("Not Found", { status: 404 })
+        : this.serveSpaIndex(realBasePath);
+    }
+
+    try {
       if (!isPathWithinBasePath(realBasePath, realFilePath)) {
         return new Response("Forbidden", { status: 403 });
       }
 
       const stats = await stat(realFilePath);
+      let servePath = realFilePath;
       let file = Bun.file(realFilePath);
 
-      // If directory, try index.html
+      // If directory, serve its index.html.
       if (stats.isDirectory()) {
-        const indexPath = path.join(realFilePath, "index.html");
-        const realIndexPath = await realpath(indexPath);
+        const realIndexPath = await realpath(
+          path.join(realFilePath, "index.html"),
+        );
         if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
           return new Response("Forbidden", { status: 403 });
         }
-        filePath = realIndexPath;
-        file = Bun.file(filePath);
-      } else {
-        filePath = realFilePath;
+        servePath = realIndexPath;
+        file = Bun.file(servePath);
       }
 
       if (await file.exists()) {
@@ -552,27 +570,42 @@ export class BunAssets implements IStaticAssets {
         // scripts. (new Response(Bun.file) does not reliably propagate a type
         // through the Hono pipeline here, so set it ourselves.)
         return new Response(file, {
-          headers: { "Content-Type": mimeFromExt(filePath) },
+          headers: { "Content-Type": mimeFromExt(servePath) },
         });
       }
 
-      // SPA fallback - serve index.html for non-existent paths
-      const indexPath = path.join(this.getResolvedBasePath(), "index.html");
-      const realIndexPath = await realpath(indexPath);
+      return isAssetPath
+        ? new Response("Not Found", { status: 404 })
+        : this.serveSpaIndex(realBasePath);
+    } catch {
+      return isAssetPath
+        ? new Response("Not Found", { status: 404 })
+        : this.serveSpaIndex(realBasePath);
+    }
+  }
+
+  /**
+   * Serve the SPA shell (index.html) for client-side routes. Returns 404 only
+   * if the bundle's index.html is genuinely missing.
+   */
+  private async serveSpaIndex(realBasePath: string): Promise<Response> {
+    try {
+      const realIndexPath = await realpath(
+        path.join(this.getResolvedBasePath(), "index.html"),
+      );
       if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
         return new Response("Forbidden", { status: 403 });
       }
       const indexFile = Bun.file(realIndexPath);
       if (await indexFile.exists()) {
         return new Response(indexFile, {
-          headers: { "Content-Type": "text/html" },
+          headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }
-
-      return new Response("Not Found", { status: 404 });
     } catch {
-      return new Response("Not Found", { status: 404 });
+      // index.html missing/unreadable — fall through to 404.
     }
+    return new Response("Not Found", { status: 404 });
   }
 }
 
