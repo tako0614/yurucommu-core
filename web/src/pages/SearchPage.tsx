@@ -356,7 +356,13 @@ export function SearchPage() {
     e.preventDefault();
     e.stopPropagation();
     try {
-      await follow(targetActor.ap_id);
+      const { status } = await follow(targetActor.ap_id);
+      // A private/remote account's follow may land as a pending request awaiting
+      // approval — don't misrepresent it as followed or drop it from results.
+      if (status === "pending") {
+        pushToast(setToasts, t("profile.followRequested"), { kind: "success" });
+        return;
+      }
       setFollowing((prev) => [...prev, targetActor]);
       setSearchUsersResult((prev) =>
         prev.filter((u) => u.ap_id !== targetActor.ap_id),

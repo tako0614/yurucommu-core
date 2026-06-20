@@ -23,22 +23,35 @@ function updatePost(
   return posts.map((p) => (p.ap_id === apId ? updater(p) : p));
 }
 
+// Tracks in-flight "action:apId" toggles. A rapid double-tap would otherwise read
+// the same pre-toggle snapshot twice and apply the optimistic delta twice (e.g.
+// like_count +2) while the server records it once — a permanent local count drift
+// until refetch. While a toggle for a key is outstanding, further taps no-op.
+const inFlightToggles = new Set<string>();
+
 // Optimistic toggle: apply the UI change immediately, call the API, and roll
 // back if it fails. Keeps the like/repost/bookmark buttons snappy instead of
-// waiting a network round-trip before reflecting the tap.
+// waiting a network round-trip before reflecting the tap. Re-throws on failure
+// so the caller can surface a toast (the revert alone is silent).
 async function optimisticToggle(
+  key: string,
   apId: string,
   setPosts: (fn: (prev: Post[]) => Post[]) => void,
   apply: (p: Post) => Post,
   revert: (p: Post) => Post,
   call: () => Promise<unknown>,
 ) {
+  if (inFlightToggles.has(key)) return;
+  inFlightToggles.add(key);
   setPosts((prev) => updatePost(prev, apId, apply));
   try {
     await call();
   } catch (e) {
     console.error("Interaction failed, rolling back:", e);
     setPosts((prev) => updatePost(prev, apId, revert));
+    throw e;
+  } finally {
+    inFlightToggles.delete(key);
   }
 }
 
@@ -48,6 +61,7 @@ export async function toggleLike(
 ) {
   const liked = post.liked;
   await optimisticToggle(
+    `like:${post.ap_id}`,
     post.ap_id,
     setPosts,
     (p) => ({
@@ -66,6 +80,7 @@ export async function toggleRepost(
 ) {
   const reposted = post.reposted;
   await optimisticToggle(
+    `repost:${post.ap_id}`,
     post.ap_id,
     setPosts,
     (p) => ({
@@ -88,6 +103,7 @@ export async function toggleBookmark(
 ) {
   const bookmarked = post.bookmarked;
   await optimisticToggle(
+    `bookmark:${post.ap_id}`,
     post.ap_id,
     setPosts,
     (p) => ({ ...p, bookmarked: !bookmarked }),

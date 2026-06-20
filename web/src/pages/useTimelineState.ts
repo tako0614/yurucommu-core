@@ -40,6 +40,7 @@ export function useTimelineState() {
 
   // State atoms
   const [posts, setPosts] = useAtom(timelinePostsAtom);
+  const setPendingNewPosts = useSetAtom(pendingNewPostsAtom);
   const scopeQuery = useAtomValue(scopeQueryAtom);
   const loading = useAtomValue(timelineLoadingAtom);
   const loadingMore = useAtomValue(timelineLoadingMoreAtom);
@@ -225,9 +226,15 @@ export function useTimelineState() {
     }
   };
 
-  // Mute/block an author and drop all of their posts from the timeline.
-  const dropAuthorPosts = (authorApId: string) =>
+  // Mute/block an author and drop all of their posts — from the live timeline AND
+  // the staged "new posts" buffer (otherwise a muted author's already-fetched
+  // posts re-enter the feed when the user taps "show new posts").
+  const dropAuthorPosts = (authorApId: string) => {
     setPosts((prev) => prev.filter((p) => p.author.ap_id !== authorApId));
+    setPendingNewPosts((prev) =>
+      prev.filter((p) => p.author.ap_id !== authorApId),
+    );
+  };
 
   const handleMute = async (post: Post) => {
     try {
