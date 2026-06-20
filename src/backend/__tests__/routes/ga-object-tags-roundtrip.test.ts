@@ -18,9 +18,11 @@ import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
+import { eq } from "drizzle-orm";
+
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors } from "../../../db/index.ts";
+import { actors, objects } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import postRoutes from "../../routes/posts/routes.ts";
 import outboxRoutes from "../../routes/activitypub/outbox.ts";
@@ -241,4 +243,60 @@ test("a post with both a mention and a hashtag carries both tags", async () => {
     href: `${APP_URL}/search?search=%23ocean`,
     name: "#ocean",
   });
+});
+
+test("a relative /media attachment is stored relative but federated as an absolute URL", async () => {
+  // Regression: the client uploads an image and sends the resulting app-relative
+  // `/media/<hash>` path as the attachment url. It is stored verbatim (so the
+  // same-origin client renders it), but the outbound Create and the served
+  // object doc must absolutize it — a remote server would otherwise resolve
+  // `/media/...` against its OWN origin and 404 the image.
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "alice");
+
+  const createRes = await postApp(db, fakeActor(authorApId, "alice")).fetch(
+    new Request(`${APP_URL}/api/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: "look at this",
+        visibility: "public",
+        attachments: [
+          {
+            url: "/media/abc123.png",
+            r2_key: "uploads/abc123.png",
+            content_type: "image/png",
+          },
+        ],
+      }),
+    }),
+    envFor(db),
+  );
+  expect(createRes.status).toEqual(200);
+  const created = (await createRes.json()) as { ap_id: string };
+  const postId = created.ap_id.slice(`${APP_URL}/ap/objects/`.length);
+
+  // Stored verbatim (relative) so the local client renders it same-origin.
+  const stored = await db
+    .select({ attachmentsJson: objects.attachmentsJson })
+    .from(objects)
+    .where(eq(objects.apId, created.ap_id))
+    .get();
+  const storedAtt = JSON.parse(stored!.attachmentsJson) as Array<{
+    url: string;
+  }>;
+  expect(storedAtt[0].url).toEqual("/media/abc123.png");
+
+  // The served object doc absolutizes the attachment URL.
+  const objRes = await outboxApp(db).fetch(
+    new Request(`${APP_URL}/ap/objects/${postId}`, { method: "GET" }),
+    envFor(db),
+  );
+  expect(objRes.status).toEqual(200);
+  const served = (await objRes.json()) as {
+    attachment?: Array<{ url: string; r2_key?: string }>;
+  };
+  expect(served.attachment?.[0].url).toEqual(`${APP_URL}/media/abc123.png`);
+  // Non-url fields are preserved.
+  expect(served.attachment?.[0].r2_key).toEqual("uploads/abc123.png");
 });

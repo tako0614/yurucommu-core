@@ -50,6 +50,7 @@ import {
 } from "./post-helpers.ts";
 import { requireActor } from "../actors-helpers.ts";
 import { canViewerReadObject } from "../../lib/community-visibility.ts";
+import { absolutizeAttachmentUrls } from "../../lib/activitypub-helpers.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "posts.routes" });
@@ -275,7 +276,9 @@ posts.post("/", async (c) => {
         attributedTo: actor.ap_id,
         content,
         summary: summary || null,
-        attachment: body.attachments || [],
+        // Media is stored as an app-relative /media path; absolutize for the
+        // federated copy so remote servers can fetch the image.
+        attachment: absolutizeAttachmentUrls(body.attachments || [], baseUrl),
         inReplyTo: body.in_reply_to || null,
         published: now,
         to,

@@ -39,6 +39,32 @@ export function safeUrlJoin(baseUrl: string, path: string): string {
 }
 
 /**
+ * Absolutize the `url` of each attachment for federation. Media is stored and
+ * served locally as an app-relative `/media/<hash>` path; a remote server would
+ * resolve that against ITS OWN origin and 404, so every federation egress point
+ * (the embedded object in an outbound Create, and the served `/ap/objects/:id`
+ * document) must rewrite attachment URLs to absolute. Non-`url` fields are
+ * preserved untouched, and already-absolute URLs pass through unchanged.
+ */
+export function absolutizeAttachmentUrls(
+  attachments: unknown[],
+  baseUrl: string,
+): unknown[] {
+  return attachments.map((att) => {
+    if (att && typeof att === "object" && !Array.isArray(att)) {
+      const url = (att as { url?: unknown }).url;
+      if (typeof url === "string" && url.length > 0) {
+        return {
+          ...(att as Record<string, unknown>),
+          url: safeUrlJoin(baseUrl, url),
+        };
+      }
+    }
+    return att;
+  });
+}
+
+/**
  * Convert a Story to ActivityPub format
  */
 export function storyToActivityPub(
