@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, Index, Show } from "solid-js";
 import { CloseIcon } from "./ProfileIcons.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { uploadMedia } from "../../lib/api/media.ts";
@@ -227,15 +227,15 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 {props.t("profile.fieldsHint")}
               </p>
               <div class="space-y-2">
-                <For each={props.editFields}>
+                <Index each={props.editFields}>
                   {(field, index) => (
                     <div class="flex items-start gap-2">
                       <div class="flex-1 space-y-2">
                         <input
                           type="text"
-                          value={field.name}
+                          value={field().name}
                           onInput={(e) =>
-                            updateField(index(), {
+                            updateField(index, {
                               name: e.currentTarget.value,
                             })
                           }
@@ -245,9 +245,9 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                         />
                         <input
                           type="text"
-                          value={field.value}
+                          value={field().value}
                           onInput={(e) =>
-                            updateField(index(), {
+                            updateField(index, {
                               value: e.currentTarget.value,
                             })
                           }
@@ -258,7 +258,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                       </div>
                       <button
                         type="button"
-                        onClick={() => removeField(index())}
+                        onClick={() => removeField(index)}
                         aria-label={props.t("profile.removeField")}
                         class="mt-1 p-2 rounded-full text-neutral-400 hover:bg-neutral-800 hover:text-red-500 transition-colors"
                       >
@@ -266,7 +266,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                       </button>
                     </div>
                   )}
-                </For>
+                </Index>
               </div>
               <Show when={props.editFields.length < MAX_PROFILE_FIELDS}>
                 <button

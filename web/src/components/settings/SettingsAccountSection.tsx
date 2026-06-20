@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, Index, Show } from "solid-js";
 import { SettingsSectionHeader } from "./SettingsSectionHeader.tsx";
 import { CloseIcon, PlusIcon } from "./SettingsIcons.tsx";
 import {
@@ -127,19 +127,19 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
             {props.t("settings.alsoKnownAsHint")}
           </p>
           <div class="space-y-2 mb-2">
-            <For each={aliases()}>
+            <Index each={aliases()}>
               {(alias, index) => (
                 <div class="flex gap-2">
                   <input
                     type="text"
-                    value={alias}
-                    onInput={(e) => updateAlias(index(), e.currentTarget.value)}
+                    value={alias()}
+                    onInput={(e) => updateAlias(index, e.currentTarget.value)}
                     placeholder="https://example.com/ap/users/me"
                     class={inputClass}
                   />
                   <button
                     type="button"
-                    onClick={() => removeAlias(index())}
+                    onClick={() => removeAlias(index)}
                     aria-label={props.t("profile.removeField")}
                     class="p-2 hover:bg-neutral-800 rounded-full shrink-0"
                   >
@@ -147,7 +147,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
                   </button>
                 </div>
               )}
-            </For>
+            </Index>
           </div>
           <button
             type="button"
