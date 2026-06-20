@@ -2,6 +2,7 @@ import {
   createEffect,
   createSignal,
   type JSX,
+  on,
   onCleanup,
   Show,
 } from "solid-js";
@@ -94,15 +95,20 @@ export function QRCodeModal(props: QRCodeModalProps) {
     void stopScannerSafely();
   });
 
-  // Start/stop scanner when tab changes
-  createEffect(() => {
-    if (tab() === "scan" && !scanning() && !scanResult()) {
-      startScanner();
-    } else if (tab() !== "scan" && scannerRef) {
-      void stopScannerSafely();
-      setScanning(false);
-    }
-  });
+  // Start/stop scanner when the tab changes. Track ONLY `tab`: startScanner()
+  // writes setScanning(true) synchronously (before its first await), so a bare
+  // effect that also read scanning()/scanResult() would re-trigger itself. `on`
+  // keeps those reads untracked so this fires once per tab change.
+  createEffect(
+    on(tab, (current) => {
+      if (current === "scan" && !scanning() && !scanResult()) {
+        startScanner();
+      } else if (current !== "scan" && scannerRef) {
+        void stopScannerSafely();
+        setScanning(false);
+      }
+    }),
+  );
 
   const startScanner = async () => {
     if (!scannerContainerRef) return;
