@@ -6,6 +6,7 @@ import { fetchFollowers, fetchFollowing } from "../lib/api.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
+import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 
 const BackIcon = () => (
   <svg
@@ -65,6 +66,10 @@ export function FriendsListPage() {
   const { t } = useI18n();
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
+  // Distinct from the dismissible `error` banner: a FATAL load failure that
+  // should replace the (otherwise misleading "0 / not following") list with a
+  // retry affordance instead of rendering as an empty state.
+  const [loadError, setLoadError] = createSignal<string | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialTab: TabType =
@@ -83,6 +88,7 @@ export function FriendsListPage() {
   const loadFriends = async () => {
     // Only show loading if no cached data
     if (following().length === 0 && followers().length === 0) setLoading(true);
+    setLoadError(null);
     try {
       const [followingData, followersData] = await Promise.all([
         fetchFollowing(actor.ap_id),
@@ -92,7 +98,7 @@ export function FriendsListPage() {
       setFollowers(followersData);
     } catch (e) {
       console.error("Failed to load friends:", e);
-      setError(t("common.error"));
+      setLoadError(t("common.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -184,57 +190,74 @@ export function FriendsListPage() {
       {/* List */}
       <div class="flex-1 overflow-y-auto">
         <Show
-          when={!loading()}
+          when={
+            !(
+              loadError() &&
+              following().length === 0 &&
+              followers().length === 0
+            )
+          }
           fallback={
-            <div class="p-8 text-center text-neutral-500">
-              {t("common.loading")}
-            </div>
+            <InlineErrorRetry
+              message={loadError()!}
+              retryLabel={t("common.retry")}
+              onRetry={loadFriends}
+            />
           }
         >
           <Show
-            when={filteredList().length > 0}
+            when={!loading()}
             fallback={
               <div class="p-8 text-center text-neutral-500">
-                {searchQuery()
-                  ? t("common.noResults")
-                  : activeTab() === "following"
-                    ? t("friends.notFollowing")
-                    : t("friends.noFollowers")}
+                {t("common.loading")}
               </div>
             }
           >
-            <For each={filteredList()}>
-              {(friend) => (
-                <div class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/30 transition-colors">
-                  <A href={`/profile/${encodeURIComponent(friend.ap_id)}`}>
-                    <UserAvatar
-                      avatarUrl={friend.icon_url}
-                      name={friend.name || friend.preferred_username}
-                      size={48}
-                    />
-                  </A>
-                  <A
-                    href={`/profile/${encodeURIComponent(friend.ap_id)}`}
-                    class="flex-1 min-w-0"
-                  >
-                    <div class="font-bold text-white truncate">
-                      {friend.name || friend.preferred_username}
-                    </div>
-                    <div class="text-neutral-500 truncate">
-                      @{friend.username}
-                    </div>
-                  </A>
-                  <button
-                    onClick={() => handleStartDM(friend.ap_id)}
-                    aria-label={t("friends.sendMessage")}
-                    class="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-full transition-colors"
-                    title={t("friends.sendMessage")}
-                  >
-                    <MessageIcon />
-                  </button>
+            <Show
+              when={filteredList().length > 0}
+              fallback={
+                <div class="p-8 text-center text-neutral-500">
+                  {searchQuery()
+                    ? t("common.noResults")
+                    : activeTab() === "following"
+                      ? t("friends.notFollowing")
+                      : t("friends.noFollowers")}
                 </div>
-              )}
-            </For>
+              }
+            >
+              <For each={filteredList()}>
+                {(friend) => (
+                  <div class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/30 transition-colors">
+                    <A href={`/profile/${encodeURIComponent(friend.ap_id)}`}>
+                      <UserAvatar
+                        avatarUrl={friend.icon_url}
+                        name={friend.name || friend.preferred_username}
+                        size={48}
+                      />
+                    </A>
+                    <A
+                      href={`/profile/${encodeURIComponent(friend.ap_id)}`}
+                      class="flex-1 min-w-0"
+                    >
+                      <div class="font-bold text-white truncate">
+                        {friend.name || friend.preferred_username}
+                      </div>
+                      <div class="text-neutral-500 truncate">
+                        @{friend.username}
+                      </div>
+                    </A>
+                    <button
+                      onClick={() => handleStartDM(friend.ap_id)}
+                      aria-label={t("friends.sendMessage")}
+                      class="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-full transition-colors"
+                      title={t("friends.sendMessage")}
+                    >
+                      <MessageIcon />
+                    </button>
+                  </div>
+                )}
+              </For>
+            </Show>
           </Show>
         </Show>
       </div>
