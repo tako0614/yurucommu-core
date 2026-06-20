@@ -78,11 +78,9 @@ export function ScopeBar(props: ScopeBarProps) {
   };
 
   const selectPersonal = () => {
-    const a = actor();
-    select(
-      { kind: "personal" },
-      a ? a.name || a.preferred_username : t("scope.personal"),
-    );
+    // Label the toast with the SCOPE name ("パーソナル"), matching the pill —
+    // using the account name here read like an account switch, not a scope one.
+    select({ kind: "personal" }, t("scope.personal"));
   };
 
   return (

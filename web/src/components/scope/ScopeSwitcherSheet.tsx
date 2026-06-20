@@ -119,11 +119,9 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
   };
 
   const selectPersonal = () => {
-    const a = actor();
-    selectScope(
-      { kind: "personal" },
-      a ? a.name || a.preferred_username : t("scope.personal"),
-    );
+    // Toast names the SCOPE ("パーソナル"), not the account, so switching to the
+    // personal scope does not read like an account switch.
+    selectScope({ kind: "personal" }, t("scope.personal"));
   };
 
   const handleDiscover = () => {
