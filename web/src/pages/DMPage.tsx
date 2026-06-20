@@ -101,7 +101,7 @@ function RequestItem(props: RequestItemProps) {
         <div class="flex gap-2 mt-3">
           <button
             onClick={props.onAccept}
-            class="px-4 py-1.5 bg-green-500 text-white text-sm font-medium rounded-full hover:bg-green-600 transition-colors"
+            class="px-4 py-1.5 bg-accent text-white text-sm font-medium rounded-full transition-colors"
           >
             {t("dm.accept")}
           </button>
@@ -512,14 +512,14 @@ export function DMPage() {
                   >
                     {t("dm.filterRequests")}
                     <Show when={requestCount() > 0}>
-                      <span class="absolute top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-green-500 rounded-full text-[10px] flex items-center justify-center text-white font-bold">
+                      <span class="absolute top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full text-[10px] flex items-center justify-center text-white font-bold">
                         {requestCount() > 99 ? "99+" : requestCount()}
                       </span>
                     </Show>
                   </button>
                   {/* Tab indicator - underline style */}
                   <div
-                    class="absolute bottom-0 h-0.5 bg-green-500 transition-all duration-200"
+                    class="absolute bottom-0 h-0.5 bg-accent transition-all duration-200"
                     style={{
                       width:
                         tabIndex() === 0

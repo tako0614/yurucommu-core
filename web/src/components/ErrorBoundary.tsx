@@ -74,7 +74,7 @@ export function ErrorBoundary(props: AppErrorBoundaryProps) {
                 </button>
                 <button
                   onClick={handleReload}
-                  class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                  class="px-4 py-2 bg-accent text-white rounded-lg transition-colors"
                 >
                   Reload page
                 </button>

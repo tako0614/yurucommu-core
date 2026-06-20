@@ -76,7 +76,7 @@ export function StoryBar(props: StoryBarProps) {
                     <PlusIcon />
                   </div>
                 </div>
-                <span class="text-xs text-neutral-400 max-w-16 truncate">
+                <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
                   {t("story.yourStory")}
                 </span>
               </button>
@@ -126,7 +126,7 @@ export function StoryBar(props: StoryBarProps) {
                   <PlusIcon />
                 </button>
               </div>
-              <span class="text-xs text-neutral-400 max-w-16 truncate">
+              <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
                 {hasMyStories() ? t("story.yourStory") : t("story.addStory")}
               </span>
             </div>
@@ -153,7 +153,7 @@ export function StoryBar(props: StoryBarProps) {
                       />
                     </div>
                   </div>
-                  <span class="text-xs text-neutral-400 max-w-16 truncate">
+                  <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
                     {as.actor.name || as.actor.preferred_username}
                   </span>
                 </button>

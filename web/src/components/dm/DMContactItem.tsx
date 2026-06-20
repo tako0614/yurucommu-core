@@ -95,7 +95,7 @@ export function DMContactItem(props: DMContactItemProps) {
           {formatConversationListTime(props.contact.last_message_at)}
         </span>
         <Show when={(props.unreadCount ?? 0) > 0}>
-          <span class="min-w-[18px] h-[18px] px-1 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center">
+          <span class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
             {(props.unreadCount ?? 0) > 99 ? "99+" : props.unreadCount}
           </span>
         </Show>
