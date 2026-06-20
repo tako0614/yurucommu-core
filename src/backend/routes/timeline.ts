@@ -450,12 +450,18 @@ async function handleCommunityTimeline(
   );
   const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
 
-  // Filter strictly by communityApId — community posts live outside the public
-  // feed (their audienceJson is non-"[]"), so scoping by community is what makes
-  // them visible to members here.
+  // This is the home "narrow to a community" filter: it shows the slice of the
+  // viewer's reach that belongs to this community — (1) posts deliberately
+  // narrowed to it (communityApId), plus (2) the general public/unlisted posts
+  // of its members (a community is a named slice of people, not a content silo).
+  const memberRows = await db
+    .select({ actorApId: communityMembers.actorApId })
+    .from(communityMembers)
+    .where(eq(communityMembers.communityApId, gate.community.apId));
+  const memberApIds = [...new Set(memberRows.map((r) => r.actorApId))];
+
   const conditions = [
     eq(objects.type, "Note"),
-    eq(objects.communityApId, gate.community.apId),
     isNull(objects.inReplyTo),
     isNull(objects.deletedAt),
   ];
@@ -464,10 +470,20 @@ async function handleCommunityTimeline(
   }
   if (before) conditions.push(feedCursorPredicate(decodeFeedCursor(before)));
 
+  const memberFeed =
+    memberApIds.length > 0
+      ? and(
+          eq(objects.audienceJson, "[]"),
+          inArray(objects.attributedTo, memberApIds),
+          inArray(objects.visibility, ["public", "unlisted"]),
+        )
+      : undefined;
+  const source = or(eq(objects.communityApId, gate.community.apId), memberFeed);
+
   const posts = await db
     .select(POST_FEED_COLUMNS)
     .from(objects)
-    .where(and(...conditions))
+    .where(and(...conditions, source))
     .orderBy(desc(objects.published), desc(objects.apId))
     .limit(limit + 1)
     .offset(offset);
@@ -519,25 +535,94 @@ timeline.get(
     );
     const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
 
-    // Public/home feed: only top-level public posts with no extra audience.
-    // The audienceJson = "[]" filter is what keeps community / addressed posts
-    // out of this feed.
-    const conditions = [
+    const base = [
       eq(objects.type, "Note"),
-      eq(objects.visibility, "public"),
       isNull(objects.inReplyTo),
-      eq(objects.audienceJson, "[]"),
       isNull(objects.deletedAt),
     ];
     if (excludedApIds.length > 0) {
-      conditions.push(notInArray(objects.attributedTo, excludedApIds));
+      base.push(notInArray(objects.attributedTo, excludedApIds));
     }
-    if (before) conditions.push(feedCursorPredicate(decodeFeedCursor(before)));
+    if (before) base.push(feedCursorPredicate(decodeFeedCursor(before)));
+
+    // The "source" predicate selects WHICH posts belong in this feed.
+    let sourcePredicate;
+    if (!viewerApId) {
+      // Anonymous visitor: the instance's public timeline — top-level public
+      // posts with no extra audience (community / addressed posts excluded).
+      sourcePredicate = and(
+        eq(objects.visibility, "public"),
+        eq(objects.audienceJson, "[]"),
+      );
+    } else {
+      // Authenticated home: the unified "everything I can see" feed = my whole
+      // reach. A post belongs to ME, not to a single community, so this merges:
+      //   A1 self + accepted follows (own = any non-direct; follows = public/
+      //      unlisted/followers),
+      //   A2 co-members (authors who share a community with me) — their public/
+      //      unlisted posts only (followers-only stays follow-gated, no leak),
+      //   B  posts deliberately narrowed to a community I belong to.
+      const [followRows, myCommunityRows] = await Promise.all([
+        db
+          .select({ followingApId: follows.followingApId })
+          .from(follows)
+          .where(
+            and(
+              eq(follows.followerApId, viewerApId),
+              eq(follows.status, "accepted"),
+            ),
+          ),
+        db
+          .select({ communityApId: communityMembers.communityApId })
+          .from(communityMembers)
+          .where(eq(communityMembers.actorApId, viewerApId)),
+      ]);
+      const followingApIds = followRows.map((f) => f.followingApId);
+      const myCommunityApIds = myCommunityRows.map((r) => r.communityApId);
+
+      let coMemberApIds: string[] = [];
+      if (myCommunityApIds.length > 0) {
+        const coMemberRows = await db
+          .select({ actorApId: communityMembers.actorApId })
+          .from(communityMembers)
+          .where(
+            and(
+              inArray(communityMembers.communityApId, myCommunityApIds),
+              ne(communityMembers.actorApId, viewerApId),
+            ),
+          );
+        coMemberApIds = [...new Set(coMemberRows.map((r) => r.actorApId))];
+      }
+
+      const branches = [
+        and(
+          eq(objects.audienceJson, "[]"),
+          inArray(objects.attributedTo, [viewerApId, ...followingApIds]),
+          or(
+            eq(objects.attributedTo, viewerApId),
+            inArray(objects.visibility, ["public", "unlisted", "followers"]),
+          ),
+        ),
+      ];
+      if (coMemberApIds.length > 0) {
+        branches.push(
+          and(
+            eq(objects.audienceJson, "[]"),
+            inArray(objects.attributedTo, coMemberApIds),
+            inArray(objects.visibility, ["public", "unlisted"]),
+          ),
+        );
+      }
+      if (myCommunityApIds.length > 0) {
+        branches.push(inArray(objects.communityApId, myCommunityApIds));
+      }
+      sourcePredicate = or(...branches);
+    }
 
     const posts = await db
       .select(POST_FEED_COLUMNS)
       .from(objects)
-      .where(and(...conditions))
+      .where(and(...base, sourcePredicate))
       .orderBy(desc(objects.published), desc(objects.apId))
       .limit(limit + 1)
       .offset(offset);
