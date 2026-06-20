@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import {
   activities,
@@ -33,6 +33,10 @@ import {
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "follow" });
+
+// `.batch` lives only on the concrete D1/libsql subclasses, not the Database
+// union; reach it through a narrow structural cast (matching the other routes).
+type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
 const MAX_BATCH_ACCEPT_SIZE = 100;
 
@@ -102,7 +106,7 @@ follow.delete("/", async (c) => {
   const wasAccepted = existingFollow.status === "accepted";
   const targetIsLocal = isLocal(targetApId, baseUrl);
 
-  await db
+  const deleteEdge = db
     .delete(follows)
     .where(
       and(
@@ -112,21 +116,41 @@ follow.delete("/", async (c) => {
     );
 
   if (wasAccepted) {
-    await db
-      .update(actors)
-      .set({
-        followingCount: sql`${actors.followingCount} - 1`,
-      })
-      .where(eq(actors.apId, actor.ap_id));
-
-    if (targetIsLocal) {
-      await db
+    // Co-commit the decrements + delete in ONE batch so a crash between them
+    // can't leave the edge gone with un-decremented counts (permanent over-
+    // count). Decrements run BEFORE the delete, guarded by EXISTS(accepted edge)
+    // + count>0 (underflow) — mirrors the federated undoFollowEdge.
+    const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${actor.ap_id} AND ${follows.followingApId} = ${targetApId} AND ${follows.status} = 'accepted')`;
+    const stmts: unknown[] = [
+      db
         .update(actors)
-        .set({
-          followerCount: sql`${actors.followerCount} - 1`,
-        })
-        .where(eq(actors.apId, targetApId));
+        .set({ followingCount: sql`${actors.followingCount} - 1` })
+        .where(
+          and(
+            eq(actors.apId, actor.ap_id),
+            gt(actors.followingCount, 0),
+            acceptedEdgeExists,
+          ),
+        ),
+    ];
+    if (targetIsLocal) {
+      stmts.push(
+        db
+          .update(actors)
+          .set({ followerCount: sql`${actors.followerCount} - 1` })
+          .where(
+            and(
+              eq(actors.apId, targetApId),
+              gt(actors.followerCount, 0),
+              acceptedEdgeExists,
+            ),
+          ),
+      );
     }
+    stmts.push(deleteEdge);
+    await (db as unknown as Batchable).batch(stmts);
+  } else {
+    await deleteEdge;
   }
 
   if (!targetIsLocal) {

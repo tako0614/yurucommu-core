@@ -27,6 +27,10 @@ import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "follow.helpers" });
 
+// `.batch` lives only on the concrete D1/libsql subclasses, not the Database
+// union; reach it through a narrow structural cast (matching the other routes).
+type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
+
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
 
 export type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -217,7 +221,7 @@ export async function handleLocalFollow(
   const followActivity = buildApActivity("Follow", actor.ap_id, targetApId, id);
 
   try {
-    await db.insert(follows).values({
+    const followInsert = db.insert(follows).values({
       followerApId: actor.ap_id,
       followingApId: targetApId,
       status,
@@ -226,18 +230,27 @@ export async function handleLocalFollow(
     });
 
     if (status === "accepted") {
-      await db
-        .update(actors)
-        .set({
-          followingCount: sql`${actors.followingCount} + 1`,
-        })
-        .where(eq(actors.apId, actor.ap_id));
-      await db
-        .update(actors)
-        .set({
-          followerCount: sql`${actors.followerCount} + 1`,
-        })
-        .where(eq(actors.apId, targetApId));
+      // Co-commit the edge insert + both increments in ONE batch so a crash
+      // between them can't leave the edge accepted with un-bumped counts (the
+      // retry would see the existing edge and skip the increment → permanent
+      // under-count). Increments guarded by NOT EXISTS(edge) — evaluated before
+      // the in-batch insert — so a concurrent duplicate can't double-count; the
+      // bare insert still throws on a true duplicate, rolling back the whole
+      // batch so the catch below returns the "Already following" 400.
+      const edgeAbsent = sql`NOT EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${actor.ap_id} AND ${follows.followingApId} = ${targetApId})`;
+      await (db as unknown as Batchable).batch([
+        db
+          .update(actors)
+          .set({ followingCount: sql`${actors.followingCount} + 1` })
+          .where(and(eq(actors.apId, actor.ap_id), edgeAbsent)),
+        db
+          .update(actors)
+          .set({ followerCount: sql`${actors.followerCount} + 1` })
+          .where(and(eq(actors.apId, targetApId), edgeAbsent)),
+        followInsert,
+      ]);
+    } else {
+      await followInsert;
     }
 
     await db.insert(activities).values({
