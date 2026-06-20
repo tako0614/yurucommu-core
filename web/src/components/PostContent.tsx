@@ -2,6 +2,11 @@ import { A } from "@solidjs/router";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { useI18n } from "../lib/i18n.tsx";
 import { looksLikeHtml, sanitizeHtml } from "../lib/sanitize-html.ts";
+import {
+  makeTokenRe,
+  parsePostTokens,
+  tokenSearchHref,
+} from "../lib/post-tokens.ts";
 
 interface PostContentProps {
   content: string;
@@ -17,28 +22,27 @@ interface PostContentProps {
   onToggleReveal?: () => void;
 }
 
-type ContentPart =
-  | { type: "text"; text: string; position: number }
-  | { type: "mention"; username: string; position: number };
-
-// Linkify bare @mentions in the text regions of an already-sanitized HTML
-// string, without touching anything inside `<...>` tags (so existing href
-// attributes and anchor text are left intact). The mention link itself is
-// emitted as a safe http-relative anchor with the same rel/target policy the
-// sanitizer enforces.
-function linkifyMentionsInHtml(html: string): string {
-  const mentionRe = /@([a-zA-Z0-9_]+)/g;
+// Linkify bare @mentions and #hashtags in the text regions of an
+// already-sanitized HTML string, without touching anything inside `<...>` tags
+// (so existing href attributes and anchor text are left intact). Links are
+// emitted with the same rel policy the sanitizer enforces.
+function linkifyTokensInHtml(html: string): string {
   let out = "";
   let i = 0;
   while (i < html.length) {
     const lt = html.indexOf("<", i);
     const segmentEnd = lt === -1 ? html.length : lt;
     const text = html.slice(i, segmentEnd);
-    out += text.replace(mentionRe, (_m, username: string) => {
-      const href = `/groups?search=@${encodeURIComponent(username)}`;
+    out += text.replace(makeTokenRe(), (full, mention, hashtag) => {
+      const query = mention !== undefined ? `@${mention}` : `#${hashtag}`;
+      const href = tokenSearchHref(query);
+      const attr =
+        mention !== undefined
+          ? `data-mention="${mention}"`
+          : `data-hashtag="${hashtag}"`;
       return (
-        `<a href="${href}" rel="noopener noreferrer nofollow"` +
-        ` data-mention="${username}">@${username}</a>`
+        `<a href="${href}" rel="noopener noreferrer nofollow" ${attr}>` +
+        `${full}</a>`
       );
     });
     if (lt === -1) break;
@@ -74,45 +78,10 @@ export function PostContent(props: PostContentProps) {
   // the strict allowlist sanitizer (only safe formatting tags + http(s) links
   // survive), then mentions are linkified only in text regions.
   const sanitizedHtml = createMemo(() =>
-    linkifyMentionsInHtml(sanitizeHtml(props.content)),
+    linkifyTokensInHtml(sanitizeHtml(props.content)),
   );
 
-  const parsedContent = createMemo(() => {
-    // Regex to match @username (alphanumeric and underscores)
-    const mentionRegex = /@([a-zA-Z0-9_]+)/g;
-    const parts: ContentPart[] = [];
-    let lastIndex = 0;
-    let match;
-
-    while ((match = mentionRegex.exec(props.content)) !== null) {
-      // Add text before the mention
-      if (match.index > lastIndex) {
-        parts.push({
-          type: "text",
-          text: props.content.slice(lastIndex, match.index),
-          position: lastIndex,
-        });
-      }
-      // Add the mention
-      parts.push({
-        type: "mention",
-        username: match[1],
-        position: match.index,
-      });
-      lastIndex = match.index + match[0].length;
-    }
-
-    // Add remaining text
-    if (lastIndex < props.content.length) {
-      parts.push({
-        type: "text",
-        text: props.content.slice(lastIndex),
-        position: lastIndex,
-      });
-    }
-
-    return parts;
-  });
+  const parsedContent = createMemo(() => parsePostTokens(props.content));
 
   const plainBody = (
     <p class={`whitespace-pre-wrap break-words ${props.class ?? ""}`}>
@@ -121,14 +90,16 @@ export function PostContent(props: PostContentProps) {
           if (part.type === "text") {
             return <span>{part.text}</span>;
           }
-          // Render mention as a link to Groups search
+          // Mentions and hashtags both link to the instance search.
+          const prefix = part.type === "mention" ? "@" : "#";
           return (
             <A
-              href={`/groups?search=@${part.username}`}
+              href={tokenSearchHref(`${prefix}${part.value}`)}
               class="text-accent hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
-              @{part.username}
+              {prefix}
+              {part.value}
             </A>
           );
         }}
