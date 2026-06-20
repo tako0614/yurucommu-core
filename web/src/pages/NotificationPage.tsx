@@ -24,6 +24,21 @@ import { EmptyState } from "../components/EmptyState.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 import type { JSX } from "solid-js";
 
+// Preserve object identity for unchanged notifications across an in-place
+// refresh so the `<For>` (keyed by reference) re-renders only the rows that
+// actually changed, instead of rebuilding the whole list (visible flicker) on
+// every focus/visibility refresh.
+function mergeNotificationsById(
+  prev: Notification[],
+  next: Notification[],
+): Notification[] {
+  const prevById = new Map(prev.map((n) => [n.id, n]));
+  return next.map((n) => {
+    const old = prevById.get(n.id);
+    return old && JSON.stringify(old) === JSON.stringify(n) ? old : n;
+  });
+}
+
 const BellIcon = () => (
   <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path
@@ -115,7 +130,7 @@ export function NotificationPage() {
             await markNotificationsRead(unread.map((n) => n.id));
             if (!cancelled) {
               setNotifications((prev) =>
-                prev.map((n) => ({ ...n, read: true })),
+                prev.map((n) => (n.read ? n : { ...n, read: true })),
               );
               // Re-sync the shared badge from the backend (a filtered view may
               // not have marked every unread item, so don't blindly zero it).
@@ -158,14 +173,21 @@ export function NotificationPage() {
       });
       // Ignore late responses if the filter changed mid-flight.
       if (filter() !== currentFilter) return;
-      setNotifications(data);
+      setNotifications((prev) => mergeNotificationsById(prev, data));
 
       const unread = data.filter((n) => !n.read);
       if (unread.length > 0) {
-        await markNotificationsRead(unread.map((n) => n.id));
-        if (filter() === currentFilter) {
-          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-          void refreshUnread();
+        try {
+          await markNotificationsRead(unread.map((n) => n.id));
+          if (filter() === currentFilter) {
+            // Only the still-unread rows change reference (read flips true).
+            setNotifications((prev) =>
+              prev.map((n) => (n.read ? n : { ...n, read: true })),
+            );
+            void refreshUnread();
+          }
+        } catch (markErr) {
+          console.error("Failed to mark notifications read:", markErr);
         }
       }
     } catch (e) {
