@@ -483,6 +483,23 @@ function mimeFromExt(filePath: string): string {
   return ASSET_MIME[ext] || "application/octet-stream";
 }
 
+// Backend route prefixes (API, ActivityPub, well-known, media, health). A path
+// under one of these that reaches the static asset handler means the backend
+// router did not match it — that is a genuine 404 for an API/AP client, NOT a
+// candidate for the SPA HTML fallback (which would return 200 text/html and
+// break clients that expect JSON / an AP document).
+const NON_SPA_PREFIXES = [
+  "/api",
+  "/ap",
+  "/.well-known",
+  "/nodeinfo",
+  "/media",
+  "/hosted",
+  "/.takos",
+  "/healthz",
+  "/readyz",
+];
+
 export class BunAssets implements IStaticAssets {
   private basePath: string;
   private realBasePath: string | null = null;
@@ -523,23 +540,32 @@ export class BunAssets implements IStaticAssets {
 
     const realBasePath = await this.getRealBasePath();
 
-    // A request is a static ASSET request only when its path ends in a known
-    // asset extension. Everything else (/, /search, /profile, /post/<id>, ...)
-    // is a CLIENT-SIDE route that must fall back to the SPA's index.html, so a
-    // deep link / page refresh / shared URL loads the app instead of 404ing.
+    // A missing path falls back to the SPA's index.html ONLY when it is a
+    // genuine CLIENT-SIDE route (/, /search, /profile, /post/<id>, ...), so a
+    // deep link / refresh / shared URL loads the app instead of 404ing. It must
+    // NOT serve the SPA when the path is either:
+    //   - a real static ASSET request (a known asset extension) — a missing
+    //     asset is a genuine 404, not the HTML shell; or
+    //   - a BACKEND route prefix (/api, /ap, /.well-known, ...) — reaching the
+    //     static handler means the API/AP route did not match, which an API/AP
+    //     client expects as a 404, never an HTML 200.
     const lastDot = url.pathname.lastIndexOf(".");
     const ext = lastDot >= 0 ? url.pathname.slice(lastDot).toLowerCase() : "";
-    const isAssetPath = ext !== "" && ext !== ".html" && ext in ASSET_MIME;
+    const hasAssetExt = ext !== "" && ext !== ".html" && ext in ASSET_MIME;
+    const isBackendPath = NON_SPA_PREFIXES.some(
+      (p) => url.pathname === p || url.pathname.startsWith(p + "/"),
+    );
+    const spaFallbackEligible = !hasAssetExt && !isBackendPath;
 
     let realFilePath: string;
     try {
       realFilePath = await realpath(filePath);
     } catch {
-      // Path does not exist: a real asset is a genuine 404, but a client route
-      // falls back to the SPA shell.
-      return isAssetPath
-        ? new Response("Not Found", { status: 404 })
-        : this.serveSpaIndex(realBasePath);
+      // Path does not exist: a client route falls back to the SPA shell; a real
+      // asset or an unmatched backend route is a genuine 404.
+      return spaFallbackEligible
+        ? this.serveSpaIndex(realBasePath)
+        : new Response("Not Found", { status: 404 });
     }
 
     try {
@@ -574,13 +600,13 @@ export class BunAssets implements IStaticAssets {
         });
       }
 
-      return isAssetPath
-        ? new Response("Not Found", { status: 404 })
-        : this.serveSpaIndex(realBasePath);
+      return spaFallbackEligible
+        ? this.serveSpaIndex(realBasePath)
+        : new Response("Not Found", { status: 404 });
     } catch {
-      return isAssetPath
-        ? new Response("Not Found", { status: 404 })
-        : this.serveSpaIndex(realBasePath);
+      return spaFallbackEligible
+        ? this.serveSpaIndex(realBasePath)
+        : new Response("Not Found", { status: 404 });
     }
   }
 
