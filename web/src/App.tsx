@@ -49,9 +49,11 @@ function AppShell() {
         <Route path="/dm" component={DMPage} />
         <Route path="/dm/:contactId" component={DMPage} />
         <Route path="/profile" component={ProfilePage} />
-        <Route path="/profile/:actorId" component={ProfilePage} />
+        {/* Splat (*) so a refreshed/shared link whose %2F was decoded on the
+            server round-trip still matches (the AP id is a full URL). */}
+        <Route path="/profile/*actorId" component={ProfilePage} />
         <Route path="/notifications" component={NotificationPage} />
-        <Route path="/post/:postId" component={PostDetailPage} />
+        <Route path="/post/*postId" component={PostDetailPage} />
         <Route path="/bookmarks" component={BookmarksPage} />
         <Route path="/settings" component={SettingsPage} />
       </Route>

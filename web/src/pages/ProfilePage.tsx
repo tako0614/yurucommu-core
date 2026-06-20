@@ -1,5 +1,6 @@
 import { createEffect, createSignal, on, Show } from "solid-js";
 import { useParams } from "@solidjs/router";
+import { decodeApIdParam } from "../lib/routeApId.ts";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor, Post } from "../types/index.ts";
 import {
@@ -83,7 +84,7 @@ export function ProfilePage() {
 
   // Use current actor if no actorId in URL
   const targetActorId = () =>
-    params.actorId ? decodeURIComponent(params.actorId) : actor.ap_id;
+    params.actorId ? decodeApIdParam(params.actorId) : actor.ap_id;
   const isOwnProfile = () => targetActorId() === actor.ap_id;
   // The handle shown in the header. Once the profile is loaded we always use its
   // own username. Before it loads (skeleton / error), only the OWN profile may

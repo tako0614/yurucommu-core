@@ -13,6 +13,7 @@ import {
   unlikePost,
 } from "../lib/api.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { decodeApIdParam } from "../lib/routeApId.ts";
 import { useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
@@ -89,7 +90,7 @@ export function PostDetailPage() {
     setError(null);
     setLoading(true);
 
-    const decodedPostId = decodeURIComponent(postId);
+    const decodedPostId = decodeApIdParam(postId);
     Promise.all([fetchPost(decodedPostId), fetchReplies(decodedPostId)])
       .then(([postData, repliesData]) => {
         if (gen !== postLoadGen) return;
@@ -232,7 +233,7 @@ export function PostDetailPage() {
           >
             <BackIcon />
           </button>
-          <h1 class="text-xl font-bold">Post</h1>
+          <h1 class="text-xl font-bold">{t("postDetail.title")}</h1>
         </div>
       </header>
 
@@ -323,7 +324,9 @@ export function PostDetailPage() {
             <div class="flex items-center gap-6 mt-3 pt-3 border-t border-neutral-800">
               <div class="text-sm">
                 <span class="font-bold text-white">{post()!.reply_count}</span>
-                <span class="text-neutral-500 ml-1">Replies</span>
+                <span class="text-neutral-500 ml-1">
+                  {t("postDetail.repliesLabel")}
+                </span>
               </div>
               <Show when={post()!.author.ap_id === actor.ap_id}>
                 <div class="text-sm">
@@ -482,7 +485,9 @@ export function PostDetailPage() {
           </For>
 
           <Show when={replies().length === 0}>
-            <div class="p-8 text-center text-neutral-500">No replies yet</div>
+            <div class="p-8 text-center text-neutral-500">
+              {t("postDetail.noReplies")}
+            </div>
           </Show>
         </div>
       </Show>
