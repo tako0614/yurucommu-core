@@ -91,7 +91,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                 <h3 class="font-bold">{props.t("settings.newAccount")}</h3>
                 <button
                   onClick={props.onResetCreate}
-                  aria-label="Close"
+                  aria-label={props.t("common.close")}
                   class="p-1 hover:bg-neutral-800 rounded-full"
                 >
                   <CloseIcon />
