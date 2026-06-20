@@ -1,9 +1,17 @@
-import { ErrorBoundary, lazy, Match, Show, Suspense, Switch } from "solid-js";
+import {
+  createEffect,
+  ErrorBoundary,
+  lazy,
+  Match,
+  Show,
+  Suspense,
+  Switch,
+} from "solid-js";
 import { Route, Router } from "@solidjs/router";
 import { Provider } from "solid-jotai";
 import { useAtomValue } from "solid-jotai";
 import { useAuth } from "./hooks/useAuth.ts";
-import { tAtom } from "./atoms/i18n.ts";
+import { languageAtom, tAtom } from "./atoms/i18n.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
 import { SetupScreen } from "./components/SetupScreen.tsx";
 import { InstancePendingScreen } from "./components/InstancePendingScreen.tsx";
@@ -151,6 +159,13 @@ function AppContent() {
     refreshAuth,
   } = useAuth();
   const t = useAtomValue(tAtom);
+
+  // Keep <html lang> in sync with the active locale (a11y + SEO) so it tracks
+  // the in-app language switch, not just the mount-time default.
+  const language = useAtomValue(languageAtom);
+  createEffect(() => {
+    document.documentElement.lang = language();
+  });
 
   // Health reports `provisioning`/`updating` while the instance is still coming
   // up; treat those as pending alongside the explicit instancePending flag.

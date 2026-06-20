@@ -322,13 +322,13 @@ export function AppMenu() {
                 </A>
                 <button
                   type="button"
-                  onClick={() => setLanguage(language === "ja" ? "en" : "ja")}
+                  onClick={() => setLanguage(language() === "ja" ? "en" : "ja")}
                   class="w-full flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors text-left"
                 >
                   <LanguageIcon />
                   <span class="flex-1 text-lg">{t("settings.language")}</span>
                   <span class="text-neutral-500">
-                    {language === "ja"
+                    {language() === "ja"
                       ? t("settings.languageJa")
                       : t("settings.languageEn")}
                   </span>
