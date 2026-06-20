@@ -71,9 +71,9 @@ export function TimelinePage() {
         </Suspense>
       </Show>
 
-      {/* Scope identity + ambient reach + DM/notify/compose (replaces the
-          plain timeline title and absorbs the mobile shell header). */}
-      <ScopeHeader onOpenSwitcher={() => openSwitcher(true)} />
+      {/* Minimal home header (title + compose). The individual is the base, so
+          there is no scope to name or switch here. */}
+      <ScopeHeader />
 
       {/* Story Bar */}
       <StoryBar
@@ -84,14 +84,9 @@ export function TimelinePage() {
         onAddStory={state.handleAddStory}
       />
 
-      {/* One-tap inhabited-scope rail (second projection of the scope atom).
-          Both this and the header pill open the shell-mounted switcher sheet.
-          Hidden on mobile to tighten the stacked header/story/scope bars — the
-          header pill already names the scope and opens the same switcher there;
-          the rail is shown from md+ where vertical space is ample. */}
-      <div class="hidden md:block">
-        <ScopeBar onOpenSwitcher={() => openSwitcher(true)} />
-      </div>
+      {/* Optional home view filter: "すべて" + each joined community. Narrows the
+          unified feed to a community's people; hidden when there are none. */}
+      <ScopeBar onOpenSwitcher={() => openSwitcher(true)} />
 
       <div
         ref={(el) => {

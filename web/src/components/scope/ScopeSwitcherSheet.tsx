@@ -1,7 +1,7 @@
 import { createMemo, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useNavigate } from "@solidjs/router";
-import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
+import { useAtom, useAtomValue } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
 import { actorAtom } from "../../atoms/auth.ts";
@@ -11,7 +11,6 @@ import {
   scopeCommunitiesAtom,
   type InhabitedScope,
 } from "../../atoms/scope.ts";
-import { toastsAtom, pushToast } from "../../atoms/toast.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 
 interface ScopeSwitcherSheetProps {
@@ -70,18 +69,19 @@ const CreateIcon = () => (
 );
 
 /**
- * Scope picker. Renders as a bottom sheet on mobile and a centered popover-style
- * card on desktop (same responsive shell as {@link ConfirmSheet}).
+ * Home view filter picker. Renders as a bottom sheet on mobile and a centered
+ * popover-style card on desktop (same responsive shell as {@link ConfirmSheet}).
  *
  * Rows, in order:
- *  1. Personal (owner avatar/handle) — always present, always first.
+ *  1. "すべて" — the unfiltered home (your whole reach) — always first.
  *  2. Each joined community (icon + display name + member count).
  *  3. "Discover communities" action.
  *  4. "Create" action.
  *
- * Selecting a scope row sets {@link inhabitedScopeAtom} and closes the sheet —
- * it does NOT navigate (scope is an observation lens, not a route). The Discover
- * / Create rows are the only navigating affordances.
+ * Selecting a row sets the transient {@link inhabitedScopeAtom} (the home view
+ * filter) and closes the sheet — it does NOT navigate (the filter is a view lens,
+ * not a route) and stays quiet (the feed reload is the confirmation, matching the
+ * ScopeBar pills). The Discover / Create rows are the only navigating affordances.
  */
 export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
   const { t } = useI18n();
@@ -89,7 +89,6 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
   const actor = useAtomValue(actorAtom);
   const [scope, setScope] = useAtom(inhabitedScopeAtom);
   const communities = useAtomValue(scopeCommunitiesAtom);
-  const setToasts = useSetAtom(toastsAtom);
   let dialogRef: HTMLDivElement | undefined;
 
   useDialog({
@@ -110,19 +109,13 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
     return current.kind === "community" && current.ap_id === candidate.ap_id;
   };
 
-  const selectScope = (next: InhabitedScope, label: string) => {
+  const selectScope = (next: InhabitedScope) => {
     setScope(next);
-    pushToast(setToasts, t("scope.switched").replace("{name}", label), {
-      kind: "info",
-    });
     props.onClose();
   };
 
-  const selectPersonal = () => {
-    // Toast names the SCOPE ("パーソナル"), not the account, so switching to the
-    // personal scope does not read like an account switch.
-    selectScope({ kind: "personal" }, t("scope.personal"));
-  };
+  // "すべて" = clear the filter (the unfiltered home / whole reach).
+  const selectAll = () => selectScope({ kind: "personal" });
 
   const handleDiscover = () => {
     props.onClose();
@@ -149,26 +142,26 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
-            aria-label={t("scope.switch")}
+            aria-label={t("scope.filterLabel")}
             class="max-h-[80vh] w-full max-w-sm overflow-y-auto rounded-t-2xl border border-neutral-800 bg-neutral-900 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:pb-2"
           >
             <h2
               id="scope-switcher-heading"
               class="px-3 pb-1 pt-2 text-xs font-bold uppercase tracking-wide text-neutral-500"
             >
-              {t("scope.switch")}
+              {t("scope.filterLabel")}
             </h2>
 
-            {/* Selectable scopes (radiogroup): Personal + joined communities.
-                Each row exposes aria-checked so SR users hear which scope they
-                inhabit, mirroring ScopeBar's aria-pressed pills. */}
+            {/* Home view filters (radiogroup): "すべて" + joined communities.
+                Each row exposes aria-checked so SR users hear which filter is
+                active, mirroring ScopeBar's aria-pressed pills. */}
             <div role="radiogroup" aria-labelledby="scope-switcher-heading">
-              {/* Personal scope — always first. */}
+              {/* "すべて" — the unfiltered home (whole reach). Always first. */}
               <button
                 type="button"
                 role="radio"
                 aria-checked={isActive({ kind: "personal" })}
-                onClick={selectPersonal}
+                onClick={selectAll}
                 class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-neutral-800"
               >
                 <UserAvatar
@@ -177,11 +170,7 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
                   size={40}
                 />
                 <div class="min-w-0 flex-1">
-                  <p class="truncate font-bold text-white">
-                    {actor()
-                      ? actor()!.name || actor()!.preferred_username
-                      : t("scope.personal")}
-                  </p>
+                  <p class="truncate font-bold text-white">{t("scope.all")}</p>
                   <p class="truncate text-sm text-neutral-500">
                     {t("scope.personalDesc")}
                   </p>
@@ -201,12 +190,7 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
                       type="button"
                       role="radio"
                       aria-checked={isActive(next)}
-                      onClick={() =>
-                        selectScope(
-                          next,
-                          community.display_name || community.name,
-                        )
-                      }
+                      onClick={() => selectScope(next)}
                       class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-neutral-800"
                     >
                       <UserAvatar

@@ -1,19 +1,17 @@
-import { createMemo, For } from "solid-js";
-import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
+import { createMemo, For, Show } from "solid-js";
+import { useAtom, useAtomValue } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
-import { actorAtom } from "../../atoms/auth.ts";
 import {
   communityToScope,
   inhabitedScopeAtom,
   scopeCommunitiesAtom,
   type InhabitedScope,
 } from "../../atoms/scope.ts";
-import { toastsAtom, pushToast } from "../../atoms/toast.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 
 interface ScopeBarProps {
-  // Opens the ScopeSwitcherSheet (shared with the ScopeHeader pill). Used by the
-  // trailing "+" affordance to reach Discover / Create.
+  // Opens the switcher sheet (Discover / Create communities) from the trailing
+  // "+" affordance.
   onOpenSwitcher: () => void;
 }
 
@@ -35,108 +33,90 @@ const PlusIcon = () => (
 );
 
 /**
- * Horizontal, one-tap segmented rail of inhabited scopes, rendered under the
- * StoryBar. Pills, in order: Personal, then each joined community, then a
- * trailing "+" that opens the switcher sheet (Discover / Create).
- *
- * This is the second projection of {@link inhabitedScopeAtom} (the first being
- * the {@link ScopeHeader} pill). Tapping a pill writes the same atom, so the
- * header label, the rail's active state, and the timeline scope query all move
- * together — there is no divergent scope state.
+ * Home view filter — a quiet horizontal rail under the StoryBar. "すべて" is the
+ * unfiltered home (your whole reach); each joined community narrows the SAME
+ * feed to that community's people. This is only a VIEW lens (it never changes
+ * where a post lands), so it carries no toast and is hidden entirely when there
+ * is nothing to filter by. Writes the transient {@link inhabitedScopeAtom}.
  */
 export function ScopeBar(props: ScopeBarProps) {
   const { t } = useI18n();
-  const actor = useAtomValue(actorAtom);
   const [scope, setScope] = useAtom(inhabitedScopeAtom);
   const communities = useAtomValue(scopeCommunitiesAtom);
-  const setToasts = useSetAtom(toastsAtom);
 
-  // Joined communities only; the rail never offers a scope the owner has not
-  // entered. Order is preserved from the hydrate fetch.
   const joined = createMemo(() =>
     communities().filter((c) => c.is_member && c.member_role !== null),
   );
 
-  const isPersonalActive = () => scope().kind === "personal";
+  const isAllActive = () => scope().kind === "personal";
   const isCommunityActive = (apId: string) => {
     const s = scope();
     return s.kind === "community" && s.ap_id === apId;
   };
 
   const pillClass = (active: boolean) =>
-    `flex shrink-0 items-center gap-1.5 rounded-full border py-1 pl-1 pr-3 text-sm font-bold transition-colors ${
+    `flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
       active
         ? "border-transparent bg-accent text-white"
         : "border-neutral-800 bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
     }`;
 
-  const select = (next: InhabitedScope, label: string) => {
-    setScope(next);
-    pushToast(setToasts, t("scope.switched").replace("{name}", label), {
-      kind: "info",
-    });
-  };
+  const setFilter = (next: InhabitedScope) => setScope(next);
 
-  const selectPersonal = () => {
-    // Label the toast with the SCOPE name ("パーソナル"), matching the pill —
-    // using the account name here read like an account switch, not a scope one.
-    select({ kind: "personal" }, t("scope.personal"));
-  };
-
+  // Nothing to narrow by → no filter rail (keeps home uncluttered).
   return (
-    <div class="border-b border-neutral-900 px-3 py-2">
-      <div class="flex items-center gap-2 overflow-x-auto scrollbar-hide">
-        {/* Personal — always first. Labelled with the community short glyph to
-            signal it is the always-present home ring. */}
-        <button
-          type="button"
-          onClick={selectPersonal}
-          aria-pressed={isPersonalActive()}
-          class={pillClass(isPersonalActive())}
-        >
-          <UserAvatar
-            avatarUrl={actor()?.icon_url ?? null}
-            name={actor()?.name || actor()?.preferred_username || "?"}
-            size={22}
-          />
-          <span class="max-w-28 truncate">{t("scope.personal")}</span>
-        </button>
+    <Show when={joined().length > 0}>
+      <div
+        role="tablist"
+        aria-label={t("scope.filterLabel")}
+        class="border-b border-neutral-900 px-3 py-2"
+      >
+        <div class="flex items-center gap-2 overflow-x-auto scrollbar-hide">
+          <button
+            type="button"
+            role="tab"
+            onClick={() => setFilter({ kind: "personal" })}
+            aria-selected={isAllActive()}
+            class={pillClass(isAllActive())}
+          >
+            {t("scope.all")}
+          </button>
 
-        {/* Joined communities. */}
-        <For each={joined()}>
-          {(community) => {
-            const next = communityToScope(community);
-            if (!next) return null;
-            const label = community.display_name || community.name;
-            const active = () => isCommunityActive(community.ap_id);
-            return (
-              <button
-                type="button"
-                onClick={() => select(next, label)}
-                aria-pressed={active()}
-                class={pillClass(active())}
-              >
-                <UserAvatar
-                  avatarUrl={community.icon_url}
-                  name={label}
-                  size={22}
-                />
-                <span class="max-w-32 truncate">{label}</span>
-              </button>
-            );
-          }}
-        </For>
+          <For each={joined()}>
+            {(community) => {
+              const next = communityToScope(community);
+              if (!next) return null;
+              const label = community.display_name || community.name;
+              const active = () => isCommunityActive(community.ap_id);
+              return (
+                <button
+                  type="button"
+                  role="tab"
+                  onClick={() => setFilter(next)}
+                  aria-selected={active()}
+                  class={`${pillClass(active())} pl-1`}
+                >
+                  <UserAvatar
+                    avatarUrl={community.icon_url}
+                    name={label}
+                    size={22}
+                  />
+                  <span class="max-w-32 truncate">{label}</span>
+                </button>
+              );
+            }}
+          </For>
 
-        {/* Trailing "+" — opens the switcher (Discover / Create). */}
-        <button
-          type="button"
-          onClick={props.onOpenSwitcher}
-          aria-label={t("scope.addCommunity")}
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-neutral-800 bg-neutral-900 text-neutral-300 transition-colors hover:bg-neutral-800"
-        >
-          <PlusIcon />
-        </button>
+          <button
+            type="button"
+            onClick={props.onOpenSwitcher}
+            aria-label={t("scope.addCommunity")}
+            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-neutral-800 bg-neutral-900 text-neutral-300 transition-colors hover:bg-neutral-800"
+          >
+            <PlusIcon />
+          </button>
+        </div>
       </div>
-    </div>
+    </Show>
   );
 }

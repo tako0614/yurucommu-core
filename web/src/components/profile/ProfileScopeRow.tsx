@@ -1,11 +1,9 @@
-import { For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import { useAtomValue } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { myScopesAtom } from "../../atoms/scope.ts";
-import type { InhabitedScope } from "../../atoms/scope.ts";
 
-// Personal-scope glyph — the owner's own place (you + followers).
-const PersonalGlyph = () => (
+const CommunityGlyph = () => (
   <svg
     class="h-3.5 w-3.5 shrink-0"
     fill="none"
@@ -17,65 +15,59 @@ const PersonalGlyph = () => (
       stroke-linecap="round"
       stroke-linejoin="round"
       stroke-width={2}
-      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+      d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a4 4 0 10-1-7.87"
     />
   </svg>
 );
 
-function scopeKey(scope: InhabitedScope): string {
-  return scope.kind === "personal" ? "personal" : scope.ap_id;
-}
-
 /**
- * "Your observation scope" chip row, shown on the owner's own profile. It names
- * the scopes the owner inhabits (personal first, then each joined community)
- * using the same {@link myScopesAtom} source that backs the scope switcher.
+ * "Communities" chip row, shown on the owner's own profile — the named circles
+ * they belong to, using the same {@link myScopesAtom} source that backs the home
+ * filter. The individual is the base, so the owner is NOT listed as a scope here;
+ * only joined communities are. Hidden entirely when there are none.
  *
- * This is descriptive of reach/observation only — it is NOT a visibility
- * control and tapping a chip does not change the active scope here.
+ * Descriptive of belonging only — NOT a visibility control, and tapping a chip
+ * does not change the active home filter.
  */
 export function ProfileScopeRow() {
   const { t } = useI18n();
   const scopes = useAtomValue(myScopesAtom);
 
+  const communities = createMemo(() =>
+    scopes().filter(
+      (s): s is Extract<typeof s, { kind: "community" }> =>
+        s.kind === "community",
+    ),
+  );
+
   return (
-    <div class="mb-3">
-      <p class="mb-1.5 text-xs font-medium text-neutral-500">
-        {t("profile.observationScope")}
-      </p>
-      <div class="flex flex-wrap gap-2">
-        <For each={scopes()}>
-          {(scope) => (
-            <span
-              data-scope-key={scopeKey(scope)}
-              class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-900/60 px-2.5 py-1 text-xs font-medium text-neutral-300"
-            >
-              <Show
-                when={scope.kind === "community" ? scope : null}
-                fallback={<PersonalGlyph />}
+    <Show when={communities().length > 0}>
+      <div class="mb-3">
+        <p class="mb-1.5 text-xs font-medium text-neutral-500">
+          {t("profile.communities")}
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <For each={communities()}>
+            {(community) => (
+              <span
+                data-scope-key={community.ap_id}
+                class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-900/60 px-2.5 py-1 text-xs font-medium text-neutral-300"
               >
-                {(community) => (
-                  <Show
-                    when={community().icon_url}
-                    fallback={<PersonalGlyph />}
-                  >
-                    <img
-                      src={community().icon_url}
-                      alt=""
-                      class="h-4 w-4 shrink-0 rounded-full object-cover"
-                    />
-                  </Show>
-                )}
-              </Show>
-              <span class="min-w-0 truncate">
-                {scope.kind === "personal"
-                  ? t("scope.personal")
-                  : scope.display_name || scope.name}
+                <Show when={community.icon_url} fallback={<CommunityGlyph />}>
+                  <img
+                    src={community.icon_url}
+                    alt=""
+                    class="h-4 w-4 shrink-0 rounded-full object-cover"
+                  />
+                </Show>
+                <span class="min-w-0 truncate">
+                  {community.display_name || community.name}
+                </span>
               </span>
-            </span>
-          )}
-        </For>
+            )}
+          </For>
+        </div>
       </div>
-    </div>
+    </Show>
   );
 }

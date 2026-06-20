@@ -1,16 +1,18 @@
 import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
 import { fetchCommunities } from "../lib/api.ts";
 import type { CommunityDetail } from "../lib/api/communities.ts";
 
-// --- Inhabited Scope ---
+// --- Home view filter ---
 //
-// "Inhabited Scope" is the observation-scope / reach lens through which the
-// owner looks at their place. It is NOT a visibility control: default post
-// visibility stays public. Scope only changes what the viewer observes.
+// The individual is the base. Home shows the WHOLE reach (own + follows + every
+// community you're in) by default; a community is just a named slice of people
+// you can optionally narrow the view to. This is a transient VIEW filter, not a
+// place you live and not a posting audience — it resets to "everything" on
+// reload, and posting is decoupled from it (a post goes to your reach unless you
+// deliberately narrow it).
 //
-// `personal` is the always-present home scope (the individual's own place).
-// `community` narrows the observation to a single joined community.
+// `personal` here means the unfiltered home ("すべて" — everything you can see);
+// `community` narrows the view to that one community's people.
 export type CommunityScope = {
   kind: "community";
   ap_id: string;
@@ -23,8 +25,6 @@ export type CommunityScope = {
 export type InhabitedScope = { kind: "personal" } | CommunityScope;
 
 export const PERSONAL_SCOPE: InhabitedScope = { kind: "personal" };
-
-const SCOPE_STORAGE_KEY = "yc.scope";
 
 // --- Pure reducers / derivations (kept side-effect free so Phase B and the
 // tests can build on them without a DOM) ---
@@ -100,12 +100,11 @@ export function deriveMyScopes(
 
 // --- Atoms ---
 
-// Persisted current scope. Defaults to personal and is mirrored to
-// localStorage under `yc.scope`.
-export const inhabitedScopeAtom = atomWithStorage<InhabitedScope>(
-  SCOPE_STORAGE_KEY,
-  PERSONAL_SCOPE,
-);
+// The active home view filter. TRANSIENT (not persisted) and defaults to
+// `personal` = "everything you can see" — so a fresh load always opens the full
+// unified home, and narrowing to a community is a temporary lens, not a place
+// you get stuck in.
+export const inhabitedScopeAtom = atom<InhabitedScope>(PERSONAL_SCOPE);
 
 // Holds the latest joined communities used to back the scope picker and the
 // reconcile pass. Populated by `hydrateScopeAtom`.
