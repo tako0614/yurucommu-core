@@ -61,6 +61,18 @@ export function isValidHttpUrl(value: string): boolean {
 }
 
 /**
+ * Validate a profile image URL (icon / header). Accepts either an app-relative
+ * upload path (`/media/<hash>.<ext>` produced by POST /api/media/upload) or an
+ * absolute http(s) URL. Relative upload paths are stored verbatim and
+ * absolutized against APP_URL only when serialized for federation, mirroring
+ * how community icons and story attachments are handled.
+ */
+export function isValidProfileImageUrl(value: string): boolean {
+  if (value.startsWith("/media/")) return true;
+  return isValidHttpUrl(value);
+}
+
+/**
  * Batch-load actor info from both local and cached tables, returning a
  * single lookup map keyed by apId.  Local actors take precedence.
  */

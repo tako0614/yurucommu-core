@@ -1,8 +1,8 @@
 import { type Context, Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import type { Database } from "../../db/index.ts";
-import { follows, mediaUploads, objects } from "../../db/index.ts";
+import { actors, follows, mediaUploads, objects } from "../../db/index.ts";
 import { generateId, safeJsonParse } from "../federation-helpers.ts";
 import { logger } from "../lib/logger.ts";
 
@@ -345,6 +345,25 @@ async function checkMediaAuthorization(
       )
     : null;
 
+  // Profile media (an actor's icon / header) is not attached to any object, yet
+  // it is part of the public actor document served to anyone — including
+  // unauthenticated federation peers fetching /ap/users/:name. So media that the
+  // uploader references as their own avatar/header is world-readable. Scoped to
+  // the uploader's own indexed actor row (you can only set your own profile).
+  if (uploadRecord) {
+    const profileRef = await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(
+        and(
+          eq(actors.apId, uploadRecord.uploaderApId),
+          or(eq(actors.iconUrl, mediaUrl), eq(actors.headerUrl, mediaUrl)),
+        ),
+      )
+      .get();
+    if (profileRef) return ALLOW_PUBLIC;
+  }
+
   // Unattached media (no upload record, or no referencing object found): only
   // the uploader may access. Authorize against the indexed media_uploads row.
   if (!obj) {
@@ -420,6 +439,11 @@ async function serveMediaByR2Key(c: MediaContext, r2Key: string) {
       r2Key,
     );
     if (!authResult.allowed) {
+      // Never cache an authorization denial: media URLs are content-addressed
+      // and long-lived, but who may read one changes over time (a follow is
+      // accepted, a profile sets the image as its public avatar). A cached 403
+      // on the immutable URL would otherwise mask the later-granted access.
+      c.header("Cache-Control", "no-store");
       return c.json({ error: authResult.reason || "Forbidden" }, 403);
     }
 

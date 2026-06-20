@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises";
  */
 
 import { Hono } from "hono";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
@@ -320,6 +321,49 @@ test("unattached media is served only to its uploader; others denied/unauthorize
 
   const anonRes = await getMedia(db, env, null);
   expect(anonRes.status).toEqual(403);
+});
+
+test("profile media (actor icon/header) is served publicly to anonymous viewers", async () => {
+  // Regression: a profile avatar/header is uploaded (so it has a media_uploads
+  // row) but attached to the ACTOR, not to any object. The object-only
+  // authorization treated it as "unattached" → uploader-only → 403 for the
+  // public actor document's <img> and for federation peers. It must be public.
+  const db = await freshDb();
+  const env = envFor(db);
+  const uploader = await insertLocalActor(db, "alice");
+  await insertLocalActor(db, "mallory");
+  await seedUpload(db, env, uploader);
+  await db
+    .update(actors)
+    .set({ iconUrl: MEDIA_URL })
+    .where(eq(actors.apId, uploader));
+
+  // Anonymous (e.g. a remote server fetching the avatar) is served the image.
+  const anonRes = await getMedia(db, env, null);
+  expect(anonRes.status).toEqual(200);
+  expect(anonRes.headers.get("Cache-Control")).toContain("public");
+
+  // A different signed-in user is also served it (it is public).
+  const otherRes = await getMedia(
+    db,
+    env,
+    fakeActor(localApId("mallory"), "mallory"),
+  );
+  expect(otherRes.status).toEqual(200);
+});
+
+test("header media (actor headerUrl) is likewise public", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const uploader = await insertLocalActor(db, "alice");
+  await seedUpload(db, env, uploader);
+  await db
+    .update(actors)
+    .set({ headerUrl: MEDIA_URL })
+    .where(eq(actors.apId, uploader));
+
+  const anonRes = await getMedia(db, env, null);
+  expect(anonRes.status).toEqual(200);
 });
 
 test("no full-table LIKE scan path remains in media authorization", async () => {

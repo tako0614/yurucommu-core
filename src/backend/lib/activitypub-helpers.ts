@@ -22,7 +22,7 @@ interface StoryData {
  * Safely join a base URL and a path segment.
  * Returns the path unchanged if it is already an absolute URL.
  */
-function safeUrlJoin(baseUrl: string, path: string): string {
+export function safeUrlJoin(baseUrl: string, path: string): string {
   if (path.startsWith("http://") || path.startsWith("https://")) {
     return path;
   }

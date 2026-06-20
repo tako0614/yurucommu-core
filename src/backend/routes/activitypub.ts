@@ -12,6 +12,7 @@ import {
 import inboxRoutes from "./activitypub/inbox.ts";
 import outboxRoutes from "./activitypub/outbox.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
+import { safeUrlJoin } from "../lib/activitypub-helpers.ts";
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -327,9 +328,11 @@ ap.get(
       name: actor.name,
       summary: actor.summary,
       url: `${baseUrl}/users/${username}`,
-      icon: actor.iconUrl ? { type: "Image", url: actor.iconUrl } : undefined,
+      icon: actor.iconUrl
+        ? { type: "Image", url: safeUrlJoin(baseUrl, actor.iconUrl) }
+        : undefined,
       image: actor.headerUrl
-        ? { type: "Image", url: actor.headerUrl }
+        ? { type: "Image", url: safeUrlJoin(baseUrl, actor.headerUrl) }
         : undefined,
       inbox: actor.inbox,
       outbox: showCollections ? actor.outbox : undefined,

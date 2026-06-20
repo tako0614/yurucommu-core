@@ -57,6 +57,7 @@ import {
   createRelation,
   deleteRelation,
   isValidHttpUrl,
+  isValidProfileImageUrl,
   listFollowRelation,
   listRelation,
   loadActorInfoMap,
@@ -68,6 +69,7 @@ import {
   requireActor,
   resolveActorApId,
 } from "./actors-helpers.ts";
+import { safeUrlJoin } from "../lib/activitypub-helpers.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "actors" });
@@ -961,7 +963,7 @@ actorsRoute.put("/me", async (c) => {
           400,
         );
       }
-      if (trimmed.length > 0 && !isValidHttpUrl(trimmed)) {
+      if (trimmed.length > 0 && !isValidProfileImageUrl(trimmed)) {
         return c.json({ error: `Invalid ${bodyKey}` }, 400);
       }
       updates[dbKey] = trimmed.length > 0 ? trimmed : null;
@@ -1076,10 +1078,18 @@ actorsRoute.put("/me", async (c) => {
     manuallyApprovesFollowers: Boolean(nextIsPrivate),
   };
   if (nextIconUrl) {
-    personObject.icon = { type: "Image", url: nextIconUrl };
+    // Relative `/media/...` upload paths must be absolutized so remote servers
+    // can dereference the avatar; absolute URLs pass through unchanged.
+    personObject.icon = {
+      type: "Image",
+      url: safeUrlJoin(baseUrl, nextIconUrl),
+    };
   }
   if (nextHeaderUrl) {
-    personObject.image = { type: "Image", url: nextHeaderUrl };
+    personObject.image = {
+      type: "Image",
+      url: safeUrlJoin(baseUrl, nextHeaderUrl),
+    };
   }
   if (nextFields && nextFields.length > 0) {
     personObject.attachment = fieldsToAttachments(nextFields);

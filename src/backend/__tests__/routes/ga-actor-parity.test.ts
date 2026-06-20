@@ -228,6 +228,91 @@ test("PUT /me persists profile fields + alsoKnownAs and federates them", async (
   ]);
 });
 
+test("PUT /me accepts relative /media upload paths for icon/header and absolutizes them for federation", async () => {
+  // Regression: POST /api/media/upload returns an app-relative `/media/<hash>`
+  // path, but PUT /me used to validate icon/header with isValidHttpUrl (which
+  // rejects relative URLs), so setting an avatar via the upload flow always
+  // failed with 400 "Invalid icon_url". Accept the relative path, persist it
+  // verbatim, and absolutize against APP_URL only at federation serialization.
+  const db = await freshDb();
+  const actor = await insertLocalActor(db, "dave");
+  const sent: Sent[] = [];
+  const app = actorsApp(db, actor);
+
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        icon_url: "/media/abc123.png",
+        header_url: "/media/def456.png",
+      }),
+    }),
+    envFor(db, sent),
+  );
+  expect(res.status).toBe(200);
+
+  // Stored verbatim (relative), so same-origin client <img src> resolves.
+  const row = await db
+    .select({ iconUrl: actors.iconUrl, headerUrl: actors.headerUrl })
+    .from(actors)
+    .where(eq(actors.apId, actor.ap_id))
+    .get();
+  expect(row!.iconUrl).toBe("/media/abc123.png");
+  expect(row!.headerUrl).toBe("/media/def456.png");
+
+  // Federated Update(Person) absolutizes so remote servers can dereference.
+  const updates = await db
+    .select()
+    .from(activities)
+    .where(eq(activities.type, "Update"));
+  expect(updates.length).toBe(1);
+  const doc = JSON.parse(updates[0].rawJson) as {
+    object: {
+      icon?: { type: string; url: string };
+      image?: { type: string; url: string };
+    };
+  };
+  expect(doc.object.icon).toEqual({
+    type: "Image",
+    url: `${APP_URL}/media/abc123.png`,
+  });
+  expect(doc.object.image).toEqual({
+    type: "Image",
+    url: `${APP_URL}/media/def456.png`,
+  });
+
+  // The served actor document absolutizes the same way.
+  const apRes = await apApp(db).fetch(
+    new Request(`${APP_URL}/ap/users/dave`),
+    envFor(db, []),
+  );
+  const apDoc = (await apRes.json()) as {
+    icon?: { url: string };
+    image?: { url: string };
+  };
+  expect(apDoc.icon?.url).toBe(`${APP_URL}/media/abc123.png`);
+  expect(apDoc.image?.url).toBe(`${APP_URL}/media/def456.png`);
+});
+
+test("PUT /me still rejects icon/header URLs that are neither /media nor http(s)", async () => {
+  const db = await freshDb();
+  const actor = await insertLocalActor(db, "erin");
+  const app = actorsApp(db, actor);
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ icon_url: "javascript:alert(1)" }),
+    }),
+    envFor(db, []),
+  );
+  expect(res.status).toBe(400);
+  expect(((await res.json()) as { error: string }).error).toBe(
+    "Invalid icon_url",
+  );
+});
+
 test("served actor document emits attachment PropertyValue + alsoKnownAs + movedTo", async () => {
   const db = await freshDb();
   await insertLocalActor(db, "bob");
