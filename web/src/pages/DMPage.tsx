@@ -218,7 +218,13 @@ export function DMPage() {
     if (contact) {
       setNotFound(false);
       setResolving(false);
-      setSelectedContact(contact);
+      // This effect re-runs whenever the polled contacts list refreshes, which
+      // re-derives `contact` as a fresh object. Only swap the selection when the
+      // conversation identity actually changes — otherwise the chat panel sees a
+      // new `contact` reference every poll and reloads (stuck "Loading...").
+      if (selectedContact()?.ap_id !== contact.ap_id) {
+        setSelectedContact(contact);
+      }
     } else {
       void resolveDeepLink(vcId);
     }

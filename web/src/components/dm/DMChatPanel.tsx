@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { Actor, DMMessage } from "../../types/index.ts";
 import {
@@ -147,37 +147,46 @@ export function DMChatPanel(props: DMChatPanelProps) {
     }
   };
 
-  createEffect(() => {
-    const contactApId = props.contact.ap_id;
-    const contactType = props.contact.type;
-    let cancelled = false;
-    const isCancelled = () => cancelled;
+  // Key the (re)load strictly on the conversation IDENTITY (ap_id + type), NOT
+  // the whole `contact` object. The parent re-derives `selectedContact` from a
+  // polled contacts list, so it hands us a fresh object reference every few
+  // seconds with the SAME ap_id. Tracking the object would re-run this effect on
+  // every poll, cancelling the in-flight initial load before its `finally` can
+  // clear `loading()` — leaving the panel stuck on "Loading..." forever.
+  createEffect(
+    on(
+      () => [props.contact.ap_id, props.contact.type] as const,
+      ([contactApId, contactType]) => {
+        let cancelled = false;
+        const isCancelled = () => cancelled;
 
-    // Reset scroll tracking so the new conversation jumps to its bottom once.
-    prevLastId = null;
-    prevCount = 0;
-    didInitialScroll = false;
-    // Clear the previous thread's messages immediately — otherwise, if the new
-    // conversation's fetch fails, conversation A's bubbles render under B's
-    // header + the error line.
-    setMessages([]);
+        // Reset scroll tracking so the new conversation jumps to its bottom once.
+        prevLastId = null;
+        prevCount = 0;
+        didInitialScroll = false;
+        // Clear the previous thread's messages immediately — otherwise, if the
+        // new conversation's fetch fails, conversation A's bubbles render under
+        // B's header + the error line.
+        setMessages([]);
 
-    void refreshMessages(contactApId, contactType, "initial", isCancelled);
+        void refreshMessages(contactApId, contactType, "initial", isCancelled);
 
-    // Re-fetch incoming messages while the conversation is open so messages
-    // sent by the other side appear without leaving and re-entering the thread.
-    const intervalId = window.setInterval(() => {
-      // Skip polling while the tab is backgrounded (wasted requests); the
-      // contact-change / focus path refreshes when the user returns.
-      if (document.hidden) return;
-      void refreshMessages(contactApId, contactType, "poll", isCancelled);
-    }, MESSAGE_POLL_MS);
+        // Re-fetch incoming messages while the conversation is open so messages
+        // sent by the other side appear without leaving and re-entering the thread.
+        const intervalId = window.setInterval(() => {
+          // Skip polling while the tab is backgrounded (wasted requests); the
+          // contact-change / focus path refreshes when the user returns.
+          if (document.hidden) return;
+          void refreshMessages(contactApId, contactType, "poll", isCancelled);
+        }, MESSAGE_POLL_MS);
 
-    onCleanup(() => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    });
-  });
+        onCleanup(() => {
+          cancelled = true;
+          window.clearInterval(intervalId);
+        });
+      },
+    ),
+  );
 
   createEffect(() => {
     const list = messages();

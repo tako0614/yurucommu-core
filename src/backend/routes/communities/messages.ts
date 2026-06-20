@@ -22,6 +22,12 @@ import {
 const MAX_COMMUNITY_MESSAGE_LENGTH = 5000;
 const MAX_COMMUNITY_MESSAGES_LIMIT = 100;
 
+// D1's batch() (atomic multi-statement) is only on the concrete D1/libsql
+// driver, not the shared `Database` union; reach it through a narrow cast.
+type Batchable = {
+  batch(statements: readonly unknown[]): Promise<unknown>;
+};
+
 const messagesRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 /**
@@ -229,38 +235,46 @@ messagesRouter.post(
     const toJson = JSON.stringify([community.apId]);
     const audienceJson = JSON.stringify([community.apId]);
 
-    await db.insert(objects).values({
-      apId: objectApId,
-      type: "Note",
-      attributedTo: actor.ap_id,
-      content,
-      toJson,
-      audienceJson,
-      visibility: "unlisted",
-      published: now,
-      isLocal: 1,
-    });
-
-    // Insert object_recipient using raw SQL to bypass FK constraint (ObjectRecipient FK expects Actor, not Community)
-    await db.run(sql`
-    INSERT INTO object_recipients (object_ap_id, recipient_ap_id, type, created_at)
-    VALUES (${objectApId}, ${community.apId}, 'audience', ${now})
-  `);
-
     const activityId = generateId();
     const activityApIdVal = `${baseUrl}/ap/activities/${activityId}`;
-    await db.insert(activities).values({
-      apId: activityApIdVal,
-      type: "Create",
-      actorApId: actor.ap_id,
-      objectApId,
-      rawJson: JSON.stringify({ to: JSON.parse(toJson) }),
-    });
 
-    await db
-      .update(communities)
-      .set({ lastMessageAt: now })
-      .where(eq(communities.apId, community.apId));
+    // Persist the chat message atomically: the Note, its community-audience
+    // recipient row (which the GET-messages reader joins on), the Create
+    // activity, and the community's lastMessageAt. D1 has no interactive
+    // transactions; batch() is atomic, so a mid-write failure can no longer
+    // leave an orphan Note with no recipient row. The recipient row is a plain
+    // Drizzle insert now that recipient_ap_id no longer has a (wrong) FK to
+    // actors — a community apId is a valid recipient (migration 0010).
+    await (db as unknown as Batchable).batch([
+      db.insert(objects).values({
+        apId: objectApId,
+        type: "Note",
+        attributedTo: actor.ap_id,
+        content,
+        toJson,
+        audienceJson,
+        visibility: "unlisted",
+        published: now,
+        isLocal: 1,
+      }),
+      db.insert(objectRecipients).values({
+        objectApId,
+        recipientApId: community.apId,
+        type: "audience",
+        createdAt: now,
+      }),
+      db.insert(activities).values({
+        apId: activityApIdVal,
+        type: "Create",
+        actorApId: actor.ap_id,
+        objectApId,
+        rawJson: JSON.stringify({ to: JSON.parse(toJson) }),
+      }),
+      db
+        .update(communities)
+        .set({ lastMessageAt: now })
+        .where(eq(communities.apId, community.apId)),
+    ]);
 
     return c.json(
       {
