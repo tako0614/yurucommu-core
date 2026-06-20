@@ -193,46 +193,48 @@ follow.post("/accept", async (c) => {
 
   let pendingFollow: Awaited<ReturnType<typeof findPendingFollow>>;
   try {
-    // Single conditional pending->accepted transition. The `status='pending'`
-    // guard makes the transition idempotent: a concurrent duplicate Accept
-    // observes zero rows and skips the count increment, so counts cannot drift
-    // upward. `.returning()` yields the transitioned row across D1 and libsql.
-    const accepted = await db
-      .update(follows)
-      .set({
-        status: "accepted",
-        acceptedAt: new Date().toISOString(),
-      })
-      .where(
-        and(
-          eq(follows.followerApId, requesterApId),
-          eq(follows.followingApId, actor.ap_id),
-          eq(follows.status, "pending"),
-        ),
-      )
-      .returning()
-      .get();
-
-    if (!accepted) {
+    // Read the pending edge first (we need its activityApId for the Accept
+    // delivery below), then co-commit the flip + both increments in ONE batch.
+    // Previously the flip committed and the +1s were SEPARATE autocommits: a
+    // crash between them left the edge accepted with un-bumped counts, and the
+    // retry's conditional flip matched 0 rows so the increment was permanently
+    // SKIPPED (under-count). The increments are guarded by EXISTS(... pending) —
+    // evaluated before the in-batch flip — and the flip keeps its `status=
+    // 'pending'` predicate, so a concurrent duplicate accept can neither double-
+    // count nor under-count. Mirrors the federated handleAccept.
+    const pending = await findPendingFollow(db, requesterApId, actor.ap_id);
+    if (!pending) {
       pendingFollow = undefined;
     } else {
-      await db
-        .update(actors)
-        .set({
-          followerCount: sql`${actors.followerCount} + 1`,
-        })
-        .where(eq(actors.apId, actor.ap_id));
-
-      if (isLocal(requesterApId, baseUrl)) {
-        await db
+      const pendingExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${requesterApId} AND ${follows.followingApId} = ${actor.ap_id} AND ${follows.status} = 'pending')`;
+      const stmts: unknown[] = [
+        db
           .update(actors)
-          .set({
-            followingCount: sql`${actors.followingCount} + 1`,
-          })
-          .where(eq(actors.apId, requesterApId));
+          .set({ followerCount: sql`${actors.followerCount} + 1` })
+          .where(and(eq(actors.apId, actor.ap_id), pendingExists)),
+      ];
+      if (isLocal(requesterApId, baseUrl)) {
+        stmts.push(
+          db
+            .update(actors)
+            .set({ followingCount: sql`${actors.followingCount} + 1` })
+            .where(and(eq(actors.apId, requesterApId), pendingExists)),
+        );
       }
-
-      pendingFollow = accepted;
+      stmts.push(
+        db
+          .update(follows)
+          .set({ status: "accepted", acceptedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(follows.followerApId, requesterApId),
+              eq(follows.followingApId, actor.ap_id),
+              eq(follows.status, "pending"),
+            ),
+          ),
+      );
+      await (db as unknown as Batchable).batch(stmts);
+      pendingFollow = pending;
     }
   } catch (e) {
     log.error("Error in accept", {
@@ -302,8 +304,6 @@ follow.post("/accept/batch", async (c) => {
   );
 
   const results: { ap_id: string; success: boolean; error?: string }[] = [];
-  let followerCountIncrement = 0;
-  const localFollowerIds: string[] = [];
   const activitiesToCreate: Array<{
     apId: string;
     type: string;
@@ -327,38 +327,43 @@ follow.post("/accept/batch", async (c) => {
     }
 
     try {
-      // Conditional pending->accepted transition; only count the accept when
-      // this request actually performed the transition (rows-affected === 1),
-      // so a concurrent duplicate batch Accept cannot over-count.
-      const accepted = await db
-        .update(follows)
-        .set({
-          status: "accepted",
-          acceptedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(follows.followerApId, requesterApId),
-            eq(follows.followingApId, actor.ap_id),
-            eq(follows.status, "pending"),
-          ),
-        )
-        .returning()
-        .get();
-
-      if (!accepted) {
-        results.push({
-          ap_id: requesterApId,
-          success: false,
-          error: "No pending follow request",
-        });
-        continue;
+      // Co-commit the flip + increments per request in ONE batch (mirrors the
+      // single accept). Previously each flip committed in the loop and the
+      // counts were bumped ONCE after the loop, so a crash mid-loop lost the
+      // accumulated increments for already-flipped rows. Increments guarded by
+      // EXISTS(pending) before the flip; the flip keeps its pending predicate.
+      const requesterIsLocal = isLocal(requesterApId, baseUrl);
+      const pendingExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${requesterApId} AND ${follows.followingApId} = ${actor.ap_id} AND ${follows.status} = 'pending')`;
+      const stmts: unknown[] = [
+        db
+          .update(actors)
+          .set({ followerCount: sql`${actors.followerCount} + 1` })
+          .where(and(eq(actors.apId, actor.ap_id), pendingExists)),
+      ];
+      if (requesterIsLocal) {
+        stmts.push(
+          db
+            .update(actors)
+            .set({ followingCount: sql`${actors.followingCount} + 1` })
+            .where(and(eq(actors.apId, requesterApId), pendingExists)),
+        );
       }
+      stmts.push(
+        db
+          .update(follows)
+          .set({ status: "accepted", acceptedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(follows.followerApId, requesterApId),
+              eq(follows.followingApId, actor.ap_id),
+              eq(follows.status, "pending"),
+            ),
+          ),
+      );
+      await (db as unknown as Batchable).batch(stmts);
 
-      followerCountIncrement++;
-
-      if (isLocal(requesterApId, baseUrl)) {
-        localFollowerIds.push(requesterApId);
+      if (requesterIsLocal) {
+        // local follower's followingCount already bumped in the batch above
       } else if (isSafeRemoteUrl(requesterApId)) {
         const id = activityApId(baseUrl, generateId());
         const activity = buildApActivity(
@@ -394,22 +399,8 @@ follow.post("/accept/batch", async (c) => {
     }
   }
 
-  if (followerCountIncrement > 0) {
-    await db
-      .update(actors)
-      .set({
-        followerCount: sql`${actors.followerCount} + ${followerCountIncrement}`,
-      })
-      .where(eq(actors.apId, actor.ap_id));
-  }
-  if (localFollowerIds.length > 0) {
-    await db
-      .update(actors)
-      .set({
-        followingCount: sql`${actors.followingCount} + 1`,
-      })
-      .where(inArray(actors.apId, localFollowerIds));
-  }
+  // (Counts are bumped per-request inside the loop's batch — no aggregate
+  // post-loop increment, which could be lost on a mid-loop crash.)
 
   if (activitiesToCreate.length > 0) {
     await db.insert(activities).values(activitiesToCreate);
