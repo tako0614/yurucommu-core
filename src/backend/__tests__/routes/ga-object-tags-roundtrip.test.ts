@@ -22,7 +22,7 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, objects } from "../../../db/index.ts";
+import { actors, activities, objects } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import postRoutes from "../../routes/posts/routes.ts";
 import outboxRoutes from "../../routes/activitypub/outbox.ts";
@@ -299,4 +299,64 @@ test("a relative /media attachment is stored relative but federated as an absolu
   expect(served.attachment?.[0].url).toEqual(`${APP_URL}/media/abc123.png`);
   // Non-url fields are preserved.
   expect(served.attachment?.[0].r2_key).toEqual("uploads/abc123.png");
+});
+
+test("a content-warning post federates summary + sensitive on the delivered Create", async () => {
+  // Regression: the delivered Create's embedded object carried `summary` (the CW
+  // text) but not `sensitive`, while the served object doc set `sensitive`.
+  // Mastodon-compatible peers gate a CW on BOTH, so the two must agree.
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "alice");
+
+  const createRes = await postApp(db, fakeActor(authorApId, "alice")).fetch(
+    new Request(`${APP_URL}/api/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: "spoilers within",
+        summary: "Movie spoilers",
+        visibility: "public",
+      }),
+    }),
+    envFor(db),
+  );
+  expect(createRes.status).toEqual(200);
+  const created = (await createRes.json()) as { ap_id: string };
+
+  const row = await db
+    .select({ rawJson: activities.rawJson })
+    .from(activities)
+    .where(eq(activities.objectApId, created.ap_id))
+    .get();
+  const activity = JSON.parse(row!.rawJson) as {
+    object: { summary?: string; sensitive?: boolean };
+  };
+  expect(activity.object.summary).toEqual("Movie spoilers");
+  expect(activity.object.sensitive).toEqual(true);
+});
+
+test("a plain post's delivered Create is not marked sensitive", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "alice");
+
+  const createRes = await postApp(db, fakeActor(authorApId, "alice")).fetch(
+    new Request(`${APP_URL}/api/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "no warning", visibility: "public" }),
+    }),
+    envFor(db),
+  );
+  expect(createRes.status).toEqual(200);
+  const created = (await createRes.json()) as { ap_id: string };
+
+  const row = await db
+    .select({ rawJson: activities.rawJson })
+    .from(activities)
+    .where(eq(activities.objectApId, created.ap_id))
+    .get();
+  const activity = JSON.parse(row!.rawJson) as {
+    object: { sensitive?: boolean };
+  };
+  expect(activity.object.sensitive).toBeUndefined();
 });

@@ -276,6 +276,11 @@ posts.post("/", async (c) => {
         attributedTo: actor.ap_id,
         content,
         summary: summary || null,
+        // A non-empty summary is a content warning; Mastodon-compatible peers
+        // gate rendering on BOTH `summary` (the CW text) and `sensitive`. The
+        // served object doc (routes/activitypub/outbox.ts) already sets this, so
+        // the delivered Create must match or the CW federates inconsistently.
+        ...(summary ? { sensitive: true } : {}),
         // Media is stored as an app-relative /media path; absolutize for the
         // federated copy so remote servers can fetch the image.
         attachment: absolutizeAttachmentUrls(body.attachments || [], baseUrl),
