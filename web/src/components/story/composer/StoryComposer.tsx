@@ -11,9 +11,7 @@
  */
 
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
-import { useAtomValue } from "solid-jotai";
 import { useI18n } from "../../../lib/i18n.tsx";
-import { inhabitedScopeAtom } from "../../../atoms/scope.ts";
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -56,9 +54,6 @@ type ToolTab = "background" | "text" | "sticker" | "draw" | "video" | "none";
 
 export function StoryComposer(props: StoryComposerProps) {
   const { t } = useI18n();
-  // Inhabited scope seeds the story audience (B0.3): a community scope binds the
-  // story to that community; personal leaves it a personal story.
-  const scope = useAtomValue(inhabitedScopeAtom);
 
   // Canvas state
   const [storyCanvas, setStoryCanvas] = createSignal<StoryCanvas | null>(null);
@@ -176,9 +171,10 @@ export function StoryComposer(props: StoryComposerProps) {
     get caption() {
       return caption();
     },
+    // A story belongs to you (personal), decoupled from the home view filter —
+    // narrowing your view never re-aims where a story lands.
     get communityApId() {
-      const s = scope();
-      return s.kind === "community" ? s.ap_id : undefined;
+      return undefined;
     },
     setError,
     onSuccess: props.onSuccess,
@@ -515,10 +511,7 @@ export function StoryComposer(props: StoryComposerProps) {
           ffmpegReady={video.ffmpegReady()}
           error={error()}
           onDismissError={() => setError(null)}
-          scopeLabel={(() => {
-            const s = scope();
-            return s.kind === "community" ? s.display_name : null;
-          })()}
+          scopeLabel={null}
         />
 
         <StoryComposerStickerPanel

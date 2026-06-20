@@ -76,8 +76,9 @@ const isNameValid = (name: string) => {
 /**
  * First-run-friendly community composer and the first UI caller of
  * {@link createCommunity}. On success it refreshes the scope picker source and
- * sets the inhabited scope to the new community — the owner "stands in the room
- * they made" rather than being dropped back to a list.
+ * selects the new community as the active home filter — the owner lands looking
+ * at the room they just made (ready to seed it) rather than being dropped back
+ * to a list. This is only a view filter; the individual stays the base.
  *
  * Rendered as a bottom sheet on mobile / centered card on desktop, matching the
  * shared overlay shell used by ConfirmSheet and ScopeSwitcherSheet.
@@ -131,7 +132,8 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
         display_name: displayName().trim() || undefined,
         summary: summary().trim() || undefined,
       });
-      // Stand in the room you made: surface the new pill and select it.
+      // Surface the new pill and select it as the active home filter so the
+      // owner lands looking at the room they just made.
       await enterCommunityScope(community);
       pushToast(
         setToasts,

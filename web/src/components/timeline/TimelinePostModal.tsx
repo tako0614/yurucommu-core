@@ -23,13 +23,9 @@ const MAX_SUMMARY_LENGTH = 500;
 interface TimelinePostModalProps {
   isOpen: boolean;
   actor: Actor;
-  // The currently inhabited scope. It seeds the post audience: a community
-  // scope binds the post to that community (members); personal keeps the
-  // personal public/followers visibility control. "Who sees it = what you view."
+  // Posting is always personal (a post goes to your reach). `scope` is only
+  // used to render the reach line; callers pass PERSONAL_SCOPE.
   scope: InhabitedScope;
-  // Opens the ScopeSwitcherSheet so the audience (and the inhabited scope) can
-  // be changed from inside the composer.
-  onOpenScopeSwitcher: () => void;
   postContent: string;
   onPostContentChange: (value: string) => void;
   postSummary: string;
@@ -39,10 +35,6 @@ interface TimelinePostModalProps {
   placeholder: string;
   submitLabel: string;
   submittingLabel: string;
-  // Set when the chosen audience differs from the room the composer was opened
-  // on. Surfaced as an explicit warning so a re-aimed post is never a silent
-  // mis-post; null when the audience matches the viewed scope.
-  audienceDiffersHint?: string | null;
   onClose: () => void;
   onSubmit: () => Promise<boolean>;
   posting: boolean;
@@ -175,26 +167,9 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
     }
   });
 
-  // Scope-shaped audience: the chip names where the post lands. A community
-  // scope renders the community icon + name; personal renders the owner.
-  const scopeName = () => {
-    const s = props.scope;
-    if (s.kind === "community") return s.display_name || s.name;
-    return props.actor.name || props.actor.username;
-  };
-  const scopeAvatarUrl = () => {
-    const s = props.scope;
-    if (s.kind === "community") return s.icon_url ?? null;
-    return props.actor.icon_url;
-  };
-  // Reach line — describes who actually sees the post. A community scope binds
-  // the audience to its members; a personal scope reflects the selected
-  // visibility so the line never under-states a default-public post.
+  // Reach line — reflects the selected visibility so it never under-states a
+  // default-public post.
   const reach = () => {
-    const s = props.scope;
-    if (s.kind === "community") {
-      return t("scope.reachCommunity").replace("{name}", scopeName());
-    }
     switch (props.postVisibility) {
       case "unlisted":
         return t("compose.reachUnlisted");
@@ -280,69 +255,33 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
 
           {/* Modal Content */}
           <div class="p-4">
-            {/* Scope-shaped audience control. The chip names the active scope
-                (icon + name) and the reach line states who sees it; tapping it
-                opens the scope switcher to re-aim the post. A personal scope
-                additionally exposes the public/unlisted/followers visibility
-                select; a community scope binds the audience to its members. */}
+            {/* The post goes to your reach. This control only NARROWS who can
+                see it (public / unlisted / followers); a post is not filed into
+                a community — that's a separate, deliberate action. */}
             <div class="mb-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={props.onOpenScopeSwitcher}
-                aria-haspopup="dialog"
-                aria-label={t("posts.changeAudience")}
-                class="flex max-w-full items-center gap-2 rounded-full border border-neutral-700 bg-neutral-800 py-1 pl-1 pr-2.5 transition-colors hover:bg-neutral-700"
+              <label class="sr-only" for="post-visibility">
+                {t("posts.visibility")}
+              </label>
+              <select
+                id="post-visibility"
+                value={props.postVisibility}
+                onChange={(e) =>
+                  props.onPostVisibilityChange(
+                    e.currentTarget.value as PostVisibility,
+                  )
+                }
+                class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-accent transition-colors"
               >
-                <UserAvatar
-                  avatarUrl={scopeAvatarUrl()}
-                  name={scopeName()}
-                  size={24}
-                />
-                <span class="min-w-0 truncate text-sm font-bold text-white">
-                  {scopeName()}
-                </span>
-                <ChevronDownIcon />
-              </button>
-
-              <Show when={props.scope.kind === "personal"}>
-                <label class="sr-only" for="post-visibility">
-                  {t("posts.visibility")}
-                </label>
-                <select
-                  id="post-visibility"
-                  value={props.postVisibility}
-                  onChange={(e) =>
-                    props.onPostVisibilityChange(
-                      e.currentTarget.value as PostVisibility,
-                    )
-                  }
-                  class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-accent transition-colors"
-                >
-                  <For each={VISIBILITY_OPTIONS}>
-                    {(opt) => (
-                      <option value={opt.value}>{t(opt.labelKey)}</option>
-                    )}
-                  </For>
-                </select>
-              </Show>
+                <For each={VISIBILITY_OPTIONS}>
+                  {(opt) => (
+                    <option value={opt.value}>{t(opt.labelKey)}</option>
+                  )}
+                </For>
+              </select>
             </div>
 
-            {/* "Who sees it = what you view." Read-only audience reach line. */}
+            {/* Read-only reach line reflecting the chosen visibility. */}
             <p class="mb-3 px-1 text-xs text-neutral-500">{reach()}</p>
-
-            {/* Explicit warning when the chosen audience is a different room than
-                the one the user is viewing — avoids a silent mis-post. */}
-            <Show when={props.audienceDiffersHint}>
-              {(hint) => (
-                <p
-                  role="status"
-                  class="mb-3 flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300"
-                >
-                  <span aria-hidden="true">{"⚠️"}</span>
-                  <span>{hint()}</span>
-                </p>
-              )}
-            </Show>
 
             {/* Content warning input */}
             <Show when={showCw()}>
