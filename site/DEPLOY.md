@@ -19,22 +19,19 @@ This uploads `site/` and returns a `*.yurucommu-website.pages.dev` preview URL;
 the production alias (`yurucommu-website.pages.dev` and the custom domain) update
 automatically.
 
-## Custom domain (one-time)
+## Custom domain (already configured)
 
-The custom domain is attached to the Pages project:
-
-```sh
-# requires a token with Pages:Edit (already added once)
-# POST /accounts/<acct>/pages/projects/yurucommu-website/domains  {"name":"yurucommu.com"}
-```
-
-It stays **pending** until a DNS record points the apex at the project. In the
-`yurucommu.com` zone (same Cloudflare account) add a **proxied** record:
+`yurucommu.com` is attached to the Pages project and live (TLS via Google CA).
+The apex resolves through a **proxied** CNAME in the `yurucommu.com` zone:
 
 ```
-CNAME  yurucommu.com  ->  yurucommu-website.pages.dev   (Proxied / orange cloud)
+CNAME  yurucommu.com (@)  ->  yurucommu-website.pages.dev   (Proxied / orange cloud)
 ```
 
-Cloudflare flattens the apex CNAME automatically. Once the record exists the
-Pages domain validates over HTTP and goes **active** (TLS via Google CA). Add
-`www.yurucommu.com` the same way if a `www` alias is wanted.
+Cloudflare flattens the apex CNAME automatically. To re-create it if ever
+removed: DNS → Add record → CNAME, name `@`, target `yurucommu-website.pages.dev`,
+Proxied. Add `www.yurucommu.com` the same way for a `www` alias.
+
+(The Pages domain was attached via
+`POST /accounts/<acct>/pages/projects/yurucommu-website/domains {"name":"yurucommu.com"}`
+— a token with Pages:Edit; the apex DNS record needs DNS:Edit or the dashboard.)
