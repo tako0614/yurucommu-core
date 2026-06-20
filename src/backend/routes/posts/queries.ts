@@ -66,6 +66,16 @@ export type MentionTag = {
   name: string;
 };
 
+/** An ActivityStreams `Hashtag` tag entry for an outbound Note/Create. */
+export type HashtagTag = {
+  type: "Hashtag";
+  href: string;
+  name: string;
+};
+
+/** Any tag persisted to objects.tagsJson / emitted on a Note's `tag`. */
+export type PostTag = MentionTag | HashtagTag;
+
 /**
  * Result of resolving the @mentions in a post: per-mention failures, the
  * `Mention` tag array to attach to the outbound Note/Create, and the resolved
@@ -74,7 +84,7 @@ export type MentionTag = {
  */
 export type ProcessMentionsResult = {
   failures: MentionFailure[];
-  tags: MentionTag[];
+  tags: PostTag[];
   /** All resolved mentioned actor IRIs (local + remote), de-duplicated. */
   mentionedActorApIds: string[];
   /** Resolved remote mentioned actor IRIs that need direct inbox delivery. */

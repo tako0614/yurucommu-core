@@ -27,6 +27,7 @@ import {
   isLocal,
 } from "../../federation-helpers.ts";
 import {
+  extractHashtags,
   extractMentions,
   MAX_POST_CONTENT_LENGTH,
   MAX_POST_SUMMARY_LENGTH,
@@ -36,7 +37,7 @@ import {
   type CreatePostBody,
   isRecord,
   type MentionFailure,
-  type MentionTag,
+  type PostTag,
   parseJsonObject,
   type PostAttachment,
   type ProcessMentionsResult,
@@ -374,10 +375,42 @@ export async function processMentions(
 ): Promise<ProcessMentionsResult> {
   const mentions = extractMentions(params.content);
   const mentionFailures: MentionFailure[] = [];
-  const tags: MentionTag[] = [];
+  const tags: PostTag[] = [];
   const mentionedActorApIds: string[] = [];
   const remoteMentionedActorApIds: string[] = [];
   const seenMentioned = new Set<string>();
+
+  // Hashtags federate as standard AS2 `Hashtag` tags (independent of mention
+  // resolution) so remote servers can index the post. `href` points at this
+  // instance's tag search page (the same destination the web client links to).
+  const baseHref = params.baseUrl.replace(/\/+$/, "");
+  for (const tag of extractHashtags(params.content)) {
+    tags.push({
+      type: "Hashtag",
+      href: `${baseHref}/search?search=${encodeURIComponent(`#${tag}`)}`,
+      name: `#${tag}`,
+    });
+  }
+
+  // Persist the computed tag array onto the object row so the served object at
+  // `GET /ap/objects/:id` emits the same `tag` the Create carries. The object
+  // was already inserted by `insertPostAndHandleReply`, so this is an UPDATE.
+  // Only write when there is at least one tag (the column defaults to "[]").
+  const persistTags = async () => {
+    if (tags.length === 0) return;
+    try {
+      await db
+        .update(objects)
+        .set({ tagsJson: JSON.stringify(tags) })
+        .where(eq(objects.apId, params.postApId));
+    } catch (e) {
+      log.error("Failed to persist object tags", {
+        event: "posts.mention.tags_persist_failed",
+        postApId: params.postApId,
+        error: e,
+      });
+    }
+  };
 
   const emptyResult: ProcessMentionsResult = {
     failures: mentionFailures,
@@ -386,7 +419,11 @@ export async function processMentions(
     remoteMentionedActorApIds,
   };
 
-  if (mentions.length === 0) return emptyResult;
+  // No mentions to resolve — still persist any Hashtag tags before returning.
+  if (mentions.length === 0) {
+    await persistTags();
+    return emptyResult;
+  }
 
   const localMentions = mentions.filter((m) => !m.includes("@"));
   const remoteMentions = mentions.filter((m) => m.includes("@"));
@@ -546,25 +583,8 @@ export async function processMentions(
     }
   }
 
-  // Persist the computed Mention tag array onto the object row so the served
-  // object at `GET /ap/objects/:id` can emit the same `tag` the Create carried
-  // (the object was already inserted by `insertPostAndHandleReply` before this
-  // ran, so this is an UPDATE rather than part of the initial insert). Only
-  // write when there is at least one tag — the column already defaults to "[]".
-  if (tags.length > 0) {
-    try {
-      await db
-        .update(objects)
-        .set({ tagsJson: JSON.stringify(tags) })
-        .where(eq(objects.apId, params.postApId));
-    } catch (e) {
-      log.error("Failed to persist object tags", {
-        event: "posts.mention.tags_persist_failed",
-        postApId: params.postApId,
-        error: e,
-      });
-    }
-  }
+  // Persist Mention + Hashtag tags onto the object row (see persistTags above).
+  await persistTags();
 
   return emptyResult;
 }

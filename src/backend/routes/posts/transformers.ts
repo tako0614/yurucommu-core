@@ -54,6 +54,24 @@ export function extractMentions(content: string): string[] {
   return [...new Set(matches)];
 }
 
+// Unicode-aware hashtag body (matches the web client tokenizer), so Japanese
+// tags like #海の日 federate as AS2 Hashtag tags too.
+const HASHTAG_REGEX = /#([\p{L}\p{N}_]+)/gu;
+
+export function extractHashtags(content: string): string[] {
+  const matches = Array.from(content.matchAll(HASHTAG_REGEX), (m) => m[1]);
+  // De-duplicate case-insensitively, keeping first-seen casing.
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const tag of matches) {
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+  }
+  return out;
+}
+
 export function formatPost(
   p: PostRow,
   currentActorApId?: string,

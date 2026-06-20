@@ -165,3 +165,80 @@ test("a post mentioning a local actor round-trips a Mention tag through GET /ap/
     { type: "Mention", href: mentionedApId, name: "@bob@yuru.test" },
   ]);
 });
+
+test("a post with a #hashtag (and no mention) round-trips a Hashtag tag", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "alice");
+
+  const createRes = await postApp(db, fakeActor(authorApId, "alice")).fetch(
+    new Request(`${APP_URL}/api/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: "海の見える街から #yurucommu",
+        visibility: "public",
+      }),
+    }),
+    envFor(db),
+  );
+  expect(createRes.status).toEqual(200);
+  const created = (await createRes.json()) as { ap_id: string };
+  const postId = created.ap_id.slice(`${APP_URL}/ap/objects/`.length);
+
+  const objRes = await outboxApp(db).fetch(
+    new Request(`${APP_URL}/ap/objects/${postId}`, { method: "GET" }),
+    envFor(db),
+  );
+  expect(objRes.status).toEqual(200);
+  const served = (await objRes.json()) as {
+    tag?: Array<{ type: string; href: string; name: string }>;
+  };
+  expect(served.tag).toEqual([
+    {
+      type: "Hashtag",
+      href: `${APP_URL}/search?search=%23yurucommu`,
+      name: "#yurucommu",
+    },
+  ]);
+});
+
+test("a post with both a mention and a hashtag carries both tags", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "alice");
+  const mentionedApId = await insertLocalActor(db, "bob");
+
+  const createRes = await postApp(db, fakeActor(authorApId, "alice")).fetch(
+    new Request(`${APP_URL}/api/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: "@bob look #ocean",
+        visibility: "public",
+      }),
+    }),
+    envFor(db),
+  );
+  expect(createRes.status).toEqual(200);
+  const created = (await createRes.json()) as { ap_id: string };
+  const postId = created.ap_id.slice(`${APP_URL}/ap/objects/`.length);
+
+  const objRes = await outboxApp(db).fetch(
+    new Request(`${APP_URL}/ap/objects/${postId}`, { method: "GET" }),
+    envFor(db),
+  );
+  const served = (await objRes.json()) as {
+    tag?: Array<{ type: string; href: string; name: string }>;
+  };
+  const types = (served.tag ?? []).map((t) => t.type).sort();
+  expect(types).toEqual(["Hashtag", "Mention"]);
+  expect(served.tag).toContainEqual({
+    type: "Mention",
+    href: mentionedApId,
+    name: "@bob@yuru.test",
+  });
+  expect(served.tag).toContainEqual({
+    type: "Hashtag",
+    href: `${APP_URL}/search?search=%23ocean`,
+    name: "#ocean",
+  });
+});
