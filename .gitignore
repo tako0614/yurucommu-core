@@ -30,6 +30,11 @@ coverage/
 logs/
 *.log
 
+# Local SQLite state
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
 # Temp files
 tmp/
 temp/
