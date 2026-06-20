@@ -161,13 +161,22 @@ export async function handleFollow(
 // Accept handler
 // ---------------------------------------------------------------------------
 
-export async function handleAccept(c: ActivityContext, activity: Activity) {
+export async function handleAccept(
+  c: ActivityContext,
+  activity: Activity,
+  actor: string | null,
+) {
   const db = c.get("db");
   const followId = getActivityObjectId(activity);
   if (!followId) return;
 
   const follow = await findFollowByActivityId(db, followId);
   if (!follow || follow.status === "accepted") return;
+
+  // Only the followed party may Accept the follow. The signing actor is bound to
+  // its domain upstream, so without this a different-domain actor that learned
+  // the follow activity id could flip someone else's pending follow to accepted.
+  if (!actor || follow.followingApId !== actor) return;
 
   const now = new Date().toISOString();
 
@@ -220,13 +229,20 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
 // Reject handler
 // ---------------------------------------------------------------------------
 
-export async function handleReject(c: ActivityContext, activity: Activity) {
+export async function handleReject(
+  c: ActivityContext,
+  activity: Activity,
+  actor: string | null,
+) {
   const db = c.get("db");
   const followId = getActivityObjectId(activity);
   if (!followId) return;
 
   const follow = await findFollowByActivityId(db, followId);
   if (!follow) return;
+
+  // Only the followed party may Reject the follow (see handleAccept).
+  if (!actor || follow.followingApId !== actor) return;
 
   await deleteFollowByCompoundKey(
     db,

@@ -328,14 +328,14 @@ test("COUNTER-SYM: Accept flips the edge and bumps both counts in one batch, exa
     object: followActivityId,
   } as unknown as Activity;
 
-  await handleAccept(ctxFor(db), accept);
+  await handleAccept(ctxFor(db), accept, REMOTE_ALICE);
   expect(await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE)).toBe("accepted");
   expect(await followingCount(db, LOCAL_BOB)).toBe(1);
   expect(await followerCount(db, REMOTE_ALICE)).toBe(1);
 
   // Duplicate Accept (peer retry). The edge is already accepted; the guarded
   // increments do not fire again.
-  await handleAccept(ctxFor(db), accept);
+  await handleAccept(ctxFor(db), accept, REMOTE_ALICE);
   expect(await followingCount(db, LOCAL_BOB)).toBe(1);
   expect(await followerCount(db, REMOTE_ALICE)).toBe(1);
 });
@@ -370,7 +370,7 @@ test("COUNTER-SYM: crash-then-retry of Accept (edge already accepted, counts not
   // transition to replay). The fix makes the flip+increments a single atomic
   // unit, so this state is only reachable via a torn legacy write, never via a
   // partial commit of the new path. Re-dispatch must NOT double-bump.
-  await handleAccept(ctxFor(db), accept);
+  await handleAccept(ctxFor(db), accept, REMOTE_ALICE);
   expect(await followingCount(db, LOCAL_BOB)).toBeLessThanOrEqual(1);
   expect(await followerCount(db, REMOTE_ALICE)).toBeLessThanOrEqual(1);
 });

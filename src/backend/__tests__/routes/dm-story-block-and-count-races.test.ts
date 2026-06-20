@@ -286,9 +286,9 @@ test("duplicate Accept does not over-count follower/following counts", async () 
     object: followActivityId,
   };
 
-  await handleAccept(ctx, acceptActivity);
+  await handleAccept(ctx, acceptActivity, targetApId);
   // Duplicate Accept (e.g. retried federation delivery).
-  await handleAccept(ctx, acceptActivity);
+  await handleAccept(ctx, acceptActivity, targetApId);
 
   const follow = await db
     .select()

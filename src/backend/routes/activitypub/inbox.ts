@@ -502,7 +502,7 @@ async function dispatchUserActivity(
       await handleFollow(c, activity, recipient, actor, baseUrl);
       break;
     case "Accept":
-      await handleAccept(c, activity);
+      await handleAccept(c, activity, actor);
       break;
     case "Undo":
       await handleUndo(c, activity, recipient, actor, baseUrl);
@@ -523,7 +523,7 @@ async function dispatchUserActivity(
       await handleUpdate(c, activity, actor);
       break;
     case "Reject":
-      await handleReject(c, activity);
+      await handleReject(c, activity, actor);
       break;
     case "Add":
       await handleAdd(c, activity, recipient, actor);

@@ -181,7 +181,7 @@ export function registerMembershipMemberRoutes(
       const offset = parseOffset(c.req.query("offset"), 0, 10000);
 
       const community = await db
-        .select({ apId: communities.apId })
+        .select({ apId: communities.apId, visibility: communities.visibility })
         .from(communities)
         .where(
           or(
@@ -192,6 +192,22 @@ export function registerMembershipMemberRoutes(
         .get();
       if (!community) {
         return c.json({ members: [] });
+      }
+
+      // Read gate: a non-public community's roster is members-only, mirroring the
+      // /messages and /timeline?community= gates. Without this, anyone (even
+      // unauthenticated) could enumerate a private community's full membership.
+      if ((community.visibility || "public") !== "public") {
+        const actor = c.get("actor");
+        if (!actor) return c.json({ error: "Unauthorized" }, 401);
+        const membership = await db
+          .select({ role: communityMembers.role })
+          .from(communityMembers)
+          .where(memberWhere(community.apId, actor.ap_id))
+          .get();
+        if (!membership) {
+          return c.json({ error: "Not a community member" }, 403);
+        }
       }
 
       const members = await db
