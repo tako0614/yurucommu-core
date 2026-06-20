@@ -1,12 +1,13 @@
 import { For, lazy, Show, Suspense } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { useSetAtom } from "solid-jotai";
+import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { StoryBar } from "../components/story/StoryBar.tsx";
 import { ScopeHeader } from "../components/scope/ScopeHeader.tsx";
 import { ScopeBar } from "../components/scope/ScopeBar.tsx";
 import { createScopeOpenAtom } from "../atoms/shell.ts";
-import { showScopeSwitcherAtom } from "../atoms/timeline.ts";
+import { showPostModalAtom, showScopeSwitcherAtom } from "../atoms/timeline.ts";
+import { inhabitedScopeAtom } from "../atoms/scope.ts";
 import { LoadingSpinner } from "../components/LoadingSpinner.tsx";
 
 // Lazy load heavy components
@@ -32,6 +33,17 @@ export function TimelinePage() {
   // the shared atoms instead of mounting private duplicates here.
   const openSwitcher = useSetAtom(showScopeSwitcherAtom);
   const openCreateScope = useSetAtom(createScopeOpenAtom);
+  const openComposer = useSetAtom(showPostModalAtom);
+
+  // The inhabited scope drives whether the first-feed empty state shows the
+  // personal "grow your reach" CTAs or the community "seed the room you are in"
+  // CTAs. Inside a community, the personal CTAs (find people / create / discover
+  // communities) are nonsensical.
+  const inhabitedScope = useAtomValue(inhabitedScopeAtom);
+  const communityScope = () => {
+    const scope = inhabitedScope();
+    return scope.kind === "community" ? { name: scope.name } : null;
+  };
 
   return (
     <div class="relative flex flex-col h-full">
@@ -134,7 +146,9 @@ export function TimelinePage() {
               when={state.posts().length > 0}
               fallback={
                 <FirstFeedEmptyState
+                  communityScope={communityScope()}
                   onCreateStory={state.handleAddStory}
+                  onCreatePost={() => openComposer(true)}
                   onCreateCommunity={() => openCreateScope(true)}
                   onDiscoverCommunities={() => navigate("/search")}
                 />

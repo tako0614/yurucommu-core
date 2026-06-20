@@ -103,6 +103,10 @@ export class BunDatabase implements IDatabase {
     const Database = loadBunSqlite(require);
     const db = new Database(filename);
     db.exec("PRAGMA journal_mode = WAL");
+    // synchronous=NORMAL pairs with WAL to avoid an fsync on every statement.
+    // Set once at connection open (a connection-level setting) so a fresh
+    // self-host boot does not auto-commit+fsync per migration statement.
+    db.exec("PRAGMA synchronous = NORMAL");
     // Foreign keys are intentionally left OFF (SQLite's per-connection default)
     // so the Bun/libsql engine matches Cloudflare D1, which ignores the FK
     // constraints declared in the migrations. Remote actors live in

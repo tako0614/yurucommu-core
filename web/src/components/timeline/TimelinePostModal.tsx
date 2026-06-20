@@ -464,7 +464,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
             <button
               onClick={() => fileInputRef?.click()}
               disabled={props.uploading || props.uploadedMedia.length >= 4}
-              aria-label="Add image"
+              aria-label={t("compose.addImage")}
               class="p-2 text-accent hover:bg-[var(--accent)]/10 rounded-full disabled:opacity-50 transition-colors"
             >
               <ImageIcon />

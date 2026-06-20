@@ -155,7 +155,9 @@ export function BookmarksPage() {
                       <div class="flex items-center gap-6 mt-3">
                         <button
                           onClick={() => handleLike(post)}
-                          aria-label={post.liked ? "Unlike" : "Like"}
+                          aria-label={
+                            post.liked ? t("posts.unlike") : t("posts.like")
+                          }
                           aria-pressed={post.liked}
                           class={`flex items-center gap-2 transition-colors ${
                             post.liked

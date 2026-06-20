@@ -326,14 +326,14 @@ export function PostDetailPage() {
             </div>
             <div class="flex items-center justify-around mt-3 pt-3 border-t border-neutral-800">
               <button
-                aria-label="Reply"
+                aria-label={t("posts.reply")}
                 class="flex items-center gap-2 p-2 text-neutral-500 hover:text-accent transition-colors"
               >
                 <ReplyIcon />
               </button>
               <button
                 onClick={() => handleLike(post()!)}
-                aria-label={post()!.liked ? "Unlike" : "Like"}
+                aria-label={post()!.liked ? t("posts.unlike") : t("posts.like")}
                 aria-pressed={post()!.liked}
                 class={`flex items-center gap-2 p-2 transition-colors ${
                   post()!.liked
@@ -345,7 +345,11 @@ export function PostDetailPage() {
               </button>
               <button
                 onClick={handleBookmark}
-                aria-label={post()!.bookmarked ? "Remove bookmark" : "Bookmark"}
+                aria-label={
+                  post()!.bookmarked
+                    ? t("posts.removeBookmark")
+                    : t("posts.bookmark")
+                }
                 aria-pressed={post()!.bookmarked}
                 class={`flex items-center gap-2 p-2 transition-colors ${
                   post()!.bookmarked

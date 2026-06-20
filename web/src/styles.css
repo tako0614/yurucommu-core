@@ -46,8 +46,9 @@
 }
 .via-accent {
   --tw-gradient-to: rgb(59 130 246 / 0) var(--tw-gradient-to-position);
-  --tw-gradient-stops: var(--tw-gradient-from),
-    var(--accent) var(--tw-gradient-via-position), var(--tw-gradient-to);
+  --tw-gradient-stops:
+    var(--tw-gradient-from), var(--accent) var(--tw-gradient-via-position),
+    var(--tw-gradient-to);
 }
 
 /* Custom scrollbar */

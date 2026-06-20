@@ -402,6 +402,11 @@ export async function runMigrations(
 
   const rawDb = db.getRawDatabase() as LocalSqlite3Database;
 
+  // Throughput note: the connection is opened with WAL + synchronous=NORMAL
+  // (see BunDatabase.create), so each per-migration transaction below commits
+  // with a single fsync instead of one fsync per statement — what made a fresh
+  // self-host boot take minutes.
+
   rawDb.exec(`
     CREATE TABLE IF NOT EXISTS _cf_migrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -434,8 +439,42 @@ export async function runMigrations(
     });
     const sql = await readFile(`${migrationsDir}/${file}`, "utf8");
 
-    try {
+    // If a migration file manages its own transaction, do not wrap it again —
+    // nesting BEGIN inside an open transaction is a SQLite error. Detect a
+    // leading BEGIN [IMMEDIATE|DEFERRED|EXCLUSIVE|TRANSACTION] anywhere in the
+    // file (ignoring SQL line comments / leading whitespace).
+    const ownsTransaction =
+      /(^|\n)\s*BEGIN(\s+(IMMEDIATE|DEFERRED|EXCLUSIVE|TRANSACTION))?\s*;/i.test(
+        sql,
+      );
+
+    // Wrap the schema change AND its _cf_migrations bookkeeping in one
+    // transaction so the whole file commits with a single fsync, and so a
+    // failure rolls back both the schema and the tracking record together.
+    // Use the driver's transaction() wrapper (BEGIN/COMMIT/ROLLBACK handled
+    // internally, committing with one fsync) rather than issuing BEGIN/COMMIT
+    // as separate exec scripts. If the migration file manages its own
+    // transaction, run it directly to avoid nesting BEGIN inside an open
+    // transaction (a SQLite error).
+    const applyMigration = () => {
       rawDb.exec(sql);
+
+      const markAppliedStmt = rawDb.prepare(
+        "INSERT INTO _cf_migrations (name) VALUES (?)",
+      );
+      try {
+        markAppliedStmt.run(file);
+      } finally {
+        markAppliedStmt.finalize?.();
+      }
+    };
+
+    try {
+      if (ownsTransaction) {
+        applyMigration();
+      } else {
+        rawDb.transaction(applyMigration)();
+      }
     } catch (e) {
       log.error("Error executing migration", {
         event: "server.migration.error",
@@ -445,14 +484,6 @@ export async function runMigrations(
       throw e;
     }
 
-    const markAppliedStmt = rawDb.prepare(
-      "INSERT INTO _cf_migrations (name) VALUES (?)",
-    );
-    try {
-      markAppliedStmt.run(file);
-    } finally {
-      markAppliedStmt.finalize?.();
-    }
     log.info("Migration applied successfully", {
       event: "server.migration.applied",
       migration: file,

@@ -65,7 +65,7 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
           stop(e);
           setOpen(!open());
         }}
-        aria-label="More"
+        aria-label={t("posts.more")}
         aria-haspopup="menu"
         aria-expanded={open()}
         class="flex items-center text-neutral-500 hover:text-neutral-300 transition-colors"

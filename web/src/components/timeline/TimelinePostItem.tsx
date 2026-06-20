@@ -171,7 +171,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     <div class="flex items-center gap-6 mt-3">
       <button
         onClick={() => props.onReply(props.post)}
-        aria-label="Reply"
+        aria-label={t("posts.reply")}
         class="flex items-center gap-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
       >
         <ReplyIcon />
@@ -179,7 +179,9 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       </button>
       <button
         onClick={() => props.onRepost(props.post)}
-        aria-label={props.post.reposted ? "Undo repost" : "Repost"}
+        aria-label={
+          props.post.reposted ? t("posts.undoRepost") : t("posts.repost")
+        }
         aria-pressed={props.post.reposted}
         class={`flex items-center gap-2 transition-colors ${
           props.post.reposted
@@ -194,7 +196,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       </button>
       <button
         onClick={() => props.onLike(props.post)}
-        aria-label={props.post.liked ? "Unlike" : "Like"}
+        aria-label={props.post.liked ? t("posts.unlike") : t("posts.like")}
         aria-pressed={props.post.liked}
         class={`flex items-center gap-2 transition-colors ${
           props.post.liked
@@ -209,7 +211,11 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       </button>
       <button
         onClick={() => props.onBookmark(props.post)}
-        aria-label={props.post.bookmarked ? "Remove bookmark" : "Bookmark"}
+        aria-label={
+          props.post.bookmarked
+            ? t("posts.removeBookmark")
+            : t("posts.bookmark")
+        }
         aria-pressed={props.post.bookmarked}
         class={`flex items-center gap-2 transition-colors ${
           props.post.bookmarked

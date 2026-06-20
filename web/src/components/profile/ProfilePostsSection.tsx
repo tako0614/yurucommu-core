@@ -173,6 +173,7 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
                   post={post}
                   actorApId={props.actorApId}
                   onLike={props.onLike}
+                  t={props.t}
                 />
               )}
             </For>
@@ -248,6 +249,7 @@ interface ProfilePostItemProps {
   post: Post;
   actorApId: string;
   onLike: (post: Post) => void;
+  t: Translate;
 }
 
 function ProfilePostItem(props: ProfilePostItemProps) {
@@ -301,7 +303,7 @@ function ProfilePostItem(props: ProfilePostItemProps) {
         {/* Actions */}
         <div class="flex items-center gap-6 mt-3">
           <button
-            aria-label="Reply"
+            aria-label={props.t("posts.reply")}
             class="flex items-center gap-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
           >
             <ReplyIcon />
@@ -309,7 +311,9 @@ function ProfilePostItem(props: ProfilePostItemProps) {
           </button>
           <button
             onClick={() => props.onLike(props.post)}
-            aria-label={props.post.liked ? "Unlike" : "Like"}
+            aria-label={
+              props.post.liked ? props.t("posts.unlike") : props.t("posts.like")
+            }
             aria-pressed={props.post.liked}
             class={`flex items-center gap-2 transition-colors ${
               props.post.liked
