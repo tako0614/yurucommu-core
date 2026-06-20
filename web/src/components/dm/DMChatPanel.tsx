@@ -475,7 +475,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
           <button
             type="submit"
             disabled={!input().trim() || sending()}
-            aria-label="Send message"
+            aria-label={t("dm.send")}
             class="px-4 py-2 bg-accent disabled:bg-neutral-700 disabled:cursor-not-allowed text-white rounded-full font-medium transition-colors"
           >
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">

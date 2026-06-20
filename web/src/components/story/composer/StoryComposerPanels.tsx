@@ -35,7 +35,7 @@ export function StoryComposerStickerPanel(
           <h3 class="text-white font-medium">{t("story.stamp")}</h3>
           <button
             onClick={props.onClose}
-            aria-label="Close"
+            aria-label={t("common.close")}
             class="text-white/60 hover:text-white p-1"
           >
             <CloseIcon />

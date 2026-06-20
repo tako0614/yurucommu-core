@@ -1,4 +1,5 @@
 import { createSignal, Show } from "solid-js";
+import { useI18n } from "../../../lib/i18n.tsx";
 
 interface StoryViewerActionBarProps {
   isLiked: boolean;
@@ -13,6 +14,7 @@ interface StoryViewerActionBarProps {
 }
 
 export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
+  const { t } = useI18n();
   const [reply, setReply] = createSignal("");
   const [sending, setSending] = createSignal(false);
 
@@ -83,7 +85,9 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
           e.stopPropagation();
           props.onLike();
         }}
-        aria-label={props.isLiked ? "Unlike story" : "Like story"}
+        aria-label={
+          props.isLiked ? t("story.unlikeStory") : t("story.likeStory")
+        }
       >
         <svg
           class="w-7 h-7"
@@ -105,7 +109,7 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
           e.stopPropagation();
           props.onShare();
         }}
-        aria-label="Share story"
+        aria-label={t("story.shareStory")}
       >
         <svg
           class="w-7 h-7"

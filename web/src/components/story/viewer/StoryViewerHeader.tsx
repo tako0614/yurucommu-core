@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import { useI18n } from "../../../lib/i18n.tsx";
 import { UserAvatar } from "../../UserAvatar.tsx";
 import {
   CloseIcon,
@@ -23,6 +24,7 @@ interface StoryViewerHeaderProps {
 }
 
 export function StoryViewerHeader(props: StoryViewerHeaderProps) {
+  const { t } = useI18n();
   return (
     <div class="absolute top-4 left-0 right-0 z-20 px-4 flex items-center justify-between">
       <div class="flex items-center gap-3">
@@ -42,7 +44,9 @@ export function StoryViewerHeader(props: StoryViewerHeaderProps) {
         <Show when={props.isVideo}>
           <button
             onClick={props.onToggleMute}
-            aria-label={props.isMuted ? "Unmute video" : "Mute video"}
+            aria-label={
+              props.isMuted ? t("story.unmuteVideo") : t("story.muteVideo")
+            }
             class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
           >
             {props.isMuted ? <MutedIcon /> : <UnmutedIcon />}
@@ -51,7 +55,7 @@ export function StoryViewerHeader(props: StoryViewerHeaderProps) {
         <Show when={props.isOwnStory}>
           <button
             onClick={props.onDelete}
-            aria-label="Delete story"
+            aria-label={t("story.deleteStory")}
             class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
           >
             <TrashIcon />
@@ -59,7 +63,7 @@ export function StoryViewerHeader(props: StoryViewerHeaderProps) {
         </Show>
         <button
           onClick={props.onClose}
-          aria-label="Close"
+          aria-label={t("story.close")}
           class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
         >
           <CloseIcon />
