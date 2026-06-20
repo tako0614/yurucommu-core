@@ -10,8 +10,9 @@
  *   useStoryTextEditor, useStoryLayerActions, useStoryPost, useStoryImageUpload
  */
 
-import { createEffect, createSignal, onCleanup } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { useAtomValue } from "solid-jotai";
+import { useI18n } from "../../../lib/i18n.tsx";
 import { inhabitedScopeAtom } from "../../../atoms/scope.ts";
 import {
   CANVAS_HEIGHT,
@@ -31,9 +32,9 @@ import { StoryComposerHeader } from "./StoryComposerHeader.tsx";
 import { StoryComposerSelectionToolbar } from "./StoryComposerSelectionToolbar.tsx";
 import {
   StoryComposerDrawingPanel,
-  StoryComposerQuickActions,
   StoryComposerStickerPanel,
 } from "./StoryComposerPanels.tsx";
+import { StoryComposerBackgroundPanel } from "./StoryComposerBackgroundPanel.tsx";
 import { StoryComposerStatusOverlay } from "./StoryComposerStatusOverlay.tsx";
 import { useStoryBackground } from "./useStoryBackground.ts";
 import { useStoryCanvasRenderer } from "./useStoryCanvasRenderer.ts";
@@ -54,6 +55,7 @@ const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
 type ToolTab = "background" | "text" | "sticker" | "draw" | "video" | "none";
 
 export function StoryComposer(props: StoryComposerProps) {
+  const { t } = useI18n();
   // Inhabited scope seeds the story audience (B0.3): a community scope binds the
   // story to that community; personal leaves it a personal story.
   const scope = useAtomValue(inhabitedScopeAtom);
@@ -62,20 +64,36 @@ export function StoryComposer(props: StoryComposerProps) {
   const [storyCanvas, setStoryCanvas] = createSignal<StoryCanvas | null>(null);
   const [renderKey, setRenderKey] = createSignal(0);
   const bumpRenderKey = () => setRenderKey((k) => k + 1);
-  let canvasContainerRef!: HTMLDivElement;
-  let displayCanvasRef!: HTMLCanvasElement;
+  // Element bindings owned by this component but rendered by StoryComposerCanvas.
+  // Wired via callback refs (passing a bare `let` by value would never assign).
+  let canvasContainerRef: HTMLDivElement | undefined;
+  let displayCanvasRef: HTMLCanvasElement | undefined;
 
   // UI state
   const [activeTab, setActiveTab] = createSignal<ToolTab>("none");
   const [uploading, setUploading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [displayScale, setDisplayScale] = createSignal(1);
+  // Backing-store size of the display canvas. Tracks the stage's CSS size ×
+  // devicePixelRatio (capped at 2) so the WYSIWYG canvas stays crisp instead of
+  // being a fixed low-res bitmap upscaled by CSS. Always 9:16 (matches the
+  // 1080×1920 authoring canvas).
+  const [displayDims, setDisplayDims] = createSignal({
+    width: 540,
+    height: 960,
+  });
 
-  // Background state
-  const [backgroundType] = createSignal<"solid" | "gradient">("gradient");
-  const [solidColor] = createSignal("#000000");
-  const [gradientColors] = createSignal(["#667eea", "#764ba2"]);
-  const [gradientAngle] = createSignal(135);
+  // Background state — editable via the background panel (preset swatches +
+  // custom solid/gradient picker). Defaults to the signature purple gradient.
+  const [backgroundType, setBackgroundType] = createSignal<
+    "solid" | "gradient"
+  >("gradient");
+  const [solidColor, setSolidColor] = createSignal("#000000");
+  const [gradientColors, setGradientColors] = createSignal([
+    "#667eea",
+    "#764ba2",
+  ]);
+  const [gradientAngle, setGradientAngle] = createSignal(135);
 
   // Overlay state (for interactive elements)
   const [overlays] = createSignal<StoryOverlay[]>([]);
@@ -89,6 +107,7 @@ export function StoryComposer(props: StoryComposerProps) {
   const [activeTool, setActiveTool] = createSignal<"text" | "sticker" | null>(
     null,
   );
+  const [showBackgroundPanel, setShowBackgroundPanel] = createSignal(false);
 
   // Double-tap detection for text editing
   let lastTapTime = 0;
@@ -235,25 +254,28 @@ export function StoryComposer(props: StoryComposerProps) {
     });
   });
 
-  // Calculate display scale
-  createEffect(() => {
-    const updateScale = () => {
-      if (canvasContainerRef) {
-        const containerWidth = canvasContainerRef.clientWidth;
-        const scale = CANVAS_WIDTH / containerWidth;
-        setDisplayScale(scale);
-      }
-    };
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    onCleanup(() => window.removeEventListener("resize", updateScale));
-  });
+  // Track the stage size: drives both the CSS→canvas hit-test scale and the
+  // display canvas backing-store resolution (crisp WYSIWYG). Called once the
+  // container ref lands (real layout) and on every viewport resize.
+  const syncStageSize = () => {
+    if (!canvasContainerRef) return;
+    const containerWidth = canvasContainerRef.clientWidth;
+    if (containerWidth <= 0) return;
+    setDisplayScale(CANVAS_WIDTH / containerWidth);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const width = Math.round(containerWidth * dpr);
+    setDisplayDims({
+      width,
+      height: Math.round((width * CANVAS_HEIGHT) / CANVAS_WIDTH),
+    });
+    // Resizing the canvas backing store clears it — redraw at the new size.
+    bumpRenderKey();
+  };
 
-  // Set container ref for interaction
   createEffect(() => {
-    if (canvasContainerRef) {
-      setContainerRef(canvasContainerRef);
-    }
+    syncStageSize();
+    window.addEventListener("resize", syncStageSize);
+    onCleanup(() => window.removeEventListener("resize", syncStageSize));
   });
 
   useStoryCanvasRenderer({
@@ -344,43 +366,92 @@ export function StoryComposer(props: StoryComposerProps) {
     bumpRenderKey();
   };
 
-  // Handle tool button click. Only the implemented tools (text + sticker)
-  // remain wired; the previously dead Music/Effect/Resize buttons were removed.
-  const handleToolClick = (tool: "text" | "sticker") => {
-    if (tool === "text") {
-      textEditor.handleAddText();
-      return;
-    }
-    setActiveTool(activeTool() === "sticker" ? null : "sticker");
-    setShowToolPanel(activeTool() !== "sticker");
+  // --- Tool rail handlers (single top-right rail, Instagram layout) ---
+
+  const handleOpenText = () => {
+    setShowBackgroundPanel(false);
+    setShowToolPanel(false);
+    setActiveTool(null);
+    textEditor.handleAddText();
+  };
+
+  const handleToggleSticker = () => {
+    setShowBackgroundPanel(false);
+    const next = activeTool() !== "sticker";
+    setActiveTool(next ? "sticker" : null);
+    setShowToolPanel(next);
     handleTabChange("sticker");
+  };
+
+  const handleToggleDraw = () => {
+    setShowBackgroundPanel(false);
+    setShowToolPanel(false);
+    setActiveTool(null);
+    handleTabChange("draw");
+  };
+
+  const handleToggleBackground = () => {
+    setShowToolPanel(false);
+    setActiveTool(null);
+    setMode("select");
+    setShowBackgroundPanel((v) => !v);
+  };
+
+  const handlePickImage = () => {
+    setShowBackgroundPanel(false);
+    imageUpload.fileInputRef?.click();
+  };
+
+  const handlePickVideo = () => {
+    setShowBackgroundPanel(false);
+    video.videoInputRef?.click();
   };
 
   // --- Derived state ---
 
   const selectedLayer = () => getSelectedLayer();
+  // canPost / isCanvasEmpty read the (non-reactive) layer array, so they take a
+  // dependency on renderKey() — which bumps on every canvas mutation — to stay
+  // in sync when layers are added or removed.
   const canPost = () => {
+    renderKey();
     const sc = storyCanvas();
     return !!sc && (sc.getLayers().length > 1 || !!video.videoFile());
   };
-
-  const getDisplayDimensions = () => {
-    if (!canvasContainerRef) return { width: 360, height: 640 };
-    const width = canvasContainerRef.clientWidth;
-    const height = (width * CANVAS_HEIGHT) / CANVAS_WIDTH;
-    return { width, height };
+  // Empty == only the background layer and no video: show the "tap to add
+  // text" affordance so a fresh canvas isn't a blank stage.
+  const isCanvasEmpty = () => {
+    renderKey();
+    const sc = storyCanvas();
+    return !!sc && sc.getLayers().length <= 1 && !video.videoFile();
   };
 
   // --- Render ---
 
   return (
-    <div class="fixed inset-0 bg-neutral-900 z-51">
-      {/* Full screen canvas area with overlay UI */}
-      <div class="relative w-full h-full pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+    <div class="fixed inset-0 z-[51] flex items-center justify-center bg-black">
+      {/* Portrait 9:16 stage. Every overlay control anchors to THIS card (not
+          the viewport), so the editor reads correctly at any width: a centered
+          phone-shaped column on desktop, full-bleed on mobile. */}
+      <div
+        class="relative overflow-hidden bg-neutral-950 shadow-2xl sm:rounded-3xl"
+        style={{
+          height: "min(100dvh, calc(100vw * 16 / 9))",
+          "aspect-ratio": "9 / 16",
+          "max-width": "100vw",
+        }}
+      >
         <StoryComposerCanvas
-          canvasContainerRef={canvasContainerRef}
-          displayCanvasRef={displayCanvasRef}
-          displayDimensions={getDisplayDimensions()}
+          canvasContainerRef={(el) => {
+            canvasContainerRef = el;
+            setContainerRef(el);
+            // First real layout — compute the display scale/resolution now.
+            queueMicrotask(syncStageSize);
+          }}
+          displayCanvasRef={(el) => {
+            displayCanvasRef = el;
+          }}
+          displayDimensions={displayDims()}
           videoPreview={video.videoPreview()}
           videoRef={video.videoRef}
           videoPosition={video.videoPosition()}
@@ -397,10 +468,32 @@ export function StoryComposer(props: StoryComposerProps) {
           onVideoTouchEnd={videoTransform.handleTouchEnd}
         />
 
+        {/* Empty-canvas affordance — only a background, nothing placed yet. */}
+        <Show when={isCanvasEmpty()}>
+          <div class="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
+            <button
+              type="button"
+              onClick={handleOpenText}
+              class="pointer-events-auto rounded-full bg-black/30 px-5 py-2.5 text-sm font-medium text-white/90 shadow-md backdrop-blur-sm"
+            >
+              {t("story.tapToAddText")}
+            </button>
+          </div>
+        </Show>
+
         <StoryComposerHeader
           onClose={props.onClose}
-          activeTool={activeTool()}
-          onToolClick={handleToolClick}
+          onText={handleOpenText}
+          onSticker={handleToggleSticker}
+          stickerActive={activeTool() === "sticker"}
+          onDraw={handleToggleDraw}
+          drawActive={interactionState().mode === "draw"}
+          onImage={handlePickImage}
+          onVideo={handlePickVideo}
+          hasVideo={!!video.videoFile()}
+          onBackground={handleToggleBackground}
+          backgroundActive={showBackgroundPanel()}
+          uploading={uploading()}
         />
 
         <StoryComposerSelectionToolbar
@@ -441,13 +534,23 @@ export function StoryComposer(props: StoryComposerProps) {
           }}
         />
 
-        <StoryComposerQuickActions
-          uploading={uploading()}
-          hasVideo={!!video.videoFile()}
-          isDrawing={interactionState().mode === "draw"}
-          onSelectImage={() => imageUpload.fileInputRef?.click()}
-          onSelectVideo={() => video.videoInputRef?.click()}
-          onToggleDraw={() => handleTabChange("draw")}
+        <StoryComposerBackgroundPanel
+          open={showBackgroundPanel()}
+          fillType={backgroundType()}
+          solidColor={solidColor()}
+          gradientColors={gradientColors()}
+          gradientAngle={gradientAngle()}
+          onSolidColorChange={(color) => {
+            setBackgroundType("solid");
+            setSolidColor(color);
+          }}
+          onGradientChange={(colors, angle) => {
+            setBackgroundType("gradient");
+            setGradientColors(colors);
+            setGradientAngle(angle);
+          }}
+          onFillTypeChange={setBackgroundType}
+          onClose={() => setShowBackgroundPanel(false)}
         />
 
         <StoryComposerDrawingPanel
@@ -464,35 +567,35 @@ export function StoryComposer(props: StoryComposerProps) {
           posting={postActions.posting()}
           progress={postActions.progress()}
         />
+
+        {/* Hidden file inputs */}
+        <input
+          ref={(el) => {
+            imageUpload.fileInputRef = el;
+          }}
+          type="file"
+          accept="image/*"
+          onInput={imageUpload.handleImageSelect}
+          class="hidden"
+        />
+        <input
+          ref={(el) => {
+            video.videoInputRef = el;
+          }}
+          type="file"
+          accept="video/*"
+          onInput={video.handleVideoSelect}
+          class="hidden"
+        />
+
+        {/* Text editor modal */}
+        <TextEditorModal
+          isOpen={textEditor.isTextEditorOpen()}
+          onClose={textEditor.handleTextEditorClose}
+          onSave={textEditor.handleTextSave}
+          initialText={textEditor.getInitialTextData()}
+        />
       </div>
-
-      {/* Hidden file inputs */}
-      <input
-        ref={(el) => {
-          imageUpload.fileInputRef = el;
-        }}
-        type="file"
-        accept="image/*"
-        onInput={imageUpload.handleImageSelect}
-        class="hidden"
-      />
-      <input
-        ref={(el) => {
-          video.videoInputRef = el;
-        }}
-        type="file"
-        accept="video/*"
-        onInput={video.handleVideoSelect}
-        class="hidden"
-      />
-
-      {/* Text editor modal */}
-      <TextEditorModal
-        isOpen={textEditor.isTextEditorOpen()}
-        onClose={textEditor.handleTextEditorClose}
-        onSave={textEditor.handleTextSave}
-        initialText={textEditor.getInitialTextData()}
-      />
     </div>
   );
 }

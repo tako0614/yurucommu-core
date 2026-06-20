@@ -3,8 +3,11 @@ import type { JSX } from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
 
 interface StoryComposerCanvasProps {
-  canvasContainerRef: HTMLDivElement | undefined;
-  displayCanvasRef: HTMLCanvasElement | undefined;
+  // Callback refs: the parent owns these elements (for hit-testing, display
+  // scale, and blitting the authoring canvas), so they must be wired back via a
+  // setter — passing a bare `let` by value never assigns the parent's binding.
+  canvasContainerRef: (el: HTMLDivElement) => void;
+  displayCanvasRef: (el: HTMLCanvasElement) => void;
   displayDimensions: { width: number; height: number };
   videoPreview: string | null;
   videoRef: HTMLVideoElement | undefined;
