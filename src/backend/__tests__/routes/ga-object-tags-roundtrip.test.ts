@@ -391,6 +391,84 @@ test("editing a post's content warning syncs `sensitive` on the delivered Update
   expect(u2.object.sensitive).toEqual(false);
 });
 
+test("editing content re-derives tags: an added #hashtag federates + persists, removal clears it", async () => {
+  // Regression: the edit Update carried no `tag`, so editing a post would strip
+  // its Hashtag/Mention tags from remote copies + the served object doc.
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "alice");
+  const app = postApp(db, fakeActor(authorApId, "alice"));
+
+  const createRes = await app.fetch(
+    new Request(`${APP_URL}/api/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "plain body", visibility: "public" }),
+    }),
+    envFor(db),
+  );
+  const created = (await createRes.json()) as { ap_id: string };
+  const hash = created.ap_id.slice(`${APP_URL}/ap/objects/`.length);
+
+  // Edit the content to introduce a hashtag.
+  const addTag = await app.fetch(
+    new Request(`${APP_URL}/api/posts/${hash}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "now tagged #newtag" }),
+    }),
+    envFor(db),
+  );
+  expect(addTag.status).toEqual(200);
+
+  // The delivered Update must carry the Hashtag tag.
+  const updates1 = await db
+    .select({ rawJson: activities.rawJson })
+    .from(activities)
+    .where(eq(activities.type, "Update"));
+  const u1 = JSON.parse(updates1[updates1.length - 1].rawJson) as {
+    object: { tag?: Array<{ type: string; name: string }> };
+  };
+  expect(u1.object.tag).toEqual([
+    expect.objectContaining({ type: "Hashtag", name: "#newtag" }),
+  ]);
+
+  // The served object doc must carry it too (persisted tagsJson).
+  const served1 = (await (
+    await outboxApp(db).fetch(
+      new Request(`${APP_URL}/ap/objects/${hash}`, { method: "GET" }),
+      envFor(db),
+    )
+  ).json()) as { tag?: Array<{ type: string; name: string }> };
+  expect(served1.tag).toEqual([
+    expect.objectContaining({ type: "Hashtag", name: "#newtag" }),
+  ]);
+
+  // Removing the hashtag from the content clears the tag everywhere.
+  const removeTag = await app.fetch(
+    new Request(`${APP_URL}/api/posts/${hash}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "tag gone now" }),
+    }),
+    envFor(db),
+  );
+  expect(removeTag.status).toEqual(200);
+  const updates2 = await db
+    .select({ rawJson: activities.rawJson })
+    .from(activities)
+    .where(eq(activities.type, "Update"));
+  const u2 = JSON.parse(updates2[updates2.length - 1].rawJson) as {
+    object: { tag?: unknown[] };
+  };
+  expect(u2.object.tag).toBeUndefined();
+  const objRow = await db
+    .select({ tagsJson: objects.tagsJson })
+    .from(objects)
+    .where(eq(objects.apId, created.ap_id))
+    .get();
+  expect(objRow!.tagsJson).toEqual("[]");
+});
+
 test("a plain post's delivered Create is not marked sensitive", async () => {
   const db = await freshDb();
   const authorApId = await insertLocalActor(db, "alice");

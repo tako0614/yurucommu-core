@@ -612,6 +612,90 @@ export async function processMentions(
   return emptyResult;
 }
 
+/**
+ * Derive the AS2 `tag` array (Hashtag + Mention) for a post's content WITHOUT
+ * any notification / activity side effects. The EDIT path uses this so an
+ * edited post's served object + Update(Note) carry the SAME tags a fresh post
+ * would — re-running the full `processMentions` on every edit would re-notify
+ * every mention. Mirrors processMentions' tag-building (kept as a separate,
+ * side-effect-free function so the create/federation path stays untouched).
+ */
+export async function deriveContentTags(
+  db: Database,
+  content: string,
+  baseUrl: string,
+  actorApId: string,
+): Promise<PostTag[]> {
+  const tags: PostTag[] = [];
+
+  const baseHref = baseUrl.replace(/\/+$/, "");
+  for (const tag of extractHashtags(content)) {
+    tags.push({
+      type: "Hashtag",
+      href: `${baseHref}/search?search=${encodeURIComponent(`#${tag}`)}`,
+      name: `#${tag}`,
+    });
+  }
+
+  const mentions = extractMentions(content);
+  if (mentions.length === 0) return tags;
+
+  const localMentions = mentions.filter((m) => !m.includes("@"));
+  const remoteMentions = mentions.filter((m) => m.includes("@"));
+
+  const [localActors, cachedActors] = await Promise.all([
+    localMentions.length > 0
+      ? db
+          .select({
+            apId: actors.apId,
+            preferredUsername: actors.preferredUsername,
+          })
+          .from(actors)
+          .where(inArray(actors.preferredUsername, localMentions))
+      : [],
+    remoteMentions.length > 0
+      ? db
+          .select({
+            apId: actorCache.apId,
+            preferredUsername: actorCache.preferredUsername,
+          })
+          .from(actorCache)
+          .where(
+            inArray(
+              actorCache.preferredUsername,
+              remoteMentions.map((m) => m.split("@")[0]),
+            ),
+          )
+      : [],
+  ]);
+  const localActorMap = new Map(
+    localActors.map((a) => [a.preferredUsername, a.apId]),
+  );
+  const remoteActorMap = new Map<string, string>();
+  for (const mention of remoteMentions) {
+    const [username, domain] = mention.split("@");
+    const matching = cachedActors.find(
+      (a) => a.preferredUsername === username && a.apId.includes(domain),
+    );
+    if (matching) remoteActorMap.set(mention, matching.apId);
+  }
+
+  const seen = new Set<string>();
+  for (const mention of mentions) {
+    const apId = mention.includes("@")
+      ? remoteActorMap.get(mention) || null
+      : localActorMap.get(mention) || null;
+    if (!apId || apId === actorApId || seen.has(apId)) continue;
+    seen.add(apId);
+    tags.push({
+      type: "Mention",
+      href: apId,
+      name: `@${formatUsername(apId)}`,
+    });
+  }
+  return tags;
+}
+
 // ---------------------------------------------------------------------------
 // Edit validation
 // ---------------------------------------------------------------------------

@@ -40,6 +40,7 @@ import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
 import { deleteObjectCascade } from "./delete-cascade.ts";
 import {
   checkCommunityPostPermission,
+  deriveContentTags,
   insertPostAndHandleReply,
   processMentions,
   REPLY_TARGET_NOT_FOUND,
@@ -544,6 +545,7 @@ posts.patch("/:id", async (c) => {
   const updateData: {
     content?: string;
     summary?: string | null;
+    tagsJson?: string;
     updated: string;
   } = { updated: now };
 
@@ -552,6 +554,21 @@ posts.patch("/:id", async (c) => {
 
   if (Object.keys(updateData).length === 1) {
     return c.json({ error: "No changes provided" }, 400);
+  }
+
+  // Re-derive the post's AS2 tags (Hashtag + Mention) from the next content so
+  // the served object doc and the Update(Note) below carry the same tags a
+  // fresh post would — otherwise editing a #hashtag / @mention post would strip
+  // those tags from remote copies. Side-effect-free (no re-notification);
+  // persist tagsJson only when the content actually changed.
+  const nextTags = await deriveContentTags(
+    db,
+    nextContent,
+    baseUrl,
+    actor.ap_id,
+  );
+  if (body.content !== undefined) {
+    updateData.tagsJson = JSON.stringify(nextTags);
   }
 
   await db.update(objects).set(updateData).where(eq(objects.apId, post.apId));
@@ -572,6 +589,9 @@ posts.patch("/:id", async (c) => {
       // warning pushes `sensitive: false` and clears it on followers who act on
       // the Update without re-fetching the object.
       sensitive: Boolean(nextSummary),
+      // Carry the re-derived tags so a receiver updating the Note keeps its
+      // Hashtag/Mention tags instead of dropping them on edit.
+      ...(nextTags.length > 0 ? { tag: nextTags } : {}),
       updated: now,
     },
   };
