@@ -77,6 +77,16 @@ export function StoryViewer(props: StoryViewerProps) {
   );
   const isLiked = createMemo(() => !!currentStory()?.liked);
 
+  // Lock background scroll while the full-screen viewer is mounted, restoring
+  // the prior value on close (matches the MediaLightbox / useDialog behaviour).
+  createEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    onCleanup(() => {
+      document.body.style.overflow = previous;
+    });
+  });
+
   createEffect(() => {
     setLocalActorStories(props.actorStories);
   });
@@ -509,7 +519,12 @@ export function StoryViewer(props: StoryViewerProps) {
 
   return (
     <Show when={currentActorStories() && currentStory()}>
-      <div class="fixed inset-0 z-51 bg-neutral-900">
+      <div
+        class="fixed inset-0 z-51 bg-neutral-900"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("story.viewerAriaLabel")}
+      >
         <StoryViewerProgress
           totalStories={currentActorStories()!.stories.length}
           storyIndex={storyIndex()}
