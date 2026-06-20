@@ -8,6 +8,7 @@ import {
 import type { Env, Variables } from "../../types.ts";
 import { formatUsername } from "../../federation-helpers.ts";
 import {
+  addMemberAtomic,
   batchLoadActorInfo,
   fetchCommunityId,
   memberWhere,
@@ -114,18 +115,15 @@ export function registerMembershipRequestRoutes(
         .get();
 
       if (!existingMember) {
-        const now = new Date().toISOString();
-        await db.insert(communityMembers).values({
-          communityApId: community.apId,
-          actorApId: body.actor_ap_id,
-          role: "member",
-          joinedAt: now,
-        });
-
-        await db
-          .update(communities)
-          .set({ memberCount: sql`${communities.memberCount} + 1` })
-          .where(eq(communities.apId, community.apId));
+        // Atomic insert + guarded increment so a crash between them, or a
+        // concurrent double-accept, can't leave the count under/over the truth.
+        await addMemberAtomic(
+          db,
+          community.apId,
+          body.actor_ap_id,
+          "member",
+          new Date().toISOString(),
+        );
       }
 
       await db

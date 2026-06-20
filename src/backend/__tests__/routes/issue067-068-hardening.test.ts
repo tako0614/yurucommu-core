@@ -182,6 +182,12 @@ function createDrizzleMockDb(
     insert: insertSpy,
     update: updateSpy,
     delete: deleteSpy,
+    // Mirror the libsql/D1 .batch(): the statements are this mock's thenable
+    // query builders, so awaiting them all executes the batch. (Used by the
+    // atomic member add/remove helpers in membership-shared.)
+    batch: spy((stmts: unknown[]) =>
+      Promise.all(stmts as PromiseLike<unknown>[]),
+    ),
     query: {
       objects: {
         findFirst: spy((..._args: unknown[]) =>

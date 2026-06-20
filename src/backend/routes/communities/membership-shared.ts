@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
@@ -11,6 +11,72 @@ import type { Env, Variables } from "../../types.ts";
 import { communityApId } from "../../federation-helpers.ts";
 
 export const managerRoles = new Set(["owner", "moderator"]);
+
+// `Database` is a union whose `.batch` lives only on the concrete D1/libsql
+// subclasses; reach it through a narrow structural cast (matching membership-join).
+type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
+
+/**
+ * Atomically remove a member and decrement memberCount in ONE batch. The
+ * decrement runs BEFORE the delete and is guarded by `EXISTS(member)` (so a
+ * duplicate concurrent removal — whose member row is already gone — cannot
+ * double-decrement) and `memberCount > 0` (underflow). Mirrors the federated
+ * undoFollowEdge pattern; replaces the previous non-atomic delete-then-`-1` that
+ * could tear on crash, underflow negative, or double-decrement under a race.
+ */
+export async function removeMemberAtomic(
+  db: Database,
+  communityApIdVal: string,
+  actorApIdVal: string,
+): Promise<void> {
+  const memberExists = sql`EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${communityApIdVal} AND ${communityMembers.actorApId} = ${actorApIdVal})`;
+  await (db as unknown as Batchable).batch([
+    db
+      .update(communities)
+      .set({ memberCount: sql`${communities.memberCount} - 1` })
+      .where(
+        and(
+          eq(communities.apId, communityApIdVal),
+          gt(communities.memberCount, 0),
+          memberExists,
+        ),
+      ),
+    db
+      .delete(communityMembers)
+      .where(memberWhere(communityApIdVal, actorApIdVal)),
+  ]);
+}
+
+/**
+ * Atomically add a member and increment memberCount in ONE batch. The increment
+ * is guarded by `NOT EXISTS(member)` so a duplicate concurrent add (or a retry)
+ * cannot double-count; the insert is onConflictDoNothing. Mirrors the open-join
+ * batch and the federated handleFollow pattern.
+ */
+export async function addMemberAtomic(
+  db: Database,
+  communityApIdVal: string,
+  actorApIdVal: string,
+  role: string,
+  joinedAt: string,
+): Promise<void> {
+  const memberAbsent = sql`NOT EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${communityApIdVal} AND ${communityMembers.actorApId} = ${actorApIdVal})`;
+  await (db as unknown as Batchable).batch([
+    db
+      .update(communities)
+      .set({ memberCount: sql`${communities.memberCount} + 1` })
+      .where(and(eq(communities.apId, communityApIdVal), memberAbsent)),
+    db
+      .insert(communityMembers)
+      .values({
+        communityApId: communityApIdVal,
+        actorApId: actorApIdVal,
+        role,
+        joinedAt,
+      })
+      .onConflictDoNothing(),
+  ]);
+}
 
 export function resolveCommunityApId(
   baseUrl: string,

@@ -11,6 +11,7 @@ import {
   batchLoadActorInfo,
   fetchCommunityId,
   memberWhere,
+  removeMemberAtomic,
   requireManager,
   resolveCommunityApId,
 } from "./membership-shared.ts";
@@ -81,14 +82,7 @@ export function registerMembershipMemberRoutes(
         return c.json({ error: "Only owners can remove other owners" }, 403);
       }
 
-      await db
-        .delete(communityMembers)
-        .where(memberWhere(community.apId, targetApId));
-
-      await db
-        .update(communities)
-        .set({ memberCount: sql`${communities.memberCount} - 1` })
-        .where(eq(communities.apId, community.apId));
+      await removeMemberAtomic(db, community.apId, targetApId);
 
       return c.json({ success: true });
     },
@@ -305,14 +299,7 @@ export function registerMembershipMemberRoutes(
             continue;
           }
 
-          await db
-            .delete(communityMembers)
-            .where(memberWhere(community.apId, targetApId));
-
-          await db
-            .update(communities)
-            .set({ memberCount: sql`${communities.memberCount} - 1` })
-            .where(eq(communities.apId, community.apId));
+          await removeMemberAtomic(db, community.apId, targetApId);
 
           results.push({ ap_id: targetApId, success: true });
         } catch {

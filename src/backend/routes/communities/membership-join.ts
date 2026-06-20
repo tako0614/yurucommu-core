@@ -8,7 +8,11 @@ import {
   communityMembers,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
-import { fetchCommunityDetails, memberWhere } from "./membership-shared.ts";
+import {
+  fetchCommunityDetails,
+  memberWhere,
+  removeMemberAtomic,
+} from "./membership-shared.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import { logger } from "../../lib/logger.ts";
 
@@ -287,14 +291,7 @@ export function registerMembershipJoinRoutes(
         }
       }
 
-      await db
-        .delete(communityMembers)
-        .where(memberWhere(community.apId, actor.ap_id));
-
-      await db
-        .update(communities)
-        .set({ memberCount: sql`${communities.memberCount} - 1` })
-        .where(eq(communities.apId, community.apId));
+      await removeMemberAtomic(db, community.apId, actor.ap_id);
 
       return c.json({ success: true });
     },
