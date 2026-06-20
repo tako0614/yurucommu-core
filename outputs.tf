@@ -145,7 +145,7 @@ output "takos_app" {
         }
         display = {
           title       = "Yurucommu"
-          description = "Self-hosted ActivityPub community social app for small communities."
+          description = "Your own self-hosted ActivityPub SNS — posts, messaging, and stories, where the communities you inhabit are your reach."
           category    = "social"
           sortOrder   = 50
         }
