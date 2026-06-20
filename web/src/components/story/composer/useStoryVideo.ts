@@ -62,6 +62,11 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
       } catch (e) {
         console.error("Failed to load FFmpeg:", e);
         opts.setError(t("story.videoLoadFailed"));
+        // FFmpeg can't load → the video can never be processed and the Post
+        // button stays disabled, with no remove-video control to recover. Clear
+        // the selection so the composer falls back to a usable image/text state
+        // instead of trapping the user.
+        clearVideo();
       } finally {
         setFfmpegLoading(false);
       }
