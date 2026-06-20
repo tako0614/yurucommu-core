@@ -22,7 +22,7 @@ import {
   timelinePostsAtom,
 } from "../atoms/timeline.ts";
 import { toggleBookmark, toggleLike, toggleRepost } from "../atoms/posts.ts";
-import { deletePost } from "../lib/api/posts.ts";
+import { deletePost, editPost } from "../lib/api/posts.ts";
 import { blockUser, muteUser } from "../lib/api/actors.ts";
 import type { ActorStories, Post } from "../types/index.ts";
 
@@ -226,6 +226,40 @@ export function useTimelineState() {
     }
   };
 
+  // Edit your own post. The modal is opened by stashing the target post; saving
+  // PATCHes content/summary and merges the server's confirmed fields back into
+  // the in-memory feed (also into the staged "new posts" buffer in case the
+  // edited post is still queued there) so the change shows without a refetch.
+  const [editingPost, setEditingPost] = createSignal<Post | null>(null);
+  const [savingEdit, setSavingEdit] = createSignal(false);
+
+  const handleEdit = (post: Post) => setEditingPost(post);
+
+  const handleSaveEdit = async (data: {
+    content: string;
+    summary: string | null;
+  }) => {
+    const target = editingPost();
+    if (!target || savingEdit()) return;
+    setSavingEdit(true);
+    try {
+      const updated = await editPost(target.ap_id, data);
+      const apply = (p: Post) =>
+        p.ap_id === target.ap_id
+          ? { ...p, content: updated.content, summary: updated.summary }
+          : p;
+      setPosts((prev) => prev.map(apply));
+      setPendingNewPosts((prev) => prev.map(apply));
+      setEditingPost(null);
+      pushToast(setToasts, t()("feedback.postEdited"), { kind: "success" });
+    } catch (e) {
+      console.error("Failed to edit post:", e);
+      toastError("feedback.editFailed");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   // Mute/block an author and drop all of their posts — from the live timeline AND
   // the staged "new posts" buffer (otherwise a muted author's already-fetched
   // posts re-enter the feed when the user taps "show new posts").
@@ -294,5 +328,10 @@ export function useTimelineState() {
     handleDelete,
     handleMute,
     handleBlock,
+    editingPost,
+    setEditingPost,
+    savingEdit,
+    handleEdit,
+    handleSaveEdit,
   };
 }

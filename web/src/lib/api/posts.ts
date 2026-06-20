@@ -1,6 +1,6 @@
 import type { Post } from "../../types/index.ts";
 import { normalizePost } from "./normalize.ts";
-import { apiDelete, apiFetch, apiPost, assertOk } from "./fetch.ts";
+import { apiDelete, apiFetch, apiPatch, apiPost, assertOk } from "./fetch.ts";
 
 type PostListResponse = {
   posts?: Post[];
@@ -70,6 +70,21 @@ export async function createPost(data: {
   await assertOk(res, "Failed to create post");
   const result = (await res.json()) as CreatePostResponse;
   return normalizePost(result.post);
+}
+
+// Edit your own post's text and/or content warning. The server returns only the
+// changed fields (it stays the authority on what actually persisted); the caller
+// merges them into the post it already holds. `summary: null` clears the CW.
+export async function editPost(
+  apId: string,
+  data: { content?: string; summary?: string | null },
+): Promise<{ content: string; summary: string | null }> {
+  const res = await apiPatch(`/api/posts/${encodeURIComponent(apId)}`, data);
+  await assertOk(res, "Failed to edit post");
+  const result = (await res.json()) as {
+    post: { content: string; summary: string | null };
+  };
+  return { content: result.post.content, summary: result.post.summary };
 }
 
 export async function deletePost(apId: string): Promise<void> {

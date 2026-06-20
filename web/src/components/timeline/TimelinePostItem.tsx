@@ -30,6 +30,7 @@ interface TimelinePostItemProps {
   onDelete?: (post: Post) => void;
   onMute?: (post: Post) => void;
   onBlock?: (post: Post) => void;
+  onEdit?: (post: Post) => void;
 }
 
 // Window (ms) inside which a second tap on the media counts as a double-tap.
@@ -232,6 +233,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
           onDelete={props.onDelete!}
           onMute={props.onMute!}
           onBlock={props.onBlock!}
+          onEdit={props.onEdit}
         />
       </Show>
     </div>

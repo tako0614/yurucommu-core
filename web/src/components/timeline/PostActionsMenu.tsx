@@ -9,6 +9,8 @@ interface PostActionsMenuProps {
   onDelete: (post: Post) => void;
   onMute: (post: Post) => void;
   onBlock: (post: Post) => void;
+  // Optional: when provided, own posts get an "edit" item above delete.
+  onEdit?: (post: Post) => void;
 }
 
 const MoreIcon = () => (
@@ -88,6 +90,19 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
           <button role="menuitem" class={itemClass} onClick={copyLink}>
             {t("posts.copyLink")}
           </button>
+
+          <Show when={props.isOwn && props.onEdit}>
+            <button
+              role="menuitem"
+              class={itemClass}
+              onClick={() => {
+                props.onEdit!(props.post);
+                close();
+              }}
+            >
+              {t("posts.edit")}
+            </button>
+          </Show>
 
           <Show when={props.isOwn}>
             <button

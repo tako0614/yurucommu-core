@@ -17,6 +17,7 @@ const StoryComposer = lazy(
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { FirstFeedEmptyState } from "../components/FirstFeedEmptyState.tsx";
 import { TimelinePostItem } from "../components/timeline/TimelinePostItem.tsx";
+import { EditPostModal } from "../components/timeline/EditPostModal.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 import { PluginSlot } from "../components/PluginSlot.tsx";
 import { useTimelineState } from "./useTimelineState.ts";
@@ -68,6 +69,19 @@ export function TimelinePage() {
             onSuccess={state.handleStorySuccess}
           />
         </Suspense>
+      </Show>
+
+      {/* Edit-post modal. Keyed so re-opening on a different post re-mounts the
+          modal and re-initialises its content/CW signals from that post. */}
+      <Show when={state.editingPost()} keyed>
+        {(post) => (
+          <EditPostModal
+            post={post}
+            saving={state.savingEdit()}
+            onClose={() => state.setEditingPost(null)}
+            onSave={state.handleSaveEdit}
+          />
+        )}
       </Show>
 
       {/* Home header. The individual is the base, so there is no scope to name or
@@ -160,6 +174,7 @@ export function TimelinePage() {
                       onDelete={state.handleDelete}
                       onMute={state.handleMute}
                       onBlock={state.handleBlock}
+                      onEdit={state.handleEdit}
                     />
                     <Show
                       when={
