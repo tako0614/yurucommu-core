@@ -75,10 +75,14 @@ export function PostDetailPage() {
   } | null>(null);
   const lightbox = useMediaLightbox();
 
+  // Generation guard: a fast post→post navigation must not let a slow prior
+  // load land its post/replies under the new post.
+  let postLoadGen = 0;
   createEffect(() => {
     const postId = params.postId;
     if (!postId) return;
 
+    const gen = ++postLoadGen;
     setPost(null);
     setReplies([]);
     setReplyContent("");
@@ -88,15 +92,17 @@ export function PostDetailPage() {
     const decodedPostId = decodeURIComponent(postId);
     Promise.all([fetchPost(decodedPostId), fetchReplies(decodedPostId)])
       .then(([postData, repliesData]) => {
+        if (gen !== postLoadGen) return;
         setPost(postData);
         setReplies(repliesData);
       })
       .catch((e) => {
+        if (gen !== postLoadGen) return;
         console.error("Failed to load post:", e);
         setError(t("common.error"));
       })
       .finally(() => {
-        setLoading(false);
+        if (gen === postLoadGen) setLoading(false);
       });
   });
 

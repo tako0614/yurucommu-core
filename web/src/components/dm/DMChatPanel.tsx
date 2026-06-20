@@ -167,6 +167,9 @@ export function DMChatPanel(props: DMChatPanelProps) {
     // Re-fetch incoming messages while the conversation is open so messages
     // sent by the other side appear without leaving and re-entering the thread.
     const intervalId = window.setInterval(() => {
+      // Skip polling while the tab is backgrounded (wasted requests); the
+      // contact-change / focus path refreshes when the user returns.
+      if (document.hidden) return;
       void refreshMessages(contactApId, contactType, "poll", isCancelled);
     }, MESSAGE_POLL_MS);
 
@@ -216,6 +219,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
 
     let cancelled = false;
     const pollTyping = async () => {
+      if (document.hidden) return; // don't poll typing state in a backgrounded tab
       try {
         const typing = await fetchUserDMTyping(contactApId);
         if (!cancelled) {
