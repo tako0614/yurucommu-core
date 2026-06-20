@@ -186,40 +186,41 @@ export function StoryViewer(props: StoryViewerProps) {
     setProgress(0);
   };
 
-  // Auto-advance timer (for images only, videos use onEnded)
+  // Auto-advance timer (for images only, videos use onEnded). Elapsed is
+  // accumulated tick-by-tick and ONLY while not paused, so a hold-to-pause does
+  // not lose progress and auto-advance is itself pause-aware. (Previously a fixed
+  // setTimeout(duration) fired even while held, and the effect tracked isPaused
+  // so every pause/release rebuilt the timer with a fresh startTime → progress
+  // jumped back to 0.)
+  const TICK_MS = 50;
   const startTimer = () => {
     const story = currentStory();
     if (!story || isVideo()) return;
 
     const duration = parseStoryDuration(story.displayDuration);
-    const startTime = Date.now();
 
-    // Clear existing timers
     if (timerRef) clearTimeout(timerRef);
     if (progressTimerRef) clearInterval(progressTimerRef);
 
-    // Progress update - use ref to avoid stale closure
+    let elapsed = 0;
     progressTimerRef = setInterval(() => {
       if (isPausedRef) return;
-      const elapsed = Date.now() - startTime;
+      elapsed += TICK_MS;
       setProgress(Math.min((elapsed / duration) * 100, 100));
-    }, 50);
-
-    // Auto-advance
-    timerRef = setTimeout(() => {
-      if (progressTimerRef) clearInterval(progressTimerRef);
-      goNext();
-    }, duration);
+      if (elapsed >= duration) {
+        if (progressTimerRef) clearInterval(progressTimerRef);
+        goNext();
+      }
+    }, TICK_MS);
   };
 
   createEffect(() => {
-    // Track dependencies
+    // Re-arm only when the STORY changes — NOT on pause toggle (the interval's
+    // isPausedRef guard handles pausing without restarting progress).
     actorIndex();
     storyIndex();
-    const paused = isPaused();
-    const video = isVideo();
 
-    if (!paused && !video) {
+    if (!isVideo()) {
       setProgress(0);
       startTimer();
     }
@@ -434,18 +435,33 @@ export function StoryViewer(props: StoryViewerProps) {
 
     try {
       await deleteStory(story.ap_id);
-      // Navigate to next story or close
-      if (currentActorStories()!.stories.length === 1) {
-        // Last story from this user
-        if (actorIndex() < localActorStories().length - 1) {
-          setActorIndex(actorIndex() + 1);
-          setStoryIndex(0);
-        } else {
-          props.onClose();
-        }
+      // Prune the deleted story from local state — otherwise it lingers in the
+      // array: the progress-bar count is wrong, goPrev returns into the gone
+      // story (404 on view/like), and emptying an actor's group can collapse the
+      // viewer to a blank screen.
+      const ai = actorIndex();
+      const si = storyIndex();
+      const groupSurvives = localActorStories()[ai].stories.length > 1;
+      const groups = localActorStories()
+        .map((g, i) =>
+          i === ai
+            ? { ...g, stories: g.stories.filter((_, j) => j !== si) }
+            : g,
+        )
+        .filter((g) => g.stories.length > 0);
+
+      if (groups.length === 0) {
+        props.onClose();
+        return;
+      }
+      setLocalActorStories(groups);
+      if (groupSurvives) {
+        // Same actor: the next story slid into this index (clamp to new last).
+        setStoryIndex(Math.min(si, groups[ai].stories.length - 1));
       } else {
-        // Same user's next story
-        goNext();
+        // The actor's group was removed; move to the next available actor.
+        setActorIndex(Math.min(ai, groups.length - 1));
+        setStoryIndex(0);
       }
     } catch (e) {
       console.error("Failed to delete story:", e);
