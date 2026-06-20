@@ -244,6 +244,10 @@ export async function checkCommunityPostPermission(
 
 export const REPLY_TARGET_NOT_FOUND = "REPLY_TARGET_NOT_FOUND";
 
+// `.batch` lives only on the concrete D1/libsql subclasses, not the Database
+// union; reach it through a narrow structural cast (matching the other routes).
+type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
+
 /**
  * Insert the post object, increment author post count, and handle reply-chain
  * updates (parent reply count bump + notification to local parent author).
@@ -278,7 +282,26 @@ export async function insertPostAndHandleReply(
     params.community,
   );
 
-  await db.insert(objects).values({
+  // Look up + validate the reply parent BEFORE the write batch — we need its
+  // author both as the replyCount target and for the reply notification.
+  if (params.inReplyTo) {
+    const parentPost = await db
+      .select({ attributedTo: objects.attributedTo })
+      .from(objects)
+      .where(eq(objects.apId, params.inReplyTo))
+      .get();
+    if (!parentPost) throw new Error(REPLY_TARGET_NOT_FOUND);
+    parentAuthor = parentPost.attributedTo;
+  }
+
+  // Co-commit the object insert + author postCount++ + parent replyCount recompute
+  // in ONE batch (mirrors the federated handleCreate): a crash between separate
+  // autocommits would otherwise leave the object inserted with an un-bumped
+  // postCount (permanent under-count). postCount++ is guarded NOT EXISTS(object)
+  // so a retry can't double-count; the parent replyCount is RECOMPUTED from
+  // COUNT(*) of the reply edge set — exact and idempotent.
+  const objectAbsent = sql`NOT EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${params.apId})`;
+  const insertObject = db.insert(objects).values({
     apId: params.apId,
     type: "Note",
     attributedTo: params.actorApId,
@@ -294,31 +317,31 @@ export async function insertPostAndHandleReply(
     published: params.now,
     isLocal: 1,
   });
-
-  await db
+  const bumpPostCount = db
     .update(actors)
     .set({ postCount: sql`${actors.postCount} + 1` })
-    .where(eq(actors.apId, params.actorApId));
+    .where(and(eq(actors.apId, params.actorApId), objectAbsent));
 
   if (params.inReplyTo) {
-    const parentPost = await db
-      .select({ attributedTo: objects.attributedTo })
-      .from(objects)
-      .where(eq(objects.apId, params.inReplyTo))
-      .get();
+    const parentId = params.inReplyTo;
+    await (db as unknown as Batchable).batch([
+      bumpPostCount,
+      insertObject,
+      db
+        .update(objects)
+        .set({
+          replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
+        })
+        .where(eq(objects.apId, parentId)),
+    ]);
+  } else {
+    await (db as unknown as Batchable).batch([bumpPostCount, insertObject]);
+  }
 
-    if (!parentPost) throw new Error(REPLY_TARGET_NOT_FOUND);
-
-    parentAuthor = parentPost.attributedTo;
-
-    await db
-      .update(objects)
-      .set({ replyCount: sql`${objects.replyCount} + 1` })
-      .where(eq(objects.apId, params.inReplyTo));
-
+  if (params.inReplyTo && parentAuthor) {
     if (
-      parentPost.attributedTo !== params.actorApId &&
-      isLocal(parentPost.attributedTo, params.baseUrl)
+      parentAuthor !== params.actorApId &&
+      isLocal(parentAuthor, params.baseUrl)
     ) {
       const replyActivityId = activityApId(params.baseUrl, generateId());
       await db.insert(activities).values({
@@ -337,7 +360,7 @@ export async function insertPostAndHandleReply(
       });
 
       await db.insert(inboxTable).values({
-        actorApId: parentPost.attributedTo,
+        actorApId: parentAuthor,
         activityApId: replyActivityId,
         read: 0,
         createdAt: params.now,

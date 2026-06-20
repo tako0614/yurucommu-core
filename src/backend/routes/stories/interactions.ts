@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import type { Env, Variables } from "../../types.ts";
 import {
   activities,
@@ -28,6 +28,10 @@ import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "stories.interactions" });
+
+// `.batch` lives only on the concrete D1/libsql subclasses, not the Database
+// union; reach it through a narrow structural cast (matching the other routes).
+type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -205,17 +209,21 @@ stories.post("/:id/like", async (c) => {
   const likeActivityApId = activityApId(baseUrl, likeId);
   const now = new Date().toISOString();
 
-  await db.insert(likes).values({
-    actorApId: actor.ap_id,
-    objectApId: apId,
-    activityApId: likeActivityApId,
-    createdAt: now,
-  });
-
-  await db
-    .update(objects)
-    .set({ likeCount: sql`${objects.likeCount} + 1` })
-    .where(eq(objects.apId, apId));
+  // Co-commit the like edge + count bump in one batch so a crash between them
+  // can't drift likeCount; the bare insert throws on a concurrent duplicate,
+  // rolling back the whole batch (no double-count).
+  await (db as unknown as Batchable).batch([
+    db.insert(likes).values({
+      actorApId: actor.ap_id,
+      objectApId: apId,
+      activityApId: likeActivityApId,
+      createdAt: now,
+    }),
+    db
+      .update(objects)
+      .set({ likeCount: sql`${objects.likeCount} + 1` })
+      .where(eq(objects.apId, apId)),
+  ]);
 
   const likeActivityRaw = {
     "@context": "https://www.w3.org/ns/activitystreams",
@@ -285,14 +293,17 @@ stories.delete("/:id/like", async (c) => {
     .get();
   if (!like) return c.json({ error: "Not liked" }, 400);
 
-  await db
-    .delete(likes)
-    .where(and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, apId)));
-
-  await db
-    .update(objects)
-    .set({ likeCount: sql`${objects.likeCount} - 1` })
-    .where(eq(objects.apId, apId));
+  // Co-commit the count decrement (guarded gt>0 against underflow) + edge delete
+  // in one batch so a crash between them can't leave likeCount drifted.
+  await (db as unknown as Batchable).batch([
+    db
+      .update(objects)
+      .set({ likeCount: sql`${objects.likeCount} - 1` })
+      .where(and(eq(objects.apId, apId), gt(objects.likeCount, 0))),
+    db
+      .delete(likes)
+      .where(and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, apId))),
+  ]);
 
   if (!isLocal(apId, baseUrl)) {
     const undoObject = like.activityApId
@@ -380,17 +391,20 @@ stories.post("/:id/share", async (c) => {
 
   const now = new Date().toISOString();
 
-  await db.insert(storyShares).values({
-    id: generateId(),
-    storyApId: apId,
-    actorApId: actor.ap_id,
-    sharedAt: now,
-  });
-
-  await db
-    .update(objects)
-    .set({ shareCount: sql`${objects.shareCount} + 1` })
-    .where(eq(objects.apId, apId));
+  // Co-commit the share edge + count bump in one batch (crash-safe; the bare
+  // insert rolls the batch back on a duplicate).
+  await (db as unknown as Batchable).batch([
+    db.insert(storyShares).values({
+      id: generateId(),
+      storyApId: apId,
+      actorApId: actor.ap_id,
+      sharedAt: now,
+    }),
+    db
+      .update(objects)
+      .set({ shareCount: sql`${objects.shareCount} + 1` })
+      .where(eq(objects.apId, apId)),
+  ]);
 
   return c.json({
     success: true,

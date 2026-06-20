@@ -1,12 +1,7 @@
 import { Hono } from "hono";
-import {
-  actors,
-  affectedRowCount,
-  follows,
-  objects,
-} from "../../../db/index.ts";
+import { actors, follows, objects } from "../../../db/index.ts";
 import type { Database } from "../../../db/index.ts";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type { Actor, Env, Variables } from "../../types.ts";
 import {
   activityApId,
@@ -58,6 +53,10 @@ import { canViewerReadObject } from "../../lib/community-visibility.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "posts.routes" });
+
+// `.batch` lives only on the concrete D1/libsql subclasses, not the Database
+// union; reach it through a narrow structural cast (matching the other routes).
+type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -600,30 +599,35 @@ posts.delete("/:id", async (c) => {
   // guaranteed on every runtime/connection, and D1 ignores it), so delete the
   // object's child rows explicitly before the object row to avoid orphans.
   await deleteObjectCascade(db, post.apId, c.env.MEDIA);
-  await db.delete(objects).where(eq(objects.apId, post.apId));
 
-  await db
+  // Co-commit the object delete + author postCount-- + parent replyCount in ONE
+  // batch (mirrors the federated handleDelete): a crash between separate
+  // autocommits would otherwise leave the row gone with an un-decremented
+  // postCount (permanent over-count, no recovery). postCount-- is guarded by
+  // gt>0 (underflow) + EXISTS(object) so it fires exactly once; the parent
+  // replyCount is RECOMPUTED from COUNT(*) after the delete — exact + idempotent.
+  const objectExists = sql`EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${post.apId})`;
+  const decPostCount = db
     .update(actors)
     .set({ postCount: sql`${actors.postCount} - 1` })
-    .where(eq(actors.apId, actor.ap_id));
-
-  let parentUpdated = true;
+    .where(
+      and(eq(actors.apId, actor.ap_id), gt(actors.postCount, 0), objectExists),
+    );
+  const deleteObject = db.delete(objects).where(eq(objects.apId, post.apId));
   if (post.inReplyTo) {
-    const result = await db
-      .update(objects)
-      .set({ replyCount: sql`${objects.replyCount} - 1` })
-      .where(
-        and(eq(objects.apId, post.inReplyTo), sql`${objects.replyCount} > 0`),
-      );
-    parentUpdated = affectedRowCount(result) > 0;
-  }
-
-  if (post.inReplyTo && !parentUpdated) {
-    log.warn("Failed to decrement parent reply count", {
-      event: "posts.delete.parent_reply_count_stale",
-      postApId: post.apId,
-      parentApId: post.inReplyTo,
-    });
+    const parentId = post.inReplyTo;
+    await (db as unknown as Batchable).batch([
+      decPostCount,
+      deleteObject,
+      db
+        .update(objects)
+        .set({
+          replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
+        })
+        .where(eq(objects.apId, parentId)),
+    ]);
+  } else {
+    await (db as unknown as Batchable).batch([decPostCount, deleteObject]);
   }
 
   // The Delete must reach everyone the original object reached, not just the
