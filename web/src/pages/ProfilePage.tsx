@@ -28,6 +28,8 @@ import { QRCodeModal } from "../components/QRCodeModal.tsx";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 
+const PROFILE_POSTS_PAGE = 20;
+
 export function ProfilePage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
@@ -38,6 +40,8 @@ export function ProfilePage() {
   const [profile, setProfile] = createSignal<Actor | null>(null);
   const [posts, setPosts] = createSignal<Post[]>([]);
   const [loading, setLoading] = createSignal(true);
+  const [postsHasMore, setPostsHasMore] = createSignal(false);
+  const [loadingMorePosts, setLoadingMorePosts] = createSignal(false);
   const [isFollowing, setIsFollowing] = createSignal(false);
   // A private/remote follow can be pending the target's approval; track it so we
   // don't present a pending request as an accepted follow.
@@ -100,9 +104,12 @@ export function ProfilePage() {
       if (gen !== profileLoadGen) return;
       setProfile(profileData);
       setIsFollowing(profileData.is_following || false);
-      const postsData = await fetchActorPosts(id);
+      const postsData = await fetchActorPosts(id, {
+        limit: PROFILE_POSTS_PAGE,
+      });
       if (gen !== profileLoadGen) return;
       setPosts(postsData);
+      setPostsHasMore(postsData.length >= PROFILE_POSTS_PAGE);
     } catch (e) {
       if (gen !== profileLoadGen) return;
       console.error("Failed to load profile:", e);
@@ -112,10 +119,33 @@ export function ProfilePage() {
     }
   };
 
+  // Older posts: page back via the endpoint's published-timestamp cursor.
+  const loadMorePosts = async () => {
+    if (loadingMorePosts() || !postsHasMore()) return;
+    const current = posts();
+    const last = current[current.length - 1];
+    if (!last?.published) return;
+    setLoadingMorePosts(true);
+    try {
+      const more = await fetchActorPosts(targetActorId(), {
+        limit: PROFILE_POSTS_PAGE,
+        before: last.published,
+      });
+      setPosts([...posts(), ...more]);
+      setPostsHasMore(more.length >= PROFILE_POSTS_PAGE);
+    } catch (e) {
+      console.error("Failed to load more posts:", e);
+      pushToast(setToasts, t("common.loadFailed"), { kind: "error" });
+    } finally {
+      setLoadingMorePosts(false);
+    }
+  };
+
   createEffect(
     on(targetActorId, () => {
       setProfile(null);
       setPosts([]);
+      setPostsHasMore(false);
       setIsFollowing(false);
       setFollowPending(false);
       setError(null);
@@ -340,6 +370,9 @@ export function ProfilePage() {
             posts={posts()}
             actorApId={actor.ap_id}
             onLike={handleLike}
+            hasMore={postsHasMore()}
+            loadingMore={loadingMorePosts()}
+            onLoadMore={loadMorePosts}
             t={t}
           />
         </div>

@@ -26,6 +26,9 @@ interface ProfilePostsSectionProps {
   actorApId: string;
   t: Translate;
   onLike: (post: Post) => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 function isVideo(m: MediaAttachment): boolean {
@@ -178,6 +181,21 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
               )}
             </For>
           </Show>
+        </Show>
+
+        <Show when={props.hasMore && props.posts.length > 0}>
+          <div class="flex justify-center p-4">
+            <button
+              type="button"
+              onClick={() => props.onLoadMore?.()}
+              disabled={props.loadingMore}
+              class="px-5 py-2 rounded-full bg-neutral-800 text-white text-sm font-medium hover:bg-neutral-700 disabled:opacity-50 transition-colors"
+            >
+              {props.loadingMore
+                ? props.t("common.loading")
+                : props.t("common.loadMore")}
+            </button>
+          </div>
         </Show>
       </Show>
     </>
