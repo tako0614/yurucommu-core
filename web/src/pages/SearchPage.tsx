@@ -208,10 +208,16 @@ export function SearchPage() {
     }
   };
 
+  // Generation guard shared by all search-result mutators: submitting "alice"
+  // then "bob" must not let the slower "alice" response (or its remote merge)
+  // overwrite "bob"; clearing must invalidate any in-flight search.
+  let searchGen = 0;
+
   const performSearch = async (query: string, suppressAutoSelect = false) => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
 
+    const gen = ++searchGen;
     setSearching(true);
     setSearched(true);
     setSearchError(null);
@@ -224,6 +230,8 @@ export function SearchPage() {
         searchActors(trimmedQuery),
         searchPosts(trimmedQuery),
       ]);
+
+      if (gen !== searchGen) return; // a newer search / clear superseded this
 
       setSearchUsersResult(usersRes);
       setSearchPostsResult(postsRes);
@@ -256,19 +264,22 @@ export function SearchPage() {
         await runRemoteSearch(trimmedQuery);
       }
     } catch (e) {
+      if (gen !== searchGen) return;
       console.error("Search failed:", e);
       setSearchError(t("common.loadFailed"));
     } finally {
-      setSearching(false);
+      if (gen === searchGen) setSearching(false);
     }
   };
 
   // Secondary, opt-in remote (webfinger) lookup. Merges any remote actors not
   // already present into the users result without disturbing the inward set.
   const runRemoteSearch = async (query: string) => {
+    const gen = searchGen; // augments the CURRENT result set; bail if superseded
     setSearchingRemote(true);
     try {
       const remoteUsersRes = await searchRemote(query);
+      if (gen !== searchGen) return;
       setSearchUsersResult((prev) => {
         const merged = [...prev];
         for (const remoteUser of remoteUsersRes) {
@@ -316,6 +327,7 @@ export function SearchPage() {
   };
 
   const clearSearch = () => {
+    searchGen++; // invalidate any in-flight search/remote merge
     setSearchQuery("");
     setSearched(false);
     setSearchError(null);

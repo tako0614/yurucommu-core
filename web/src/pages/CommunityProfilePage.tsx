@@ -118,15 +118,21 @@ export function CommunityProfilePage() {
     ),
   );
 
+  // Generation guard: a fast community→community navigation must not let a slow
+  // prior load (3 sequential fetches) land its data under the new community.
+  let communityLoadGen = 0;
   const loadCommunity = async () => {
     const name = params.name;
     if (!name) return;
+    const gen = ++communityLoadGen;
     // Only show loading if no cached data
     if (!community()) setLoading(true);
     try {
       const data = await fetchCommunity(name);
+      if (gen !== communityLoadGen) return;
       setCommunity(data);
       const membersData = await fetchCommunityMembers(name);
+      if (gen !== communityLoadGen) return;
       setMembers(membersData);
       const canManageNow =
         data.member_role === "owner" || data.member_role === "moderator";
@@ -134,6 +140,7 @@ export function CommunityProfilePage() {
         setLoadingRequests(true);
         try {
           const requestsData = await fetchCommunityJoinRequests(name);
+          if (gen !== communityLoadGen) return;
           setJoinRequests(requestsData);
         } finally {
           setLoadingRequests(false);
@@ -142,6 +149,7 @@ export function CommunityProfilePage() {
         setJoinRequests([]);
       }
     } catch (e) {
+      if (gen !== communityLoadGen) return;
       console.error("Failed to load community:", e);
       // A 404 is a genuine not-found; the dedicated empty state already covers
       // that (community() stays null). Other failures are surfaced as an error
@@ -150,7 +158,7 @@ export function CommunityProfilePage() {
         setError(t("common.error"));
       }
     } finally {
-      setLoading(false);
+      if (gen === communityLoadGen) setLoading(false);
     }
   };
 
