@@ -11,6 +11,7 @@
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { FONTS } from "../../lib/story-canvas.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import { useDialog } from "../../lib/useDialog.ts";
 
 // Text style presets (Instagram-like A, A, A buttons)
 const TEXT_STYLES = [
@@ -72,6 +73,17 @@ export function TextEditorModal(props: TextEditorModalProps) {
   const [showFontPicker, setShowFontPicker] = createSignal(false);
   const [showColorPicker, setShowColorPicker] = createSignal(false);
   let inputRef!: HTMLTextAreaElement;
+  let rootRef: HTMLDivElement | undefined;
+
+  // Full-screen text editor: trap focus, lock scroll, and close on Escape. It
+  // sits ABOVE the composer on the shared dialog stack, so Escape dismisses the
+  // text editor first (returning to the composer) rather than the whole sheet.
+  useDialog({
+    isOpen: () => props.isOpen,
+    onClose: () => props.onClose(),
+    container: () => rootRef,
+    initialFocus: () => inputRef,
+  });
 
   // Focus input when modal opens
   createEffect(() => {
@@ -117,7 +129,13 @@ export function TextEditorModal(props: TextEditorModalProps) {
 
   return (
     <Show when={props.isOpen}>
-      <div class="fixed inset-0 z-[60] bg-black/90 flex flex-col">
+      <div
+        ref={(el) => (rootRef = el)}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("story.textEditorAriaLabel")}
+        class="fixed inset-0 z-[60] bg-black/90 flex flex-col"
+      >
         {/* Header */}
         <div class="flex items-center justify-between px-4 py-3">
           <button

@@ -12,6 +12,7 @@
 
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
+import { useDialog } from "../../../lib/useDialog.ts";
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -103,6 +104,29 @@ export function StoryComposer(props: StoryComposerProps) {
     null,
   );
   const [showBackgroundPanel, setShowBackgroundPanel] = createSignal(false);
+
+  // Full-screen editor: trap focus, lock scroll, and dismiss on Escape. Escape
+  // first dismisses any open tool/background panel (a forgiving step-back),
+  // then closes the whole composer. The TextEditorModal registers ABOVE this on
+  // the shared dialog stack, so while it is open Escape closes IT, not the sheet.
+  let composerRootRef: HTMLDivElement | undefined;
+  const handleComposerEscape = () => {
+    if (showBackgroundPanel()) {
+      setShowBackgroundPanel(false);
+      return;
+    }
+    if (showToolPanel()) {
+      setShowToolPanel(false);
+      setActiveTool(null);
+      return;
+    }
+    props.onClose();
+  };
+  useDialog({
+    isOpen: () => true,
+    onClose: handleComposerEscape,
+    container: () => composerRootRef,
+  });
 
   // Double-tap detection for text editing
   let lastTapTime = 0;
@@ -425,7 +449,13 @@ export function StoryComposer(props: StoryComposerProps) {
   // --- Render ---
 
   return (
-    <div class="fixed inset-0 z-[51] flex items-center justify-center bg-black">
+    <div
+      ref={(el) => (composerRootRef = el)}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("story.composerAriaLabel")}
+      class="fixed inset-0 z-[51] flex items-center justify-center bg-black"
+    >
       {/* Portrait 9:16 stage. Every overlay control anchors to THIS card (not
           the viewport), so the editor reads correctly at any width: a centered
           phone-shaped column on desktop, full-bleed on mobile. */}

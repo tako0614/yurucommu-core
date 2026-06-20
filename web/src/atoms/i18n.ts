@@ -341,6 +341,8 @@ const translations = {
     "story.yourStory": "あなたのストーリー",
     "story.addStory": "ストーリーを追加",
     "story.viewerAriaLabel": "ストーリービューア",
+    "story.composerAriaLabel": "ストーリー作成",
+    "story.textEditorAriaLabel": "テキストを編集",
     "story.videoLoadFailed":
       "FFmpegの読み込みに失敗しました。動画機能は使用できません。",
     "story.selectVideoFile": "動画ファイルを選択してください",
@@ -951,6 +953,8 @@ const translations = {
     "story.yourStory": "Your story",
     "story.addStory": "Add story",
     "story.viewerAriaLabel": "Story viewer",
+    "story.composerAriaLabel": "Story composer",
+    "story.textEditorAriaLabel": "Edit text",
     "story.videoLoadFailed":
       "Failed to load FFmpeg. Video features are unavailable.",
     "story.selectVideoFile": "Please select a video file",
