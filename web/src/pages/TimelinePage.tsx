@@ -4,7 +4,6 @@ import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { StoryBar } from "../components/story/StoryBar.tsx";
 import { ScopeHeader } from "../components/scope/ScopeHeader.tsx";
-import { ScopeBar } from "../components/scope/ScopeBar.tsx";
 import { createScopeOpenAtom } from "../atoms/shell.ts";
 import { showPostModalAtom, showScopeSwitcherAtom } from "../atoms/timeline.ts";
 import { inhabitedScopeAtom } from "../atoms/scope.ts";
@@ -71,9 +70,10 @@ export function TimelinePage() {
         </Suspense>
       </Show>
 
-      {/* Minimal home header (title + compose). The individual is the base, so
-          there is no scope to name or switch here. */}
-      <ScopeHeader />
+      {/* Home header. The individual is the base, so there is no scope to name or
+          switch; the optional home view filter ("すべて" + each joined community)
+          is folded inline into this single bar instead of a third stacked rail. */}
+      <ScopeHeader onOpenSwitcher={() => openSwitcher(true)} />
 
       {/* Story Bar */}
       <StoryBar
@@ -83,10 +83,6 @@ export function TimelinePage() {
         onStoryClick={state.handleStoryClick}
         onAddStory={state.handleAddStory}
       />
-
-      {/* Optional home view filter: "すべて" + each joined community. Narrows the
-          unified feed to a community's people; hidden when there are none. */}
-      <ScopeBar onOpenSwitcher={() => openSwitcher(true)} />
 
       <div
         ref={(el) => {
