@@ -302,13 +302,14 @@ function ProfilePostItem(props: ProfilePostItemProps) {
         </Show>
         {/* Actions */}
         <div class="flex items-center gap-6 mt-3">
-          <button
+          <A
+            href={`/post/${encodeURIComponent(props.post.ap_id)}`}
             aria-label={props.t("posts.reply")}
             class="flex items-center gap-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
           >
             <ReplyIcon />
             <span class="text-sm">{props.post.reply_count || ""}</span>
-          </button>
+          </A>
           <button
             onClick={() => props.onLike(props.post)}
             aria-label={

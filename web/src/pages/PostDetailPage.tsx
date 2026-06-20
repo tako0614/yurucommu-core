@@ -66,6 +66,8 @@ export function PostDetailPage() {
   const [loading, setLoading] = createSignal(true);
   const [replyContent, setReplyContent] = createSignal("");
   const [replying, setReplying] = createSignal(false);
+  // Reply composer textarea — the action-bar reply button focuses it.
+  let replyInputRef: HTMLTextAreaElement | undefined;
   // Pending delete target, staged so the shared ConfirmSheet can gate it.
   const [pendingDelete, setPendingDelete] = createSignal<{
     post: Post;
@@ -320,12 +322,21 @@ export function PostDetailPage() {
               <Show when={post()!.author.ap_id === actor.ap_id}>
                 <div class="text-sm">
                   <span class="font-bold text-white">{post()!.like_count}</span>
-                  <span class="text-neutral-500 ml-1">Likes</span>
+                  <span class="text-neutral-500 ml-1">
+                    {t("posts.likesLabel")}
+                  </span>
                 </div>
               </Show>
             </div>
             <div class="flex items-center justify-around mt-3 pt-3 border-t border-neutral-800">
               <button
+                onClick={() => {
+                  replyInputRef?.focus();
+                  replyInputRef?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center",
+                  });
+                }}
                 aria-label={t("posts.reply")}
                 class="flex items-center gap-2 p-2 text-neutral-500 hover:text-accent transition-colors"
               >
@@ -372,9 +383,10 @@ export function PostDetailPage() {
               />
               <div class="flex-1">
                 <textarea
+                  ref={replyInputRef}
                   value={replyContent()}
                   onInput={(e) => setReplyContent(e.currentTarget.value)}
-                  placeholder="Post a reply"
+                  placeholder={t("posts.replyPlaceholder")}
                   class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none"
                   rows={2}
                 />
@@ -384,7 +396,7 @@ export function PostDetailPage() {
                     disabled={!replyContent().trim() || replying()}
                     class="px-4 py-1.5 bg-accent disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full text-sm font-bold transition-colors"
                   >
-                    Reply
+                    {t("posts.reply")}
                   </button>
                 </div>
               </div>
