@@ -6,6 +6,7 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   lt,
   ne,
@@ -715,6 +716,15 @@ actorsRoute.get("/:identifier/posts", async (c) => {
   ];
   if (isOwnProfile) {
     conditions.push(ne(objects.visibility, "direct"));
+    // Exclude community GROUP-CHAT messages from the profile post feed. A chat
+    // message is a Note addressed to a community audience (audienceJson !== "[]")
+    // with NO communityApId, whereas a personal post has an empty audience and a
+    // community FEED post has communityApId set. Without this, your own chat
+    // messages leak into your profile's posts list (they are correctly hidden
+    // from other viewers by the public/empty-audience guard below).
+    conditions.push(
+      or(eq(objects.audienceJson, "[]"), isNotNull(objects.communityApId))!,
+    );
   } else {
     // Non-own profile: only globally-public posts. `visibility = "public"`
     // alone is insufficient because community-scoped and explicitly-addressed
