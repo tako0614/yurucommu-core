@@ -1,19 +1,26 @@
 {
   "@context": {
     "story": "https://yurucommu.com/ns/story#",
+    "apc": "https://yurucommu.com/ns/apc#",
     "xsd": "http://www.w3.org/2001/XMLSchema#",
 
     "Story": "story:Story",
-
     "displayDuration": {
       "@id": "story:displayDuration",
       "@type": "xsd:duration"
     },
-
     "overlays": {
       "@id": "story:overlays",
       "@container": "@list"
     },
-    "position": "story:position"
+    "position": "story:position",
+
+    "rooms": {
+      "@id": "apc:rooms",
+      "@type": "@id"
+    },
+    "joinPolicy": "apc:joinPolicy",
+    "postPolicy": "apc:postPolicy",
+    "visibility": "apc:visibility"
   }
 }

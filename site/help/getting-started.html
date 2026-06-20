@@ -96,58 +96,57 @@
 
         <h2>デプロイ方法を選ぶ</h2>
         <p>
-          現在の yurucommu repo は Takosumi だけで public endpoint を作る
-          OpenTofu Capsule ではありません。まず直接デプロイ手順で worker
-          artifact と必要な Cloudflare resource を確認してください。
+          yurucommu は Git URL / ref / module path で指定できる OpenTofu Capsule
+          です。本番導入は Takosumi が Capsule を Git から読み、検証して Plan
+          を作成し、レビューしたうえで Apply する流れで行います。手元で
+          動作を確認したい場合は、下の「ローカルで確認する」手順を使います。
         </p>
-        <p><a href="/help/deployment.html">Deployment guide を開く</a></p>
+        <p><a href="/help/deployment.html">デプロイガイドを開く</a></p>
 
-        <h2>直接デプロイする場合</h2>
-
-        <h3>Step 1: リポジトリをクローン</h3>
+        <h2>ローカルで確認する</h2>
+        <p>まずリポジトリをクローンして、ローカルで Worker を起動します：</p>
         <pre><code>git clone https://github.com/tako0614/yurucommu.git
 	cd yurucommu
+	bun install
 	bun run dev</code></pre>
         <p>
           Worker を直接確認する場合は
           <code>bunx wrangler dev --config wrangler.local.toml</code>
           を使います。開発時の基本タスクは <code>bun run build</code>、<code
             >bun run build:worker</code
-          >、<code>bun run deploy</code>、<code>bun run db:generate</code>
-          です。
+          >、<code>bun run db:generate</code> です。
         </p>
 
-        <h3>Step 2: Cloudflare CLIでログイン</h3>
-        <pre><code>bunx wrangler login</code></pre>
-        <p>ブラウザが開くので、Cloudflareアカウントで認証してください。</p>
-
-        <h3>Step 3: D1データベースを作成</h3>
-        <pre><code>bunx wrangler d1 create yurucommu-db</code></pre>
-        <p>作成後、表示される <code>database_id</code> をメモしてください。</p>
-
-        <h3>Step 4: R2バケットを作成</h3>
-        <pre><code>bunx wrangler r2 bucket create yurucommu-media</code></pre>
-
-        <h3>Step 5: wrangler.tomlを設定</h3>
-        <p><code>wrangler.toml</code>を開き、D1のIDを設定します：</p>
-        <pre><code>[[d1_databases]]
-binding = "DB"
-database_name = "yurucommu-db"
-database_id = "ここにStep 3でメモしたIDを入力"</code></pre>
-
-        <h3>Step 6: データベースマイグレーション</h3>
-        <pre><code>bunx wrangler d1 migrations apply yurucommu-db --remote</code></pre>
-
-        <h3>Step 7: デプロイ</h3>
-        <pre><code>bun run build:worker
-	bun run deploy</code></pre>
+        <h2>本番導入（Takosumi で install）</h2>
         <p>
-          デプロイが完了すると、URLが表示されます（例:
-          <code>yurucommu.xxx.workers.dev</code>）
+          本番は Takosumi の Capsule install フローで導入します。yurucommu は
+          plain OpenTofu Capsule として扱われ、専用 manifest は不要です。
         </p>
 
-        <h3>Step 8: 初期設定</h3>
-        <p>デプロイしたURLにアクセスし、初回セットアップを行います：</p>
+        <h3>Step 1: Source を登録</h3>
+        <p>
+          Git URL / ref / module path で Source を Project
+          に登録します。Takosumi が Capsule を Git から読み、検証して Plan
+          を作成します。
+        </p>
+
+        <h3>Step 2: ProviderBinding と変数を確認</h3>
+        <p>
+          D1 / R2 / KV / Queue / route は generated root
+          が作成します。cloudflare provider などにどの ProviderConnection
+          を使うかは ProviderBinding で指定し、必要な変数・secret を確認します。
+        </p>
+
+        <h3>Step 3: Plan / レビュー / Apply</h3>
+        <p>
+          レビューした Plan を承認して Apply すると、Worker / D1 / R2 / KV /
+          Queue が materialize され、StateVersion・Output・AuditEvent に public
+          URL と launcher metadata が記録されます。ロールバックは過去の
+          StateVersion を選んで通常の Plan -> Apply フローで行います。
+        </p>
+
+        <h2>初期設定</h2>
+        <p>デプロイした URL にアクセスし、初回セットアップを行います：</p>
         <ol>
           <li>ユーザー名を設定</li>
           <li>表示名を設定</li>

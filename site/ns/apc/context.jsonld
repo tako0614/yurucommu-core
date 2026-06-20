@@ -1,0 +1,13 @@
+{
+  "@context": {
+    "apc": "https://yurucommu.com/ns/apc#",
+
+    "rooms": {
+      "@id": "apc:rooms",
+      "@type": "@id"
+    },
+    "joinPolicy": "apc:joinPolicy",
+    "postPolicy": "apc:postPolicy",
+    "visibility": "apc:visibility"
+  }
+}

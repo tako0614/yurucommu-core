@@ -606,28 +606,25 @@
         </p>
         <p>
           ローカルの Bun サーバーは起動時に <code>MIGRATIONS_PATH</code> の SQL
-          を自動適用します。Cloudflare D1
-          に対して手動で適用したい場合だけ、以下の
-          <code>wrangler d1 migrations apply</code> を使います。
+          を自動適用します。production では Takosumi が Capsule の Plan -> Apply
+          と operator migration policy に従って D1 schema を更新します。
         </p>
-        <pre><code># マイグレーション状態を確認
-bunx wrangler d1 migrations list yurucommu-db --remote
-
-# マイグレーションを適用
-bunx wrangler d1 migrations apply yurucommu-db --remote</code></pre>
+        <pre><code>flow: Source の pinned commit を更新 -> Takosumi が Capsule を読み検証 -> Plan -> approval -> Apply
+evidence: Run logs / StateVersion / Output / AuditEvent / operator migration record</code></pre>
 
         <h2>データの確認</h2>
-        <pre><code># テーブル一覧
-bunx wrangler d1 execute yurucommu-db --remote \
-  --command "SELECT name FROM sqlite_master WHERE type='table'"
-
-# データ確認
-bunx wrangler d1 execute yurucommu-db --remote \
-  --command "SELECT * FROM actors LIMIT 5"</code></pre>
+        <p>
+          operator/debug 権限で provider console または Takosumi run evidence
+          を確認します。 一般ユーザー向け docs では direct provider CLI
+          を操作手順として公開しません。
+        </p>
 
         <h2>バックアップ</h2>
-        <p>D1のデータをエクスポートするには：</p>
-        <pre><code>bunx wrangler d1 export yurucommu-db --remote --output backup.sql</code></pre>
+        <p>
+          Backup / restore は Takosumi control/state backup と provider backup
+          policy の範囲です。provider service data restore は operator policy と
+          runbook に従います。
+        </p>
       </main>
     </div>
 

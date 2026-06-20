@@ -49,12 +49,20 @@ export function storyToActivityPub(
   const attachmentUrl = safeUrlJoin(baseUrl, story.attachment.url);
 
   return {
+    // Terms are inlined (not just a remote context URL) so plain AS2 consumers
+    // need not dereference https://yurucommu.com/ns/story. This object MUST stay
+    // byte-for-term identical to the published context at
+    // site/ns/story/context.jsonld.
     "@context": [
       "https://www.w3.org/ns/activitystreams",
       {
         story: "https://yurucommu.com/ns/story#",
+        xsd: "http://www.w3.org/2001/XMLSchema#",
         Story: "story:Story",
-        displayDuration: "story:displayDuration",
+        displayDuration: {
+          "@id": "story:displayDuration",
+          "@type": "xsd:duration",
+        },
         overlays: { "@id": "story:overlays", "@container": "@list" },
         position: "story:position",
       },

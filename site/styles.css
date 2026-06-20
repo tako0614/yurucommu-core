@@ -352,6 +352,65 @@ a {
   margin-bottom: 2rem;
 }
 
+/* Docs tables — used across help/ and specs/ */
+.docs-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  font-size: 0.9375rem;
+}
+
+.docs-table th,
+.docs-table td {
+  border: 1px solid var(--border);
+  padding: 0.625rem 0.875rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.docs-table thead th {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.docs-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.docs-table code {
+  white-space: nowrap;
+}
+
+/* Callouts / notes */
+.callout {
+  margin: 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 0.5rem;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+}
+
+.callout strong {
+  color: var(--text-primary);
+}
+
+.callout-info {
+  border-left-color: var(--accent);
+}
+
+.callout-warn {
+  border-left-color: #f59e0b;
+}
+
+.docs-content .note {
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+  margin: 1rem 0 1.5rem;
+}
+
 /* Card Grid */
 .card-grid {
   display: grid;

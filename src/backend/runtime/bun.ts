@@ -463,6 +463,10 @@ const ASSET_MIME: Record<string, string> = {
   ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  // JSON-LD context documents (yurucommu.com/ns/*) need the ld+json media type
+  // so strict JSON-LD processors accept a dereferenced @context.
+  ".jsonld": "application/ld+json",
+  ".jsonl": "application/x-ndjson",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpg": "image/jpeg",

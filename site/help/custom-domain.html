@@ -114,17 +114,20 @@
         <pre><code>[vars]
 APP_URL = "https://yurucommu.example.com"</code></pre>
 
-        <h3>Step 4: 再デプロイ</h3>
-        <pre><code>bun run build
-bun run deploy</code></pre>
+        <h3>Step 4: Plan / Apply</h3>
+        <p>
+          custom domain は Project に登録した Capsule の variable / route input
+          として Plan に反映し、レビューした Plan を Apply して StateVersion /
+          Output / AuditEvent を更新します。
+        </p>
 
         <h2>方法2: 外部DNSでCNAMEを設定</h2>
         <p>ドメインを他のDNSプロバイダで管理している場合：</p>
 
         <h3>Step 1: WorkersのURLを確認</h3>
         <p>
-          デプロイ後に表示されるURL（例:
-          <code>yurucommu.xxx.workers.dev</code>）をメモ
+          Apply Run の StateVersion / Output に記録された公開URL（例:
+          <code>https://yurucommu.example.com</code>）を確認します。
         </p>
 
         <h3>Step 2: CNAMEレコードを追加</h3>

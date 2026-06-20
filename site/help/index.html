@@ -91,7 +91,8 @@
 
         <h2>Yurucommuとは</h2>
         <p>
-          Yurucommuは、自分だけのSNSインスタンスを立ち上げ、コミュニティ単位で人と繋がっていくための分散型ソーシャルネットワークです。
+          Yurucommuは、個人が自分のために立てるセルフホスト型のActivityPub
+          SNSです。自分のドメイン・自分のデータで運用し、コミュニティ（グループ）を到達範囲の単位として濃く繋がります。federationは目的ではなく手段で、プラットフォームへの依存をなくし、コミュニティやつながりをサーバーをまたいで繋ぐための土台として使います。
         </p>
         <ul>
           <li><strong>セルフホスト</strong> - 自分のデータは自分で管理</li>
@@ -113,22 +114,26 @@ bun run dev</code></pre>
           <code>bun run dev</code> は
           <code>wrangler.local.toml</code> を使ってローカル Worker
           を起動します。よく使うタスクは <code>bun run build</code>、<code
-            >bun run deploy</code
-          >、<code>bun run db:generate</code> です。
+            >bun run build:worker</code
+          >、<code>bun run db:generate</code> です。本番 install は Takosumi の
+          OpenTofu Capsule plan/apply flow で行います。
         </p>
 
-        <h3>2. Cloudflareリソースを作成</h3>
-        <pre><code># D1データベース作成
-bunx wrangler d1 create yurucommu-db
+        <h3>2. Takosumi で Capsule を Project に登録</h3>
+        <p>
+          Git URL / ref / module path を Source として Project に登録すると、
+          Takosumi が Capsule を Git から読み、検証して Plan を作成します。
+          cloudflare provider などにどの ProviderConnection を使うかを
+          ProviderBinding で指定し、変数・secret を入力します。
+        </p>
 
-# R2バケット作成
-bunx wrangler r2 bucket create yurucommu-media</code></pre>
-
-        <h3>3. wrangler.tomlを設定</h3>
-        <p><code>wrangler.toml</code>に作成したD1とR2の情報を設定します。</p>
-
-        <h3>4. デプロイ</h3>
-        <pre><code>bun run deploy</code></pre>
+        <h3>3. Plan / Apply</h3>
+        <p>
+          作成した Plan をレビューして Apply すると、Worker、D1、R2、KV、Queue、
+          route が materialize され、StateVersion、Output、AuditEvent
+          に記録されます。ロールバックは過去の StateVersion を選んで通常の Plan
+          -&gt; Apply フローで行います。
+        </p>
 
         <h2>ドキュメント一覧</h2>
         <div class="card-grid">

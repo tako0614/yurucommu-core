@@ -1,0 +1,19 @@
+# JSON-LD context documents MUST be served as application/ld+json so strict
+# JSON-LD processors accept them when dereferencing the yurucommu.com/ns/*
+# namespaces. (Static hosts default .jsonld to text/html / octet-stream.)
+/ns/context.jsonld
+  Content-Type: application/ld+json
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600
+/ns/story/context.jsonld
+  Content-Type: application/ld+json
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600
+/ns/apc/context.jsonld
+  Content-Type: application/ld+json
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600
+# Worked examples (newline-delimited JSON).
+/ns/story/examples.jsonl
+  Content-Type: application/x-ndjson
+  Access-Control-Allow-Origin: *

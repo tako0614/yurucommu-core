@@ -99,102 +99,72 @@
           <code>dist/worker.js</code> です。
         </p>
 
-        <h2>Takosumi install について</h2>
+        <h2>Takosumi での install について</h2>
         <p>
-          現在の yurucommu repo は Takosumi だけで public endpoint を作る
-          OpenTofu Capsule ではありません。Takosumi install CTA は、実際に
-          Worker / storage / routing を作る Capsule module
-          が揃うまで公開しません。
+          yurucommu は Git URL / ref / module path で指定できる OpenTofu Capsule
+          です。Takosumi では Capsule の Source を Project に登録し、cloudflare
+          provider などにどの ProviderConnection を使うかを ProviderBinding
+          で指定し、Plan を作成してレビューしたうえで Apply すると、Worker /
+          storage / routing が materialize されます。
         </p>
 
-        <h2>Cloudflareへ直接デプロイ</h2>
-        <pre><code>bun run deploy</code></pre>
-
-        <p>成功すると以下のように表示されます：</p>
-        <pre><code>Uploaded yurucommu (X.XX sec)
-Published yurucommu (X.XX sec)
-  https://yurucommu.your-subdomain.workers.dev</code></pre>
+        <h2>Source 登録 / Plan / Apply</h2>
+        <p>
+          本番導線は Takosumi の Run ledger です。Capsule の Source（Git URL /
+          ref / module path）を Project に登録すると、Takosumi が Capsule を Git
+          から読み、検証して Plan を作成します。cloudflare provider などに使う
+          ProviderConnection を ProviderBinding で指定し、変数 / secret
+          を入力したうえで Plan を作成します。レビューした Plan を承認して Apply
+          すると、StateVersion・Output・AuditEvent が記録されます。
+        </p>
+        <pre><code>Source: https://github.com/tako0614/yurucommu.git
+ref: main
+modulePath: .
+flow: Source 登録 -> Takosumi が Git から読み検証 -> Plan Run -> Apply Run -> StateVersion + Output</code></pre>
 
         <h2>設定ファイル</h2>
-        <p>Yurucommu は用途ごとに Cloudflare の設定ファイルを分けています。</p>
+        <p>
+          Yurucommu は用途ごとに Cloudflare の設定ファイルを分けていますが、
+          本番 install 時の binding / env / route は Takosumi generated root
+          が所有します。
+        </p>
         <ul>
           <li>
-            <code>wrangler.toml</code> - 本体 Worker の
-            <code>test.yurucommu.com</code> 向け設定
+            <code>wrangler.toml</code> - contributor / low-level debug
+            用の参照設定
           </li>
           <li><code>wrangler.local.toml</code> - ローカル開発用設定</li>
         </ul>
         <p>
           ローカルで Worker を起動する場合は
           <code>bunx wrangler dev --config wrangler.local.toml</code> を使います
-          （内部では <code>wrangler.local.toml</code> を参照します）。<code
-            >bun run deploy</code
-          >
-          は <code>wrangler.toml</code> を使って本体 Worker を
-          <code>test.yurucommu.com</code> にデプロイします。別の production
-          hostname で運用する場合は、deploy 前に <code>APP_URL</code> と
-          <code>[[routes]].pattern</code> を canonical hostname に合わせます。
+          （内部では <code>wrangler.local.toml</code> を参照します）。production
+          hostname、route、D1 / R2 / KV / Queue binding は Capsule install 時の
+          Plan / Apply の入力と Output で確認します。
         </p>
 
-        <h2>デプロイオプション</h2>
-
-        <h3>ドライラン（実際にはデプロイしない）</h3>
-        <pre><code>bunx wrangler deploy --dry-run</code></pre>
-
-        <h3>設定ファイルを明示する</h3>
-        <pre><code>bunx wrangler deploy --config wrangler.toml</code></pre>
-
         <h2>CI/CDパイプライン</h2>
-        <p>GitHub Actionsを使った自動デプロイの設定例：</p>
-
-        <h3>.github/workflows/deploy.yml</h3>
-        <pre><code>name: Deploy
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Build
-        run: bun run build:worker
-
-      - name: Deploy to Cloudflare
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}</code></pre>
-
-        <h3>APIトークンの取得</h3>
-        <ol>
-          <li>Cloudflareダッシュボード &gt; My Profile &gt; API Tokens</li>
-          <li>「Create Token」をクリック</li>
-          <li>「Edit Cloudflare Workers」テンプレートを選択</li>
-          <li>生成されたトークンをGitHubのSecretsに追加</li>
-        </ol>
+        <p>
+          CI は build / test / artifact verification を行い、deploy 実行は
+          Takosumi の Source ref 更新、Plan の検証・レビュー、Apply approval
+          に委譲します。GitHub Actions secret に broad Cloudflare token
+          を置く導線は product install path ではありません。
+        </p>
 
         <h2>ロールバック</h2>
-        <p>問題が発生した場合、前のバージョンにロールバックできます。</p>
-        <pre><code># デプロイ履歴を確認
-	bunx wrangler deployments list
-
-# 特定のバージョンにロールバック
-	bunx wrangler rollback</code></pre>
+        <p>
+          問題が発生した場合は、過去の StateVersion を選び、通常の Plan /
+          approval / Apply flow で戻します。Apply 時には Source の pinned commit
+          と module inputs が記録されています。provider resource state の汎用
+          rollback は OpenTofu module の範囲です。
+        </p>
 
         <h2>ログの確認</h2>
-        <pre><code># リアルタイムログ
-	bunx wrangler tail
-
-# フィルタリング
-	bunx wrangler tail --status error</code></pre>
+        <p>
+          Run logs、Activity、Apply Run の evidence を Takosumi dashboard /
+          operator observability で確認します。ローカル開発時だけ Wrangler tail
+          を debug 補助として使います。
+        </p>
 
         <h2>よくあるエラー</h2>
 

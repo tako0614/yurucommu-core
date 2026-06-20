@@ -102,125 +102,54 @@
           <li>メール認証を完了</li>
         </ol>
 
-        <h2>Wrangler CLIの利用</h2>
+        <h2>Cloudflare resources</h2>
         <p>
-          Wranglerは、Cloudflare Workers/D1/R2を管理するためのCLIツールです。
-        </p>
-        <pre><code>bunx wrangler --version</code></pre>
-
-        <h3>ログイン</h3>
-        <pre><code>bunx wrangler login</code></pre>
-        <p>ブラウザが開くので、Cloudflareアカウントで認証します。</p>
-
-        <h2>D1データベースの作成</h2>
-        <p>D1はCloudflareのサーバーレスSQLiteデータベースです。</p>
-
-        <h3>データベース作成</h3>
-        <pre><code>bunx wrangler d1 create yurucommu-db</code></pre>
-
-        <p>出力例：</p>
-        <pre><code>✅ Successfully created DB 'yurucommu-db'
-
-[[d1_databases]]
-binding = "DB"
-database_name = "yurucommu-db"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"</code></pre>
-
-        <h3>wrangler.tomlへの設定</h3>
-        <p>表示された設定を <code>wrangler.toml</code> にコピーします：</p>
-        <pre><code>[[d1_databases]]
-binding = "DB"
-database_name = "yurucommu-db"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-migrations_dir = "migrations"</code></pre>
-
-        <h3>マイグレーション実行</h3>
-        <pre><code># ローカルDBでテスト
-bunx wrangler d1 migrations apply yurucommu-db --local
-
-# 本番DBに適用
-bunx wrangler d1 migrations apply yurucommu-db --remote</code></pre>
-
-        <h2>R2バケットの作成</h2>
-        <p>
-          R2はCloudflareのオブジェクトストレージ（S3互換）です。画像や動画の保存に使用します。
+          Yurucommu の production resource は Takosumi で Capsule を install
+          して 作成します。D1、R2、KV、Queue、route、Worker binding は generated
+          root の Plan で確認し、reviewed Plan を Apply
+          すると、StateVersion・Output・ AuditEvent に記録されます。手動で
+          <code>wrangler.toml</code> に resource ID を貼り付ける導線は product
+          install path ではありません。
         </p>
 
-        <h3>バケット作成</h3>
-        <pre><code>bunx wrangler r2 bucket create yurucommu-media</code></pre>
+        <h3>Plan で確認する binding</h3>
+        <pre><code>D1: DB
+R2: MEDIA
+KV: KV
+Queue producer: DELIVERY_QUEUE
+Dead letter queue: DELIVERY_DLQ
+Worker entrypoint: dist/worker.js</code></pre>
 
-        <h3>wrangler.tomlへの設定</h3>
-        <pre><code>[[r2_buckets]]
-binding = "MEDIA"
-bucket_name = "yurucommu-media"</code></pre>
-
-        <h2>最終的なwrangler.toml</h2>
-        <pre><code>name = "yurucommu"
-main = "src/backend/index.ts"
-compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
-
-[vars]
-APP_URL = "https://your-domain.com"
-TAKOS_URL = "https://takos.example.com"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "yurucommu-db"
-database_id = "YOUR_DATABASE_ID"
-migrations_dir = "migrations"
-
-[[queues.producers]]
-queue = "yurucommu-delivery"
-binding = "DELIVERY_QUEUE"
-
-[[queues.consumers]]
-queue = "yurucommu-delivery"
-max_batch_size = 10
-max_batch_timeout = 1
-max_retries = 3
-
-# Dead letter queue
-[[queues.producers]]
-queue = "yurucommu-delivery-dlq"
-binding = "DELIVERY_DLQ"
-
-[[queues.consumers]]
-queue = "yurucommu-delivery-dlq"
-max_batch_size = 10
-max_batch_timeout = 60
-max_retries = 1
-
-[[r2_buckets]]
-binding = "MEDIA"
-bucket_name = "yurucommu-media"
-
-[[kv_namespaces]]
-binding = "KV"
-id = "YOUR_KV_NAMESPACE_ID"
-
-[assets]
-directory = "./dist"
-binding = "ASSETS"
-run_worker_first = true
-not_found_handling = "single-page-application"
-
-[[routes]]
-pattern = "your-domain.com/*"
-zone_name = "your-domain.com"</code></pre>
+        <h3>ProviderConnection</h3>
+        <p>
+          Cloudflare credential は Project に登録した Capsule の cloudflare
+          provider に、どの ProviderConnection を使うかを ProviderBinding で
+          指定して解決します。cloudflare provider はその ProviderConnection を
+          使って Cloudflare へ直接アクセスします。broad Cloudflare token を CI
+          secret に置いて直接 deploy する必要はありません。
+        </p>
 
         <h2>トラブルシューティング</h2>
 
         <h3>「認証エラー」が出る場合</h3>
-        <pre><code>bunx wrangler logout
-bunx wrangler login</code></pre>
+        <p>
+          ProviderConnection の status、cloudflare provider に紐づく
+          ProviderBinding の設定、および Takosumi が Capsule を Git から読み、
+          検証して Plan を作成する際の provider 関連メッセージを確認します。
+        </p>
 
         <h3>D1のクエリを確認したい場合</h3>
-        <pre><code>bunx wrangler d1 execute yurucommu-db --remote --command "SELECT * FROM actors LIMIT 5"</code></pre>
+        <p>
+          operator/debug 権限で provider console または Takosumi の Apply Run
+          evidence から 対象の StateVersion・Output に記録された D1 binding を
+          確認します。一般ユーザー向け install docs では direct provider CLI を
+          正本にしません。
+        </p>
 
         <h3>R2の内容を確認したい場合</h3>
         <p>
-          Cloudflareダッシュボード &gt; R2 &gt; yurucommu-media で確認できます。
+          Apply Run の StateVersion・Output と operator observability で対象
+          bucket を確認します。
         </p>
       </main>
     </div>
