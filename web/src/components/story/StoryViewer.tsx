@@ -114,11 +114,21 @@ export function StoryViewer(props: StoryViewerProps) {
     onCleanup(() => window.removeEventListener("resize", updateSize));
   });
 
-  // Mark story as viewed when displaying
+  // Mark story as viewed when displaying. Track the ap_ids we've already POSTed
+  // a view for in a Set: a like / vote / share replaces the current story object
+  // (new identity, `viewed` still false locally), which re-emits currentStory()
+  // and would otherwise re-fire the view write for an already-viewed story. The
+  // server is idempotent, but this avoids the wasted request; a failed write is
+  // un-recorded so the next emit can retry.
+  const viewedMarked = new Set<string>();
   createEffect(() => {
     const story = currentStory();
-    if (story && !story.viewed) {
-      markStoryViewed(story.ap_id).catch(console.error);
+    if (story && !story.viewed && !viewedMarked.has(story.ap_id)) {
+      viewedMarked.add(story.ap_id);
+      markStoryViewed(story.ap_id).catch((e) => {
+        viewedMarked.delete(story.ap_id);
+        console.error(e);
+      });
     }
   });
 
@@ -298,9 +308,14 @@ export function StoryViewer(props: StoryViewerProps) {
     }
   };
 
+  // Guard against a double-tap firing two like/unlike requests off the same
+  // stale `story.liked` baseline (the server is idempotent, but two requests
+  // race a transient flicker).
+  let likeInFlight = false;
   const handleLike = async () => {
     const story = currentStory();
-    if (!story) return;
+    if (!story || likeInFlight) return;
+    likeInFlight = true;
     try {
       const result = story.liked
         ? await unlikeStory(story.ap_id)
@@ -318,6 +333,8 @@ export function StoryViewer(props: StoryViewerProps) {
     } catch (err) {
       console.error("Failed to toggle story like:", err);
       setToastMessage(t("common.error"));
+    } finally {
+      likeInFlight = false;
     }
   };
 
