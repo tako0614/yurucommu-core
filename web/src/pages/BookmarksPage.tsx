@@ -8,6 +8,7 @@ import { formatRelativeTime } from "../lib/datetime.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostContent } from "../components/PostContent.tsx";
+import { PostVisibilityIndicator } from "../components/timeline/PostVisibilityIndicator.tsx";
 import { BookmarkIcon, HeartIcon } from "../components/icons/SocialIcons.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
@@ -134,6 +135,7 @@ export function BookmarksPage() {
                             locale: language(),
                           })}
                         </span>
+                        <PostVisibilityIndicator visibility={post.visibility} />
                       </div>
                       <A href={`/post/${encodeURIComponent(post.ap_id)}`}>
                         <PostContent

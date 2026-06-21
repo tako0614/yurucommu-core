@@ -527,6 +527,7 @@ export function PostDetailPage() {
                     <span class="text-neutral-500 text-sm">
                       {formatDateTime(reply.published)}
                     </span>
+                    <PostVisibilityIndicator visibility={reply.visibility} />
                     <Show when={reply.edited_at}>
                       <span
                         class="text-neutral-500 text-sm"
