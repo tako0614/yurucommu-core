@@ -14,6 +14,7 @@ import {
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
+import { deleteObjectCascade } from "../posts/delete-cascade.ts";
 import type { Env, Variables } from "../../types.ts";
 import {
   activityApId,
@@ -560,9 +561,13 @@ dm.delete("/messages/:messageId", async (c) => {
       .where(inArray(inboxTable.activityApId, activityIds));
     await db.delete(activities).where(inArray(activities.apId, activityIds));
   }
-  await db
-    .delete(objectRecipients)
-    .where(eq(objectRecipients.objectApId, message.apId));
+  // Reap the message's child rows AND any attached R2 blob + media_uploads row
+  // via the shared cascade (covers objectRecipients + media + likes/announces/
+  // bookmarks/story*), then drop the object. Local DMs are text-only today so
+  // there is no blob to leak yet, but routing through the cascade now keeps DM
+  // deletion correct the moment DM media upload is wired in (and a leaked DM
+  // blob would be PRIVATE) — matching the post and story delete paths.
+  await deleteObjectCascade(db, message.apId, c.env.MEDIA);
   await db.delete(objects).where(eq(objects.apId, message.apId));
 
   return c.json({ success: true });

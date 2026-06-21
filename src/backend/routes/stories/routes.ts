@@ -19,10 +19,9 @@ import {
   follows,
   likes,
   objects,
-  storyShares,
   storyViews,
-  storyVotes,
 } from "../../../db/index.ts";
+import { deleteObjectCascade } from "../posts/delete-cascade.ts";
 import type { Env, Variables } from "../../types.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import {
@@ -269,17 +268,23 @@ async function createAndFanoutActivity(
   }
 }
 
-/** Delete all related data for a story, then the story object itself. */
+/**
+ * Delete all related data for a story, then the story object itself.
+ *
+ * Delegates to `deleteObjectCascade` (the SAME teardown the expiry path
+ * `cleanupExpiredStories` runs) so it also reaps the story's mandatory R2 blob
+ * and its `media_uploads` row — child-row-only deletion here would orphan the
+ * image in R2 forever (there is no orphan-key sweep). The cascade covers
+ * storyViews/Votes/Shares + likes + announces + bookmarks + objectRecipients +
+ * media; it reads `attachments_json` off the still-present object row, so the
+ * object row is dropped afterwards.
+ */
 async function deleteStoryAndRelatedData(
   db: Database,
   apId: string,
+  media?: IObjectStorage,
 ): Promise<void> {
-  await Promise.all([
-    db.delete(storyVotes).where(eq(storyVotes.storyApId, apId)),
-    db.delete(likes).where(eq(likes.objectApId, apId)),
-    db.delete(storyViews).where(eq(storyViews.storyApId, apId)),
-    db.delete(storyShares).where(eq(storyShares.storyApId, apId)),
-  ]);
+  await deleteObjectCascade(db, apId, media);
   await db.delete(objects).where(eq(objects.apId, apId));
 }
 
@@ -868,7 +873,7 @@ stories.post("/delete", async (c) => {
     story.communityApId,
   );
 
-  await deleteStoryAndRelatedData(db, apId);
+  await deleteStoryAndRelatedData(db, apId, c.env.MEDIA);
 
   await db
     .update(actors)
