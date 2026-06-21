@@ -457,11 +457,18 @@ test("COUNTER-SYM: undo of a pending Follow never decrements (was never counted)
 // handleAdd / handleRemove — collection membership counter symmetry
 // ---------------------------------------------------------------------------
 
-test("COUNTER-SYM: Add then duplicate Add bumps follower/following counts exactly once", async () => {
+test("COUNTER-SYM: Add transitions a PENDING edge to accepted, exactly once", async () => {
   const db = await freshDb();
   await seedActor(db, LOCAL_BOB, "bob");
   // followingApId must share the signing actor's origin (forgery guard).
   await seedActor(db, REMOTE_ALICE, "alice");
+  // Add is the remote CONFIRMING bob's own Follow — seed bob's pending follow.
+  await db.insert(follows).values({
+    followerApId: LOCAL_BOB,
+    followingApId: REMOTE_ALICE,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  });
 
   const add = {
     id: "https://remote.example/activities/add-1",
@@ -479,6 +486,28 @@ test("COUNTER-SYM: Add then duplicate Add bumps follower/following counts exactl
   await handleAdd(ctxFor(db), add, recipientRow(LOCAL_BOB), REMOTE_ALICE);
   expect(await followingCount(db, LOCAL_BOB)).toBe(1);
   expect(await followerCount(db, REMOTE_ALICE)).toBe(1);
+});
+
+test("SECURITY: an unsolicited Add (no prior Follow) cannot forge an accepted follow", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob");
+  await seedActor(db, REMOTE_ALICE, "alice");
+  // bob NEVER followed alice — there is no pending edge to confirm.
+
+  const add = {
+    id: "https://remote.example/activities/add-forge",
+    type: "Add",
+    actor: REMOTE_ALICE,
+    object: LOCAL_BOB,
+    target: `${REMOTE_ALICE}/followers`,
+  } as unknown as Activity;
+
+  await handleAdd(ctxFor(db), add, recipientRow(LOCAL_BOB), REMOTE_ALICE);
+
+  // No edge forged, no count inflated — bob does not now "follow" the attacker.
+  expect(await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE)).toBeNull();
+  expect(await followingCount(db, LOCAL_BOB)).toBe(0);
+  expect(await followerCount(db, REMOTE_ALICE)).toBe(0);
 });
 
 test("COUNTER-SYM: crash-then-retry of Add (edge present, counts not bumped) does NOT double-count", async () => {

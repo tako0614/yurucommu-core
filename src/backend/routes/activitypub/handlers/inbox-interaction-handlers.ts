@@ -183,39 +183,42 @@ export async function handleAdd(
   const db = c.get("db");
   const now = new Date().toISOString();
 
-  // #COUNTER-SYM (crash-retry convergence): the accepted-edge insert and the
-  // two +1s MUST commit together. Previously the edge was inserted
-  // (onConflictDoNothing) and the counters bumped in SEPARATE statements; a
-  // crash between them left the edge present but the counts un-bumped, and a
-  // duplicate Add's no-op insert SKIPPED the bump → a permanent UNDER-count.
-  // Co-commit them in one atomic batch.
+  // SECURITY (consent — federated follow-graph forgery): an `Add <local user>
+  // to <remote>/followers` is the remote CONFIRMING the local user's OWN Follow
+  // (it is an alias of Accept), NOT a license to make the local user follow the
+  // sender. It must therefore only TRANSITION a PRE-EXISTING pending edge to
+  // accepted (mirroring handleAccept) — never CREATE an edge. The previous
+  // version inserted a fresh `accepted` edge + bumped both counters whenever the
+  // edge was absent, so a remote could sign an unsolicited `Add` naming any
+  // local user as `object` and forge an accepted follow `<victim> -> <sender>`,
+  // inflating the victim's followingCount and routing the sender's posts into
+  // the victim's home feed — all without the victim ever following anyone.
   //
-  // The two increments run BEFORE the insert and are each guarded by a
-  // correlated `NOT EXISTS(edge)` subquery, so they fire only when THIS batch
-  // is the one that creates the edge (the absent edge is observed in pre-insert
-  // state). A duplicate Add, or a retry after the edge already existed, sees the
-  // edge present → both guards are false and the insert is a no-op, so the
-  // counters can neither double-bump nor (on retry) under-count.
-  const edgeAbsent = sql`NOT EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${recipient.apId} AND ${follows.followingApId} = ${followingApId})`;
+  // #COUNTER-SYM: like handleAccept, the two +1s run BEFORE the flip, each
+  // guarded by a correlated `EXISTS(... status='pending')` subquery, and the
+  // flip's own `status='pending'` predicate makes a duplicate/already-accepted
+  // (or absent) edge a total no-op — so counters can neither double-bump,
+  // under-count on retry, nor bump for an edge that was never pending.
+  const pendingEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${recipient.apId} AND ${follows.followingApId} = ${followingApId} AND ${follows.status} = 'pending')`;
   await runBatch(db, [
     db
       .update(actors)
       .set({ followingCount: sql`${actors.followingCount} + 1` })
-      .where(and(eq(actors.apId, recipient.apId), edgeAbsent)),
+      .where(and(eq(actors.apId, recipient.apId), pendingEdgeExists)),
     db
       .update(actors)
       .set({ followerCount: sql`${actors.followerCount} + 1` })
-      .where(and(eq(actors.apId, followingApId), edgeAbsent)),
+      .where(and(eq(actors.apId, followingApId), pendingEdgeExists)),
     db
-      .insert(follows)
-      .values({
-        followerApId: recipient.apId,
-        followingApId,
-        status: "accepted",
-        activityApId: activity.id || null,
-        acceptedAt: now,
-      })
-      .onConflictDoNothing(),
+      .update(follows)
+      .set({ status: "accepted", acceptedAt: now })
+      .where(
+        and(
+          eq(follows.followerApId, recipient.apId),
+          eq(follows.followingApId, followingApId),
+          eq(follows.status, "pending"),
+        ),
+      ),
   ]);
 }
 

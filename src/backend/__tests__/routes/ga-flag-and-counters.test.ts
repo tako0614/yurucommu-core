@@ -189,14 +189,10 @@ test("handleFlag persists null content when no reason is present", async () => {
 // #20 Follow-graph counter maintenance
 // ---------------------------------------------------------------------------
 
-test("handleAdd increments counters when a new accepted edge is created", async () => {
+test("handleAdd transitions a PENDING edge to accepted + fires the counter +1s", async () => {
   const { db, tracker } = createMockDb({
-    insertReturningResult: {
-      followerApId: RECIPIENT,
-      followingApId: REMOTE_FOLLOWING,
-      status: "accepted",
-    },
-    // New edge created => the `edgeAbsent` guard holds, both +1s fire.
+    // A pending edge exists => the `pendingEdgeExists` guard holds, both +1s AND
+    // the status flip fire (3 `update` statements in the batch).
     batchUpdatesFire: [true],
   });
   const ctx = createMockContext(db);
@@ -211,14 +207,15 @@ test("handleAdd increments counters when a new accepted edge is created", async 
 
   await handleAdd(ctx, activity, recipientRow(), REMOTE_ACTOR);
 
-  // following++ on recipient (follower) and follower++ on the followed actor.
-  expect(tracker.updateCount).toBe(2);
+  // following++ (recipient) + follower++ (followed) + the pending->accepted flip.
+  expect(tracker.updateCount).toBe(3);
 });
 
-test("handleAdd is a no-op (no counter drift) when the edge already exists", async () => {
+test("handleAdd is a no-op (no forged edge / counter drift) when there is no PENDING edge", async () => {
   const { db, tracker } = createMockDb({
-    insertReturningResult: undefined, // conflict: edge already existed
-    // Edge already present => the `edgeAbsent` guard is false, no +1s.
+    // No pending edge (never followed, or already accepted) => pendingEdgeExists
+    // is false, so neither the +1s nor the flip fire — an unsolicited Add can't
+    // forge an accepted follow.
     batchUpdatesFire: [false],
   });
   const ctx = createMockContext(db);
