@@ -29,7 +29,7 @@ function getJoinButtonLabel(
 }
 
 export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const joinLabel = () =>
     getJoinButtonLabel(
       t,
@@ -141,7 +141,7 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
             <span>
               {t("community.createdOn").replace(
                 "{date}",
-                formatMonthYear(props.community.created_at),
+                formatMonthYear(props.community.created_at, language()),
               )}
             </span>
           </div>

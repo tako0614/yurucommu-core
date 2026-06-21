@@ -1,10 +1,10 @@
-import { For, Show } from "solid-js";
+import { type Accessor, For, Show } from "solid-js";
 import type { Actor } from "../../types/index.ts";
 import { formatMonthYear } from "../../lib/datetime.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { CalendarIcon, MoreIcon } from "./ProfileIcons.tsx";
 import { ProfileScopeRow } from "./ProfileScopeRow.tsx";
-import type { Translate } from "../../lib/i18n.tsx";
+import type { Language, Translate } from "../../lib/i18n.tsx";
 
 type FollowModalType = "followers" | "following";
 
@@ -24,6 +24,9 @@ interface ProfileSummaryProps {
   onBlock: () => void;
   onMute: () => void;
   t: Translate;
+  // Reactive locale accessor so the "joined {date}" month localizes (ja: 2026年6月
+  // / en: June 2026) instead of falling back to the runtime default locale.
+  language: Accessor<Language>;
 }
 
 // Derive a readable `@user@domain` handle from an AP id for the moved-to
@@ -195,7 +198,10 @@ export function ProfileSummary(props: ProfileSummaryProps) {
           <span>
             {props
               .t("profile.joined")
-              .replace("{date}", formatMonthYear(props.profile.created_at))}
+              .replace(
+                "{date}",
+                formatMonthYear(props.profile.created_at, props.language()),
+              )}
           </span>
         </div>
 

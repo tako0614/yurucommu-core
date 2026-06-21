@@ -33,7 +33,7 @@ const PROFILE_POSTS_PAGE = 20;
 
 export function ProfilePage() {
   const actor = useRequiredActor();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
@@ -362,6 +362,7 @@ export function ProfilePage() {
             onBlock={() => setPendingModeration("block")}
             onMute={() => setPendingModeration("mute")}
             t={t}
+            language={language}
           />
           <ProfilePostsSection
             activeTab={activeTab()}

@@ -89,7 +89,10 @@ export function formatDateTime(
 
 export function formatMonthYear(
   dateString: string,
-  locale: Locale = undefined,
+  // Default to ja-JP like the sibling formatters (not `undefined`, which falls
+  // back to the runtime's locale and leaked an English month — "June 2026" — into
+  // the Japanese UI). Callers pass the live app language for correct ja/en output.
+  locale: Locale = "ja-JP",
 ): string {
   const date = toDate(dateString);
   if (!date) return "";
