@@ -1,4 +1,4 @@
-import { createEffect, createSignal, on, Show } from "solid-js";
+import { createEffect, createSignal, lazy, on, Show, Suspense } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { decodeApIdParam } from "../lib/routeApId.ts";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
@@ -25,7 +25,14 @@ import { ProfileSummary } from "../components/profile/ProfileSummary.tsx";
 import { ProfilePostsSection } from "../components/profile/ProfilePostsSection.tsx";
 import { ProfileEditModal } from "../components/profile/ProfileEditModal.tsx";
 import { ProfileFollowModal } from "../components/profile/ProfileFollowModal.tsx";
-import { QRCodeModal } from "../components/QRCodeModal.tsx";
+// Lazy: the QR modal (its QR display + scanner-trigger UI, ~static qrcode-
+// generator) is only mounted when the user opens it, so keep it out of the
+// ProfilePage critical chunk.
+const QRCodeModal = lazy(() =>
+  import("../components/QRCodeModal.tsx").then((m) => ({
+    default: m.QRCodeModal,
+  })),
+);
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 
@@ -414,10 +421,12 @@ export function ProfilePage() {
       {/* QR / handle-share modal (own profile). Uses the loaded profile when
           available, falling back to the signed-in actor. */}
       <Show when={showQr() && isOwnProfile()}>
-        <QRCodeModal
-          actor={profile() ?? actor}
-          onClose={() => setShowQr(false)}
-        />
+        <Suspense>
+          <QRCodeModal
+            actor={profile() ?? actor}
+            onClose={() => setShowQr(false)}
+          />
+        </Suspense>
       </Show>
 
       <ConfirmSheet
