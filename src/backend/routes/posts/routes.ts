@@ -573,11 +573,22 @@ posts.patch("/:id", async (c) => {
 
   await db.update(objects).set(updateData).where(eq(objects.apId, post.apId));
 
+  // Mirror the stored post's addressing onto the Update so its audience matches
+  // the ORIGINAL post (like the Delete path). Without this the Update carried no
+  // to/cc/audience and — combined with the community branch below — fanned out
+  // to the wrong graph.
+  const updateTo = safeJsonParse<string[]>(post.toJson, []);
+  const updateCc = safeJsonParse<string[]>(post.ccJson, []);
+  const updateAudience = safeJsonParse<string[]>(post.audienceJson, []);
+
   const updateActivity = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: activityApId(baseUrl, generateId()),
     type: "Update",
     actor: actor.ap_id,
+    to: updateTo,
+    cc: updateCc,
+    ...(updateAudience.length > 0 ? { audience: updateAudience } : {}),
     object: {
       id: post.apId,
       type: "Note",
@@ -592,11 +603,27 @@ posts.patch("/:id", async (c) => {
       // Carry the re-derived tags so a receiver updating the Note keeps its
       // Hashtag/Mention tags instead of dropping them on edit.
       ...(nextTags.length > 0 ? { tag: nextTags } : {}),
+      to: updateTo,
+      cc: updateCc,
+      ...(updateAudience.length > 0 ? { audience: updateAudience } : {}),
       updated: now,
     },
   };
 
-  await persistAndFanout(db, c.env, updateActivity, post.apId);
+  // A community-scoped post's Update must reach the COMMUNITY (the members who
+  // got the Create), NOT the author's personal followers — who never received
+  // the Create. Mirror the create path's community-vs-personal fan-out branch.
+  if (post.communityApId) {
+    await persistAndFanoutToCommunity(
+      db,
+      c.env,
+      updateActivity,
+      post.apId,
+      post.communityApId,
+    );
+  } else {
+    await persistAndFanout(db, c.env, updateActivity, post.apId);
+  }
 
   return c.json({
     success: true,
@@ -718,9 +745,20 @@ posts.delete("/:id", async (c) => {
     },
   };
 
-  // Fan out to the author's followers (matching the original create reach) and
-  // additionally deliver directly to each explicitly-addressed remote actor.
-  await persistAndFanout(db, c.env, deleteActivity, post.apId);
+  // Fan out matching the original create reach (community → the community, not
+  // the author's personal followers) and additionally deliver directly to each
+  // explicitly-addressed remote actor.
+  if (post.communityApId) {
+    await persistAndFanoutToCommunity(
+      db,
+      c.env,
+      deleteActivity,
+      post.apId,
+      post.communityApId,
+    );
+  } else {
+    await persistAndFanout(db, c.env, deleteActivity, post.apId);
+  }
 
   for (const recipient of explicitRecipients) {
     try {

@@ -32,6 +32,7 @@ import {
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import postsRoutes from "../../routes/posts/routes.ts";
+import interactionRoutes from "../../routes/posts/interactions.ts";
 import timelineRoutes from "../../routes/timeline.ts";
 import { handleDeliveryQueueBatch } from "../../lib/delivery/queue.ts";
 import type {
@@ -359,4 +360,113 @@ test("non-community post keeps author-follower reach and empty community audienc
   // Reach is the author's followers (not a community fanout).
   expect(fake.sent.some((m) => m.type === "fanout_followers")).toBe(true);
   expect(fake.sent.some((m) => m.type === "fanout_community")).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// Editing a community post fans the Update out to the COMMUNITY, not the
+// author's personal followers (and mirrors the original addressing).
+// ---------------------------------------------------------------------------
+
+test("community post EDIT fans the Update to the community, not author followers", async () => {
+  const db = await freshDb();
+  const fake = makeFakeQueue();
+  const env = envFor(db, fake.queue);
+
+  const author = await insertLocalActor(db, "author");
+  const { apId: communityApId } = await insertCommunity(db, "town", {
+    visibility: "public",
+    postPolicy: "anyone",
+  });
+  await db.insert(communityMembers).values({
+    communityApId,
+    actorApId: author,
+    role: "member",
+  });
+
+  const app = appWith(db, env, fakeActor(author, "author"), postsRoutes);
+  const createRes = await app.fetch(
+    new Request(`${APP_URL}/`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        content: "hello town",
+        visibility: "public",
+        community_ap_id: communityApId,
+      }),
+    }),
+    env,
+  );
+  expect(createRes.status).toEqual(200);
+  const postApId = ((await createRes.json()) as { ap_id: string }).ap_id;
+  const hash = postApId.slice(`${APP_URL}/ap/objects/`.length);
+
+  // Isolate the EDIT's fanout from the create's.
+  fake.sent.length = 0;
+
+  const editRes = await app.fetch(
+    new Request(`${APP_URL}/${hash}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "hello town (edited)" }),
+    }),
+    env,
+  );
+  expect(editRes.status).toEqual(200);
+
+  // The Update must fan out to the COMMUNITY, never the author's follower graph.
+  const communityFanouts = fake.sent.filter(
+    (m) => m.type === "fanout_community",
+  );
+  expect(communityFanouts.length).toEqual(1);
+  expect(
+    (communityFanouts[0] as { communityApId: string }).communityApId,
+  ).toEqual(communityApId);
+  expect(fake.sent.some((m) => m.type === "fanout_followers")).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// A repost (Announce) fans out to the BOOSTER's own followers.
+// ---------------------------------------------------------------------------
+
+test("repost (Announce) fans out to the booster's followers", async () => {
+  const db = await freshDb();
+  const fake = makeFakeQueue();
+  const env = envFor(db, fake.queue);
+
+  const author = await insertLocalActor(db, "author");
+  const booster = await insertLocalActor(db, "booster");
+
+  // A public post by the author.
+  const postApId = `${APP_URL}/ap/objects/p1`;
+  await db.insert(objects).values({
+    apId: postApId,
+    type: "Note",
+    attributedTo: author,
+    content: "boost me",
+    visibility: "public",
+    audienceJson: "[]",
+    published: "2026-01-01T00:00:00.000Z",
+    isLocal: 1,
+  });
+
+  const app = appWith(
+    db,
+    env,
+    fakeActor(booster, "booster"),
+    interactionRoutes,
+  );
+  const res = await app.fetch(
+    new Request(`${APP_URL}/${encodeURIComponent(postApId)}/repost`, {
+      method: "POST",
+    }),
+    env,
+  );
+  expect(res.status).toEqual(200);
+
+  // The Announce must fan out to the BOOSTER's own followers (it was missing).
+  const fanouts = fake.sent.filter((m) => m.type === "fanout_followers");
+  expect(fanouts.length).toEqual(1);
+  expect((fanouts[0] as { followeeApId?: string }).followeeApId).toEqual(
+    booster,
+  );
 });

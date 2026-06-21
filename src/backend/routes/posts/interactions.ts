@@ -24,7 +24,10 @@ import {
   safeJsonParse,
 } from "../../federation-helpers.ts";
 import { MAX_POSTS_PAGE_LIMIT } from "./transformers.ts";
-import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import {
+  enqueueDeliveryToActor,
+  enqueueFanoutToFollowers,
+} from "../../lib/delivery/queue.ts";
 import { canViewerReadObject } from "../../lib/community-visibility.ts";
 import { logger } from "../../lib/logger.ts";
 
@@ -333,6 +336,11 @@ posts.post("/:id/repost", async (c) => {
 
   await runBatch(db, repostStatements as [BatchStatement, ...BatchStatement[]]);
 
+  // The Announce is cc'd to the booster's own followers collection, so fan it
+  // out to them — otherwise a repost only ever reached the original author's
+  // inbox and was invisible to the booster's remote followers.
+  await enqueueFanoutToFollowers(c.env, announceActivityId, actor.ap_id);
+
   if (!isLocal(post.apId, baseUrl)) {
     await deliverToRemote(c.env, announceActivityId, post.attributedTo);
   }
@@ -379,27 +387,34 @@ posts.delete("/:id/repost", async (c) => {
       .where(and(eq(objects.apId, post.apId), gt(objects.announceCount, 0))),
   ]);
 
-  if (!isLocal(post.apId, baseUrl)) {
-    const undoActivity = {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: activityApId(baseUrl, generateId()),
+  const undoActivity = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: activityApId(baseUrl, generateId()),
+    type: "Undo",
+    actor: actor.ap_id,
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    cc: [actor.ap_id + "/followers"],
+    object: { type: "Announce", actor: actor.ap_id, object: post.apId },
+  };
+
+  await db
+    .insert(activities)
+    .values({
+      apId: undoActivity.id,
       type: "Undo",
-      actor: actor.ap_id,
-      object: { type: "Announce", actor: actor.ap_id, object: post.apId },
-    };
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      rawJson: JSON.stringify(undoActivity),
+      direction: "outbound",
+    })
+    .onConflictDoNothing();
 
-    await db
-      .insert(activities)
-      .values({
-        apId: undoActivity.id,
-        type: "Undo",
-        actorApId: actor.ap_id,
-        objectApId: post.apId,
-        rawJson: JSON.stringify(undoActivity),
-        direction: "outbound",
-      })
-      .onConflictDoNothing();
+  // Mirror the Announce reach: the Undo must reach the booster's followers (who
+  // saw the repost) regardless of whether the boosted post was local or remote.
+  await enqueueFanoutToFollowers(c.env, undoActivity.id, actor.ap_id);
 
+  // The boosted post's author instance is only an extra recipient for a remote post.
+  if (!isLocal(post.apId, baseUrl)) {
     await deliverToRemote(c.env, undoActivity.id, post.attributedTo);
   }
 
