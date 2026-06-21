@@ -543,6 +543,10 @@ export async function processReconcileJob(
     .update(deliveryQueue)
     .set({
       status: "pending",
+      // Reset the attempt budget: a reconciled (dead-lettered) job still carries
+      // attempts at its max, so without this its first retryable failure would
+      // immediately re-dead-letter it with no real retry budget.
+      attempts: 0,
       error: null,
       lastAttemptAt: null,
       processingStartedAt: null,
