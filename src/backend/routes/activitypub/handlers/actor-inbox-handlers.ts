@@ -14,6 +14,7 @@ import {
   objectApId,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import type { InstanceActorResult } from "../query-helpers.ts";
 import {
   type Activity,
@@ -238,7 +239,16 @@ export async function handleGroupCreate(
   const attachments = object.attachment
     ? JSON.stringify(object.attachment)
     : "[]";
-  const now = object.published || new Date().toISOString();
+  // Clamp + normalize the remote-controlled `published` exactly like the other
+  // inbound Note paths (handleCreate / insertDirectNote / handleCreateStory). The
+  // community chat reader sorts + keyset-paginates on `desc(objects.published)`
+  // and the unread count compares against `object_recipients.created_at`, so a
+  // verbatim far-future / malformed value would pin the message atop the chat
+  // forever and corrupt unread baselines.
+  const now = normalizeInboundTimestamp(
+    object.published,
+    new Date().toISOString(),
+  );
 
   // This is a federated room (group-CHAT) message, addressed to the community
   // via the object_recipients audience link below. The chat reader and the

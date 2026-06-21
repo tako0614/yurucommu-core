@@ -11,6 +11,7 @@ import {
   objects,
 } from "../../../../db/index.ts";
 import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
+import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import { deleteObjectCascade } from "../../posts/delete-cascade.ts";
 import {
   activityApId,
@@ -41,30 +42,8 @@ const log = logger.child({ component: "activitypub.inbox.content" });
 
 type ActorRow = typeof actors.$inferSelect;
 
-// Clamp + normalize a remote-controlled timestamp (inbound AP `published`).
-// Stored verbatim it poisons the `desc(published)` feed sort + the
-// `lt(published, cursor)` paginator two ways: (1) a non-ISO / space-separated /
-// non-`Z` value lexically mis-sorts under BINARY collation; (2) a VALID but
-// far-FUTURE value ("9999-…") legitimately parses yet lexically dominates every
-// real `2026-…` row, pinning the post to the top of every feed forever. So:
-// reformat to the canonical ISO-8601 UTC shape every comparison operand uses,
-// AND clamp a future date down to `now` (a post cannot be published in the
-// future; a small skew slack is allowed). Garbage / missing → `now`. We do NOT
-// clamp the past — legitimately old (backfilled) posts exist and merely sink.
-// (Mirrors the `endTime` clamp already applied to inbound stories.)
-const FUTURE_PUBLISHED_SKEW_MS = 5 * 60 * 1000;
-function normalizeInboundTimestamp(
-  raw: string | null | undefined,
-  fallbackNow: string,
-): string {
-  const nowMs = Date.parse(fallbackNow);
-  const ms = raw ? Date.parse(raw) : NaN;
-  if (!Number.isFinite(ms)) return fallbackNow;
-  if (Number.isFinite(nowMs) && ms > nowMs + FUTURE_PUBLISHED_SKEW_MS) {
-    return fallbackNow;
-  }
-  return new Date(ms).toISOString();
-}
+// normalizeInboundTimestamp now lives in ./inbound-timestamp.ts (shared with the
+// federated group-chat path) — imported at the top of this file.
 
 // ---------------------------------------------------------------------------
 // Atomic multi-statement commit (mirrors posts/interactions.ts `runBatch` and
