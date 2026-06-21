@@ -18,7 +18,11 @@ export class ApiError extends Error {
     public readonly status: number,
     message: string,
   ) {
-    super(`${status}: ${message}`);
+    // `message` is the human-facing server error (or a caller fallback); the
+    // HTTP status lives on `.status`. Keep `.message` clean — many UI surfaces
+    // render `err.message` verbatim in an error box, and a "<status>: " prefix
+    // reads as technical noise (e.g. "422: Add this account as an alias…").
+    super(message);
     this.name = "ApiError";
   }
 }
