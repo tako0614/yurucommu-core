@@ -175,20 +175,26 @@ export function NotificationPage() {
 
   // Append the page of notifications OLDER than the last one shown. The list is
   // newest-first, so the oldest is the final element and older items are
-  // appended; `before` is its timestamp and the backend returns `created_at <
-  // before`. Respects the active type filter.
+  // appended. The cursor is a composite of (created_at, id) — `id` is the
+  // activity ap_id, unique within the inbox — joined with a NUL separator
+  // matching the backend's keyset cursor. A bare created_at cursor would skip
+  // same-millisecond notifications straddling the page boundary. Respects the
+  // active type filter.
   const loadOlder = async () => {
     if (loadingOlder()) return;
     const current = notifications();
     if (current.length === 0) return;
     const oldest = current[current.length - 1];
     if (!oldest.created_at) return;
+    const before = oldest.id
+      ? `${oldest.created_at}\u0000${oldest.id}`
+      : oldest.created_at;
     const currentFilter = filter();
     setLoadingOlder(true);
     try {
       const { notifications: older, hasMore } = await fetchNotifications({
         type: currentFilter === "all" ? undefined : currentFilter,
-        before: oldest.created_at,
+        before,
       });
       if (filter() !== currentFilter) return; // filter changed mid-flight
       setNotifications((prev) => {

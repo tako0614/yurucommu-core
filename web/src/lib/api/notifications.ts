@@ -6,7 +6,11 @@ export async function fetchNotifications(options?: {
   limit?: number;
   type?: string;
   before?: string;
-}): Promise<{ notifications: Notification[]; hasMore: boolean }> {
+}): Promise<{
+  notifications: Notification[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", options.limit.toString());
   if (options?.type && options.type !== "all") params.set("type", options.type);
@@ -16,10 +20,12 @@ export async function fetchNotifications(options?: {
   const data = (await res.json()) as {
     notifications?: Notification[];
     has_more?: boolean;
+    next_cursor?: string | null;
   };
   return {
     notifications: (data.notifications || []).map(normalizeNotification),
     hasMore: data.has_more ?? false,
+    nextCursor: data.next_cursor ?? null,
   };
 }
 

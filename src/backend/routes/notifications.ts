@@ -1,7 +1,21 @@
 // Notifications routes for Yurucommu backend
 // AP Native: Notifications are derived from inbox (activities addressed to the actor)
 import { Hono } from "hono";
-import { and, count, desc, eq, inArray, isNull, lt, ne, or } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  notExists,
+  or,
+  type SQL,
+} from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import {
   formatUsername,
@@ -160,6 +174,45 @@ function activityToNotificationType(
   }
 }
 
+// Notifications order by createdAt desc, but createdAt is NOT unique — several
+// inbox rows can share a millisecond — so an exclusive cursor on createdAt alone
+// would skip the rows on either side of a page boundary that share the cursor's
+// timestamp. The cursor is therefore a composite of (createdAt, activityApId);
+// activityApId is unique within an actor's inbox, so (createdAt desc,
+// activityApId desc) is a total order. The two parts are encoded into the opaque
+// `before` string with a NUL separator (NUL cannot appear in an ISO timestamp or
+// an http(s) ap_id URL). A legacy plain-createdAt cursor (no separator) is still
+// accepted — it is never wider than the composite form.
+const NOTIF_CURSOR_SEP = "\u0000";
+
+type NotifCursor = { createdAt: string; activityApId?: string };
+
+function decodeNotifCursor(before: string): NotifCursor {
+  const idx = before.indexOf(NOTIF_CURSOR_SEP);
+  if (idx === -1) return { createdAt: before };
+  return {
+    createdAt: before.slice(0, idx),
+    activityApId: before.slice(idx + 1),
+  };
+}
+
+function notifCursorPredicate(cursor: NotifCursor): SQL {
+  if (cursor.activityApId === undefined) {
+    return lt(inboxTable.createdAt, cursor.createdAt);
+  }
+  return or(
+    lt(inboxTable.createdAt, cursor.createdAt),
+    and(
+      eq(inboxTable.createdAt, cursor.createdAt),
+      lt(inboxTable.activityApId, cursor.activityApId),
+    ),
+  )!;
+}
+
+function encodeNotifCursor(row: { created_at: string; id: string }): string {
+  return `${row.created_at}${NOTIF_CURSOR_SEP}${row.id}`;
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -191,14 +244,24 @@ notifications.get("/", async (c) => {
       ? typeToActivityType[typeFilter]
       : NOTIFICATION_ACTIVITY_TYPES;
 
-  // Get archived activity IDs for filtering
-  const archivedActivities = await db
+  // Archive partition pushed INTO SQL as a correlated EXISTS / NOT EXISTS, not a
+  // post-query filter. Filtering archived rows out in the result loop made two
+  // bugs: (1) `has_more` under-reported — a page whose limit+1 probe rows were
+  // mostly the wrong archive state returned < limit items yet there were older
+  // pages, so the client stopped loading; (2) every archived id for the actor
+  // was loaded into an unbounded in-memory Set per request. As an SQL predicate
+  // the limit+1 probe counts only rows that actually belong on the page.
+  const archivedCorrelation = and(
+    eq(notificationArchived.actorApId, inboxTable.actorApId),
+    eq(notificationArchived.activityApId, inboxTable.activityApId),
+  );
+  const archivedSubquery = db
     .select({ activityApId: notificationArchived.activityApId })
     .from(notificationArchived)
-    .where(eq(notificationArchived.actorApId, actor.ap_id));
-  const archivedActivityIds = new Set(
-    archivedActivities.map((a) => a.activityApId),
-  );
+    .where(archivedCorrelation);
+  const archiveCondition = showArchived
+    ? exists(archivedSubquery)
+    : notExists(archivedSubquery);
 
   // Build inbox query with JOIN to activities. A direct (DM) Note is delivered
   // as a `Create` inbox row just like a mention, so without excluding it every
@@ -211,9 +274,18 @@ notifications.get("/", async (c) => {
     ne(activities.actorApId, actor.ap_id),
     inArray(activities.type, activityTypes),
     or(isNull(objects.visibility), ne(objects.visibility, "direct"))!,
+    archiveCondition,
   ];
+  // reply vs mention both map to a Create; the split is whether the Create's
+  // object is a reply (`inReplyTo` set). Pushed into SQL too so a type-filtered
+  // page can't under-report has_more for the same reason as the archive split.
+  if (typeFilter === "reply") {
+    conditions.push(isNotNull(objects.inReplyTo));
+  } else if (typeFilter === "mention") {
+    conditions.push(isNull(objects.inReplyTo));
+  }
   if (before) {
-    conditions.push(lt(inboxTable.createdAt, before));
+    conditions.push(notifCursorPredicate(decodeNotifCursor(before)));
   }
 
   const inboxEntries = await db
@@ -230,7 +302,7 @@ notifications.get("/", async (c) => {
     .innerJoin(activities, eq(inboxTable.activityApId, activities.apId))
     .leftJoin(objects, eq(activities.objectApId, objects.apId))
     .where(and(...conditions))
-    .orderBy(desc(inboxTable.createdAt))
+    .orderBy(desc(inboxTable.createdAt), desc(inboxTable.activityApId))
     .limit(limit + 1);
 
   // Batch fetch related data
@@ -371,23 +443,13 @@ notifications.get("/", async (c) => {
   for (const entry of inboxEntries) {
     if (notifications_list.length > limit) break;
 
-    const isArchived = archivedActivityIds.has(entry.activityApId);
-    if (showArchived !== isArchived) continue;
-
+    // Archive partition and reply/mention split are now enforced in SQL (see the
+    // conditions above), so this pass is a pure transform — no row is dropped
+    // here, which is what keeps `has_more` honest.
     const objectData = entry.activityObjectApId
       ? objectMap.get(entry.activityObjectApId)
       : null;
     const inReplyTo = objectData?.inReplyTo ?? null;
-
-    // Distinguish reply vs mention for Create activities
-    if (typeFilter === "reply" && entry.activityType === "Create" && !inReplyTo)
-      continue;
-    if (
-      typeFilter === "mention" &&
-      entry.activityType === "Create" &&
-      inReplyTo
-    )
-      continue;
 
     const followStatus = followMap.get(entry.activityApId) ?? null;
     const notifType = activityToNotificationType(
@@ -417,7 +479,19 @@ notifications.get("/", async (c) => {
   const has_more = notifications_list.length > limit;
   if (has_more) notifications_list.length = limit;
 
-  return c.json({ notifications: notifications_list, limit, offset, has_more });
+  // Composite keyset cursor for the next page — resume strictly after the last
+  // returned row. The client should prefer this over a bare created_at so
+  // same-millisecond rows straddling the page boundary are not skipped.
+  const last = notifications_list[notifications_list.length - 1];
+  const next_cursor = has_more && last ? encodeNotifCursor(last) : null;
+
+  return c.json({
+    notifications: notifications_list,
+    limit,
+    offset,
+    has_more,
+    next_cursor,
+  });
 });
 
 // GET /unread/count
