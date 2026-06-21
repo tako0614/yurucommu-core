@@ -365,3 +365,56 @@ test("community story reach is the community fanout, not the author follower fan
   expect(sent.some((m) => m.type === "fanout_followers")).toBe(true);
   expect(sent.some((m) => m.type === "fanout_community")).toBe(false);
 });
+
+// ---------------------------------------------------------------------------
+// GET /:actorId personal scope is follower-gated (not readable by strangers).
+// ---------------------------------------------------------------------------
+
+async function readActorStories(
+  db: Database,
+  viewer: Actor | null,
+  targetApId: string,
+  env: Env,
+): Promise<{ status: number; ids: string[] }> {
+  const res = await appWith(db, viewer).fetch(
+    new Request(`${APP_URL}/${encodeURIComponent(targetApId)}`, {
+      method: "GET",
+    }),
+    env,
+  );
+  const json = (await res.json()) as { stories?: Array<{ ap_id: string }> };
+  return { status: res.status, ids: (json.stories ?? []).map((s) => s.ap_id) };
+}
+
+test("GET /:actorId personal stories are visible only to the author + accepted followers", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const author = await insertLocalActor(db, "author");
+  const follower = await insertLocalActor(db, "follower");
+  const stranger = await insertLocalActor(db, "stranger");
+
+  const storyId = await createStory(db, fakeActor(author, "author"), env, {});
+
+  await db.insert(follows).values({
+    followerApId: follower,
+    followingApId: author,
+    status: "accepted",
+  });
+
+  // Author sees their own.
+  expect(
+    (await readActorStories(db, fakeActor(author, "author"), author, env)).ids,
+  ).toContain(storyId);
+  // Accepted follower sees them.
+  expect(
+    (await readActorStories(db, fakeActor(follower, "follower"), author, env))
+      .ids,
+  ).toContain(storyId);
+  // A non-follower stranger gets nothing (no leak).
+  expect(
+    (await readActorStories(db, fakeActor(stranger, "stranger"), author, env))
+      .ids,
+  ).toEqual([]);
+  // Anonymous gets nothing.
+  expect((await readActorStories(db, null, author, env)).ids).toEqual([]);
+});

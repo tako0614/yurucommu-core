@@ -4,6 +4,7 @@ import type { Env, Variables } from "../types.ts";
 import type { Database } from "../../db/index.ts";
 import { actors, follows, mediaUploads, objects } from "../../db/index.ts";
 import { generateId, safeJsonParse } from "../federation-helpers.ts";
+import { canViewerReadObject } from "../lib/community-visibility.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "media" });
@@ -266,6 +267,7 @@ type ReferencingObject = {
   attributedTo: string;
   visibility: string;
   toJson: string;
+  communityApId: string | null;
 };
 
 // Locate the object that attached this media using ONLY indexed lookups.
@@ -303,6 +305,7 @@ async function findReferencingObject(
       attributedTo: objects.attributedTo,
       visibility: objects.visibility,
       toJson: objects.toJson,
+      communityApId: objects.communityApId,
       attachmentsJson: objects.attachmentsJson,
     })
     .from(objects)
@@ -316,6 +319,7 @@ async function findReferencingObject(
         attributedTo: row.attributedTo,
         visibility: row.visibility,
         toJson: row.toJson,
+        communityApId: row.communityApId,
       };
     }
   }
@@ -381,15 +385,36 @@ async function checkMediaAuthorization(
         };
   }
 
+  // Author can always access their own media (even after leaving a community).
+  if (currentActorApId && obj.attributedTo === currentActorApId) {
+    return ALLOW_PRIVATE;
+  }
+
+  // Community-scoped media (a Story / community post is stored
+  // `visibility = "public"` but addressed to a community): a PRIVATE community's
+  // blob must stay members-only, so the world-readable `ALLOW_PUBLIC` below
+  // would leak it. `canViewerReadObject` short-circuits to true for
+  // public / non-community objects (never widening access) and gates a private
+  // community on membership. Served PRIVATE (no shared cache) so a
+  // member-fetched private blob is never replayed to a non-member from CDN cache.
+  if (obj.communityApId) {
+    const allowed = await canViewerReadObject(
+      db,
+      { communityApId: obj.communityApId },
+      currentActorApId,
+    );
+    if (!allowed) {
+      return currentActorApId ? DENY_NOT_AUTHORIZED : DENY_AUTH_REQUIRED;
+    }
+    return ALLOW_PRIVATE;
+  }
+
   if (obj.visibility === "public" || obj.visibility === "unlisted") {
     return ALLOW_PUBLIC;
   }
 
   // Non-public content requires authentication
   if (!currentActorApId) return DENY_AUTH_REQUIRED;
-
-  // Author can always access their own media
-  if (obj.attributedTo === currentActorApId) return ALLOW_PRIVATE;
 
   if (obj.visibility === "followers") {
     const follow = await db

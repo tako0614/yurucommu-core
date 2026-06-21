@@ -399,6 +399,19 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     await next();
   });
 
+  // The bare /media/* serve path (the URL stored in every attachment + actor
+  // icon/header, embedded in AP docs and rendered by the SPA) also needs the
+  // session: media authorization gates non-public blobs (followers-only /
+  // direct / private-community story) and must recognize an authenticated
+  // in-app viewer. A federation peer or logged-out visitor sends no session
+  // cookie, so `extractActorFromSession` early-returns and they stay anonymous —
+  // seeing only public media, exactly as before. No CSRF (these are GET reads),
+  // and public media still returns a public/cacheable response.
+  app.use("/media/*", async (c, next) => {
+    await extractActorFromSession(c);
+    await next();
+  });
+
   // Takos tools endpoints may be called from the browser (same-origin) and rely on
   // the same session cookie auth as the rest of the API.
   app.use("/.takos/tools/*", async (c, next) => {

@@ -543,6 +543,29 @@ stories.get("/:actorId", async (c) => {
     }
   }
 
+  // Personal stories are follower-scoped: the home feed (`GET /`) only surfaces
+  // self + accepted-follows, and the federated Create addresses them to the
+  // author's /followers — so a personal-scope read of another actor's stories is
+  // gated to the target or an accepted follower (and never anonymous). Community
+  // scope is already gated above by `resolveStoryScope`.
+  if (!communityParam) {
+    if (!actor) return c.json({ stories: [] });
+    if (actor.ap_id !== targetApId) {
+      const follow = await db
+        .select({ followerApId: follows.followerApId })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.followerApId, actor.ap_id),
+            eq(follows.followingApId, targetApId),
+            eq(follows.status, "accepted"),
+          ),
+        )
+        .get();
+      if (!follow) return c.json({ stories: [] });
+    }
+  }
+
   // Get stories for the target user, filtered by scope:
   //  - community scope: only that community's stories,
   //  - personal scope: only NON-community (personal) stories.

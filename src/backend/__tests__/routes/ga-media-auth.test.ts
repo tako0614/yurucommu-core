@@ -21,7 +21,14 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, follows, mediaUploads, objects } from "../../../db/index.ts";
+import {
+  actors,
+  communities,
+  communityMembers,
+  follows,
+  mediaUploads,
+  objects,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import mediaRoutes from "../../routes/media.ts";
 
@@ -268,6 +275,108 @@ test("private (followers-only) media is served to an accepted follower and to th
 
   const authorRes = await getMedia(db, env, fakeActor(author, "alice"));
   expect(authorRes.status).toEqual(200);
+});
+
+test("PRIVATE-community story media is members-only (stored visibility=public is not enough)", async () => {
+  // Regression: a Story (and community post) is stored visibility="public" but
+  // addressed to a community. For a PRIVATE community the media blob must stay
+  // members-only — the world-readable ALLOW_PUBLIC path leaked it.
+  const db = await freshDb();
+  const env = envFor(db);
+  const author = await insertLocalActor(db, "alice");
+  const member = await insertLocalActor(db, "bob");
+  const outsider = await insertLocalActor(db, "mallory");
+  await seedUpload(db, env, author);
+
+  const communityApId = `${APP_URL}/ap/groups/secret`;
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "secret",
+    name: "Secret",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    visibility: "private",
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: author,
+  });
+  await db.insert(communityMembers).values([
+    { communityApId, actorApId: author },
+    { communityApId, actorApId: member },
+  ]);
+
+  // A Story: stored visibility="public" (stories never set visibility) but
+  // addressed to the private community, with the media nested under `attachment`.
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/story1`,
+    type: "Story",
+    attributedTo: author,
+    content: "",
+    attachmentsJson: JSON.stringify({
+      attachment: { url: MEDIA_URL, r2_key: R2_KEY },
+    }),
+    visibility: "public",
+    communityApId,
+    audienceJson: "[]",
+    isLocal: 1,
+  });
+
+  // Non-member is denied (the leak this guards against).
+  expect(
+    (await getMedia(db, env, fakeActor(outsider, "mallory"))).status,
+  ).toEqual(403);
+  // Anonymous (e.g. a stray fetch of the guessed URL) is denied.
+  expect((await getMedia(db, env, null)).status).toEqual(403);
+  // A member is served — privately, so the blob is never shared-cached.
+  const memberRes = await getMedia(db, env, fakeActor(member, "bob"));
+  expect(memberRes.status).toEqual(200);
+  expect(memberRes.headers.get("Cache-Control")).toContain("private");
+  // The author is served.
+  expect((await getMedia(db, env, fakeActor(author, "alice"))).status).toEqual(
+    200,
+  );
+});
+
+test("PUBLIC-community story media stays viewable (served, not gated)", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const author = await insertLocalActor(db, "alice");
+  const outsider = await insertLocalActor(db, "mallory");
+  await seedUpload(db, env, author);
+
+  const communityApId = `${APP_URL}/ap/groups/open`;
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "open",
+    name: "Open",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    visibility: "public",
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: author,
+  });
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/story2`,
+    type: "Story",
+    attributedTo: author,
+    content: "",
+    attachmentsJson: JSON.stringify({
+      attachment: { url: MEDIA_URL, r2_key: R2_KEY },
+    }),
+    visibility: "public",
+    communityApId,
+    audienceJson: "[]",
+    isLocal: 1,
+  });
+
+  // A public community gates nothing: a non-member (and anonymous) still gets it.
+  expect(
+    (await getMedia(db, env, fakeActor(outsider, "mallory"))).status,
+  ).toEqual(200);
+  expect((await getMedia(db, env, null)).status).toEqual(200);
 });
 
 test("direct media is served only to addressed recipients", async () => {
