@@ -274,6 +274,30 @@ posts.post("/:id/repost", async (c) => {
   const db = c.get("db");
   const baseUrl = c.env.APP_URL;
 
+  // A repost is always an Announce addressed to Public + the booster's
+  // followers (see the activity built below), so it re-broadcasts the object to
+  // a wider audience than the original. Only a post whose reach is ALREADY
+  // public may be boosted: reposting a followers-only / direct / community-
+  // scoped post would leak restricted content out to the public (Mastodon
+  // likewise forbids boosting followers-only and direct posts). "Truly public"
+  // = visibility public/unlisted AND no community/addressed audience (an empty
+  // audienceJson — community feed + chat posts both carry a non-empty audience).
+  const reach = await db
+    .select({
+      visibility: objects.visibility,
+      audienceJson: objects.audienceJson,
+    })
+    .from(objects)
+    .where(eq(objects.apId, post.apId))
+    .get();
+  const boostable =
+    !!reach &&
+    (reach.visibility === "public" || reach.visibility === "unlisted") &&
+    reach.audienceJson === "[]";
+  if (!boostable) {
+    return c.json({ error: "This post cannot be reposted" }, 403);
+  }
+
   const existingRepost = await db
     .select({ actorApId: announces.actorApId })
     .from(announces)

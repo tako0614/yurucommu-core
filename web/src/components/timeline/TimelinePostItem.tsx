@@ -33,6 +33,17 @@ interface TimelinePostItemProps {
   onEdit?: (post: Post) => void;
 }
 
+// A repost is an Announce to Public, so only a publicly-reachable post may be
+// boosted — mirrors the backend gate (POST /:id/repost rejects followers-only /
+// direct / community-scoped posts). Hide the button for everything else so we
+// never invite a boost the server will reject.
+function isRepostable(post: Post): boolean {
+  return (
+    (post.visibility === "public" || post.visibility === "unlisted") &&
+    !post.community_ap_id
+  );
+}
+
 // Window (ms) inside which a second tap on the media counts as a double-tap.
 const DOUBLE_TAP_MS = 280;
 
@@ -189,23 +200,25 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
         <ReplyIcon />
         <span class="text-sm">{props.post.reply_count || ""}</span>
       </button>
-      <button
-        onClick={() => props.onRepost(props.post)}
-        aria-label={
-          props.post.reposted ? t("posts.undoRepost") : t("posts.repost")
-        }
-        aria-pressed={props.post.reposted}
-        class={`flex items-center gap-2 transition-colors ${
-          props.post.reposted
-            ? "text-green-500"
-            : "text-neutral-500 hover:text-green-500"
-        }`}
-      >
-        <RepostIcon filled={props.post.reposted} />
-        <Show when={props.post.announce_count > 0}>
-          <span class="text-sm">{props.post.announce_count}</span>
-        </Show>
-      </button>
+      <Show when={isRepostable(props.post)}>
+        <button
+          onClick={() => props.onRepost(props.post)}
+          aria-label={
+            props.post.reposted ? t("posts.undoRepost") : t("posts.repost")
+          }
+          aria-pressed={props.post.reposted}
+          class={`flex items-center gap-2 transition-colors ${
+            props.post.reposted
+              ? "text-green-500"
+              : "text-neutral-500 hover:text-green-500"
+          }`}
+        >
+          <RepostIcon filled={props.post.reposted} />
+          <Show when={props.post.announce_count > 0}>
+            <span class="text-sm">{props.post.announce_count}</span>
+          </Show>
+        </button>
+      </Show>
       <button
         onClick={() => props.onLike(props.post)}
         aria-label={props.post.liked ? t("posts.unlike") : t("posts.like")}

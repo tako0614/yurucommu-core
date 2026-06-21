@@ -22,7 +22,7 @@ import { and, eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, likes, objects } from "../../../db/index.ts";
+import { actors, announces, likes, objects } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import interactionRoutes from "../../routes/posts/interactions.ts";
 
@@ -230,4 +230,101 @@ test("double-like is rejected and does not double-count", async () => {
 
   expect(await likeRowCount(db, likerApId, postApId)).toEqual(1);
   expect(await likeCountOf(db, postApId)).toEqual(1);
+});
+
+// ---------------------------------------------------------------------------
+// Repost (Announce) re-broadcasts to Public; only truly-public posts may be
+// boosted. A followers-only / direct / community-scoped post must be rejected
+// so reposting cannot leak restricted content out to the public.
+// ---------------------------------------------------------------------------
+
+async function announceRowCount(
+  db: Database,
+  postApId: string,
+): Promise<number> {
+  const rows = await db
+    .select({ actorApId: announces.actorApId })
+    .from(announces)
+    .where(eq(announces.objectApId, postApId));
+  return rows.length;
+}
+
+async function insertPostWithReach(
+  db: Database,
+  author: string,
+  id: string,
+  reach: { visibility: string; audienceJson?: string; communityApId?: string },
+): Promise<string> {
+  const apId = `${APP_URL}/ap/objects/${id}`;
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: author,
+    content: "boost me",
+    visibility: reach.visibility,
+    toJson: "[]",
+    ccJson: "[]",
+    audienceJson: reach.audienceJson ?? "[]",
+    communityApId: reach.communityApId ?? null,
+    published: "2026-01-01T00:00:00.000Z",
+    isLocal: 1,
+  });
+  return apId;
+}
+
+async function repost(
+  db: Database,
+  booster: Actor,
+  postApId: string,
+): Promise<Response> {
+  const env = envFor(db);
+  const app = appWith(db, env, booster);
+  return app.fetch(
+    new Request(`${APP_URL}/${encodeURIComponent(postApId)}/repost`, {
+      method: "POST",
+    }),
+    env,
+  );
+}
+
+test("repost of a truly-public post succeeds", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "rauthor");
+  const booster = fakeActor(await insertLocalActor(db, "rbooster"), "rbooster");
+  const postApId = await insertPostWithReach(db, author, "rpub", {
+    visibility: "public",
+  });
+
+  const res = await repost(db, booster, postApId);
+  expect(res.status).toEqual(200);
+  expect(await announceRowCount(db, postApId)).toEqual(1);
+});
+
+test("repost of a followers-only / direct / community-scoped post is rejected (403, no Announce)", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "rauthor2");
+  const booster = fakeActor(
+    await insertLocalActor(db, "rbooster2"),
+    "rbooster2",
+  );
+
+  const followersPost = await insertPostWithReach(db, author, "rfoll", {
+    visibility: "followers",
+  });
+  const directPost = await insertPostWithReach(db, author, "rdm", {
+    visibility: "direct",
+  });
+  // Audience-scoped post: stored "public" but with a non-empty audience (the
+  // shape of a community feed/chat post). The gate keys on audienceJson, so a
+  // communityApId FK row is unnecessary here.
+  const communityPost = await insertPostWithReach(db, author, "rcomm", {
+    visibility: "public",
+    audienceJson: JSON.stringify([`${APP_URL}/ap/groups/club`]),
+  });
+
+  for (const postApId of [followersPost, directPost, communityPost]) {
+    const res = await repost(db, booster, postApId);
+    expect(res.status).toEqual(403);
+    expect(await announceRowCount(db, postApId)).toEqual(0);
+  }
 });
