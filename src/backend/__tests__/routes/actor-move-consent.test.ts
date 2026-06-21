@@ -66,6 +66,22 @@ mock.module("../../lib/federation-fetch.ts", () => ({
         },
       );
     }
+    if (url.startsWith("https://new.example/.well-known/webfinger")) {
+      // WebFinger for @carol@new.example -> the consenting actor URL.
+      return new Response(
+        JSON.stringify({
+          subject: "acct:carol@new.example",
+          links: [
+            {
+              rel: "self",
+              type: "application/activity+json",
+              href: CONSENTING_TARGET,
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/jrd+json" } },
+      );
+    }
     return new Response("not found", { status: 404 });
   },
 }));
@@ -218,6 +234,32 @@ test("POST /me/move federates the Move when the destination consents (alsoKnownA
       type: "fanout_followers",
     },
   ]);
+});
+
+test("POST /me/move accepts a @user@domain handle (WebFinger-resolved to the actor URL)", async () => {
+  const db = await freshDb();
+  const actor = await insertCarol(db);
+  const sent: Sent[] = [];
+
+  const res = await postMove(db, actor, "@carol@new.example", sent);
+  expect(res.status).toBe(200);
+
+  // moved_to + the federated Move target are the RESOLVED actor URL, not the
+  // raw handle.
+  const row = await db
+    .select({ movedTo: actors.movedTo })
+    .from(actors)
+    .where(eq(actors.apId, actor.ap_id))
+    .get();
+  expect(row!.movedTo).toBe(CONSENTING_TARGET);
+
+  const moves = await db
+    .select()
+    .from(activities)
+    .where(eq(activities.type, "Move"));
+  expect(moves.length).toBe(1);
+  const doc = JSON.parse(moves[0].rawJson) as { target: string };
+  expect(doc.target).toBe(CONSENTING_TARGET);
 });
 
 test("POST /me/move rejects (422) and does NOT migrate when the destination does not list this account", async () => {

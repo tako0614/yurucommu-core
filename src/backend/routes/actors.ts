@@ -53,7 +53,10 @@ import {
   safeJsonParse,
 } from "../federation-helpers.ts";
 import { enqueueFanoutToFollowers } from "../lib/delivery/queue.ts";
-import { destinationDeclaresAlias } from "../lib/account-migration.ts";
+import {
+  destinationDeclaresAlias,
+  resolveMoveTarget,
+} from "../lib/account-migration.ts";
 import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import {
@@ -1240,11 +1243,15 @@ actorsRoute.post("/me/move", async (c) => {
   const body = await c.req
     .json<{ target?: unknown }>()
     .catch(() => ({}) as { target?: unknown });
-  const target = typeof body.target === "string" ? body.target.trim() : "";
-  if (target.length === 0) {
+  const rawTarget = typeof body.target === "string" ? body.target.trim() : "";
+  if (rawTarget.length === 0) {
     return c.json({ error: "target is required" }, 400);
   }
-  if (!isValidHttpUrl(target)) {
+  // Accept either a full actor URL or a @user@domain fediverse handle (the
+  // latter is WebFinger-resolved to its actor URL — what the move field's
+  // placeholder shows and what users actually know).
+  const target = await resolveMoveTarget(rawTarget);
+  if (!target || !isValidHttpUrl(target)) {
     return c.json({ error: "Invalid move target" }, 400);
   }
   if (target === actor.ap_id) {
