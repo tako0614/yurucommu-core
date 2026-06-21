@@ -101,6 +101,45 @@ test("a remote Follow to an OPEN community is accepted + an Accept is emitted by
   expect(accept?.direction).toEqual("outbound");
 });
 
+test("a RETRIED Follow re-attempts the Accept without duplicating it (lost-Accept recovery)", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "club", "open");
+  const activityId = "https://remote.example/activities/follow-retry";
+  const activity = {
+    type: "Follow",
+    actor: REMOTE,
+    object: apId,
+    id: activityId,
+  } as unknown as Activity;
+  const run = () =>
+    handleGroupFollow(
+      ctx(db),
+      activity,
+      { apId, joinPolicy: "open" },
+      REMOTE,
+      APP_URL,
+      activityId,
+    );
+
+  await run();
+  await run(); // a retry (e.g. our first Accept was lost) must not early-return
+
+  // Exactly ONE Accept activity exists (idempotent), and the follow is accepted.
+  const accepts = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(and(eq(activities.type, "Accept"), eq(activities.actorApId, apId)))
+    .all();
+  expect(accepts.length).toEqual(1);
+  const follow = await db.query.follows.findFirst({
+    where: and(
+      eq(follows.followerApId, REMOTE),
+      eq(follows.followingApId, apId),
+    ),
+  });
+  expect(follow?.status).toEqual("accepted");
+});
+
 test("a Follow to an APPROVAL community is held pending (no Accept emitted)", async () => {
   const db = await freshDb();
   const apId = await insertCommunity(db, "gated", "approval");

@@ -62,22 +62,46 @@ export async function handleGroupFollow(
       eq(follows.followingApId, followerKey.followingApId),
     ),
   });
-  if (existing) return;
 
-  const status = JOIN_POLICY_STATUS[group.joinPolicy ?? ""] ?? "accepted";
+  const status = existing
+    ? existing.status
+    : (JOIN_POLICY_STATUS[group.joinPolicy ?? ""] ?? "accepted");
 
-  const now = new Date().toISOString();
-  await db.insert(follows).values({
-    ...followerKey,
-    status,
-    activityApId: activityId,
-    acceptedAt: status === "accepted" ? now : null,
-  });
+  if (!existing) {
+    const now = new Date().toISOString();
+    await db.insert(follows).values({
+      ...followerKey,
+      status,
+      activityApId: activityId,
+      acceptedAt: status === "accepted" ? now : null,
+    });
+  }
 
   if (isLocal(actorApIdStr, baseUrl)) return;
   if (status === "pending") return;
 
   const responseType = status === "accepted" ? "Accept" : "Reject";
+
+  // Idempotent (re-)emit of the Accept/Reject. We do NOT early-return on an
+  // existing follow: if the follow row was recorded on a prior attempt but the
+  // response was LOST (a transient failure between the follow insert and the
+  // enqueue left the activity uncommitted, so the remote retried), the old
+  // `if (existing) return` suppressed the Accept forever — leaving the remote
+  // stuck pending while we record them as accepted. Instead, if a response for
+  // THIS Follow already exists just re-enqueue its (dedup'd, durable) delivery;
+  // otherwise create + enqueue it.
+  const existingResponse = await db.query.activities.findFirst({
+    where: and(
+      eq(activities.type, responseType),
+      eq(activities.actorApId, group.apId),
+      eq(activities.objectApId, activityId),
+    ),
+  });
+  if (existingResponse) {
+    await enqueueDeliveryToActor(c.env, existingResponse.apId, actorApIdStr);
+    return;
+  }
+
   const responseId = activityApId(baseUrl, generateId());
   const responseActivity = {
     "@context": AS_CONTEXT,
