@@ -122,6 +122,23 @@ communitiesRouter.get("/", async (c) => {
 
   const actorApIdVal = actor?.ap_id || "";
 
+  // Discovery list visibility: never expose deleted communities, and never leak
+  // a PRIVATE community (its name/summary/member-count/existence) to someone who
+  // is not a member — `visibility !== 'public'` is the members-only gate enforced
+  // on content/member-list reads elsewhere, so it must gate discovery too. A
+  // logged-in viewer additionally sees the private communities they belong to;
+  // anonymous callers see only public ones.
+  const memberCommunityIds = db
+    .select({ id: communityMembers.communityApId })
+    .from(communityMembers)
+    .where(eq(communityMembers.actorApId, actorApIdVal));
+  const visibilityFilter = actorApIdVal
+    ? or(
+        eq(communities.visibility, "public"),
+        inArray(communities.apId, memberCommunityIds),
+      )
+    : eq(communities.visibility, "public");
+
   // Project only the columns the response renders — never pull the public/
   // PRIVATE key PEM material (communities.publicKeyPem/privateKeyPem) into the
   // worker on this hot list path.
@@ -140,6 +157,7 @@ communitiesRouter.get("/", async (c) => {
       lastMessageAt: communities.lastMessageAt,
     })
     .from(communities)
+    .where(and(isNull(communities.deletedAt), visibilityFilter))
     .orderBy(
       sql`CASE WHEN ${communities.lastMessageAt} IS NULL THEN 1 ELSE 0 END`,
       desc(communities.lastMessageAt),

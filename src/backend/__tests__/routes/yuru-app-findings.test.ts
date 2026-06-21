@@ -472,3 +472,66 @@ test("transformStoryData: leaves a non-prefixed key untouched", () => {
   // The old naive replace would have produced "/media/user-/x.jpg".
   expect(out.attachment.url).toEqual("/media/user-uploads/x.jpg");
 });
+
+// ---------------------------------------------------------------------------
+// Discovery list (GET /api/communities) must not leak private/deleted communities
+// ---------------------------------------------------------------------------
+
+test("community discovery list hides private (non-member) + deleted communities", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+
+  await insertCommunity(db, "publicclub", { visibility: "public" });
+  const priv = await insertCommunity(db, "secretclub", {
+    visibility: "private",
+  });
+
+  // A soft-deleted community must never surface, regardless of visibility.
+  const delApId = `${APP_URL}/ap/groups/goneclub`;
+  await db.insert(communities).values({
+    apId: delApId,
+    preferredUsername: "goneclub",
+    name: "goneclub",
+    inbox: `${delApId}/inbox`,
+    outbox: `${delApId}/outbox`,
+    followersUrl: `${delApId}/followers`,
+    visibility: "public",
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: localApId("owner"),
+    deletedAt: "2026-06-20T00:00:00.000Z",
+  });
+
+  // alice is a member of the private community; bob is not.
+  await db.insert(communityMembers).values({
+    communityApId: priv,
+    actorApId: alice,
+    joinedAt: "2026-06-20T00:00:00.000Z",
+  });
+
+  const listFor = async (actor: Actor | null): Promise<string[]> => {
+    const app = appWith(db, actor, communitiesRouter);
+    const res = await app.request(`${APP_URL}/`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { communities: { name: string }[] };
+    return body.communities.map((c) => c.name);
+  };
+
+  // Anonymous: only the public community (no secret, no deleted).
+  const anon = await listFor(null);
+  expect(anon).toContain("publicclub");
+  expect(anon).not.toContain("secretclub");
+  expect(anon).not.toContain("goneclub");
+
+  // Non-member: same — private community stays hidden.
+  const nonMember = await listFor(fakeActor(bob, "bob"));
+  expect(nonMember).not.toContain("secretclub");
+  expect(nonMember).not.toContain("goneclub");
+
+  // Member: sees the public AND their own private community, never the deleted one.
+  const member = await listFor(fakeActor(alice, "alice"));
+  expect(member).toContain("publicclub");
+  expect(member).toContain("secretclub");
+  expect(member).not.toContain("goneclub");
+});
