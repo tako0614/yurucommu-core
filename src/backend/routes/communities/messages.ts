@@ -127,7 +127,7 @@ messagesRouter.get("/:identifier/messages", async (c) => {
 
   const objectApIds = recipients.map((r) => r.objectApId);
   if (objectApIds.length === 0) {
-    return c.json({ messages: [] });
+    return c.json({ messages: [], has_more: false });
   }
 
   // The group-chat reader must return CHAT messages only, not community feed
@@ -145,12 +145,16 @@ messagesRouter.get("/:identifier/messages", async (c) => {
     whereConditions.push(lt(objects.published, before));
   }
 
-  const messages = await db
+  // Fetch one extra to detect whether an OLDER page exists (powers the thread's
+  // "load older" affordance; `before` is the oldest shown message's published).
+  const fetched = await db
     .select()
     .from(objects)
     .where(and(...whereConditions))
     .orderBy(desc(objects.published))
-    .limit(limit);
+    .limit(limit + 1);
+  const hasMore = fetched.length > limit;
+  const messages = hasMore ? fetched.slice(0, limit) : fetched;
 
   const senderApIds = [...new Set(messages.map((msg) => msg.attributedTo))];
   const actorInfoMap = await batchLoadActorInfo(db, senderApIds);
@@ -171,7 +175,7 @@ messagesRouter.get("/:identifier/messages", async (c) => {
     };
   });
 
-  return c.json({ messages: result });
+  return c.json({ messages: result, has_more: hasMore });
 });
 
 // POST /api/communities/:name/messages - Send a chat message

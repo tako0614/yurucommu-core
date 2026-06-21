@@ -100,8 +100,10 @@ export function DMChatPanel(props: DMChatPanelProps) {
     }
     try {
       if (contactType === "community") {
-        const data = await fetchCommunityMessages(contactApId);
+        const { messages: data, hasMore } =
+          await fetchCommunityMessages(contactApId);
         if (isCancelled()) return;
+        if (mode === "initial") setHasMoreOlder(hasMore);
         let changed = false;
         setMessages((prev) => {
           const next =
@@ -162,7 +164,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
   // added above). DM threads only for now. The `before` cursor is the oldest
   // shown message's timestamp; the server returns `published < before`.
   const loadOlder = async () => {
-    if (loadingOlder() || props.contact.type === "community") return;
+    if (loadingOlder()) return;
     const current = messages();
     if (current.length === 0) return;
     const oldest = current[0]; // messages render oldest-first
@@ -171,10 +173,14 @@ export function DMChatPanel(props: DMChatPanelProps) {
     const el = scrollContainerRef;
     const prevHeight = el?.scrollHeight ?? 0;
     try {
-      const { messages: older, hasMore } = await fetchUserDMMessages(
-        props.contact.ap_id,
-        { before: oldest.created_at },
-      );
+      const { messages: older, hasMore } =
+        props.contact.type === "community"
+          ? await fetchCommunityMessages(props.contact.ap_id, {
+              before: oldest.created_at,
+            })
+          : await fetchUserDMMessages(props.contact.ap_id, {
+              before: oldest.created_at,
+            });
       setMessages((prev) => {
         const ids = new Set(prev.map((m) => m.id));
         const fresh = older.filter((m) => !ids.has(m.id));

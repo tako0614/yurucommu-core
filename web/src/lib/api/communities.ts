@@ -160,7 +160,7 @@ export async function leaveCommunity(identifier: string): Promise<void> {
 export async function fetchCommunityMessages(
   identifier: string,
   options?: { limit?: number; before?: string },
-): Promise<CommunityMessage[]> {
+): Promise<{ messages: CommunityMessage[]; hasMore: boolean }> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
   if (options?.before) params.set("before", options.before);
@@ -169,8 +169,14 @@ export async function fetchCommunityMessages(
     `/api/communities/${encodeURIComponent(identifier)}/messages${query}`,
   );
   await assertOk(res, "Failed to fetch messages");
-  const data = (await res.json()) as { messages?: CommunityMessage[] };
-  return (data.messages || []).map(normalizeCommunityMessage);
+  const data = (await res.json()) as {
+    messages?: CommunityMessage[];
+    has_more?: boolean;
+  };
+  return {
+    messages: (data.messages || []).map(normalizeCommunityMessage),
+    hasMore: data.has_more ?? false,
+  };
 }
 
 export async function sendCommunityMessage(
