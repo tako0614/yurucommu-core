@@ -256,6 +256,8 @@ notifications.get("/", async (c) => {
             inReplyTo: objects.inReplyTo,
             audienceJson: objects.audienceJson,
             communityApId: objects.communityApId,
+            visibility: objects.visibility,
+            attributedTo: objects.attributedTo,
           })
           .from(objects)
           .where(inArray(objects.apId, objectApIds))
@@ -271,14 +273,57 @@ notifications.get("/", async (c) => {
       : Promise.resolve([]),
   ]);
 
-  // Community read-gate: a private-community post can land in a NON-member's
-  // inbox (e.g. an @-mention Create), so projecting its body verbatim would
-  // leak community-scoped content. Gate each object's content against the
-  // notification recipient (actor.ap_id) before exposing object_content.
+  // Content read-gate. A restricted object can land in a NON-entitled inbox: a
+  // private-community post via an @-mention Create, or — since a local reply
+  // creates a notification for the parent author regardless of the reply's
+  // visibility (post-helpers.ts) — a FOLLOWERS-ONLY reply by someone the
+  // recipient neither follows nor authored. Projecting the body verbatim would
+  // leak it. Gate each object's content against the recipient (actor.ap_id):
+  // the community membership gate AND the followers-only gate (mirrors the
+  // post-detail / replies gate: own post or an accepted follow to the author).
+  // Direct posts are already dropped from the query above.
+  const followerGateAuthors = [
+    ...new Set(
+      objectRows
+        .filter(
+          (o) => o.visibility === "followers" && o.attributedTo !== actor.ap_id,
+        )
+        .map((o) => o.attributedTo),
+    ),
+  ];
+  const followedAuthors =
+    followerGateAuthors.length > 0
+      ? new Set(
+          (
+            await db
+              .select({ followingApId: follows.followingApId })
+              .from(follows)
+              .where(
+                and(
+                  eq(follows.followerApId, actor.ap_id),
+                  inArray(follows.followingApId, followerGateAuthors),
+                  eq(follows.status, "accepted"),
+                ),
+              )
+          ).map((r) => r.followingApId),
+        )
+      : new Set<string>();
+
+  const followersGateAllows = (o: {
+    visibility: string;
+    attributedTo: string;
+  }): boolean => {
+    if (o.visibility !== "followers") return true;
+    return (
+      o.attributedTo === actor.ap_id || followedAuthors.has(o.attributedTo)
+    );
+  };
+
   const readableObjectIds = new Set<string>(
     (
       await Promise.all(
         objectRows.map(async (o) =>
+          followersGateAllows(o) &&
           (await canViewerReadObject(
             db,
             { audienceJson: o.audienceJson, communityApId: o.communityApId },

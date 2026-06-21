@@ -28,6 +28,7 @@ import {
   activities,
   communities,
   communityMembers,
+  follows,
   inbox as inboxTable,
   objects,
 } from "../../../db/index.ts";
@@ -229,6 +230,86 @@ test("private-community Create notification does NOT leak post body to a non-mem
   const memberRow = memberNotifs.find((n) => n.object_ap_id === objectApId);
   expect(memberRow).toBeDefined();
   expect(memberRow!.object_content).toBe(SECRET_BODY);
+});
+
+test("followers-only Create notification does NOT leak post body to a non-follower, but does to a follower", async () => {
+  const db = await freshDb();
+
+  // A local reply creates a notification for the parent author regardless of
+  // the reply's visibility (post-helpers.ts), so B's followers-only reply to
+  // A's post lands in A's inbox even though A neither follows B nor is a
+  // recipient. The body must NOT leak to A; an accepted follower still sees it.
+  const author = await insertLocalActor(db, "fauthor");
+  const stranger = await insertLocalActor(db, "fstranger"); // does NOT follow author
+  const follower = await insertLocalActor(db, "ffollower"); // accepted follower
+
+  const objectApId = `${APP_URL}/ap/objects/follpost`;
+  const FOLLOWERS_BODY = "followers only body";
+  await db.insert(objects).values({
+    apId: objectApId,
+    type: "Note",
+    attributedTo: author,
+    content: FOLLOWERS_BODY,
+    visibility: "followers",
+    toJson: JSON.stringify([`${author}/followers`]),
+    ccJson: "[]",
+    audienceJson: "[]",
+    communityApId: null,
+    published: "2026-01-02T00:00:00.000Z",
+    isLocal: 1,
+  });
+
+  const activityApId = `${APP_URL}/ap/activities/create-follpost`;
+  await db.insert(activities).values({
+    apId: activityApId,
+    type: "Create",
+    actorApId: author,
+    objectApId,
+    rawJson: JSON.stringify({ id: activityApId, type: "Create" }),
+    createdAt: "2026-01-02T00:00:00.000Z",
+  });
+
+  await db.insert(inboxTable).values([
+    {
+      actorApId: stranger,
+      activityApId,
+      read: 0,
+      createdAt: "2026-01-02T00:00:00.000Z",
+    },
+    {
+      actorApId: follower,
+      activityApId,
+      read: 0,
+      createdAt: "2026-01-02T00:00:00.000Z",
+    },
+  ]);
+
+  await db.insert(follows).values({
+    followerApId: follower,
+    followingApId: author,
+    status: "accepted",
+  });
+
+  // -- Non-follower: row present, content blanked ----------------------------
+  const strangerNotifs = await fetchNotifications(
+    db,
+    fakeActor(stranger, "fstranger"),
+  );
+  const strangerRow = strangerNotifs.find((n) => n.object_ap_id === objectApId);
+  expect(strangerRow).toBeDefined();
+  expect(strangerRow!.object_content).toBe("");
+  expect(
+    strangerNotifs.some((n) => n.object_content.includes("followers only")),
+  ).toBe(false);
+
+  // -- Accepted follower: full content still exposed -------------------------
+  const followerNotifs = await fetchNotifications(
+    db,
+    fakeActor(follower, "ffollower"),
+  );
+  const followerRow = followerNotifs.find((n) => n.object_ap_id === objectApId);
+  expect(followerRow).toBeDefined();
+  expect(followerRow!.object_content).toBe(FOLLOWERS_BODY);
 });
 
 test("non-community Create notification still exposes its content (gate never narrows public reach)", async () => {
