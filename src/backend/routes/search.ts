@@ -30,9 +30,14 @@ const log = logger.child({ component: "search" });
 // per-viewer data, so the response is identical for every caller. Cache it
 // for 10 minutes to avoid re-scanning recent posts on every request.
 const TRENDING_HASHTAGS_TTL = 600;
-// Cap the post scan window; trending only needs recent activity and a smaller
-// window keeps the in-JS regex pass cheap on cache misses.
-const TRENDING_SCAN_LIMIT = 500;
+// Ceiling on the trending post scan. Hashtags are extracted from post CONTENT
+// in JS (D1/SQLite has no REGEXP, and tags_json is only populated by local
+// posts — federated inbound posts would be missed by a tags_json aggregation),
+// so this bounds memory on a cache miss. It is a memory bound, NOT a silent
+// window truncation: if a scan returns exactly this many rows we log that older
+// in-window posts went uncounted. The scalable fix (an FTS / normalized-tags
+// index aggregated in SQL) is tracked as deferred search work.
+const TRENDING_SCAN_LIMIT = 2000;
 
 const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
@@ -551,10 +556,20 @@ search.get(
       .orderBy(desc(objects.published))
       .limit(TRENDING_SCAN_LIMIT);
 
+    if (posts.length === TRENDING_SCAN_LIMIT) {
+      // No silent truncation: the requested `days` window held more public posts
+      // than the scan ceiling, so older in-window posts were not counted toward
+      // the trend. Surface it for operators on busy instances.
+      log.warn("trending scan hit ceiling; older in-window posts uncounted", {
+        event: "search.trending.truncated",
+        scanned: posts.length,
+        days,
+      });
+    }
+
     // Extract and count hashtags
     const hashtagCounts: Record<string, number> = {};
-    const hashtagRegex =
-      /#([a-zA-Z0-9_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]+)/g;
+    const hashtagRegex = /#([a-zA-Z0-9_぀-ゟ゠-ヿ一-鿿]+)/g;
 
     for (const post of posts) {
       const content = post.content || "";
