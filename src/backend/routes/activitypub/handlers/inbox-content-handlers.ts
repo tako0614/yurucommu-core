@@ -534,8 +534,22 @@ export async function handleCreateStory(
   };
 
   const now = new Date().toISOString();
-  const endTime =
-    object.endTime || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  // Clamp the attacker-controlled `endTime`: a story must expire. A non-ISO or
+  // far-future value stored verbatim would never satisfy the expiry filter
+  // (`lt(endTime, now)`, a lexical compare), so a malicious remote could create
+  // never-expiring stories that accumulate forever. Bound it to published + ~25h
+  // (the ~24h story lifetime + slack) and normalize to ISO so the compare holds.
+  const STORY_MAX_LIFETIME_MS = 25 * 60 * 60 * 1000;
+  const publishedMs = Date.parse(object.published || now);
+  const maxEndMs =
+    (Number.isNaN(publishedMs) ? Date.now() : publishedMs) +
+    STORY_MAX_LIFETIME_MS;
+  const requestedEndMs = object.endTime ? Date.parse(object.endTime) : NaN;
+  const endTime = new Date(
+    Number.isNaN(requestedEndMs)
+      ? maxEndMs
+      : Math.min(requestedEndMs, maxEndMs),
+  ).toISOString();
 
   // The early existence check above is best-effort (TOCTOU): two isolates
   // racing the same cold story can both pass it. `onConflictDoNothing` keeps

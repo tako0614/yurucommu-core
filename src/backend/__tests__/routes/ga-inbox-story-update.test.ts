@@ -216,3 +216,80 @@ test("handleUpdate(actor) re-fetches when no cache row exists yet", async () => 
 
   expect(fetchedUrls).toContain(ALICE);
 });
+
+// ---------------------------------------------------------------------------
+// A malicious remote must not create a never-expiring story: handleCreateStory
+// clamps an attacker far-future / non-ISO endTime to published + ~25h.
+// ---------------------------------------------------------------------------
+
+async function seedAlice(db: Database): Promise<void> {
+  await db.insert(actors).values({
+    apId: ALICE,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${ALICE}/inbox`,
+    outbox: `${ALICE}/outbox`,
+    followersUrl: `${ALICE}/followers`,
+    followingUrl: `${ALICE}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+}
+
+function storyWithEndTime(endTime: string, id: string): Activity {
+  return {
+    id,
+    type: "Create",
+    actor: ALICE,
+    object: {
+      id: STORY_ID,
+      type: "Story",
+      content: "x",
+      attachment: {
+        url: "https://remote.example/media/s.jpg",
+        mediaType: "image/jpeg",
+      },
+      published: "2026-06-21T00:00:00.000Z",
+      endTime,
+    },
+  } as unknown as Activity;
+}
+
+test("handleCreateStory clamps a far-future inbound endTime so the story still expires", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await handleCreateStory(
+    ctx(db),
+    storyWithEndTime("9999-01-01T00:00:00.000Z", "https://remote.example/a/ff"),
+    ALICE,
+    "https://yuru.test",
+  );
+  const row = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  const publishedMs = Date.parse("2026-06-21T00:00:00.000Z");
+  const stored = Date.parse(row!.endTime!);
+  expect(Number.isNaN(stored)).toBe(false);
+  expect(stored).toBeLessThanOrEqual(publishedMs + 25 * 60 * 60 * 1000);
+});
+
+test("handleCreateStory clamps a non-ISO inbound endTime to a valid future instant", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await handleCreateStory(
+    ctx(db),
+    storyWithEndTime("not-a-date", "https://remote.example/a/gb"),
+    ALICE,
+    "https://yuru.test",
+  );
+  const row = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  // Stored endTime must be a parseable ISO instant (so the lexical expiry
+  // compare works), not the garbage string.
+  expect(Number.isNaN(Date.parse(row!.endTime!))).toBe(false);
+});
