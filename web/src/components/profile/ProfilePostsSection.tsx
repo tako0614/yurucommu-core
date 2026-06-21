@@ -296,6 +296,15 @@ function ProfilePostItem(props: ProfilePostItemProps) {
           <span class="text-neutral-500 text-sm">
             {formatRelativeTime(props.post.published)}
           </span>
+          <Show when={props.post.edited_at}>
+            <span class="text-neutral-500">・</span>
+            <span
+              class="text-neutral-500 text-sm"
+              title={formatRelativeTime(props.post.edited_at!)}
+            >
+              {props.t("posts.edited")}
+            </span>
+          </Show>
           <ScopeChip
             communityApId={props.post.community_ap_id}
             class="ml-auto self-center"

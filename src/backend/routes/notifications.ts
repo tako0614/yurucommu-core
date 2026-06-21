@@ -1,7 +1,7 @@
 // Notifications routes for Yurucommu backend
 // AP Native: Notifications are derived from inbox (activities addressed to the actor)
 import { Hono } from "hono";
-import { and, count, desc, eq, inArray, lt, ne } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import {
   formatUsername,
@@ -200,11 +200,17 @@ notifications.get("/", async (c) => {
     archivedActivities.map((a) => a.activityApId),
   );
 
-  // Build inbox query with JOIN to activities
+  // Build inbox query with JOIN to activities. A direct (DM) Note is delivered
+  // as a `Create` inbox row just like a mention, so without excluding it every
+  // DM would double-surface here as a "mention" (with its body) AND inflate the
+  // unread badge independently of the DM view. LEFT JOIN the object and drop
+  // direct-visibility Creates; the join is LEFT because Follow's object is an
+  // actor (no `objects` row) → NULL visibility must be kept.
   const conditions = [
     eq(inboxTable.actorApId, actor.ap_id),
     ne(activities.actorApId, actor.ap_id),
     inArray(activities.type, activityTypes),
+    or(isNull(objects.visibility), ne(objects.visibility, "direct"))!,
   ];
   if (before) {
     conditions.push(lt(inboxTable.createdAt, before));
@@ -222,6 +228,7 @@ notifications.get("/", async (c) => {
     })
     .from(inboxTable)
     .innerJoin(activities, eq(inboxTable.activityApId, activities.apId))
+    .leftJoin(objects, eq(activities.objectApId, objects.apId))
     .where(and(...conditions))
     .orderBy(desc(inboxTable.createdAt))
     .limit(limit + 1);
@@ -376,16 +383,21 @@ notifications.get("/unread/count", async (c) => {
   const db = c.get("db");
   await maybeCleanupArchivedNotifications(db, actor.ap_id);
 
+  // Mirror the list query's DM exclusion (see GET /): a direct Note's Create
+  // inbox row must not count toward the notification badge — the DM has its own
+  // unread badge, and marking it read never clears this inbox row.
   const result = await db
     .select({ count: count() })
     .from(inboxTable)
     .innerJoin(activities, eq(inboxTable.activityApId, activities.apId))
+    .leftJoin(objects, eq(activities.objectApId, objects.apId))
     .where(
       and(
         eq(inboxTable.actorApId, actor.ap_id),
         eq(inboxTable.read, 0),
         ne(activities.actorApId, actor.ap_id),
         inArray(activities.type, NOTIFICATION_ACTIVITY_TYPES),
+        or(isNull(objects.visibility), ne(objects.visibility, "direct"))!,
       ),
     )
     .get();

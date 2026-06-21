@@ -276,3 +276,88 @@ test("non-community Create notification still exposes its content (gate never na
   expect(row).toBeDefined();
   expect(row!.object_content).toBe(openBody);
 });
+
+// ---------------------------------------------------------------------------
+// A direct (DM) Note must NOT double-surface as a notification (it has its own
+// DM view + unread badge) and must not count toward the notification badge.
+// ---------------------------------------------------------------------------
+
+test("a direct (DM) Create is excluded from notifications + the unread count; a public mention is kept", async () => {
+  const db = await freshDb();
+  const me = await insertLocalActor(db, "me");
+  const sender = await insertLocalActor(db, "sender");
+
+  // A direct Note (DM) from sender -> me.
+  const dmObjectApId = `${APP_URL}/ap/objects/dm1`;
+  await db.insert(objects).values({
+    apId: dmObjectApId,
+    type: "Note",
+    attributedTo: sender,
+    content: "private dm body",
+    visibility: "direct",
+    toJson: JSON.stringify([me]),
+    ccJson: "[]",
+    audienceJson: "[]",
+    published: "2026-01-02T00:00:00.000Z",
+    isLocal: 1,
+  });
+  const dmActivityApId = `${APP_URL}/ap/activities/create-dm1`;
+  await db.insert(activities).values({
+    apId: dmActivityApId,
+    type: "Create",
+    actorApId: sender,
+    objectApId: dmObjectApId,
+    rawJson: JSON.stringify({ id: dmActivityApId, type: "Create" }),
+    createdAt: "2026-01-02T00:00:00.000Z",
+  });
+
+  // A normal public mention from sender -> me (must still notify).
+  const pubObjectApId = `${APP_URL}/ap/objects/pub1`;
+  await db.insert(objects).values({
+    apId: pubObjectApId,
+    type: "Note",
+    attributedTo: sender,
+    content: "hey @me public mention",
+    visibility: "public",
+    toJson: JSON.stringify(["https://www.w3.org/ns/activitystreams#Public"]),
+    ccJson: JSON.stringify([me]),
+    audienceJson: "[]",
+    published: "2026-01-01T00:00:00.000Z",
+    isLocal: 1,
+  });
+  const pubActivityApId = `${APP_URL}/ap/activities/create-pub1`;
+  await db.insert(activities).values({
+    apId: pubActivityApId,
+    type: "Create",
+    actorApId: sender,
+    objectApId: pubObjectApId,
+    rawJson: JSON.stringify({ id: pubActivityApId, type: "Create" }),
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
+
+  await db.insert(inboxTable).values([
+    {
+      actorApId: me,
+      activityApId: dmActivityApId,
+      read: 0,
+      createdAt: "2026-01-02T00:00:00.000Z",
+    },
+    {
+      actorApId: me,
+      activityApId: pubActivityApId,
+      read: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  ]);
+
+  const notifs = await fetchNotifications(db, fakeActor(me, "me"));
+  // The DM is NOT in the notifications feed; the public mention IS.
+  expect(notifs.find((n) => n.object_ap_id === dmObjectApId)).toBeUndefined();
+  expect(notifs.find((n) => n.object_ap_id === pubObjectApId)).toBeDefined();
+
+  // The unread badge counts only the public mention (1), never the DM.
+  const app = appWith(db, fakeActor(me, "me"));
+  const countRes = await app.request(`${APP_URL}/unread/count`);
+  const countBody = (await countRes.json()) as { count: number };
+  expect(countBody.count).toBe(1);
+});

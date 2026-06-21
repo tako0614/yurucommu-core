@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>story — Yurucommu Namespace</title>
+    <meta name="description" content="Yurucommu Story extension namespace for ActivityPub." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../../styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <a href="/" class="logo">Yurucommu</a>
+        <div class="header-links">
+          <a href="/help/" class="header-link">Docs</a>
+          <a href="/specs/" class="header-link">Specs</a>
+        </div>
+        <a href="https://github.com/tako0614/yurucommu" class="header-cta">
+          GitHub
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+          </svg>
+        </a>
+      </div>
+    </header>
+
+    <div class="docs-layout">
+      <main class="docs-content" style="margin: 0 auto;">
+        <h1><code>story</code></h1>
+        <p class="lead">
+          Namespace: <code>https://yurucommu.com/ns/story#</code>
+        </p>
+
+        <h2>JSON-LD Context</h2>
+        <pre><code><a href="/ns/story/context.jsonld" style="color: var(--accent); border: none;">https://yurucommu.com/ns/story/context.jsonld</a></code></pre>
+
+        <h2>Terms</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>Term</th>
+              <th>URI</th>
+              <th>Type</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Story</code></td>
+              <td><code>story:Story</code></td>
+              <td>Class</td>
+              <td>An ephemeral post (expires after 24h by default)</td>
+            </tr>
+            <tr>
+              <td><code>displayDuration</code></td>
+              <td><code>story:displayDuration</code></td>
+              <td><code>xsd:duration</code></td>
+              <td>How long each slide is shown (e.g. <code>PT15S</code>)</td>
+            </tr>
+            <tr>
+              <td><code>overlays</code></td>
+              <td><code>story:overlays</code></td>
+              <td><code>@list</code></td>
+              <td>Ordered list of overlay objects (text, stickers, drawings)</td>
+            </tr>
+            <tr>
+              <td><code>position</code></td>
+              <td><code>story:position</code></td>
+              <td>Property</td>
+              <td>Position coordinates for an overlay element</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p style="margin-top: 3rem;">
+          <a href="/specs/story.html" style="color: var(--accent); border: none;">Full Story specification</a>
+          &nbsp;·&nbsp;
+          <a href="/ns/" style="color: var(--accent); border: none;">All namespaces</a>
+        </p>
+      </main>
+    </div>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <span class="footer-logo">Yurucommu</span>
+        <span class="footer-copy">© 2026 · AGPL v3</span>
+      </div>
+    </footer>
+  </body>
+</html>
