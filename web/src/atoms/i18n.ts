@@ -513,6 +513,8 @@ const translations = {
     "auth.loggingIn": "ログイン中...",
     "auth.login": "ログイン",
     "auth.checkFailed": "認証の確認に失敗しました",
+    "auth.oauthLoginFailed":
+      "外部アカウントでのログインに失敗しました。もう一度お試しください。",
     "auth.logoutFailed": "ログアウトに失敗しました",
     "auth.instanceSelectFailed": "インスタンスの選択に失敗しました",
     "auth.instanceRebuildFailed": "インスタンスの再構築に失敗しました",
@@ -1132,6 +1134,8 @@ const translations = {
     "auth.loggingIn": "Signing in...",
     "auth.login": "Sign in",
     "auth.checkFailed": "Failed to verify authentication",
+    "auth.oauthLoginFailed":
+      "External account sign-in failed. Please try again.",
     "auth.logoutFailed": "Failed to log out",
     "auth.instanceSelectFailed": "Failed to select instance",
     "auth.instanceRebuildFailed": "Failed to rebuild instance",

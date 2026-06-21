@@ -31,6 +31,24 @@ export const instancesLoadingAtom = atom(false);
 
 // --- Action atoms ---
 export const checkAuthAtom = atom(null, async (get, set) => {
+  // Surface an OAuth/OIDC login failure that the callback relayed as
+  // `/?error=<code>` (e.g. id_token_invalid / token_exchange_failed /
+  // csrf_check_failed). The server logs the technical detail; the user just
+  // needs to know the external sign-in didn't go through. Read it once and strip
+  // the param so it doesn't linger across navigations or get bookmarked.
+  if (typeof window !== "undefined") {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("error")) {
+      set(loginErrorAtom, get(tAtom)("auth.oauthLoginFailed"));
+      params.delete("error");
+      const qs = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash,
+      );
+    }
+  }
   try {
     // Keep the loading screen up across a retry: otherwise authError is cleared
     // while loading is already false, flashing LoginScreen for a frame before
