@@ -24,7 +24,7 @@ import { and, eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, objects, storyVotes } from "../../../db/index.ts";
+import { actors, follows, objects, storyVotes } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import timelineRoutes from "../../routes/timeline.ts";
 import storyInteractionRoutes from "../../routes/stories/interactions.ts";
@@ -206,6 +206,14 @@ test("story vote: re-vote upserts in place without a unique-index 500", async ()
     endTime: "2999-01-01T00:00:00.000Z",
     published: "2026-01-01T00:00:00.000Z",
     isLocal: 1,
+  });
+
+  // The voter must be able to SEE the story to vote on it (story interactions
+  // are now gated to accepted followers / members).
+  await db.insert(follows).values({
+    followerApId: voter,
+    followingApId: author,
+    status: "accepted",
   });
 
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();

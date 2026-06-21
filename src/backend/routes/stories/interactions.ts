@@ -18,6 +18,7 @@ import {
   safeJsonParse,
 } from "../../federation-helpers.ts";
 import {
+  canViewerReadStory,
   findStory,
   getVoteCounts,
   resolveStoryApId,
@@ -69,6 +70,14 @@ stories.post("/view", async (c) => {
   if (!story) return c.json({ error: "Story not found" }, 404);
 
   const now = new Date().toISOString();
+  if (story.endTime && story.endTime < now) {
+    return c.json({ error: "Story has expired" }, 410);
+  }
+  // Only someone who can actually see the story may register a view (the author
+  // sees who viewed) — a non-follower / non-member must not be able to.
+  if (!(await canViewerReadStory(db, story, actor.ap_id))) {
+    return c.json({ error: "Story not found" }, 404);
+  }
 
   try {
     // Upsert: check existence then insert if not found
@@ -121,6 +130,11 @@ stories.post("/vote", async (c) => {
   const now = new Date().toISOString();
   if (story.endTime && story.endTime < now) {
     return c.json({ error: "Story has expired" }, 410);
+  }
+  // A non-follower / non-member must not be able to vote on a story they cannot
+  // see (the author would otherwise receive poll votes from unentitled actors).
+  if (!(await canViewerReadStory(db, story, actor.ap_id))) {
+    return c.json({ error: "Story not found" }, 404);
   }
 
   // Validate option_index against the first Question overlay
@@ -195,6 +209,16 @@ stories.post("/:id/like", async (c) => {
     )
     .get();
   if (blockedBy) return c.json({ error: "Story not found" }, 404);
+
+  const nowIso = new Date().toISOString();
+  if (story.endTime && story.endTime < nowIso) {
+    return c.json({ error: "Story has expired" }, 410);
+  }
+  // Only someone who can see the story may like it (otherwise a non-follower /
+  // non-member notifies the author + bumps the count on a story never shown).
+  if (!(await canViewerReadStory(db, story, actor.ap_id))) {
+    return c.json({ error: "Story not found" }, 404);
+  }
 
   const existing = await db
     .select()
@@ -370,6 +394,16 @@ stories.post("/:id/share", async (c) => {
 
   const story = await findStory(db, apId);
   if (!story) return c.json({ error: "Story not found" }, 404);
+
+  const nowIso = new Date().toISOString();
+  if (story.endTime && story.endTime < nowIso) {
+    return c.json({ error: "Story has expired" }, 410);
+  }
+  // Re-sharing is only for a story the actor can see — never a followers-only /
+  // community story they were not shown.
+  if (!(await canViewerReadStory(db, story, actor.ap_id))) {
+    return c.json({ error: "Story not found" }, 404);
+  }
 
   const existing = await db
     .select()

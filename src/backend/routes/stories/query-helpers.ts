@@ -3,6 +3,8 @@ import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
   blocks,
+  communityMembers,
+  follows,
   mutes,
   objects,
   storyVotes,
@@ -73,6 +75,49 @@ export function findStory(db: Database, apId: string) {
     .from(objects)
     .where(and(eq(objects.apId, apId), eq(objects.type, "Story")))
     .get();
+}
+
+/**
+ * Whether `viewerApId` may read `story` — and therefore interact with it. A
+ * story's reach mirrors the story read endpoints: the author always; a
+ * community story → an accepted member of that community; a personal story → an
+ * accepted follower of the author. Gates view / vote / like / share so a
+ * non-follower / non-member cannot interact with (notify the author about, or
+ * re-share) a story they were never shown. Anonymous (`null`) never passes.
+ * Fails closed.
+ */
+export async function canViewerReadStory(
+  db: Database,
+  story: { attributedTo: string; communityApId: string | null },
+  viewerApId: string | null | undefined,
+): Promise<boolean> {
+  if (!viewerApId) return false;
+  if (story.attributedTo === viewerApId) return true;
+  if (story.communityApId) {
+    const member = await db
+      .select({ actorApId: communityMembers.actorApId })
+      .from(communityMembers)
+      .where(
+        and(
+          eq(communityMembers.communityApId, story.communityApId),
+          eq(communityMembers.actorApId, viewerApId),
+        ),
+      )
+      .get();
+    return Boolean(member);
+  }
+  const follow = await db
+    .select({ followerApId: follows.followerApId })
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, viewerApId),
+        eq(follows.followingApId, story.attributedTo),
+        eq(follows.status, "accepted"),
+      ),
+    )
+    .get();
+  return Boolean(follow);
 }
 
 // ---------------------------------------------------------------------------

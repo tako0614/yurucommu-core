@@ -287,6 +287,66 @@ test("story like is rejected when author has blocked the liker", async () => {
   expect(story?.likeCount).toEqual(0);
 });
 
+test("story interactions (view/like/share) require an accepted follow for a personal story", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "sauthor");
+  const viewerApId = await insertLocalActor(db, "sviewer");
+
+  const storyApId = `${APP_URL}/ap/objects/personal-story`;
+  await db.insert(objects).values({
+    apId: storyApId,
+    type: "Story",
+    attributedTo: authorApId,
+    visibility: "followers",
+    communityApId: null,
+    endTime: "2999-01-01T00:00:00.000Z",
+    likeCount: 0,
+  });
+
+  const viewer = fakeActor(viewerApId, "sviewer");
+
+  // Non-follower: every story interaction is gated (404, existence not revealed).
+  const likeRes = await appWith(db, viewer, storyRoutes).fetch(
+    new Request(`${APP_URL}/personal-story/like`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(likeRes.status).toEqual(404);
+
+  const shareRes = await appWith(db, viewer, storyRoutes).fetch(
+    new Request(`${APP_URL}/personal-story/share`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(shareRes.status).toEqual(404);
+
+  const viewRes = await appWith(db, viewer, storyRoutes).fetch(
+    new Request(`${APP_URL}/view`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ap_id: storyApId }),
+    }),
+    envFor(db),
+  );
+  expect(viewRes.status).toEqual(404);
+
+  // Nothing was recorded.
+  expect(
+    (await db.select().from(likes).where(eq(likes.objectApId, storyApId)))
+      .length,
+  ).toEqual(0);
+
+  // Accepted follower: the interaction is allowed.
+  await db.insert(follows).values({
+    followerApId: viewerApId,
+    followingApId: authorApId,
+    status: "accepted",
+  });
+  const okRes = await appWith(db, viewer, storyRoutes).fetch(
+    new Request(`${APP_URL}/personal-story/like`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(okRes.status).toEqual(200);
+});
+
 test("double Undo of a Like does not drift likeCount below the real value", async () => {
   const db = await freshDb();
   const authorApId = await insertLocalActor(db, "author");
