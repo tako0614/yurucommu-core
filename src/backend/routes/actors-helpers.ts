@@ -388,6 +388,29 @@ export async function listFollowRelation(
     ? and(eq(follows.followingApId, apId), eq(follows.status, "accepted"))
     : and(eq(follows.followerApId, apId), eq(follows.status, "accepted"));
 
+  // A private (locked) account's follower/following LIST is owner-only — mirror
+  // the ActivityPub collection gate (canViewPrivateActorCollections), which this
+  // API path was missing, so a locked account's social graph (who follows it /
+  // who it follows) is not exposed to non-owners. The count stays (it is shown on
+  // the profile); only the member list (the sensitive WHO) is withheld.
+  const viewer = c.get("actor");
+  const targetRow = await db
+    .select({ isPrivate: actors.isPrivate })
+    .from(actors)
+    .where(eq(actors.apId, apId))
+    .get();
+  if (targetRow?.isPrivate && viewer?.ap_id !== apId) {
+    const total =
+      (
+        await db
+          .select({ count: count() })
+          .from(follows)
+          .where(whereCondition)
+          .get()
+      )?.count ?? 0;
+    return c.json({ [direction]: [], total, limit, offset, has_more: false });
+  }
+
   const [followRows, totalResult] = await Promise.all([
     db
       .select()
