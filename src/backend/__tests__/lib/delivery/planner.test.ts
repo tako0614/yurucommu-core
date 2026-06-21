@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import { stub } from "#test/mock";
 import type { Database } from "../../../../db/index.ts";
+import { blockedActors, blockedDomains } from "../../../../db/index.ts";
 import { planEndpointsFromActorCache } from "../../../lib/delivery/planner.ts";
 import { DELIVERY_ENDPOINT_CACHE_TTL_MS } from "../../../lib/delivery/transformers.ts";
 
@@ -77,18 +78,29 @@ function createMockPlannerDb(
       },
     },
     select: (_fields?: unknown) => ({
-      from: (_table: unknown) => ({
+      from: (table: unknown) => ({
         where: (...whereArgs: unknown[]) => {
           const requestedIds = extractValuesFromInArray(whereArgs[0]);
-          const filtered = requestedIds
-            ? rows.filter((r) => requestedIds.includes(r.apId))
-            : rows;
-          const result: Promise<ActorCacheRow[]> & {
-            get?: () => Promise<ActorCacheRow | undefined>;
-          } = Object.assign(Promise.resolve(filtered), {
-            get: () => Promise.resolve(filtered[0] ?? undefined),
+          // filterBlockedActorApIds (the batched outbound blocklist filter)
+          // selects from blocked_actors / blocked_domains; everything else is
+          // the actorCache endpoint lookup.
+          let data: unknown[];
+          if (table === blockedActors) {
+            data = [...blockedActorSet]
+              .filter((id) => !requestedIds || requestedIds.includes(id))
+              .map((actorApId) => ({ actorApId }));
+          } else if (table === blockedDomains) {
+            data = [...blockedDomainSet]
+              .filter((d) => !requestedIds || requestedIds.includes(d))
+              .map((domain) => ({ domain }));
+          } else {
+            data = requestedIds
+              ? rows.filter((r) => requestedIds.includes(r.apId))
+              : rows;
+          }
+          return Object.assign(Promise.resolve(data), {
+            get: () => Promise.resolve(data[0] ?? undefined),
           });
-          return result;
         },
       }),
     }),

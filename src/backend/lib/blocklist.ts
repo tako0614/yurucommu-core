@@ -12,7 +12,7 @@
  * Each call site logs the failure so that the operator can investigate.
  */
 
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import type { Database } from "../../db/index.ts";
 import { blockedActors, blockedDomains } from "../../db/index.ts";
@@ -93,6 +93,62 @@ export async function isActorBlocked(
   const domain = normalizeDomain(actorApId);
   if (!domain) return false;
   return await isDomainBlocked(db, domain);
+}
+
+/**
+ * Batched blocklist filter for a list of recipient actor AP-IDs: returns the
+ * SUBSET that is blocked (by actor OR transitively by hostname) using exactly
+ * two queries (blocked_actors + blocked_domains) instead of two-per-recipient.
+ * Replaces an O(recipients) serial `isActorBlocked` loop on the delivery
+ * fan-out hot path. Fail-open like the singular helpers: a read error yields an
+ * empty blocked set so a transient DB error never black-holes federation.
+ */
+export async function filterBlockedActorApIds(
+  db: Database,
+  actorApIds: string[],
+): Promise<Set<string>> {
+  const blocked = new Set<string>();
+  const uniqueIds = [...new Set(actorApIds.filter((id) => id.length > 0))];
+  if (uniqueIds.length === 0) return blocked;
+
+  try {
+    const blockedActorRows = await db
+      .select({ actorApId: blockedActors.actorApId })
+      .from(blockedActors)
+      .where(inArray(blockedActors.actorApId, uniqueIds));
+    const blockedActorSet = new Set(blockedActorRows.map((r) => r.actorApId));
+
+    const idToDomain = new Map<string, string | null>();
+    const domains = new Set<string>();
+    for (const id of uniqueIds) {
+      const d = normalizeDomain(id);
+      idToDomain.set(id, d);
+      if (d) domains.add(d);
+    }
+
+    const blockedDomainSet = new Set<string>();
+    if (domains.size > 0) {
+      const blockedDomainRows = await db
+        .select({ domain: blockedDomains.domain })
+        .from(blockedDomains)
+        .where(inArray(blockedDomains.domain, [...domains]));
+      for (const r of blockedDomainRows) blockedDomainSet.add(r.domain);
+    }
+
+    for (const id of uniqueIds) {
+      const d = idToDomain.get(id);
+      if (blockedActorSet.has(id) || (d && blockedDomainSet.has(d))) {
+        blocked.add(id);
+      }
+    }
+  } catch (err) {
+    log.warn("blocklist.filterBlockedActorApIds failed", {
+      event: "blocklist.batch_lookup_failed",
+      error: err,
+    });
+    return new Set(); // fail-open
+  }
+  return blocked;
 }
 
 /**

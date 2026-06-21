@@ -20,7 +20,7 @@ import {
 import { computeDeliveryJobId, safeEndpointHost } from "./transformers.ts";
 import { emitMetric } from "./metrics.ts";
 import { logger } from "../logger.ts";
-import { isActorBlocked } from "../blocklist.ts";
+import { filterBlockedActorApIds, isActorBlocked } from "../blocklist.ts";
 
 const log = logger.child({ component: "delivery.queue" });
 
@@ -302,12 +302,10 @@ export async function enqueueResolveForEndpointActors(
         .filter((apId) => isSafeRemoteUrl(apId));
 
       // Drop recipients the operator has defederated before re-enqueueing
-      // resolve_actor jobs (outbound blocklist enforcement).
-      const slice: string[] = [];
-      for (const apId of candidates) {
-        if (await isActorBlocked(db, apId)) continue;
-        slice.push(apId);
-      }
+      // resolve_actor jobs (outbound blocklist enforcement). Batched (2 queries)
+      // rather than a serial isActorBlocked per candidate.
+      const blockedSet = await filterBlockedActorApIds(db, candidates);
+      const slice = candidates.filter((apId) => !blockedSet.has(apId));
 
       if (slice.length === 0) continue;
 

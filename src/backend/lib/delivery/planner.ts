@@ -7,7 +7,7 @@ import {
   safeParseIsoTimeMs,
 } from "./transformers.ts";
 import { isSafeRemoteUrl } from "../../federation-helpers.ts";
-import { isActorBlocked } from "../blocklist.ts";
+import { filterBlockedActorApIds } from "../blocklist.ts";
 
 export type PlannedEndpointGroup = {
   endpoint: string;
@@ -79,8 +79,11 @@ export async function planEndpointsFromActorCache(
   // transitively) that the inbox handler uses inbound.
   const allowedRecipients: string[] = [];
   const blockedRecipients: string[] = [];
+  // Batched blocklist filter (2 queries) instead of a serial isActorBlocked
+  // per recipient (2 queries each → up to ~400 round-trips per fan-out page).
+  const blockedSet = await filterBlockedActorApIds(db, recipientActorApIds);
   for (const apId of recipientActorApIds) {
-    if (await isActorBlocked(db, apId)) {
+    if (blockedSet.has(apId)) {
       blockedRecipients.push(apId);
     } else {
       allowedRecipients.push(apId);

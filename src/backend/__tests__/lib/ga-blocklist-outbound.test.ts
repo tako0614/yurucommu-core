@@ -12,6 +12,10 @@ import { expect, test } from "bun:test";
 
 import { stub } from "#test/mock";
 import type { Database } from "../../../db/index.ts";
+import {
+  blockedActors as blockedActorsTable,
+  blockedDomains as blockedDomainsTable,
+} from "../../../db/index.ts";
 import type { Env } from "../../types.ts";
 import { planEndpointsFromActorCache } from "../../lib/delivery/planner.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
@@ -71,9 +75,25 @@ function createMockDb(
   const blockedDomains = new Set(blocked.domains ?? []);
   return {
     select: (_fields?: unknown) => ({
-      from: (_table: unknown) => ({
+      from: (table: unknown) => ({
         where: (...whereArgs: unknown[]) => {
           const requestedIds = extractValuesFromInArray(whereArgs[0]);
+          // filterBlockedActorApIds selects from blocked_actors / blocked_domains;
+          // everything else is the actorCache endpoint lookup.
+          if (table === blockedActorsTable) {
+            return Promise.resolve(
+              [...blockedActors]
+                .filter((id) => !requestedIds || requestedIds.includes(id))
+                .map((actorApId) => ({ actorApId })),
+            );
+          }
+          if (table === blockedDomainsTable) {
+            return Promise.resolve(
+              [...blockedDomains]
+                .filter((d) => !requestedIds || requestedIds.includes(d))
+                .map((domain) => ({ domain })),
+            );
+          }
           const filtered = requestedIds
             ? rows.filter((r) => requestedIds.includes(r.apId))
             : rows;
