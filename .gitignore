@@ -30,10 +30,14 @@ coverage/
 logs/
 *.log
 
-# Local SQLite state
-data/*.db
-data/*.db-shm
-data/*.db-wal
+# Local runtime / operator state — never commit (self-host server scratch dir:
+# SQLite DBs, uploaded media, captured logs, cookie jars, credentials).
+data/
+
+# Operator deploy config — realized resource IDs / routes live outside the repo
+# (see AGENTS.md: operator config + secrets are kept out of the repo).
+wrangler.toml
+wrangler.local.toml
 
 # Temp files
 tmp/
