@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import {
   activities,
   communities,
@@ -112,24 +112,14 @@ messagesRouter.get("/:identifier/messages", async (c) => {
     return c.json({ error: readError }, 403);
   }
 
-  // Query objects addressed to this community (via object_recipients)
-  const recipients = await db
-    .select({
-      objectApId: objectRecipients.objectApId,
-    })
-    .from(objectRecipients)
-    .where(
-      and(
-        eq(objectRecipients.recipientApId, community.apId),
-        eq(objectRecipients.type, "audience"),
-      ),
-    );
-
-  const objectApIds = recipients.map((r) => r.objectApId);
-  if (objectApIds.length === 0) {
-    return c.json({ messages: [], has_more: false });
-  }
-
+  // Query objects addressed to this community (via object_recipients) with a
+  // single INNER JOIN, NOT a two-step "load every recipient id then IN (...)".
+  // The old shape materialized the community's ENTIRE chat history into an
+  // `objectApIds` array and an `inArray` bound-parameter list every request:
+  // memory O(all messages) and — past SQLite's bound-variable ceiling — a hard
+  // error on a busy channel. The join filters on the indexed `recipient_ap_id`
+  // and pages with LIMIT, so the work is bounded by the page size.
+  //
   // The group-chat reader must return CHAT messages only, not community feed
   // posts. Feed posts are stored with `communityApId` set (and are surfaced by
   // the community-scoped feed), whereas chat messages are addressed purely via
@@ -137,7 +127,8 @@ messagesRouter.get("/:identifier/messages", async (c) => {
   // `communityApId IS NULL` keeps the chat object-set disjoint from the feed
   // object-set, matching the unread count in GET /dm/contacts.
   const whereConditions = [
-    inArray(objects.apId, objectApIds),
+    eq(objectRecipients.recipientApId, community.apId),
+    eq(objectRecipients.type, "audience"),
     eq(objects.type, "Note"),
     isNull(objects.communityApId),
   ];
@@ -148,8 +139,14 @@ messagesRouter.get("/:identifier/messages", async (c) => {
   // Fetch one extra to detect whether an OLDER page exists (powers the thread's
   // "load older" affordance; `before` is the oldest shown message's published).
   const fetched = await db
-    .select()
-    .from(objects)
+    .select({
+      apId: objects.apId,
+      attributedTo: objects.attributedTo,
+      content: objects.content,
+      published: objects.published,
+    })
+    .from(objectRecipients)
+    .innerJoin(objects, eq(objectRecipients.objectApId, objects.apId))
     .where(and(...whereConditions))
     .orderBy(desc(objects.published))
     .limit(limit + 1);
