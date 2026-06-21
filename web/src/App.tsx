@@ -52,6 +52,11 @@ function AppShell() {
         {/* Splat (*) so a refreshed/shared link whose %2F was decoded on the
             server round-trip still matches (the AP id is a full URL). */}
         <Route path="/profile/*actorId" component={ProfilePage} />
+        {/* Clean, federation-facing local profile URL: the actor `url` field and
+            the WebFinger profile-page link both point here (/users/<username>),
+            so a remote viewer clicking through to a local profile must land on a
+            real route, not a blank SPA page. */}
+        <Route path="/users/:username" component={ProfilePage} />
         <Route path="/notifications" component={NotificationPage} />
         <Route path="/post/*postId" component={PostDetailPage} />
         <Route path="/bookmarks" component={BookmarksPage} />

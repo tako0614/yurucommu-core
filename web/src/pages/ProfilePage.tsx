@@ -89,9 +89,20 @@ export function ProfilePage() {
     "block" | "mute" | null
   >(null);
 
-  // Use current actor if no actorId in URL
+  // Resolve which actor this page shows:
+  //   /profile/<encoded ap_id>  -> params.actorId (any local OR remote actor)
+  //   /users/<username>         -> params.username (a LOCAL handle — the clean,
+  //                                 federation-facing profile URL advertised as
+  //                                 the actor `url` + WebFinger profile-page; a
+  //                                 local actor's ap_id is deterministic, so
+  //                                 reconstruct it from this origin)
+  //   (neither)                 -> the logged-in actor's own profile
   const targetActorId = () =>
-    params.actorId ? decodeApIdParam(params.actorId) : actor.ap_id;
+    params.actorId
+      ? decodeApIdParam(params.actorId)
+      : params.username
+        ? `${window.location.origin}/ap/users/${params.username}`
+        : actor.ap_id;
   const isOwnProfile = () => targetActorId() === actor.ap_id;
   // The handle shown in the header. Once the profile is loaded we always use its
   // own username. Before it loads (skeleton / error), only the OWN profile may
