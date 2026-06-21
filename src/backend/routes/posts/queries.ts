@@ -12,6 +12,7 @@ import {
   activities,
   actorCache,
   bookmarks,
+  communities,
   likes,
   objects,
 } from "../../../db/index.ts";
@@ -455,8 +456,24 @@ export async function persistAndFanoutToCommunity(
   // followers in place of the raw author Create; LOCAL members still get the
   // Create. Edit/Delete (Update/Delete) relay the activity directly (no
   // announce) for now.
-  let announceActivityId: string | undefined;
+  // Only PUBLIC communities federate as Group actors (their actor/inbox/outbox
+  // are served + followable; a private community 404s). So only a public
+  // community gets a Group Announce — building one for a private community
+  // would mint a `cc: Public` activity that, while currently undelivered (a
+  // private community has no remote followers) and unserved (its outbox 404s),
+  // would leak into the outbox the moment the community is flipped public.
+  let isPublicCommunity = false;
   if (activity.type === "Create") {
+    const row = await db
+      .select({ visibility: communities.visibility })
+      .from(communities)
+      .where(eq(communities.apId, communityApId))
+      .get();
+    isPublicCommunity = row?.visibility === "public";
+  }
+
+  let announceActivityId: string | undefined;
+  if (activity.type === "Create" && isPublicCommunity) {
     const baseUrl = env.APP_URL;
     announceActivityId = activityApId(baseUrl, generateId());
     const announce = {

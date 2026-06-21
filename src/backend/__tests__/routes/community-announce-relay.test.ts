@@ -23,7 +23,11 @@ async function freshDb(): Promise<Database> {
   return drizzle(client, { schema }) as unknown as Database;
 }
 
-async function insertCommunity(db: Database, name: string): Promise<string> {
+async function insertCommunity(
+  db: Database,
+  name: string,
+  visibility: "public" | "private" = "public",
+): Promise<string> {
   const apId = `${APP_URL}/ap/groups/${name}`;
   await db.insert(communities).values({
     apId,
@@ -32,7 +36,7 @@ async function insertCommunity(db: Database, name: string): Promise<string> {
     inbox: `${apId}/inbox`,
     outbox: `${apId}/outbox`,
     followersUrl: `${apId}/followers`,
-    visibility: "public",
+    visibility,
     joinPolicy: "open",
     postPolicy: "members",
     publicKeyPem: "pub",
@@ -124,6 +128,37 @@ test("a community Update/Delete relays directly (no Announce, no announceActivit
       actor: `${APP_URL}/ap/users/owner`,
     },
     noteId,
+    communityApId,
+  );
+
+  const announce = await db.query.activities.findFirst({
+    where: and(
+      eq(activities.type, "Announce"),
+      eq(activities.actorApId, communityApId),
+    ),
+  });
+  expect(announce).toBeUndefined();
+
+  const fanout = sent.find((m) => m.type === "fanout_community") as
+    | { announceActivityId?: string }
+    | undefined;
+  expect(fanout?.announceActivityId).toBeUndefined();
+});
+
+test("a PRIVATE community Create emits NO Announce (not federated as a Group)", async () => {
+  const db = await freshDb();
+  const communityApId = await insertCommunity(db, "secret", "private");
+  const sent: DeliveryQueueMessageV1[] = [];
+
+  await persistAndFanoutToCommunity(
+    db,
+    envFor(db, sent),
+    {
+      id: `${APP_URL}/ap/activities/create-priv`,
+      type: "Create",
+      actor: `${APP_URL}/ap/users/owner`,
+    },
+    `${APP_URL}/ap/objects/note-priv`,
     communityApId,
   );
 
