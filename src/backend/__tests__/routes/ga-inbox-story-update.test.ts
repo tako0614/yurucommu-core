@@ -293,3 +293,44 @@ test("handleCreateStory clamps a non-ISO inbound endTime to a valid future insta
   // compare works), not the garbage string.
   expect(Number.isNaN(Date.parse(row!.endTime!))).toBe(false);
 });
+
+// A malicious remote must not pin its post to the top of every desc(published)
+// feed forever by claiming a far-future `published` (which is VALID ISO so it
+// parses, yet lexically dominates every real timestamp). handleCreate* clamps a
+// future-dated published down to ~now; the endTime expiry bound is anchored to
+// the clamped value so it can't escape either.
+test("handleCreateStory clamps a far-future inbound published so it cannot dominate feed ordering", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  const activity = {
+    id: "https://remote.example/a/fp",
+    type: "Create",
+    actor: ALICE,
+    object: {
+      id: STORY_ID,
+      type: "Story",
+      content: "x",
+      attachment: {
+        url: "https://remote.example/media/s.jpg",
+        mediaType: "image/jpeg",
+      },
+      published: "9999-12-31T23:59:59Z",
+      endTime: "9999-12-31T23:59:59Z",
+    },
+  } as unknown as Activity;
+  await handleCreateStory(ctx(db), activity, ALICE, "https://yuru.test");
+
+  const row = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  const publishedMs = Date.parse(row!.published!);
+  expect(Number.isNaN(publishedMs)).toBe(false);
+  // Clamped to ~now (not the year-9999 value), so it sorts with real posts.
+  expect(publishedMs).toBeLessThanOrEqual(Date.now() + 60_000);
+  // And the story still expires — endTime stayed anchored to the clamped now.
+  expect(Date.parse(row!.endTime!)).toBeLessThanOrEqual(
+    Date.now() + 26 * 60 * 60 * 1000,
+  );
+});

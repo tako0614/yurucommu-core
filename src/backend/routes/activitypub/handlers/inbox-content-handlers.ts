@@ -41,6 +41,31 @@ const log = logger.child({ component: "activitypub.inbox.content" });
 
 type ActorRow = typeof actors.$inferSelect;
 
+// Clamp + normalize a remote-controlled timestamp (inbound AP `published`).
+// Stored verbatim it poisons the `desc(published)` feed sort + the
+// `lt(published, cursor)` paginator two ways: (1) a non-ISO / space-separated /
+// non-`Z` value lexically mis-sorts under BINARY collation; (2) a VALID but
+// far-FUTURE value ("9999-…") legitimately parses yet lexically dominates every
+// real `2026-…` row, pinning the post to the top of every feed forever. So:
+// reformat to the canonical ISO-8601 UTC shape every comparison operand uses,
+// AND clamp a future date down to `now` (a post cannot be published in the
+// future; a small skew slack is allowed). Garbage / missing → `now`. We do NOT
+// clamp the past — legitimately old (backfilled) posts exist and merely sink.
+// (Mirrors the `endTime` clamp already applied to inbound stories.)
+const FUTURE_PUBLISHED_SKEW_MS = 5 * 60 * 1000;
+function normalizeInboundTimestamp(
+  raw: string | null | undefined,
+  fallbackNow: string,
+): string {
+  const nowMs = Date.parse(fallbackNow);
+  const ms = raw ? Date.parse(raw) : NaN;
+  if (!Number.isFinite(ms)) return fallbackNow;
+  if (Number.isFinite(nowMs) && ms > nowMs + FUTURE_PUBLISHED_SKEW_MS) {
+    return fallbackNow;
+  }
+  return new Date(ms).toISOString();
+}
+
 // ---------------------------------------------------------------------------
 // Atomic multi-statement commit (mirrors posts/interactions.ts `runBatch` and
 // the inbox-interaction / inbox-shared helper). D1 has no interactive
@@ -201,7 +226,10 @@ async function insertDirectNote(
   const attachments = object.attachment
     ? JSON.stringify(object.attachment)
     : "[]";
-  const publishedAt = object.published || new Date().toISOString();
+  const publishedAt = normalizeInboundTimestamp(
+    object.published,
+    new Date().toISOString(),
+  );
   const toJson = JSON.stringify([recipient.apId]);
 
   // Was the object already present BEFORE this dispatch? This decides whether
@@ -349,7 +377,10 @@ export async function handleCreate(
   const attachments = object.attachment
     ? JSON.stringify(object.attachment)
     : "[]";
-  const publishedAt = object.published || new Date().toISOString();
+  const publishedAt = normalizeInboundTimestamp(
+    object.published,
+    new Date().toISOString(),
+  );
   const parentObj = object.inReplyTo
     ? await db
         .select({ attributedTo: objects.attributedTo })
@@ -540,7 +571,11 @@ export async function handleCreateStory(
   // never-expiring stories that accumulate forever. Bound it to published + ~25h
   // (the ~24h story lifetime + slack) and normalize to ISO so the compare holds.
   const STORY_MAX_LIFETIME_MS = 25 * 60 * 60 * 1000;
-  const publishedMs = Date.parse(object.published || now);
+  // Clamp+normalize the inbound `published` FIRST and anchor the endTime bound to
+  // THAT, not the raw value: a far-future `published` ("9999-…") would otherwise
+  // push maxEndMs far into the future too and defeat this very expiry clamp.
+  const publishedAt = normalizeInboundTimestamp(object.published, now);
+  const publishedMs = Date.parse(publishedAt);
   const maxEndMs =
     (Number.isNaN(publishedMs) ? Date.now() : publishedMs) +
     STORY_MAX_LIFETIME_MS;
@@ -564,7 +599,7 @@ export async function handleCreateStory(
       content: "",
       attachmentsJson: JSON.stringify(attachmentData),
       endTime,
-      published: object.published || now,
+      published: publishedAt,
       isLocal: 0,
     })
     .onConflictDoNothing()
