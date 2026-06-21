@@ -30,10 +30,22 @@ const JOIN_POLICY_STATUS: Record<string, "accepted" | "pending" | "rejected"> =
     invite: "rejected",
   };
 
+/**
+ * Minimal shape of a Group-style actor whose inbox accepts Follows: the
+ * instance actor AND any community Group share this handler. Only the apId
+ * (the thing being followed / signed as) and the joinPolicy (auto-accept vs
+ * hold pending) are needed, so both `InstanceActorResult` and a loaded
+ * community satisfy it structurally.
+ */
+export interface GroupFollowTarget {
+  apId: string;
+  joinPolicy?: string;
+}
+
 export async function handleGroupFollow(
   c: ActivityContext,
   _activity: Activity,
-  instanceActor: InstanceActorResult,
+  group: GroupFollowTarget,
   actorApIdStr: string,
   baseUrl: string,
   activityId: string,
@@ -41,7 +53,7 @@ export async function handleGroupFollow(
   const db = c.get("db");
   const followerKey = {
     followerApId: actorApIdStr,
-    followingApId: instanceActor.apId,
+    followingApId: group.apId,
   };
 
   const existing = await db.query.follows.findFirst({
@@ -52,8 +64,7 @@ export async function handleGroupFollow(
   });
   if (existing) return;
 
-  const status =
-    JOIN_POLICY_STATUS[instanceActor.joinPolicy ?? ""] ?? "accepted";
+  const status = JOIN_POLICY_STATUS[group.joinPolicy ?? ""] ?? "accepted";
 
   const now = new Date().toISOString();
   await db.insert(follows).values({
@@ -72,27 +83,29 @@ export async function handleGroupFollow(
     "@context": AS_CONTEXT,
     id: responseId,
     type: responseType,
-    actor: instanceActor.apId,
+    actor: group.apId,
     object: activityId,
   };
 
   await db.insert(activities).values({
     apId: responseId,
     type: responseType,
-    actorApId: instanceActor.apId,
+    actorApId: group.apId,
     objectApId: activityId,
     rawJson: JSON.stringify(responseActivity),
     direction: "outbound",
   });
 
-  // Outbound delivery must be async (no remote POST in request path).
+  // Outbound delivery must be async (no remote POST in request path). The
+  // Accept is signed by `group.apId` — queue-delivery resolves the community /
+  // instance-actor key for that apId.
   await enqueueDeliveryToActor(c.env, responseId, actorApIdStr);
 }
 
 export async function handleGroupUndo(
   c: ActivityContext,
   activity: Activity,
-  instanceActor: InstanceActorResult,
+  group: GroupFollowTarget,
 ) {
   const db = c.get("db");
   const objectId = getActivityObjectId(activity);
@@ -102,7 +115,7 @@ export async function handleGroupUndo(
   const follow = await db.query.follows.findFirst({
     where: and(
       eq(follows.activityApId, objectId),
-      eq(follows.followingApId, instanceActor.apId),
+      eq(follows.followingApId, group.apId),
     ),
   });
 
@@ -126,7 +139,7 @@ export async function handleGroupUndo(
     .where(
       and(
         eq(follows.followerApId, activity.actor as string),
-        eq(follows.followingApId, instanceActor.apId),
+        eq(follows.followingApId, group.apId),
       ),
     );
 }

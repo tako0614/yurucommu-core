@@ -10,7 +10,8 @@ import {
   isLocal,
   isSafeRemoteUrl,
 } from "../../federation-helpers.ts";
-import { getInstanceActor } from "./query-helpers.ts";
+import { getInstanceActor, loadFederatedCommunity } from "./query-helpers.ts";
+import { communityApId } from "../../lib/ap-ids.ts";
 import type { Activity } from "./inbox-types.ts";
 import { getActivityObjectId } from "./inbox-types.ts";
 import {
@@ -665,6 +666,62 @@ ap.post("/ap/actor/inbox", async (c) => {
       event: "ap.actor_inbox.dispatch_error",
       activityType,
       actor,
+      error: e,
+    });
+  }
+
+  return c.body(null, 202);
+});
+
+// Community (Group) inbox — a remote joins a community by POSTing a Follow
+// here; we Accept (signed by the community key) per joinPolicy, and Undo
+// removes the membership/follow. Mirrors the instance-actor inbox, reusing the
+// shared Group handlers. Only PUBLIC communities are followable (the loader
+// returns null for private/deleted → 404).
+ap.post("/ap/groups/:name/inbox", async (c) => {
+  const db = c.get("db");
+  const baseUrl = c.env.APP_URL;
+  const name = c.req.param("name");
+  const community = await loadFederatedCommunity(
+    db,
+    communityApId(baseUrl.replace(/\/+$/, ""), name),
+  );
+  if (!community) return c.json({ error: "Community not found" }, 404);
+
+  const result = await verifyAndParseInbox(c, baseUrl);
+  if (result instanceof Response) return result;
+
+  const throttled = await applyInboxDomainRateLimit(c, result.actor);
+  if (throttled) return throttled;
+
+  const claim = await claimActivityForDispatch(c, result);
+  if (claim instanceof Response) return claim;
+
+  const { activity, activityType, actor } = result;
+
+  try {
+    switch (activityType) {
+      case "Follow":
+        await handleGroupFollow(
+          c,
+          activity,
+          community,
+          actor,
+          baseUrl,
+          result.activityId,
+        );
+        break;
+      case "Undo":
+        await handleGroupUndo(c, activity, community);
+        break;
+    }
+    await commitActivityDispatch(c, claim.activityId);
+  } catch (e) {
+    log.error("Community-inbox dispatch failed", {
+      event: "ap.community_inbox.dispatch_error",
+      activityType,
+      actor,
+      community: community.apId,
       error: e,
     });
   }
