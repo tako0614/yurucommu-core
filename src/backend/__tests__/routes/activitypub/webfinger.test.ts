@@ -13,6 +13,14 @@ function createActorDb(
         findFirst: () => Promise.resolve(responses[index++] ?? null),
       },
     },
+    // loadFederatedCommunity (the webfinger community fall-through) runs a
+    // `select().from().where().get()` — stub it to resolve no community so the
+    // unknown-handle path reaches the 404 instead of throwing.
+    select: () => ({
+      from: () => ({
+        where: () => ({ get: () => Promise.resolve(undefined) }),
+      }),
+    }),
   };
 }
 

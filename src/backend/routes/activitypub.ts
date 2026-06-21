@@ -5,9 +5,11 @@ import type { Env, Variables } from "../types.ts";
 import { actors, objects as objectsTable } from "../../db/index.ts";
 import { notDeleted } from "../../db/index.ts";
 import { actorApId, getDomain, safeJsonParse } from "../federation-helpers.ts";
+import { communityApId } from "../lib/ap-ids.ts";
 import {
   getInstanceActor,
   INSTANCE_ACTOR_USERNAME,
+  loadFederatedCommunity,
 } from "./activitypub/query-helpers.ts";
 import inboxRoutes from "./activitypub/inbox.ts";
 import outboxRoutes from "./activitypub/outbox.ts";
@@ -315,8 +317,26 @@ ap.get(
     // `preferredUsername`, and re-WebFingers THAT — the round-trip subject then
     // mismatches the original query and the actor is rejected. So the fallback
     // had no working upside and real downsides (identity confusion / spoofed
-    // existence). Resolve only an exact local actor; otherwise 404.
-    if (!resolvedActor) return c.json({ error: "Actor not found" }, 404);
+    // existence). Resolve only an exact local actor — but a handle may instead
+    // name a federated COMMUNITY, so try a public Group actor before 404ing.
+    if (!resolvedActor) {
+      const community = await loadFederatedCommunity(
+        db,
+        communityApId(baseUrl.replace(/\/+$/, ""), username),
+      );
+      if (community) {
+        return jrdJson(
+          c,
+          buildWebFingerResponse(
+            community.preferredUsername,
+            domain,
+            community.apId,
+            `${baseUrl}/groups/${community.preferredUsername}`,
+          ),
+        );
+      }
+      return c.json({ error: "Actor not found" }, 404);
+    }
 
     // Echo the CANONICAL username as the subject (not the requested casing) so
     // the WebFinger round-trip a remote performs stays self-consistent.
@@ -495,6 +515,65 @@ ap.get(
       },
       publicKey: buildPublicKey(instanceActor.apId, instanceActor.publicKeyPem),
     };
+
+    return activityJson(c, actorResponse);
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Community Group Actor (cached 10 minutes)
+//
+// A yurucommu community federates as a standard fediverse Group actor
+// (Lemmy/Mobilizon style): remotes WebFinger `acct:<name>@host`, fetch this
+// document, and Follow the inbox to join. Only PUBLIC, non-deleted communities
+// are served (a private community's existence is members-only). The human web
+// page (`/groups/<name>`) is already an SPA route, so `url` resolves.
+// ---------------------------------------------------------------------------
+
+ap.get(
+  "/ap/groups/:name",
+  withCache({
+    ttl: CacheTTL.ACTIVITYPUB_ACTOR,
+    cacheTag: CacheTags.COMMUNITY,
+  }),
+  async (c) => {
+    const db = c.get("db");
+    const baseUrl = c.env.APP_URL;
+    const name = c.req.param("name");
+    const community = await loadFederatedCommunity(
+      db,
+      communityApId(baseUrl.replace(/\/+$/, ""), name),
+    );
+    if (!community) return c.json({ error: "Community not found" }, 404);
+
+    const actorResponse: Record<string, unknown> = {
+      "@context": ACTOR_CONTEXT,
+      id: community.apId,
+      type: "Group",
+      preferredUsername: community.preferredUsername,
+      name: community.name,
+      summary: community.summary ?? "",
+      url: `${baseUrl}/groups/${community.preferredUsername}`,
+      icon: community.iconUrl
+        ? { type: "Image", url: safeUrlJoin(baseUrl, community.iconUrl) }
+        : undefined,
+      inbox: community.inbox,
+      outbox: community.outbox,
+      followers: community.followersUrl,
+      endpoints: {
+        sharedInbox: `${baseUrl}/ap/inbox`,
+      },
+      publicKey: buildPublicKey(community.apId, community.publicKeyPem),
+      discoverable: true,
+      // open-join communities auto-accept Follows; approval/invite hold them
+      // pending (the inbox Follow handler enforces this).
+      manuallyApprovesFollowers: community.joinPolicy !== "open",
+      published: toIso8601(community.createdAt),
+    };
+
+    for (const key of Object.keys(actorResponse)) {
+      if (actorResponse[key] === undefined) delete actorResponse[key];
+    }
 
     return activityJson(c, actorResponse);
   },

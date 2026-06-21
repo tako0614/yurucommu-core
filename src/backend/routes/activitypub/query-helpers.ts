@@ -1,7 +1,8 @@
 import type { Context } from "hono";
 import type { Env, Variables } from "../../types.ts";
-import { eq } from "drizzle-orm";
-import { instanceActor } from "../../../db/index.ts";
+import { and, eq, isNull } from "drizzle-orm";
+import { communities, instanceActor } from "../../../db/index.ts";
+import type { Database } from "../../../db/index.ts";
 import { generateKeyPair } from "../../federation-helpers.ts";
 import type { RemoteFetchSigner } from "../../lib/activitypub-actor-cache.ts";
 import { logger } from "../../lib/logger.ts";
@@ -9,6 +10,59 @@ import { logger } from "../../lib/logger.ts";
 const log = logger.child({ component: "activitypub.query_helpers" });
 
 export const INSTANCE_ACTOR_USERNAME = "community";
+
+/** Columns of a community needed to serve its ActivityPub Group actor doc. */
+export interface FederatedCommunityActor {
+  apId: string;
+  preferredUsername: string;
+  name: string;
+  summary: string | null;
+  iconUrl: string | null;
+  inbox: string;
+  outbox: string;
+  followersUrl: string;
+  publicKeyPem: string;
+  joinPolicy: string;
+  memberCount: number;
+  createdAt: string;
+}
+
+/**
+ * Load a community that is servable over federation as a Group actor: it must
+ * exist, not be deleted, and be PUBLIC. A private community's existence /
+ * name / summary is members-only (mirroring the discovery-list gate), so it is
+ * NOT exposed as a federated actor — callers 404 a null result.
+ */
+export async function loadFederatedCommunity(
+  db: Database,
+  apId: string,
+): Promise<FederatedCommunityActor | null> {
+  const row = await db
+    .select({
+      apId: communities.apId,
+      preferredUsername: communities.preferredUsername,
+      name: communities.name,
+      summary: communities.summary,
+      iconUrl: communities.iconUrl,
+      inbox: communities.inbox,
+      outbox: communities.outbox,
+      followersUrl: communities.followersUrl,
+      publicKeyPem: communities.publicKeyPem,
+      joinPolicy: communities.joinPolicy,
+      memberCount: communities.memberCount,
+      createdAt: communities.createdAt,
+    })
+    .from(communities)
+    .where(
+      and(
+        eq(communities.apId, apId),
+        isNull(communities.deletedAt),
+        eq(communities.visibility, "public"),
+      ),
+    )
+    .get();
+  return row ?? null;
+}
 
 export type InstanceActorResult = {
   apId: string;
