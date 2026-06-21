@@ -169,6 +169,7 @@ test("Undo(Follow) removes the community membership", async () => {
       object: { type: "Follow", id: activityId },
     } as unknown as Activity,
     { apId, joinPolicy: "open" },
+    REMOTE,
   );
 
   expect(
@@ -179,4 +180,47 @@ test("Undo(Follow) removes the community membership", async () => {
       ),
     }),
   ).toBeUndefined();
+});
+
+test("a forged Undo from a DIFFERENT actor cannot sever a victim's follow", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "club", "open");
+  const victimActivityId = "https://remote.example/activities/follow-victim";
+  // Victim (REMOTE) follows the community.
+  await handleGroupFollow(
+    ctx(db),
+    {
+      type: "Follow",
+      actor: REMOTE,
+      object: apId,
+      id: victimActivityId,
+    } as unknown as Activity,
+    { apId, joinPolicy: "open" },
+    REMOTE,
+    APP_URL,
+    victimActivityId,
+  );
+
+  // Attacker on a different domain signs an Undo referencing the victim's
+  // (public) Follow activity id. The signer is the attacker, NOT the victim.
+  await handleGroupUndo(
+    ctx(db),
+    {
+      type: "Undo",
+      actor: "https://evil.example/users/mallory",
+      object: { type: "Follow", id: victimActivityId },
+    } as unknown as Activity,
+    { apId, joinPolicy: "open" },
+    "https://evil.example/users/mallory",
+  );
+
+  // The victim's follow MUST survive — the forged Undo is ignored.
+  expect(
+    await db.query.follows.findFirst({
+      where: and(
+        eq(follows.followerApId, REMOTE),
+        eq(follows.followingApId, apId),
+      ),
+    }),
+  ).toBeTruthy();
 });

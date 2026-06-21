@@ -106,6 +106,7 @@ export async function handleGroupUndo(
   c: ActivityContext,
   activity: Activity,
   group: GroupFollowTarget,
+  actorApIdStr: string,
 ) {
   const db = c.get("db");
   const objectId = getActivityObjectId(activity);
@@ -120,6 +121,13 @@ export async function handleGroupUndo(
   });
 
   if (follow) {
+    // Bind to the VERIFIED signer: only the follow's own follower may undo it.
+    // The activity id is public (it appears in the follower's outbox), so
+    // without this check a remote attacker who signs an Undo as any actor on
+    // their own domain could resolve a VICTIM's follow by that id and sever the
+    // victim's follow/membership edge — the same cross-actor forgery already
+    // guarded in the user-inbox undoFollow handler.
+    if (follow.followerApId !== actorApIdStr) return;
     await db
       .delete(follows)
       .where(
@@ -131,14 +139,15 @@ export async function handleGroupUndo(
     return;
   }
 
-  // Fallback: if the undone object is a Follow, delete by actor pair.
+  // Fallback: if the undone object is a Follow, delete by actor pair — keyed on
+  // the verified signer, so it can only remove the signer's OWN follow.
   if (getActivityObject(activity)?.type !== "Follow") return;
 
   await db
     .delete(follows)
     .where(
       and(
-        eq(follows.followerApId, activity.actor as string),
+        eq(follows.followerApId, actorApIdStr),
         eq(follows.followingApId, group.apId),
       ),
     );

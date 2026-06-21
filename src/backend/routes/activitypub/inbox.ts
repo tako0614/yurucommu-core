@@ -654,7 +654,7 @@ ap.post("/ap/actor/inbox", async (c) => {
         );
         break;
       case "Undo":
-        await handleGroupUndo(c, activity, instActor);
+        await handleGroupUndo(c, activity, instActor, actor);
         break;
       case "Create":
         await handleGroupCreate(c, activity, instActor, actor, baseUrl);
@@ -712,7 +712,7 @@ ap.post("/ap/groups/:name/inbox", async (c) => {
         );
         break;
       case "Undo":
-        await handleGroupUndo(c, activity, community);
+        await handleGroupUndo(c, activity, community, actor);
         break;
     }
     await commitActivityDispatch(c, claim.activityId);
