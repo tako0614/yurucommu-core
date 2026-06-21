@@ -70,18 +70,19 @@ export function useTimelineState() {
   const checkNewPosts = useSetAtom(checkNewPostsAtom);
   const applyNewPosts = useSetAtom(applyNewPostsAtom);
 
-  // Initial load. Gate the first timeline/story fetch on scope hydration so a
-  // stale stored community scope (one the user has since left) is reconciled to
-  // personal first, rather than firing a wasted 403 against a community the
-  // backend will reject. hydrateScopeAtom is idempotent, so re-running it here
-  // (AppLayout also kicks it on mount) only reconciles the stored scope. The
-  // scope-change effect below is deferred, so the reconcile never double-fetches
-  // on cold load.
+  // Initial load. The unified home defaults to PERSONAL scope ("everything you
+  // can see") and `inhabitedScopeAtom` is NOT persisted — it resets to personal
+  // on every load — so the first timeline/story fetch never depends on a
+  // resolved scope (no stale stored community to reconcile away first). Fire
+  // them in PARALLEL with scope hydration instead of waiting a round-trip on the
+  // communities fetch. hydrateScope still runs (idempotent; AppLayout also kicks
+  // it, deduped) to populate the community filter picker, and since it only
+  // reconciles personal -> personal on cold load, the deferred scope-change
+  // effect below never refires (no double-fetch).
   onMount(() => {
-    void hydrateScope().then(() => {
-      loadTimeline();
-      loadStories();
-    });
+    void hydrateScope();
+    loadTimeline();
+    loadStories();
   });
 
   // Reactively reload when the inhabited scope changes (personal <-> a
