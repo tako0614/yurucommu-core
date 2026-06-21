@@ -590,3 +590,121 @@ test("COUNTER-SYM: Block severs both follow directions and reconciles counts, re
   expect(await followerCount(db, REMOTE_ALICE)).toBe(0);
   expect(await followingCount(db, REMOTE_ALICE)).toBe(0);
 });
+
+// ---------------------------------------------------------------------------
+// SECURITY: a typed-object Undo resolved by activity id must be bound to the
+// VERIFIED signer — an attacker who knows a public activity id must NOT be able
+// to undo a victim's like/announce/follow.
+// ---------------------------------------------------------------------------
+
+const REMOTE_MALLORY = "https://evil.example/users/mallory";
+
+test("SECURITY: a cross-actor Undo(Like) by activity id cannot remove a victim's like", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob");
+  await seedActor(db, REMOTE_ALICE, "alice");
+  await seedActor(db, REMOTE_MALLORY, "mallory");
+  await db.insert(objects).values({
+    apId: OBJECT_AP_ID,
+    type: "Note",
+    attributedTo: LOCAL_BOB,
+    content: "hi",
+    likeCount: 1,
+  });
+  const aliceLikeId = "https://remote.example/activities/like-victim";
+  await db.insert(likes).values({
+    actorApId: REMOTE_ALICE,
+    objectApId: OBJECT_AP_ID,
+    activityApId: aliceLikeId,
+  });
+
+  // Mallory (the verified signer) tries to undo Alice's like by its public id.
+  const forgery = {
+    id: "https://evil.example/activities/undo-forge",
+    type: "Undo",
+    actor: REMOTE_MALLORY,
+    object: { type: "Like", id: aliceLikeId },
+  } as unknown as Activity;
+  await handleUndo(
+    ctxFor(db),
+    forgery,
+    recipientRow(LOCAL_BOB),
+    REMOTE_MALLORY,
+    APP_URL,
+  );
+
+  // Untouched: the like row + count survive.
+  expect(await likeCount(db)).toBe(1);
+  const stillThere = await db
+    .select()
+    .from(likes)
+    .where(eq(likes.activityApId, aliceLikeId))
+    .get();
+  expect(stillThere).toBeDefined();
+
+  // Positive control: Alice herself CAN undo it.
+  const legit = {
+    id: "https://remote.example/activities/undo-legit",
+    type: "Undo",
+    actor: REMOTE_ALICE,
+    object: { type: "Like", id: aliceLikeId },
+  } as unknown as Activity;
+  await handleUndo(
+    ctxFor(db),
+    legit,
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+  expect(await likeCount(db)).toBe(0);
+});
+
+test("SECURITY: a cross-actor Undo(Follow) cannot sever a victim's follow edge", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob", { followerCount: 1 });
+  await seedActor(db, REMOTE_ALICE, "alice");
+  await seedActor(db, REMOTE_MALLORY, "mallory");
+  const aliceFollowId = "https://remote.example/activities/follow-victim";
+  await db.insert(follows).values({
+    followerApId: REMOTE_ALICE,
+    followingApId: LOCAL_BOB,
+    status: "accepted",
+    activityApId: aliceFollowId,
+  });
+
+  // Mallory tries to undo Alice's follow of Bob.
+  const forgery = {
+    id: "https://evil.example/activities/undo-follow-forge",
+    type: "Undo",
+    actor: REMOTE_MALLORY,
+    object: { type: "Follow", id: aliceFollowId },
+  } as unknown as Activity;
+  await handleUndo(
+    ctxFor(db),
+    forgery,
+    recipientRow(LOCAL_BOB),
+    REMOTE_MALLORY,
+    APP_URL,
+  );
+
+  // Edge + count intact.
+  expect(await followEdgeStatus(db, REMOTE_ALICE, LOCAL_BOB)).toBe("accepted");
+  expect(await followerCount(db, LOCAL_BOB)).toBe(1);
+
+  // Positive control: Alice can undo her own follow.
+  const legit = {
+    id: "https://remote.example/activities/undo-follow-legit",
+    type: "Undo",
+    actor: REMOTE_ALICE,
+    object: { type: "Follow", id: aliceFollowId },
+  } as unknown as Activity;
+  await handleUndo(
+    ctxFor(db),
+    legit,
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+  expect(await followEdgeStatus(db, REMOTE_ALICE, LOCAL_BOB)).toBe(null);
+  expect(await followerCount(db, LOCAL_BOB)).toBe(0);
+});

@@ -410,6 +410,22 @@ async function undoFollow(
 ): Promise<void> {
   const follow = objectId ? await findFollowByActivityId(db, objectId) : null;
 
+  // Bind the undo to the VERIFIED signer: an Undo(Follow) may only remove the
+  // SIGNER's own follow edge. The activity id is public (it appears in the
+  // originator's outbox), so a resolved edge whose follower != `actor` is a
+  // cross-actor forgery — an attacker severing a victim's follow + decrementing
+  // their followerCount. The bare-string Undo path already enforces this via
+  // resolveUndoByActivityId; the typed-object path must too.
+  if (follow && follow.followerApId !== actor) {
+    log.warn("Undo(Follow) actor mismatch", {
+      event: "ap.undo.follow.actor_mismatch",
+      actor,
+      followOwner: follow.followerApId,
+      activityId: objectId,
+    });
+    return;
+  }
+
   // #COUNTER-SYM: co-commit the edge delete and the followerCount -1 atomically
   // (see `undoFollowEdge`). `handleFollow` increments followerCount only for an
   // 'accepted' follow, so the decrement is gated on the edge being accepted; a

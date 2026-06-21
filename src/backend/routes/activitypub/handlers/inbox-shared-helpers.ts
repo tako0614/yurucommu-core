@@ -228,6 +228,11 @@ export async function undoInteraction(
     .where(eq(table.activityApId, activityId))
     .get();
   if (record) {
+    // Bind the undo to the VERIFIED signer. The activity id is public, so a
+    // resolved edge whose owner != the signing actor is a cross-actor forgery
+    // (a remote attacker undoing someone else's like/announce by id). The
+    // directObjectId branch above already keys its delete on `actor`; mirror it.
+    if (record.actorApId !== actor) return false;
     await runBatch(db, [
       db
         .delete(table)
