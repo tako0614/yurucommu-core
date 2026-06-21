@@ -410,22 +410,29 @@ export async function processFanoutCommunity(
 
   const remoteList = [...remoteRecipients];
   if (remoteList.length > 0) {
+    // Announce-relay: remote followers receive the GROUP's Announce of the post
+    // (when present) rather than the raw author activity, so it is attributed
+    // to the community. Local members above kept the raw `activityId`.
+    const remoteActivityId = msg.announceActivityId ?? msg.activityId;
     const planned = await planEndpointsFromActorCache(db, remoteList, {
       metricTags: {
         community: msg.communityApId,
-        activity: msg.activityId,
+        activity: remoteActivityId,
       },
     });
 
     const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
     for (const group of planned.groups) {
-      const jobId = await computeDeliveryJobId(msg.activityId, group.endpoint);
-      await upsertDeliveryJob(db, jobId, msg.activityId, group.endpoint);
+      const jobId = await computeDeliveryJobId(
+        remoteActivityId,
+        group.endpoint,
+      );
+      await upsertDeliveryJob(db, jobId, remoteActivityId, group.endpoint);
       deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
     }
 
     const resolveRequests = planned.unknownRecipients.map((apId) => ({
-      body: buildResolveActorMessage(msg.activityId, apId),
+      body: buildResolveActorMessage(remoteActivityId, apId),
     }));
 
     await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, deliverRequests);

@@ -18,6 +18,12 @@ export type DeliveryFanoutCommunityMessageV1 = {
   type: "fanout_community";
   activityId: string;
   communityApId: string;
+  // The Group's Announce of the post (Announce-relay): delivered to REMOTE
+  // community followers in place of the raw author activity, so the post is
+  // attributed to the group (Lemmy/Mobilizon convention). Local members still
+  // receive `activityId`. Absent for non-Create activities (edit/delete relay
+  // the activity directly).
+  announceActivityId?: string;
   scheduledAt: string; // ISO8601 UTC
 };
 

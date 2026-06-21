@@ -17,7 +17,12 @@ import {
 } from "../../../db/index.ts";
 import { and, eq, inArray, or } from "drizzle-orm";
 import type { Env } from "../../types.ts";
-import { formatUsername, objectApId } from "../../federation-helpers.ts";
+import {
+  activityApId,
+  formatUsername,
+  generateId,
+  objectApId,
+} from "../../federation-helpers.ts";
 import { formatPost, PostRow } from "./transformers.ts";
 import {
   enqueueFanoutToCommunity,
@@ -441,8 +446,46 @@ export async function persistAndFanoutToCommunity(
     direction: "outbound",
   });
 
+  // Announce-relay: for a new post (Create), the GROUP re-broadcasts it to its
+  // followers as its OWN Announce (Lemmy/Mobilizon convention) so the post is
+  // attributed to the community and reaches remote followers whose server
+  // cannot enumerate the group's follower collection. The Announce is signed by
+  // the community (its actor) at delivery time, appears in the community outbox
+  // (the outbox query keys on actorApId == group), and is delivered to REMOTE
+  // followers in place of the raw author Create; LOCAL members still get the
+  // Create. Edit/Delete (Update/Delete) relay the activity directly (no
+  // announce) for now.
+  let announceActivityId: string | undefined;
+  if (activity.type === "Create") {
+    const baseUrl = env.APP_URL;
+    announceActivityId = activityApId(baseUrl, generateId());
+    const announce = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: announceActivityId,
+      type: "Announce",
+      actor: communityApId,
+      object: objectApIdValue,
+      to: [`${communityApId}/followers`],
+      cc: [PUBLIC_URL],
+      published: new Date().toISOString(),
+    };
+    await db.insert(activities).values({
+      apId: announceActivityId,
+      type: "Announce",
+      actorApId: communityApId,
+      objectApId: objectApIdValue,
+      rawJson: JSON.stringify(announce),
+      direction: "outbound",
+    });
+  }
+
   try {
-    await enqueueFanoutToCommunity(env, activity.id, communityApId);
+    await enqueueFanoutToCommunity(
+      env,
+      activity.id,
+      communityApId,
+      announceActivityId,
+    );
   } catch (err) {
     log.error("Failed to enqueue community federation fanout", {
       event: "posts.fanout.community_enqueue_failed",

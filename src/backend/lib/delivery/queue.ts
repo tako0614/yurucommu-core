@@ -393,12 +393,14 @@ export async function enqueueFanoutToCommunity(
   env: Env,
   activityId: string,
   communityApId: string,
+  announceActivityId?: string,
 ): Promise<void> {
   await sendQueueMessage(env, {
     version: DELIVERY_QUEUE_MESSAGE_VERSION,
     type: "fanout_community",
     activityId,
     communityApId,
+    ...(announceActivityId ? { announceActivityId } : {}),
     scheduledAt: nowIso(),
   });
 }
