@@ -8,6 +8,7 @@ import {
   actors,
   announces,
   bookmarks,
+  follows,
   inbox as inboxTable,
   likes,
   objects,
@@ -509,22 +510,72 @@ posts.get("/bookmarks", async (c) => {
     limit,
   });
 
-  // Re-check the community read-gate at read time: a post bookmarked while its
-  // community was public (or while the viewer was a member) must NOT keep
-  // leaking after the community became private / membership was revoked. Drop
-  // any bookmarked object the viewer can no longer read. This never widens
-  // access (non-community / public-community objects short-circuit to true).
+  // Re-check read-access at read time so a bookmark can never resurface a post
+  // the viewer can no longer read. `canViewerReadObject` only gates PRIVATE-
+  // community membership — its contract explicitly delegates the
+  // public/followers/direct visibility check to the caller — so apply those
+  // here too, mirroring the post-detail gate. Two leak classes this closes:
+  //   - a followers-only post bookmarked while following, then unfollowed;
+  //   - a followers-only / direct post bookmarked by apId without ever having
+  //     access (the bookmark-create path resolves apId-only, no visibility gate).
+  // Batch the followers gate: which authors of followers-visibility bookmarks
+  // does the viewer still follow (accepted)?
+  const followerGateAuthors = [
+    ...new Set(
+      allBookmarkRows
+        .filter(
+          (b) =>
+            b.object.visibility === "followers" &&
+            b.object.attributedTo !== actor.ap_id,
+        )
+        .map((b) => b.object.attributedTo),
+    ),
+  ];
+  const followedAuthors =
+    followerGateAuthors.length > 0
+      ? new Set(
+          (
+            await db
+              .select({ followingApId: follows.followingApId })
+              .from(follows)
+              .where(
+                and(
+                  eq(follows.followerApId, actor.ap_id),
+                  inArray(follows.followingApId, followerGateAuthors),
+                  eq(follows.status, "accepted"),
+                ),
+              )
+          ).map((r) => r.followingApId),
+        )
+      : new Set<string>();
+
+  const passesVisibilityGate = (obj: {
+    visibility: string;
+    attributedTo: string;
+    toJson: string;
+  }): boolean => {
+    if (obj.attributedTo === actor.ap_id) return true;
+    if (obj.visibility === "followers") {
+      return followedAuthors.has(obj.attributedTo);
+    }
+    if (obj.visibility === "direct") {
+      return safeJsonParse<string[]>(obj.toJson, []).includes(actor.ap_id);
+    }
+    return true; // public / unlisted
+  };
+
   const readable = await Promise.all(
-    allBookmarkRows.map((b) =>
-      canViewerReadObject(
+    allBookmarkRows.map(async (b) => {
+      if (!passesVisibilityGate(b.object)) return false;
+      return canViewerReadObject(
         db,
         {
           audienceJson: b.object.audienceJson,
           communityApId: b.object.communityApId,
         },
         actor.ap_id,
-      ),
-    ),
+      );
+    }),
   );
   const bookmarkRows = allBookmarkRows.filter((_, i) => readable[i]);
 

@@ -31,6 +31,7 @@ import {
   bookmarks,
   communities,
   communityMembers,
+  follows,
   objects,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
@@ -103,7 +104,12 @@ async function insertPost(
   author: string,
   id: string,
   content: string,
-  opts: { audienceJson?: string; communityApId?: string | null } = {},
+  opts: {
+    audienceJson?: string;
+    communityApId?: string | null;
+    visibility?: string;
+    toJson?: string;
+  } = {},
 ): Promise<string> {
   const apId = `${APP_URL}/ap/objects/${id}`;
   await db.insert(objects).values({
@@ -113,12 +119,27 @@ async function insertPost(
     content,
     // Community posts are stored visibility="public" but with a non-empty
     // audience — exactly the shape that the leak depended on.
-    visibility: "public",
+    visibility: opts.visibility ?? "public",
     audienceJson: opts.audienceJson ?? "[]",
     communityApId: opts.communityApId ?? null,
+    toJson: opts.toJson ?? "[]",
     published: new Date().toISOString(),
   });
   return apId;
+}
+
+async function insertAcceptedFollow(
+  db: Database,
+  follower: string,
+  following: string,
+): Promise<void> {
+  await db
+    .insert(follows)
+    .values({
+      followerApId: follower,
+      followingApId: following,
+      status: "accepted",
+    });
 }
 
 async function bookmark(
@@ -217,6 +238,101 @@ test("bookmarks listing keeps a private-community post for a member viewer", asy
   };
   const ids = body.posts.map((p) => p.ap_id);
   expect(ids).toContain(commPostId);
+});
+
+test("bookmarks listing drops a followers-only post once the viewer no longer follows the author", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author");
+  const viewer = await insertLocalActor(db, "viewer");
+
+  const publicPostId = await insertPost(db, author, "pub", "open thoughts");
+  const followersPostId = await insertPost(
+    db,
+    author,
+    "foll",
+    "followers only secret",
+    { visibility: "followers" },
+  );
+
+  // Bookmarked while a follower (or by apId without access); the follow no
+  // longer exists at read time.
+  await bookmark(db, viewer, publicPostId);
+  await bookmark(db, viewer, followersPostId);
+
+  const app = appFor(db, viewer);
+  const res = await app.request(`${APP_URL}/posts/bookmarks`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as {
+    posts: { ap_id: string; content: string }[];
+  };
+  const ids = body.posts.map((p) => p.ap_id);
+  expect(ids).toContain(publicPostId);
+  expect(ids).not.toContain(followersPostId);
+  expect(body.posts.some((p) => p.content.includes("followers only"))).toBe(
+    false,
+  );
+});
+
+test("bookmarks listing keeps a followers-only post for a current accepted follower (and the author)", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author");
+  const viewer = await insertLocalActor(db, "viewer");
+
+  const followersPostId = await insertPost(
+    db,
+    author,
+    "foll",
+    "followers only secret",
+    { visibility: "followers" },
+  );
+  await bookmark(db, viewer, followersPostId);
+  await insertAcceptedFollow(db, viewer, author);
+
+  const app = appFor(db, viewer);
+  const res = await app.request(`${APP_URL}/posts/bookmarks`);
+  const body = (await res.json()) as { posts: { ap_id: string }[] };
+  expect(body.posts.map((p) => p.ap_id)).toContain(followersPostId);
+
+  // The author bookmarking their OWN followers-only post always sees it.
+  await bookmark(db, author, followersPostId);
+  const authorApp = appFor(db, author);
+  const authorBody = (await (
+    await authorApp.request(`${APP_URL}/posts/bookmarks`)
+  ).json()) as { posts: { ap_id: string }[] };
+  expect(authorBody.posts.map((p) => p.ap_id)).toContain(followersPostId);
+});
+
+test("bookmarks listing drops a direct post for a non-recipient viewer", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author");
+  const viewer = await insertLocalActor(db, "viewer");
+  const other = await insertLocalActor(db, "other");
+
+  // A DM addressed to `other`, bookmarked by `viewer` via apId (viewer is not
+  // a recipient and must never see the content).
+  const dmPostId = await insertPost(db, author, "dm", "secret whisper", {
+    visibility: "direct",
+    toJson: JSON.stringify([other]),
+  });
+  await bookmark(db, viewer, dmPostId);
+
+  const app = appFor(db, viewer);
+  const res = await app.request(`${APP_URL}/posts/bookmarks`);
+  const body = (await res.json()) as {
+    posts: { ap_id: string; content: string }[];
+  };
+  expect(body.posts.map((p) => p.ap_id)).not.toContain(dmPostId);
+  expect(body.posts.some((p) => p.content.includes("secret whisper"))).toBe(
+    false,
+  );
+
+  // The actual recipient keeps it.
+  await bookmark(db, other, dmPostId);
+  const recipientApp = appFor(db, other);
+  const recipientBody = (await (
+    await recipientApp.request(`${APP_URL}/posts/bookmarks`)
+  ).json()) as { posts: { ap_id: string }[] };
+  expect(recipientBody.posts.map((p) => p.ap_id)).toContain(dmPostId);
 });
 
 test("bookmarks listing returns public-community posts (no over-blocking)", async () => {
