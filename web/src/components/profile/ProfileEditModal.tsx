@@ -7,6 +7,11 @@ import type { Translate } from "../../lib/i18n.tsx";
 
 // Mastodon-parity cap on structured profile fields.
 const MAX_PROFILE_FIELDS = 4;
+// Mirror the backend PUT /me caps (actors-helpers.ts) so the inputs stop the
+// user at the limit instead of accepting an over-length value the save then
+// rejects with a 400.
+const MAX_NAME_LENGTH = 50;
+const MAX_BIO_LENGTH = 500;
 
 interface ProfileEditModalProps {
   isOpen: boolean;
@@ -216,6 +221,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 type="text"
                 value={props.editName}
                 onInput={props.onChangeName}
+                maxlength={MAX_NAME_LENGTH}
                 placeholder={props.t("profile.editNamePlaceholder")}
                 class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
               />
@@ -231,6 +237,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 id="profile-edit-bio"
                 value={props.editSummary}
                 onInput={props.onChangeSummary}
+                maxlength={MAX_BIO_LENGTH}
                 placeholder={props.t("profile.editBioPlaceholder")}
                 rows={4}
                 class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent resize-none"
