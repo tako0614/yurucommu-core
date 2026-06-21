@@ -88,43 +88,40 @@ export async function getInstanceActor(
         };
       }
 
-      // Use a transaction so that the keypair generation + insert + final
-      // read are bundled. `onConflictDoNothing` on the natural primary key
-      // (`ap_id`) keeps cross-process races safe: only one writer wins, and
-      // the loser re-reads the winner's row via the trailing findFirst.
-      const created = await db.transaction(async (tx) => {
-        const inside = await tx.query.instanceActor.findFirst({
-          where: eq(instanceActor.apId, apId),
-        });
-        if (inside) return inside;
+      // NO interactive transaction: the production runtime is Cloudflare D1,
+      // whose drizzle driver does not support `db.transaction()` (it throws),
+      // which previously made this cold path 500 on every call — the instance
+      // actor row could never be lazily created, breaking `/ap/actor` and any
+      // path that signs as the instance actor. The insert is idempotent on the
+      // natural primary key (`ap_id`) via `onConflictDoNothing`, so concurrent
+      // creators race safely: the loser's insert is a no-op and BOTH re-read
+      // the winner's row (and thus the winner's keypair) via the trailing
+      // findFirst — no transaction is needed for correctness here.
+      const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+      const now = new Date().toISOString();
+      await db
+        .insert(instanceActor)
+        .values({
+          apId,
+          preferredUsername: INSTANCE_ACTOR_USERNAME,
+          name: "Yurucommu",
+          summary: "Yurucommu Community",
+          publicKeyPem,
+          privateKeyPem,
+          joinPolicy: "open",
+          postingPolicy: "members",
+          visibility: "public",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing({ target: instanceActor.apId });
 
-        const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-        const now = new Date().toISOString();
-        await tx
-          .insert(instanceActor)
-          .values({
-            apId,
-            preferredUsername: INSTANCE_ACTOR_USERNAME,
-            name: "Yurucommu",
-            summary: "Yurucommu Community",
-            publicKeyPem,
-            privateKeyPem,
-            joinPolicy: "open",
-            postingPolicy: "members",
-            visibility: "public",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .onConflictDoNothing({ target: instanceActor.apId });
-
-        const final = await tx.query.instanceActor.findFirst({
-          where: eq(instanceActor.apId, apId),
-        });
-        if (!final) {
-          throw new Error("Failed to load instance actor after lazy-create");
-        }
-        return final;
+      const created = await db.query.instanceActor.findFirst({
+        where: eq(instanceActor.apId, apId),
       });
+      if (!created) {
+        throw new Error("Failed to load instance actor after lazy-create");
+      }
 
       return {
         apId: created.apId,
