@@ -414,7 +414,7 @@ export function CommunityProfilePage() {
       setIconPreview(null);
       pushToast(setToasts, t("feedback.settingsSaved"), { kind: "success" });
     } catch {
-      setSettingsError("Failed to save settings");
+      setSettingsError(t("feedback.settingsFailed"));
       pushToast(setToasts, t("feedback.settingsFailed"), { kind: "error" });
     } finally {
       setSavingSettings(false);
