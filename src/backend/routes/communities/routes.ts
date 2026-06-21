@@ -452,6 +452,19 @@ communitiesRouter.patch("/:identifier/settings", async (c) => {
     return c.json({ error: "No fields to update" }, 400);
   }
 
+  // Governance fields (visibility / join_policy / post_policy) change who can
+  // read, join, and post — flipping private→public exposes all member-only
+  // content + the full roster. Restrict these to the OWNER (a moderator may
+  // still edit the cosmetic name / summary / icon), mirroring role changes
+  // which are owner-only.
+  const changesGovernance =
+    updates.visibility !== undefined ||
+    updates.joinPolicy !== undefined ||
+    updates.postPolicy !== undefined;
+  if (changesGovernance && manager.role !== "owner") {
+    return c.json({ error: "Owner role required" }, 403);
+  }
+
   await db
     .update(communities)
     .set(updates)

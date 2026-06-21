@@ -41,11 +41,16 @@ const messagesRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
  */
 function checkPostPolicy(
   policy: string,
+  visibility: string,
   membership: { role: string } | null,
 ): string | null {
   const role = membership?.role;
   const isManager = role != null && managerRoles.has(role);
 
+  // A non-public community requires membership to WRITE regardless of policy:
+  // read is membership-gated (checkReadAccess), so a private community with
+  // post_policy="anyone" must not let a non-member who cannot read it post.
+  if (visibility !== "public" && !membership) return "Not a community member";
   if (policy !== "anyone" && !membership) return "Not a community member";
   if (policy === "mods" && !isManager) return "Moderator role required";
   if (policy === "owners" && role !== "owner") return "Owner role required";
@@ -214,6 +219,7 @@ messagesRouter.post(
 
     const policyError = checkPostPolicy(
       community.postPolicy || "members",
+      community.visibility || "public",
       membership ?? null,
     );
     if (policyError) {

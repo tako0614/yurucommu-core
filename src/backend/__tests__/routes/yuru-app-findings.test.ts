@@ -38,6 +38,7 @@ import { recipientToJsonLike } from "../../routes/dm/conversations-helpers.ts";
 import { transformStoryData } from "../../routes/stories/query-helpers.ts";
 import dmRequestRoutes from "../../routes/dm/requests.ts";
 import communityMessageRoutes from "../../routes/communities/messages.ts";
+import communitiesRouter from "../../routes/communities/routes.ts";
 import storyInteractionRoutes from "../../routes/stories/interactions.ts";
 
 const APP_URL = "https://yuru.test";
@@ -307,6 +308,74 @@ test("community messages: private community read still requires membership", asy
   );
 
   expect(res.status).toEqual(403);
+});
+
+test("community messages: a PRIVATE community with post_policy=anyone still requires membership to POST", async () => {
+  const db = await freshDb();
+  const member = await insertLocalActor(db, "member");
+  const outsider = await insertLocalActor(db, "outsider");
+  const communityApId = await insertCommunity(db, "secretroom", {
+    visibility: "private",
+    postPolicy: "anyone",
+  });
+  await db.insert(communityMembers).values({
+    communityApId,
+    actorApId: member,
+    role: "member",
+  });
+
+  const post = (actor: Actor) =>
+    appWith(db, actor, communityMessageRoutes).fetch(
+      new Request(`${APP_URL}/secretroom/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "hi" }),
+      }),
+      envFor(db),
+    );
+
+  // The fix: a non-member who CANNOT read the private community must not be able
+  // to write into it just because post_policy="anyone".
+  expect((await post(fakeActor(outsider, "outsider"))).status).toEqual(403);
+  // A member passes the authz gate (anything but the 403 the gate would return;
+  // the send path itself needs platform bindings the unit env doesn't provide).
+  expect((await post(fakeActor(member, "member"))).status).not.toEqual(403);
+});
+
+test("community settings: governance fields (visibility) are OWNER-only, not moderator", async () => {
+  const db = await freshDb();
+  const owner = await insertLocalActor(db, "owner");
+  const mod = await insertLocalActor(db, "mod");
+  const communityApId = await insertCommunity(db, "club", {
+    visibility: "private",
+  });
+  await db.insert(communityMembers).values([
+    { communityApId, actorApId: owner, role: "owner" },
+    { communityApId, actorApId: mod, role: "moderator" },
+  ]);
+
+  const patch = (actor: Actor, body: Record<string, unknown>) =>
+    appWith(db, actor, communitiesRouter).fetch(
+      new Request(`${APP_URL}/club/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      envFor(db),
+    );
+
+  // A moderator may edit cosmetic fields...
+  expect((await patch(fakeActor(mod, "mod"), { summary: "x" })).status).toEqual(
+    200,
+  );
+  // ...but NOT flip visibility (would expose all member-only content + roster).
+  expect(
+    (await patch(fakeActor(mod, "mod"), { visibility: "public" })).status,
+  ).toEqual(403);
+  // The owner can.
+  expect(
+    (await patch(fakeActor(owner, "owner"), { visibility: "public" })).status,
+  ).toEqual(200);
 });
 
 // ---------------------------------------------------------------------------

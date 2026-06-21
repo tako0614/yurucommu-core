@@ -184,6 +184,7 @@ export async function checkCommunityPostPermission(
       apId: communities.apId,
       followersUrl: communities.followersUrl,
       postPolicy: communities.postPolicy,
+      visibility: communities.visibility,
     })
     .from(communities)
     .where(
@@ -218,6 +219,13 @@ export async function checkCommunityPostPermission(
   const role = membership?.role as "owner" | "moderator" | "member" | undefined;
   const isManager = role === "owner" || role === "moderator";
 
+  // A non-public community requires membership to WRITE regardless of
+  // post_policy. Read access is membership-gated (canViewerReadObject /
+  // checkReadAccess), so without this a private community with
+  // post_policy="anyone" would let a non-member who CANNOT read it inject posts.
+  if ((community.visibility ?? "public") !== "public" && !membership) {
+    return { allowed: false, error: "Not a community member", status: 403 };
+  }
   if (policy !== "anyone" && !membership) {
     return { allowed: false, error: "Not a community member", status: 403 };
   }

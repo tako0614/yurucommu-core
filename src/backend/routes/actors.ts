@@ -5,6 +5,7 @@ import {
   asc,
   desc,
   eq,
+  gt,
   inArray,
   isNotNull,
   isNull,
@@ -582,15 +583,67 @@ actorsRoute.post("/me/delete", async (c) => {
     const memberships = await db
       .select({
         communityApId: communityMembers.communityApId,
+        role: communityMembers.role,
       })
       .from(communityMembers)
       .where(eq(communityMembers.actorApId, actorApIdVal));
     const communityApIds = memberships.map((m) => m.communityApId);
+
+    // Hand off ownership of any community where this actor is the SOLE owner to
+    // the oldest remaining member before dropping their memberships — otherwise
+    // deleting the only owner orphans the community with no one able to manage
+    // it (/leave + role-PATCH already block the last owner from leaving, but
+    // account deletion bypasses that invariant).
+    for (const m of memberships) {
+      if (m.role !== "owner") continue;
+      const otherOwner = await db
+        .select({ actorApId: communityMembers.actorApId })
+        .from(communityMembers)
+        .where(
+          and(
+            eq(communityMembers.communityApId, m.communityApId),
+            eq(communityMembers.role, "owner"),
+            ne(communityMembers.actorApId, actorApIdVal),
+          ),
+        )
+        .get();
+      if (otherOwner) continue; // another owner remains — no hand-off needed
+      const heir = await db
+        .select({ actorApId: communityMembers.actorApId })
+        .from(communityMembers)
+        .where(
+          and(
+            eq(communityMembers.communityApId, m.communityApId),
+            ne(communityMembers.actorApId, actorApIdVal),
+          ),
+        )
+        .orderBy(asc(communityMembers.joinedAt))
+        .get();
+      if (heir) {
+        await db
+          .update(communityMembers)
+          .set({ role: "owner" })
+          .where(
+            and(
+              eq(communityMembers.communityApId, m.communityApId),
+              eq(communityMembers.actorApId, heir.actorApId),
+            ),
+          );
+      }
+      // No remaining members → the community is left empty (no orphan: nobody
+      // is locked out).
+    }
+
     if (communityApIds.length > 0) {
       await db
         .update(communities)
         .set({ memberCount: sql`${communities.memberCount} - 1` })
-        .where(inArray(communities.apId, communityApIds));
+        .where(
+          and(
+            inArray(communities.apId, communityApIds),
+            gt(communities.memberCount, 0),
+          ),
+        );
     }
     await db
       .delete(communityMembers)
