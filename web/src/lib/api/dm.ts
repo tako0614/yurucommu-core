@@ -61,6 +61,26 @@ export async function fetchDMContacts(): Promise<DMContactsResponse> {
   };
 }
 
+// Lightweight unread total for the Messages nav badge. The backend computes the
+// same DM + community-chat unread totals as /contacts (a parity test pins them)
+// but with two COUNT(*) joins and no contact enrichment / previews, so the 30s
+// badge poll does not pay for the full contacts list.
+export interface DMUnreadCount {
+  total: number;
+  dm: number;
+  community: number;
+}
+
+export async function fetchDMUnreadCount(): Promise<DMUnreadCount> {
+  const res = await apiFetch("/api/dm/unread/count");
+  const data = (await res.json()) as Partial<DMUnreadCount>;
+  return {
+    total: data.total || 0,
+    dm: data.dm || 0,
+    community: data.community || 0,
+  };
+}
+
 // Fetch message requests
 export async function fetchDMRequests(): Promise<DMRequest[]> {
   const res = await apiFetch("/api/dm/requests");
