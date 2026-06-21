@@ -107,6 +107,7 @@ export function SearchPage() {
   const [followInFlight, setFollowInFlight] = createSignal<Set<string>>(
     new Set(),
   );
+  const [likeInFlight, setLikeInFlight] = createSignal<Set<string>>(new Set());
   const clearError = () => setError(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -350,29 +351,37 @@ export function SearchPage() {
   };
 
   const handleLike = async (post: Post) => {
+    // In-flight guard: without it a double-tap fires two like calls (the second
+    // still reads liked=false because state updates after the await) → +2 drift.
+    if (likeInFlight().has(post.ap_id)) return;
+    setLikeInFlight((s) => new Set(s).add(post.ap_id));
+
+    const wasLiked = post.liked;
+    const applyDelta = (liked: boolean, delta: number) =>
+      setSearchPostsResult((prev) =>
+        prev.map((p) =>
+          p.ap_id === post.ap_id
+            ? { ...p, liked, like_count: Math.max(0, p.like_count + delta) }
+            : p,
+        ),
+      );
+
+    // Optimistic toggle, rolled back on failure (matches the canonical
+    // optimisticToggle used elsewhere).
+    applyDelta(!wasLiked, wasLiked ? -1 : 1);
     try {
-      if (post.liked) {
-        await unlikePost(post.ap_id);
-        setSearchPostsResult((prev) =>
-          prev.map((p) =>
-            p.ap_id === post.ap_id
-              ? { ...p, liked: false, like_count: p.like_count - 1 }
-              : p,
-          ),
-        );
-      } else {
-        await likePost(post.ap_id);
-        setSearchPostsResult((prev) =>
-          prev.map((p) =>
-            p.ap_id === post.ap_id
-              ? { ...p, liked: true, like_count: p.like_count + 1 }
-              : p,
-          ),
-        );
-      }
+      if (wasLiked) await unlikePost(post.ap_id);
+      else await likePost(post.ap_id);
     } catch (e) {
       console.error("Failed to toggle like:", e);
       setError(t("common.error"));
+      applyDelta(wasLiked, wasLiked ? 1 : -1);
+    } finally {
+      setLikeInFlight((s) => {
+        const next = new Set(s);
+        next.delete(post.ap_id);
+        return next;
+      });
     }
   };
 

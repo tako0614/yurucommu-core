@@ -20,6 +20,7 @@ import { useI18n } from "../lib/i18n.tsx";
 import { decodeApIdParam } from "../lib/routeApId.ts";
 import { useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
+import { pendingNewPostsAtom, timelinePostsAtom } from "../atoms/timeline.ts";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { formatDateTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
@@ -75,6 +76,8 @@ export function PostDetailPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
+  const setTimelinePosts = useSetAtom(timelinePostsAtom);
+  const setPendingNewPosts = useSetAtom(pendingNewPostsAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [post, setPost] = createSignal<Post | null>(null);
@@ -259,6 +262,12 @@ export function PostDetailPage() {
         }
         pushToast(setToasts, t("feedback.postDeleted"), { kind: "success" });
       } else {
+        // Remove the deleted post from the timeline atoms too, otherwise it
+        // lingers as a zombie in the feed (the detail page kept its own local
+        // state and never told the timeline) until a full reload.
+        const removed = pending.post.ap_id;
+        setTimelinePosts((prev) => prev.filter((p) => p.ap_id !== removed));
+        setPendingNewPosts((prev) => prev.filter((p) => p.ap_id !== removed));
         navigate(-1);
       }
     } catch (e) {

@@ -336,19 +336,29 @@ export function CommunityProfilePage() {
     }
   };
 
-  // Initialize settings form when community is loaded
-  createEffect(() => {
-    const comm = community();
-    if (comm) {
-      setSettingsForm({
-        display_name: comm.display_name || comm.name,
-        summary: comm.summary || "",
-        visibility: comm.visibility,
-        join_policy: comm.join_policy,
-        post_policy: comm.post_policy,
-      });
-    }
-  });
+  // Seed the settings form when the community IDENTITY changes (first load or
+  // navigating to a different community) — NOT on every `community()` object
+  // identity change. The latter re-ran on any sibling mutation that produces a
+  // fresh community object (join / leave / accept-request bumping member_count
+  // / save-settings), silently overwriting unsaved edits a manager had typed in
+  // the settings tab. Keying on `ap_id` re-seeds only on a real community switch.
+  createEffect(
+    on(
+      () => community()?.ap_id,
+      () => {
+        const comm = community();
+        if (comm) {
+          setSettingsForm({
+            display_name: comm.display_name || comm.name,
+            summary: comm.summary || "",
+            visibility: comm.visibility,
+            join_policy: comm.join_policy,
+            post_policy: comm.post_policy,
+          });
+        }
+      },
+    ),
+  );
 
   const handleIconUpload = async (
     e: Event & { currentTarget: HTMLInputElement },
