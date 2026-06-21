@@ -160,3 +160,42 @@ test("rejects an expired token", async () => {
     await expect(verifyOidcIdToken(token, opts)).rejects.toThrow();
   });
 });
+
+test("rejects a token with NO exp claim (fail closed, not eternal)", async () => {
+  const { privateKey, jwks } = await makeKeyAndJwks();
+  const claims = validClaims();
+  delete (claims as Record<string, unknown>).exp;
+  const token = await signIdToken(privateKey, "k1", claims);
+  await withMockJwks(jwks, async () => {
+    await expect(verifyOidcIdToken(token, opts)).rejects.toThrow();
+  });
+});
+
+test("when expectedNonce is set, accepts a matching nonce and rejects a mismatch/missing one", async () => {
+  const { privateKey, jwks } = await makeKeyAndJwks();
+  await withMockJwks(jwks, async () => {
+    const ok = await signIdToken(privateKey, "k1", {
+      ...validClaims(),
+      nonce: "n-123",
+    });
+    const matched = await verifyOidcIdToken(ok, {
+      ...opts,
+      expectedNonce: "n-123",
+    });
+    expect(matched.sub).toBe("subject-abc");
+
+    const wrong = await signIdToken(privateKey, "k1", {
+      ...validClaims(),
+      nonce: "n-evil",
+    });
+    await expect(
+      verifyOidcIdToken(wrong, { ...opts, expectedNonce: "n-123" }),
+    ).rejects.toThrow();
+
+    // no nonce echoed but one expected -> reject
+    const none = await signIdToken(privateKey, "k1", validClaims());
+    await expect(
+      verifyOidcIdToken(none, { ...opts, expectedNonce: "n-123" }),
+    ).rejects.toThrow();
+  });
+});

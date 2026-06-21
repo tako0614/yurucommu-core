@@ -33,6 +33,11 @@ export interface EnvVars {
   TAKOSUMI_ACCOUNTS_ISSUER_URL?: string;
   TAKOSUMI_ACCOUNTS_CLIENT_ID?: string;
   TAKOSUMI_ACCOUNTS_CLIENT_SECRET?: string;
+  // Pins the OIDC/OAuth subject allowed to take the single owner slot. When set,
+  // only a first-login whose subject equals this value becomes `owner`; any other
+  // first-login is refused. Prevents an owner-slot race on an OIDC-seeded Capsule.
+  OIDC_OWNER_SUB?: string;
+  TAKOSUMI_ACCOUNTS_OWNER_SUB?: string;
   TAKOS_URL?: string; // Optional Takos API base URL; not the OIDC issuer.
   AUTH_MODE?: string;
   ENCRYPTION_KEY?: string; // 32-byte hex key for encrypting sensitive data

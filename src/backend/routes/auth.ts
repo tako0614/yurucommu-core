@@ -251,6 +251,12 @@ auth.get("/login/:provider", async (c) => {
     params.set("code_challenge", codeChallenge);
     params.set("code_challenge_method", "S256");
   }
+  // For OIDC providers, send the `nonce` so the issuer echoes it in the ID Token
+  // and the callback can bind the token to this exact login (replay protection).
+  // We reuse the same random value that backs the state/CSRF binding.
+  if (provider.issuer) {
+    params.set("nonce", nonce);
+  }
 
   return c.redirect(`${provider.authorizeUrl}?${params.toString()}`);
 });
@@ -330,6 +336,7 @@ auth.get("/callback/:provider", async (c) => {
         issuer: provider.issuer,
         clientId,
         jwksUrl: provider.jwksUrl,
+        expectedNonce: storedState.nonce,
       });
       userInfo = {
         ...userInfo,
@@ -466,12 +473,20 @@ auth.post("/switch", async (c) => {
     targetActor.ownerActorApId === rootOwnerApId;
   if (!isAllowed) return c.json({ error: "Forbidden" }, 403);
 
-  const sessionKey = await hashSessionIdForEnv(c.env, sessionId);
-  await db
-    .update(sessions)
-    .set({ memberId: targetApId })
-    .where(eq(sessions.id, sessionKey))
-    .run();
+  // Rotate the session instead of repointing `member_id` in place. Two reasons:
+  // (1) a fresh session id is minted and the old one invalidated (fixation
+  // hygiene), and (2) — critically — the owner's encrypted provider/OAuth tokens
+  // do NOT carry over to the sub-account (provider=null, tokens=null). A raw
+  // member_id rewrite would leave the owner's `provider_access_token` attached to
+  // a session now acting as a different actor.
+  await rotateSession(
+    c,
+    targetApId,
+    null,
+    null,
+    c.env.ENCRYPTION_KEY,
+    "account switch",
+  );
 
   return c.json({ success: true });
 });

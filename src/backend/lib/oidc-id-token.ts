@@ -75,7 +75,12 @@ function selectEcKey(keys: Jwk[], kid: string | undefined): Jwk | undefined {
  */
 export async function verifyOidcIdToken(
   idToken: string,
-  opts: { issuer: string; clientId: string; jwksUrl: string },
+  opts: {
+    issuer: string;
+    clientId: string;
+    jwksUrl: string;
+    expectedNonce?: string;
+  },
 ): Promise<OidcIdTokenClaims> {
   const parts = idToken.split(".");
   if (parts.length !== 3) throw new Error("malformed id_token");
@@ -124,11 +129,23 @@ export async function verifyOidcIdToken(
     throw new Error("id_token aud mismatch");
   }
   const nowSec = Math.floor(Date.now() / 1000);
-  // 60s clock-skew slack.
-  if (typeof claims.exp === "number" && claims.exp < nowSec - 60) {
+  // `exp` is REQUIRED by OIDC — reject a token that omits it (fail closed) rather
+  // than treating it as eternal. 60s clock-skew slack on the comparison.
+  if (typeof claims.exp !== "number") {
+    throw new Error("id_token missing exp");
+  }
+  if (claims.exp < nowSec - 60) {
     throw new Error("id_token expired");
   }
   if (!claims.sub) throw new Error("id_token missing sub");
+
+  // Optional OIDC nonce binding: when the RP sent a nonce in the authorize
+  // request, the issuer echoes it in the id_token and we MUST match it (replay
+  // protection). When no expected nonce is configured, skip (back-channel
+  // code-flow is already bound by state + PKCE).
+  if (opts.expectedNonce !== undefined && claims.nonce !== opts.expectedNonce) {
+    throw new Error("id_token nonce mismatch");
+  }
 
   return claims;
 }

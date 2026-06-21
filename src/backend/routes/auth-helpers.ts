@@ -301,6 +301,33 @@ export async function createActorFromOAuth(
   const result = await db.select({ count: count() }).from(actors).get();
   const actorCount = result?.count ?? 0;
 
+  // Owner-slot protection. yurucommu is single-tenant: the FIRST actor becomes
+  // `owner` and controls the instance. Without a pin, whoever completes the OAuth
+  // flow first wins that slot — on an OIDC-seeded Capsule a third party who can
+  // obtain a valid token for the materialized client could race the operator.
+  // When `OIDC_OWNER_SUB` (the operator's pinned Takosumi subject) is configured,
+  // ONLY that subject may take the owner slot; any other first-login is REFUSED
+  // (not downgraded to member — that would consume the owner slot and lock the
+  // real operator out forever). With no pin set we keep first-login-owner but warn.
+  if (actorCount === 0) {
+    const ownerSub =
+      parseNonEmptyString(env.OIDC_OWNER_SUB) ??
+      parseNonEmptyString(env.TAKOSUMI_ACCOUNTS_OWNER_SUB);
+    if (ownerSub) {
+      if (providerUserId !== ownerSub) {
+        log.warn(
+          "refused OAuth owner creation: subject does not match OIDC_OWNER_SUB pin",
+        );
+        return null;
+      }
+    } else {
+      log.warn(
+        "first OAuth login is taking the owner slot with no OIDC_OWNER_SUB pin set; " +
+          "set OIDC_OWNER_SUB to the operator's subject to prevent an owner-slot race",
+      );
+    }
+  }
+
   return await createActor(db, env, {
     username,
     name: userInfo.name,
@@ -410,7 +437,12 @@ export async function findOrCreateOAuthActor(
     .get();
 
   if (!actorData) {
-    actorData = await createActorFromOAuth(db, env, userInfo, providerUserId);
+    // createActorFromOAuth returns null when the owner-slot pin refuses this
+    // subject; normalize to undefined so the caller's `if (!actorData)` guard
+    // (-> actor_creation_failed) covers both the refusal and a missing row.
+    actorData =
+      (await createActorFromOAuth(db, env, userInfo, providerUserId)) ??
+      undefined;
   } else {
     await db
       .update(actors)
