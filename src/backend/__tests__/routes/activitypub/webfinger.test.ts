@@ -29,12 +29,12 @@ function createApp(db: unknown) {
   return app;
 }
 
-test("webfinger resolves unknown local acct username to owner actor", async () => {
-  const owner = {
-    apId: "https://example.test/ap/users/tako",
-    preferredUsername: "tako",
-  };
-  const app = createApp(createActorDb([null, owner]));
+test("webfinger 404s an unknown local acct username (no owner fallback)", async () => {
+  // The DB returns no actor for the unknown username. Previously the handler
+  // fell back to the owner actor and echoed the requested username as subject —
+  // a WebFinger violation (subject must identify the linked account) that also
+  // fails the round-trip a conformant peer performs. It must 404 instead.
+  const app = createApp(createActorDb([null]));
 
   const res = await app.fetch(
     new Request(
@@ -42,21 +42,30 @@ test("webfinger resolves unknown local acct username to owner actor", async () =
     ),
     { APP_URL: "https://example.test" },
   );
-  const body = (await res.json()) as {
-    subject: string;
-    links: Array<{ rel: string; href: string }>;
+
+  expect(res.status).toEqual(404);
+});
+
+test("webfinger subject echoes the CANONICAL username casing", async () => {
+  // A query whose casing differs from the stored username resolves to the same
+  // actor (when matched) but the response subject must be the canonical handle
+  // so the remote's WebFinger round-trip is self-consistent.
+  const tako = {
+    apId: "https://example.test/ap/users/tako",
+    preferredUsername: "tako",
   };
+  const app = createApp(createActorDb([tako]));
+
+  const res = await app.fetch(
+    new Request(
+      "https://example.test/.well-known/webfinger?resource=acct:tako@example.test",
+    ),
+    { APP_URL: "https://example.test" },
+  );
+  const body = (await res.json()) as { subject: string };
 
   expect(res.status).toEqual(200);
-  expect(body.subject).toEqual("acct:any@example.test");
-  expect(body.links.find((link) => link.rel === "self")?.href).toEqual(
-    "https://example.test/ap/users/tako",
-  );
-  expect(
-    body.links.find(
-      (link) => link.rel === "http://webfinger.net/rel/profile-page",
-    )?.href,
-  ).toEqual("https://example.test/users/tako");
+  expect(body.subject).toEqual("acct:tako@example.test");
 });
 
 test("webfinger keeps exact local actor resolution when username exists", async () => {

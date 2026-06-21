@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import { actors, objects as objectsTable } from "../../db/index.ts";
 import { notDeleted } from "../../db/index.ts";
@@ -251,10 +251,8 @@ ap.get(
     // Parse resource format: acct:username@domain or https://domain/ap/users/username
     let username: string | null = null;
     let domain: string | null = null;
-    let isAcctResource = false;
 
     if (resource.startsWith("acct:")) {
-      isAcctResource = true;
       const acctPart = resource.slice(5);
       const [user, host] = acctPart.split("@");
       username = user;
@@ -303,28 +301,30 @@ ap.get(
       );
     }
 
-    const actor = await db.query.actors.findFirst({
+    const resolvedActor = await db.query.actors.findFirst({
       where: and(eq(actors.preferredUsername, username), notDeleted(actors)),
       columns: { apId: true, preferredUsername: true },
     });
 
-    const resolvedActor =
-      actor ??
-      (isAcctResource
-        ? await db.query.actors.findFirst({
-            where: and(eq(actors.role, "owner"), notDeleted(actors)),
-            columns: { apId: true, preferredUsername: true },
-            orderBy: [asc(actors.createdAt)],
-          })
-        : null);
-
+    // An unknown local handle MUST 404 — never fall back to the owner actor.
+    // The old fallback resolved ANY `acct:<anything>@<domain>` to the owner with
+    // a `subject` echoing the requested (wrong) username, which (1) violates
+    // WebFinger (the subject must identify the account the links describe), (2)
+    // claims every possible username exists, and (3) does not even work for
+    // federation: a conformant peer fetches the resolved actor, reads its real
+    // `preferredUsername`, and re-WebFingers THAT — the round-trip subject then
+    // mismatches the original query and the actor is rejected. So the fallback
+    // had no working upside and real downsides (identity confusion / spoofed
+    // existence). Resolve only an exact local actor; otherwise 404.
     if (!resolvedActor) return c.json({ error: "Actor not found" }, 404);
 
+    // Echo the CANONICAL username as the subject (not the requested casing) so
+    // the WebFinger round-trip a remote performs stays self-consistent.
     const canonicalUsername = resolvedActor.preferredUsername;
     return jrdJson(
       c,
       buildWebFingerResponse(
-        username,
+        canonicalUsername,
         domain,
         resolvedActor.apId,
         `${baseUrl}/users/${canonicalUsername}`,
