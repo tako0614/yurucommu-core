@@ -1,5 +1,5 @@
 import { type Context, Hono } from "hono";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import type { Database } from "../../db/index.ts";
 import { actors, follows, mediaUploads, objects } from "../../db/index.ts";
@@ -293,13 +293,27 @@ function attachmentMatches(
   return attachmentsJson.includes(mediaUrl) || attachmentsJson.includes(r2Key);
 }
 
+// Escape SQLite LIKE metacharacters so a media URL / R2 key containing `%` or
+// `_` (or a backslash) is matched literally, not as a wildcard.
+function escapeLike(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 async function findReferencingObject(
   db: Database,
   uploaderApId: string,
   mediaUrl: string,
   r2Key: string,
 ): Promise<ReferencingObject | null> {
-  // Indexed equality scan over the uploader's own objects.
+  // Push the substring match into SQL (escaped LIKE) instead of materializing
+  // EVERY object the uploader has ever authored and substring-matching each in
+  // app code. A prolific uploader has thousands of objects, almost none of which
+  // reference this media; the old `eq(attributedTo).all()` loaded all of their
+  // attachmentsJson per media request. The LIKE narrows to the (usually 0-1)
+  // rows that actually contain the URL/key, gated by the indexed attributedTo.
+  // `attachmentMatches` re-checks the survivors exactly (the LIKE only narrows).
+  const urlLike = `%${escapeLike(mediaUrl)}%`;
+  const keyLike = `%${escapeLike(r2Key)}%`;
   const candidates = await db
     .select({
       apId: objects.apId,
@@ -311,7 +325,15 @@ async function findReferencingObject(
       attachmentsJson: objects.attachmentsJson,
     })
     .from(objects)
-    .where(eq(objects.attributedTo, uploaderApId))
+    .where(
+      and(
+        eq(objects.attributedTo, uploaderApId),
+        or(
+          sql`${objects.attachmentsJson} LIKE ${urlLike} ESCAPE '\\'`,
+          sql`${objects.attachmentsJson} LIKE ${keyLike} ESCAPE '\\'`,
+        ),
+      ),
+    )
     .all();
 
   for (const row of candidates) {
@@ -343,20 +365,15 @@ async function checkMediaAuthorization(
     .where(eq(mediaUploads.r2Key, r2Key))
     .get();
 
-  const obj = uploadRecord
-    ? await findReferencingObject(
-        db,
-        uploadRecord.uploaderApId,
-        mediaUrl,
-        r2Key,
-      )
-    : null;
-
   // Profile media (an actor's icon / header) is not attached to any object, yet
   // it is part of the public actor document served to anyone — including
   // unauthenticated federation peers fetching /ap/users/:name. So media that the
   // uploader references as their own avatar/header is world-readable. Scoped to
   // the uploader's own indexed actor row (you can only set your own profile).
+  //
+  // Checked BEFORE findReferencingObject: an avatar/header is the hot public
+  // path (every federation peer rendering the actor) and references no object,
+  // so resolving it here short-circuits the object scan entirely.
   if (uploadRecord) {
     const profileRef = await db
       .select({ apId: actors.apId })
@@ -370,6 +387,15 @@ async function checkMediaAuthorization(
       .get();
     if (profileRef) return ALLOW_PUBLIC;
   }
+
+  const obj = uploadRecord
+    ? await findReferencingObject(
+        db,
+        uploadRecord.uploaderApId,
+        mediaUrl,
+        r2Key,
+      )
+    : null;
 
   // Unattached media (no upload record, or no referencing object found): only
   // the uploader may access. Authorize against the indexed media_uploads row.
