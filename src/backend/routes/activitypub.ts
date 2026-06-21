@@ -13,6 +13,7 @@ import inboxRoutes from "./activitypub/inbox.ts";
 import outboxRoutes from "./activitypub/outbox.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import { safeUrlJoin } from "../lib/activitypub-helpers.ts";
+import { activityJson, jrdJson } from "../lib/ap-response.ts";
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -85,12 +86,6 @@ function buildPublicKey(
     owner: actorApId,
     publicKeyPem,
   };
-}
-
-/** Return an activity+json Response via Hono context. */
-function activityJson(c: HonoContext, body: Record<string, unknown>): Response {
-  c.header("Content-Type", AP_CONTENT_TYPE);
-  return c.json(body);
 }
 
 async function countRows(
@@ -233,7 +228,8 @@ ap.get(
 
     if (username === INSTANCE_ACTOR_USERNAME) {
       const instanceActor = await getInstanceActor(c);
-      return c.json(
+      return jrdJson(
+        c,
         buildWebFingerResponse(
           INSTANCE_ACTOR_USERNAME,
           domain,
@@ -261,7 +257,8 @@ ap.get(
     if (!resolvedActor) return c.json({ error: "Actor not found" }, 404);
 
     const canonicalUsername = resolvedActor.preferredUsername;
-    return c.json(
+    return jrdJson(
+      c,
       buildWebFingerResponse(
         username,
         domain,

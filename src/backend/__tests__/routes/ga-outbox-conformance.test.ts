@@ -261,3 +261,36 @@ test("#17 object doc does NOT advertise dangling replies/likes sub-collections",
   expect(body.replies).toBeUndefined();
   expect(body.likes).toBeUndefined();
 });
+
+test("AP documents are served as application/activity+json (not application/json)", async () => {
+  // Hono's c.json() force-sets application/json; a strict AP consumer
+  // (Mastodon's Request only accepts application/activity+json or ld+json)
+  // would reject the document, breaking inbound federation. Pin the header.
+  const db = await freshDb();
+  const actorApId = await insertLocalActor(db, "alice");
+  await seedPublicCreates(db, actorApId, 1);
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/ct-note`,
+    type: "Note",
+    attributedTo: actorApId,
+    content: "hi",
+    visibility: "public",
+    toJson: JSON.stringify([PUBLIC]),
+    published: "2026-01-01T00:00:00.000Z",
+    isLocal: 1,
+  });
+  const app = appWith(db, null);
+
+  for (const path of [
+    "/ap/users/alice/outbox",
+    "/ap/users/alice/outbox?page=1",
+    "/ap/users/alice/following",
+    "/ap/objects/ct-note",
+  ]) {
+    const res = await app.fetch(new Request(`${APP_URL}${path}`), envFor(db));
+    expect(res.status).toEqual(200);
+    expect(res.headers.get("content-type") ?? "").toContain(
+      "application/activity+json",
+    );
+  }
+});
