@@ -152,6 +152,13 @@ type StoryCreateBody = {
 // Caption is user-authored free text; cap it so a malformed/huge body can't
 // bloat the stored attachments JSON.
 const MAX_STORY_CAPTION_LENGTH = 500;
+// Hard ceiling on a story-feed query. Stories are a non-paginated "bar", and
+// inbound Create(Story) has no per-author cap, so a hostile followed host could
+// accumulate tens of thousands of live (24h) Story rows and make this
+// authenticated read path (hit on every app open) load an unbounded set into
+// Worker memory. Bound it like every other feed query. 500 covers realistic
+// many-author usage while capping the blast radius.
+const MAX_STORY_FEED_ITEMS = 500;
 
 /** Build a StoryAuthor from available data sources. */
 function buildAuthor(
@@ -383,7 +390,8 @@ stories.get("/", async (c) => {
     .select()
     .from(objects)
     .where(storiesWhere!)
-    .orderBy(desc(objects.endTime));
+    .orderBy(desc(objects.endTime))
+    .limit(MAX_STORY_FEED_ITEMS);
 
   // Batch fetch views and likes for the current user
   const storyApIds = storiesData.map((s) => s.apId);
@@ -584,7 +592,8 @@ stories.get("/:actorId", async (c) => {
         scopeCondition,
       ),
     )
-    .orderBy(desc(objects.published));
+    .orderBy(desc(objects.published))
+    .limit(MAX_STORY_FEED_ITEMS);
 
   const storyApIds = userStories.map((s) => s.apId);
 
