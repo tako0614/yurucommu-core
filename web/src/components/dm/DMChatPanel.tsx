@@ -67,6 +67,13 @@ export function DMChatPanel(props: DMChatPanelProps) {
   const [sending, setSending] = createSignal(false);
   const [isTyping, setIsTyping] = createSignal(false);
   const [errorMessage, setErrorMessage] = createSignal<string | null>(null);
+  // Whether an OLDER page of messages exists before the oldest one currently
+  // shown (DM threads only; the community thread doesn't paginate yet). Set from
+  // the initial load + each "load older" fetch — NOT from polls (a poll re-reads
+  // the newest page, which always reports older messages exist, and would wrongly
+  // resurrect the button after the user has scrolled all the way back).
+  const [hasMoreOlder, setHasMoreOlder] = createSignal(false);
+  const [loadingOlder, setLoadingOlder] = createSignal(false);
   let messagesEndRef!: HTMLDivElement;
   let scrollContainerRef!: HTMLDivElement;
   let lastTypingSent = 0;
@@ -113,9 +120,12 @@ export function DMChatPanel(props: DMChatPanelProps) {
           }
         }
       } else {
-        const { messages: loadedMessages } =
+        const { messages: loadedMessages, hasMore } =
           await fetchUserDMMessages(contactApId);
         if (isCancelled()) return;
+        // Only the initial (newest-page) load seeds the older-page indicator;
+        // see the hasMoreOlder comment. loadOlder updates it thereafter.
+        if (mode === "initial") setHasMoreOlder(hasMore);
         let changed = false;
         setMessages((prev) => {
           const next =
@@ -147,6 +157,41 @@ export function DMChatPanel(props: DMChatPanelProps) {
     }
   };
 
+  // Load the page of messages OLDER than the oldest one currently shown and
+  // prepend it, preserving the reader's scroll position (anchor on the height
+  // added above). DM threads only for now. The `before` cursor is the oldest
+  // shown message's timestamp; the server returns `published < before`.
+  const loadOlder = async () => {
+    if (loadingOlder() || props.contact.type === "community") return;
+    const current = messages();
+    if (current.length === 0) return;
+    const oldest = current[0]; // messages render oldest-first
+    if (!oldest.created_at) return;
+    setLoadingOlder(true);
+    const el = scrollContainerRef;
+    const prevHeight = el?.scrollHeight ?? 0;
+    try {
+      const { messages: older, hasMore } = await fetchUserDMMessages(
+        props.contact.ap_id,
+        { before: oldest.created_at },
+      );
+      setMessages((prev) => {
+        const ids = new Set(prev.map((m) => m.id));
+        const fresh = older.filter((m) => !ids.has(m.id));
+        return fresh.length > 0 ? [...fresh, ...prev] : prev;
+      });
+      setHasMoreOlder(hasMore);
+      // Keep the message the user was reading in place after the prepend.
+      queueMicrotask(() => {
+        if (el) el.scrollTop += el.scrollHeight - prevHeight;
+      });
+    } catch (e) {
+      console.error("Failed to load older messages:", e);
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+
   // Key the (re)load strictly on the conversation IDENTITY (ap_id + type), NOT
   // the whole `contact` object. The parent re-derives `selectedContact` from a
   // polled contacts list, so it hands us a fresh object reference every few
@@ -168,6 +213,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
         // new conversation's fetch fails, conversation A's bubbles render under
         // B's header + the error line.
         setMessages([]);
+        setHasMoreOlder(false);
 
         void refreshMessages(contactApId, contactType, "initial", isCancelled);
 
@@ -406,6 +452,17 @@ export function DMChatPanel(props: DMChatPanelProps) {
               </div>
             }
           >
+            <Show when={hasMoreOlder()}>
+              <div class="flex justify-center pb-3">
+                <button
+                  onClick={loadOlder}
+                  disabled={loadingOlder()}
+                  class="rounded-full bg-neutral-800 px-4 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                >
+                  {loadingOlder() ? t("common.loading") : t("dm.loadOlder")}
+                </button>
+              </div>
+            </Show>
             <For each={messages()}>
               {(msg, index) => {
                 const isMine = getSenderApId(msg) === props.actor.ap_id;

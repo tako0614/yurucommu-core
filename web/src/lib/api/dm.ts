@@ -104,7 +104,11 @@ export async function rejectDMRequest(
 export async function fetchUserDMMessages(
   userApId: string,
   options?: { limit?: number; before?: string },
-): Promise<{ messages: DMMessage[]; conversation_id: string | null }> {
+): Promise<{
+  messages: DMMessage[];
+  conversation_id: string | null;
+  hasMore: boolean;
+}> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
   if (options?.before) params.set("before", options.before);
@@ -115,10 +119,12 @@ export async function fetchUserDMMessages(
   const data = (await res.json()) as {
     messages?: DMMessage[];
     conversation_id?: string | null;
+    has_more?: boolean;
   };
   return {
     messages: (data.messages || []).map(normalizeDmMessage),
     conversation_id: data.conversation_id ?? null,
+    hasMore: data.has_more ?? false,
   };
 }
 

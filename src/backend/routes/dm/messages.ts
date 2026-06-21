@@ -121,14 +121,20 @@ function buildSenderFromActor(actor: {
   };
 }
 
-/** Fetch direct messages the actor is authorized to see, filtered by conversation. */
+/**
+ * Fetch direct messages the actor is authorized to see, filtered by
+ * conversation. Returns one page (newest-first, capped at `limit`) plus
+ * `hasMore` — whether an OLDER page exists — so the thread can offer a "load
+ * older" affordance. `before` is the `published` of the oldest message already
+ * shown (older messages are fetched with `published < before`).
+ */
 async function fetchAuthorizedMessages(
   db: Database,
   actorApId: string,
   conversationId: string,
   limit: number,
   before: string | undefined,
-): Promise<DmMessageRow[]> {
+): Promise<{ rows: DmMessageRow[]; hasMore: boolean }> {
   // Build where clause: filter by conversation + visibility + type
   // Authorization is re-validated in code below (defense-in-depth)
   const baseCondition = and(
@@ -141,19 +147,25 @@ async function fetchAuthorizedMessages(
     ? and(baseCondition!, lt(objects.published, before))
     : baseCondition;
 
+  // Fetch one extra row to detect whether an older page exists.
   const messages = await db
     .select()
     .from(objects)
     .where(whereClause!)
     .orderBy(desc(objects.published))
-    .limit(limit);
+    .limit(limit + 1);
 
-  // Defence-in-depth: re-validate authorization at the code level
-  return messages.filter((msg) => {
+  // Defence-in-depth: re-validate authorization at the code level. (In practice
+  // every row in the actor's own conversation passes, so the +1 reliably signals
+  // an older page.)
+  const authorized = messages.filter((msg) => {
     if (msg.attributedTo === actorApId) return true;
     const toRecipients = safeJsonParse<string[]>(msg.toJson, []);
     return toRecipients.includes(actorApId);
   });
+
+  const hasMore = authorized.length > limit;
+  return { rows: hasMore ? authorized.slice(0, limit) : authorized, hasMore };
 }
 
 /** Build a map from ap_id -> actor info, checking local actors then cached actors. */
@@ -225,17 +237,17 @@ async function fetchAndFormatMessages(
   conversationId: string,
   limit: number,
   before: string | undefined,
-): Promise<DmMessageResponse[]> {
-  const messages = await fetchAuthorizedMessages(
+): Promise<{ messages: DmMessageResponse[]; hasMore: boolean }> {
+  const { rows, hasMore } = await fetchAuthorizedMessages(
     db,
     actorApId,
     conversationId,
     limit,
     before,
   );
-  const authorApIds = [...new Set(messages.map((m) => m.attributedTo))];
+  const authorApIds = [...new Set(rows.map((m) => m.attributedTo))];
   const authorMap = await resolveAuthorInfoMap(db, authorApIds);
-  return formatMessages(messages, authorMap);
+  return { messages: formatMessages(rows, authorMap), hasMore };
 }
 
 /** Look up a direct-message Note that the actor owns (for edit/delete). */
@@ -315,14 +327,18 @@ dm.get("/user/:encodedApId/messages", async (c) => {
     otherApId,
   );
 
-  const messages = await fetchAndFormatMessages(
+  const { messages, hasMore } = await fetchAndFormatMessages(
     db,
     actor.ap_id,
     conversationId,
     limit,
     before,
   );
-  return c.json({ messages, conversation_id: conversationId });
+  return c.json({
+    messages,
+    conversation_id: conversationId,
+    has_more: hasMore,
+  });
 });
 
 // Send message to a specific user (creates Note with direct visibility)
