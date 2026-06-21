@@ -112,7 +112,9 @@ export function getAuthConfig(env: Env): AuthConfig {
   }
 
   return {
-    passwordEnabled: !!env.AUTH_PASSWORD_HASH,
+    // A whitespace-only hash is treated as "disabled" (mirrors the login gate),
+    // never as a one-character password.
+    passwordEnabled: !!env.AUTH_PASSWORD_HASH?.trim(),
     providers,
   };
 }

@@ -152,7 +152,10 @@ auth.post("/login", async (c) => {
   // is actually loginnable out of the box (#11).
   let isValid = false;
 
-  if (c.env.AUTH_PASSWORD_HASH) {
+  // Treat a blank / whitespace-only AUTH_PASSWORD_HASH as "password login
+  // disabled", not "the password is whitespace": otherwise a misconfigured
+  // `AUTH_PASSWORD_HASH=" "` would let an attacker log in by submitting " ".
+  if (c.env.AUTH_PASSWORD_HASH?.trim()) {
     isValid = await verifyBootstrapOrPassword(
       password,
       c.env.AUTH_PASSWORD_HASH,
