@@ -22,6 +22,7 @@ import {
   parseNonEmptyString,
 } from "../lib/parse-helpers.ts";
 import { fetchAndUpsertActorCache } from "../lib/activitypub-actor-cache.ts";
+import { getInstanceFetchSigner } from "./activitypub/query-helpers.ts";
 import { requireActor } from "./actors-helpers.ts";
 import { logger } from "../lib/logger.ts";
 
@@ -295,9 +296,14 @@ export async function handleRemoteFollow(
     .get();
 
   if (!cachedActorRow) {
+    // Sign the actor GET as the instance actor so a remote running in
+    // authorized-fetch / secure mode (which 401s unsigned GETs) serves the
+    // document — otherwise following anyone on such an instance silently fails
+    // at resolution.
     const result = await fetchAndUpsertActorCache(db, targetApId, {
       timeout: REMOTE_FETCH_TIMEOUT_MS,
       mode: "upsert",
+      signer: await getInstanceFetchSigner(c),
     });
     if (!result.ok) {
       switch (result.reason) {

@@ -3,6 +3,7 @@ import type { Env, Variables } from "../../types.ts";
 import { eq } from "drizzle-orm";
 import { instanceActor } from "../../../db/index.ts";
 import { generateKeyPair } from "../../federation-helpers.ts";
+import type { RemoteFetchSigner } from "../../lib/activitypub-actor-cache.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "activitypub.query_helpers" });
@@ -150,6 +151,22 @@ export async function getInstanceActor(
 
   inFlightInstanceActor.set(apId, promise);
   return await promise;
+}
+
+/**
+ * Build the authorized-fetch signing identity from the instance actor. Used to
+ * HTTP-sign outbound actor/object GETs so secure-mode remotes serve the
+ * document. The `keyId` matches the `#main-key` fragment the served instance
+ * actor doc (`GET /ap/actor`) exposes, so the remote can fetch + verify it.
+ */
+export async function getInstanceFetchSigner(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+): Promise<RemoteFetchSigner> {
+  const instance = await getInstanceActor(c);
+  return {
+    keyId: `${instance.apId}#main-key`,
+    privateKeyPem: instance.privateKeyPem,
+  };
 }
 
 /** @internal Test-only helper for inspecting the synthetic lock. */

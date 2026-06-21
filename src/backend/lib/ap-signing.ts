@@ -50,7 +50,12 @@ export async function signRequest(
   const signedHeaders = digest
     ? "(request-target) host date digest"
     : "(request-target) host date";
-  let signatureString = `(request-target): ${method.toLowerCase()} ${urlObj.pathname}\nhost: ${urlObj.host}\ndate: ${date}`;
+  // The request-target must include the query string (verifiers reconstruct
+  // `pathname + search`). For the common query-less actor/inbox URL `search` is
+  // empty, so this is a no-op there and a correctness fix for any URL that does
+  // carry a query (e.g. a signed object GET).
+  const requestTarget = `${urlObj.pathname}${urlObj.search}`;
+  let signatureString = `(request-target): ${method.toLowerCase()} ${requestTarget}\nhost: ${urlObj.host}\ndate: ${date}`;
   if (digest) signatureString += `\ndigest: ${digest}`;
 
   const pemContents = privateKeyPem

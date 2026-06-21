@@ -17,11 +17,26 @@
 import { eq } from "drizzle-orm";
 import { actorCache } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
-import { fetchWithTimeout, isSafeRemoteUrl } from "../federation-helpers.ts";
+import {
+  fetchWithTimeout,
+  isSafeRemoteUrl,
+  signRequest,
+} from "../federation-helpers.ts";
 import {
   tryParseRemoteActor,
   type RemoteActorDocument,
 } from "./activitypub-validators.ts";
+
+/**
+ * The signing identity used to HTTP-sign an outbound actor GET so instances
+ * running in authorized-fetch / secure mode (which 401 unsigned GETs) will
+ * serve the actor document. `keyId` must resolve to a publicly-fetchable key
+ * (e.g. the instance actor's `#main-key`) so the remote can verify us.
+ */
+export interface RemoteFetchSigner {
+  keyId: string;
+  privateKeyPem: string;
+}
 
 const DEFAULT_FETCH_TIMEOUT_MS = 15000;
 
@@ -83,6 +98,12 @@ export interface FetchAndUpsertActorCacheOptions {
    * matching the refresh/delivery paths that tolerate a missing key.
    */
   publicKey?: "require-key" | "allow-keyless";
+  /**
+   * When provided, the outbound GET is HTTP-signed with this identity so a
+   * remote running in authorized-fetch / secure mode serves the document
+   * instead of 401ing the unsigned request. Omit for plain (unsigned) fetches.
+   */
+  signer?: RemoteFetchSigner;
 }
 
 /**
@@ -104,6 +125,7 @@ export async function fetchAndUpsertActorCache(
     timeout = DEFAULT_FETCH_TIMEOUT_MS,
     mode = "upsert",
     publicKey = "allow-keyless",
+    signer,
   } = options;
 
   if (!isSafeRemoteUrl(actorApId)) {
@@ -112,8 +134,20 @@ export async function fetchAndUpsertActorCache(
 
   let data: RemoteActorDocument | null;
   try {
+    const headers: Record<string, string> = {
+      Accept: "application/activity+json, application/ld+json",
+    };
+    if (signer) {
+      // Authorized-fetch: sign the bodyless GET as the instance actor so a
+      // secure-mode remote (which 401s unsigned GETs) serves the document.
+      // signRequest covers `(request-target) host date` for a bodyless request.
+      Object.assign(
+        headers,
+        await signRequest(signer.privateKeyPem, signer.keyId, "GET", actorApId),
+      );
+    }
     const res = await fetchWithTimeout(actorApId, {
-      headers: { Accept: "application/activity+json, application/ld+json" },
+      headers,
       timeout,
     });
     if (!res.ok) return { ok: false, reason: "fetch_not_ok" };

@@ -8,7 +8,9 @@ import {
   normalizeRemoteDomain,
   parseLimit,
   parseOffset,
+  signRequest,
 } from "../federation-helpers.ts";
+import { getInstanceFetchSigner } from "./activitypub/query-helpers.ts";
 import type { Database } from "../../db/index.ts";
 import {
   actorCache,
@@ -472,9 +474,21 @@ search.get("/remote", async (c) => {
       return c.json({ actors: [] });
     }
 
-    // Fetch actor profile
+    // Fetch actor profile. Sign the GET as the instance actor so a remote in
+    // authorized-fetch / secure mode (which 401s the unsigned actor GET while
+    // leaving webfinger public) still resolves — otherwise searching for an
+    // account on such an instance silently returns zero results.
+    const signer = await getInstanceFetchSigner(c);
     const actorRes = await fetchWithTimeout(actorLink.href, {
-      headers: { Accept: "application/activity+json, application/ld+json" },
+      headers: {
+        Accept: "application/activity+json, application/ld+json",
+        ...(await signRequest(
+          signer.privateKeyPem,
+          signer.keyId,
+          "GET",
+          actorLink.href,
+        )),
+      },
       timeout: REMOTE_FETCH_TIMEOUT_MS,
     });
     if (!actorRes.ok) return c.json({ actors: [] });
