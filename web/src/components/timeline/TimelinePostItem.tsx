@@ -327,11 +327,10 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
         {/* Edge-to-edge media hero with double-tap-to-like. When the post has a
             content warning, the hero stays hidden behind a blurred placeholder
             until the CW is revealed (shared with the text body above). */}
-        <div
-          data-media-hero
-          class="relative select-none"
-          aria-label={t("post.doubleTapLike")}
-        >
+        {/* No aria-label here: it is prohibited on a plain div (no role) and
+            would override the inner images' alt text as the group's accessible
+            name. Double-tap-to-like stays functional via the gesture handler. */}
+        <div data-media-hero class="relative select-none">
           <Show
             when={mediaHidden()}
             fallback={

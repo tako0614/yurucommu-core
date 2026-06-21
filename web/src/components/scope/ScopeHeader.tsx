@@ -108,11 +108,15 @@ export function ScopeHeader(props: ScopeHeaderProps) {
               </h1>
             }
           >
+            {/* Use `title`, not `aria-label`: the visible scope name (ホーム /
+                community) must remain the accessible name (WCAG 2.5.3 Label in
+                Name) so voice control can target it; the filter hint rides along
+                as the tooltip/description. */}
             <button
               type="button"
               onClick={props.onOpenSwitcher}
               aria-haspopup="dialog"
-              aria-label={t("scope.filterLabel")}
+              title={t("scope.filterLabel")}
               class="-ml-2 flex max-w-full items-center gap-1.5 rounded-full px-2 py-1 transition-colors hover:bg-neutral-800"
             >
               <Show

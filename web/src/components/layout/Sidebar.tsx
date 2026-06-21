@@ -125,11 +125,14 @@ export function Sidebar() {
         <div class="border-t border-neutral-900 pt-4">
           {/* Account block — opens the AppMenu (settings / bookmarks /
               account switch / language / logout) as a desktop popover. */}
+          {/* `title` not `aria-label`: the visible account name stays the
+              accessible name (WCAG 2.5.3) while the "open menu" hint rides along
+              as the tooltip. */}
           <button
             type="button"
             onClick={() => openMenu(true)}
             aria-haspopup="dialog"
-            aria-label={t("menu.open")}
+            title={t("menu.open")}
             class="w-full text-left px-3 py-2 rounded-xl bg-neutral-900/40 transition-colors hover:bg-neutral-900"
           >
             <div class="text-xs text-neutral-500 mb-2">
