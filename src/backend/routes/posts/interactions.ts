@@ -30,6 +30,7 @@ import {
   enqueueFanoutToFollowers,
 } from "../../lib/delivery/queue.ts";
 import { canViewerReadObject } from "../../lib/community-visibility.ts";
+import { canViewerReadObjectFull } from "../../lib/post-visibility.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "posts.interactions" });
@@ -127,6 +128,29 @@ posts.post("/:id/like", async (c) => {
 
   const db = c.get("db");
   const baseUrl = c.env.APP_URL;
+
+  // Only a post the actor can actually read may be liked: without this an authed
+  // user who learns a post's apId could "like" a followers-only / direct /
+  // private-community post they were never shown, notifying the author and
+  // bumping the count from an unentitled actor. 404 (not 403) so existence is
+  // not revealed, mirroring the post-detail gate.
+  const likeGate = await db
+    .select({
+      visibility: objects.visibility,
+      attributedTo: objects.attributedTo,
+      toJson: objects.toJson,
+      audienceJson: objects.audienceJson,
+      communityApId: objects.communityApId,
+    })
+    .from(objects)
+    .where(eq(objects.apId, post.apId))
+    .get();
+  if (
+    !likeGate ||
+    !(await canViewerReadObjectFull(db, likeGate, actor.ap_id))
+  ) {
+    return c.json({ error: "Post not found" }, 404);
+  }
 
   const existingLike = await db
     .select({ actorApId: likes.actorApId })

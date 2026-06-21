@@ -22,7 +22,13 @@ import { and, eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, announces, likes, objects } from "../../../db/index.ts";
+import {
+  actors,
+  announces,
+  follows,
+  likes,
+  objects,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import interactionRoutes from "../../routes/posts/interactions.ts";
 
@@ -327,4 +333,54 @@ test("repost of a followers-only / direct / community-scoped post is rejected (4
     expect(res.status).toEqual(403);
     expect(await announceRowCount(db, postApId)).toEqual(0);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Like read-gate: a post the actor cannot read must not be likeable (no
+// notification / count bump from an unentitled actor).
+// ---------------------------------------------------------------------------
+
+async function like(
+  db: Database,
+  liker: Actor,
+  postApId: string,
+): Promise<Response> {
+  const env = envFor(db);
+  const app = appWith(db, env, liker);
+  return app.fetch(
+    new Request(`${APP_URL}/${encodeURIComponent(postApId)}/like`, {
+      method: "POST",
+    }),
+    env,
+  );
+}
+
+test("like of a followers-only post is rejected for a non-follower (404, no like) but allowed for a follower", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "lauthor");
+  const strangerApId = await insertLocalActor(db, "lstranger");
+  const followerApId = await insertLocalActor(db, "lfollower");
+  const stranger = fakeActor(strangerApId, "lstranger");
+  const follower = fakeActor(followerApId, "lfollower");
+
+  const postApId = await insertPostWithReach(db, author, "lfoll", {
+    visibility: "followers",
+  });
+
+  // Non-follower who somehow knows the apId: rejected, no like row / count bump.
+  const strangerRes = await like(db, stranger, postApId);
+  expect(strangerRes.status).toEqual(404);
+  expect(await likeRowCount(db, strangerApId, postApId)).toEqual(0);
+  expect(await likeCountOf(db, postApId)).toEqual(0);
+
+  // Accepted follower: allowed.
+  await db.insert(follows).values({
+    followerApId: followerApId,
+    followingApId: author,
+    status: "accepted",
+  });
+  const followerRes = await like(db, follower, postApId);
+  expect(followerRes.status).toEqual(200);
+  expect(await likeRowCount(db, followerApId, postApId)).toEqual(1);
+  expect(await likeCountOf(db, postApId)).toEqual(1);
 });
