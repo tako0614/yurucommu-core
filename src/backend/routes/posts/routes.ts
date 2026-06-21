@@ -674,21 +674,27 @@ posts.delete("/:id", async (c) => {
       and(eq(actors.apId, actor.ap_id), gt(actors.postCount, 0), objectExists),
     );
   const deleteObject = db.delete(objects).where(eq(objects.apId, post.apId));
+  // DM notes (`visibility="direct"`, created by createDmNote) are NOT counted in
+  // postCount on send, so deleting one here must NOT decrement it — otherwise a
+  // DM deleted through this generic endpoint (the dedicated DELETE
+  // /dm/messages/:id correctly skips the count) under-counts the author's
+  // postCount (floored at 0). Keep create/delete symmetric: only regular posts
+  // (which incremented) decrement.
+  const ops: unknown[] = [];
+  if (post.visibility !== "direct") ops.push(decPostCount);
+  ops.push(deleteObject);
   if (post.inReplyTo) {
     const parentId = post.inReplyTo;
-    await (db as unknown as Batchable).batch([
-      decPostCount,
-      deleteObject,
+    ops.push(
       db
         .update(objects)
         .set({
           replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
         })
         .where(eq(objects.apId, parentId)),
-    ]);
-  } else {
-    await (db as unknown as Batchable).batch([decPostCount, deleteObject]);
+    );
   }
+  await (db as unknown as Batchable).batch(ops);
 
   // The Delete must reach everyone the original object reached, not just the
   // author's current followers: mirror the object's stored to/cc, and emit a
