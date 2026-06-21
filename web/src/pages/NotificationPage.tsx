@@ -106,12 +106,18 @@ export function NotificationPage() {
   const [filter, setFilter] = createSignal<FilterType>("all");
   // Bumping this re-runs the load effect for the current filter (retry).
   const [reloadKey, setReloadKey] = createSignal(0);
+  // Whether an OLDER page exists past the last notification shown. Seeded from
+  // the initial load + each load-older fetch, NOT from the in-place refresh
+  // (which re-reads the newest page).
+  const [hasMoreOlder, setHasMoreOlder] = createSignal(false);
+  const [loadingOlder, setLoadingOlder] = createSignal(false);
 
   createEffect(() => {
     const currentFilter = filter();
     reloadKey();
 
     setNotifications([]);
+    setHasMoreOlder(false);
     setLoadError(null);
     setLoading(true);
 
@@ -119,11 +125,12 @@ export function NotificationPage() {
 
     const loadNotifications = async () => {
       try {
-        const data = await fetchNotifications({
+        const { notifications: data, hasMore } = await fetchNotifications({
           type: currentFilter === "all" ? undefined : currentFilter,
         });
         if (cancelled) return;
         setNotifications(data);
+        setHasMoreOlder(hasMore);
 
         // Mark unread as read — in its OWN try/catch so a failed mark-read POST
         // does NOT discard the notifications we just loaded successfully (it
@@ -166,6 +173,37 @@ export function NotificationPage() {
 
   const retryLoad = () => setReloadKey((k) => k + 1);
 
+  // Append the page of notifications OLDER than the last one shown. The list is
+  // newest-first, so the oldest is the final element and older items are
+  // appended; `before` is its timestamp and the backend returns `created_at <
+  // before`. Respects the active type filter.
+  const loadOlder = async () => {
+    if (loadingOlder()) return;
+    const current = notifications();
+    if (current.length === 0) return;
+    const oldest = current[current.length - 1];
+    if (!oldest.created_at) return;
+    const currentFilter = filter();
+    setLoadingOlder(true);
+    try {
+      const { notifications: older, hasMore } = await fetchNotifications({
+        type: currentFilter === "all" ? undefined : currentFilter,
+        before: oldest.created_at,
+      });
+      if (filter() !== currentFilter) return; // filter changed mid-flight
+      setNotifications((prev) => {
+        const ids = new Set(prev.map((n) => n.id));
+        const fresh = older.filter((n) => !ids.has(n.id));
+        return fresh.length > 0 ? [...prev, ...fresh] : prev;
+      });
+      setHasMoreOlder(hasMore);
+    } catch (e) {
+      console.error("Failed to load older notifications:", e);
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+
   // Refresh the list in place (no skeleton flash) when the page becomes
   // visible or regains focus, so an open notification view doesn't go stale
   // while only the shared badge polls.
@@ -173,7 +211,7 @@ export function NotificationPage() {
     if (loading() || loadError()) return;
     const currentFilter = filter();
     try {
-      const data = await fetchNotifications({
+      const { notifications: data } = await fetchNotifications({
         type: currentFilter === "all" ? undefined : currentFilter,
       });
       // Ignore late responses if the filter changed mid-flight.
@@ -528,6 +566,19 @@ export function NotificationPage() {
                   );
                 }}
               </For>
+              <Show when={hasMoreOlder()}>
+                <div class="flex justify-center py-4">
+                  <button
+                    onClick={loadOlder}
+                    disabled={loadingOlder()}
+                    class="rounded-full bg-neutral-800 px-4 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                  >
+                    {loadingOlder()
+                      ? t("common.loading")
+                      : t("notifications.loadOlder")}
+                  </button>
+                </div>
+              </Show>
             </Show>
           </Show>
         </Show>
