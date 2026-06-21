@@ -109,3 +109,37 @@ test("served actor doc @context includes Mastodon extension terms", async () => 
   expect(Array.isArray(body.attachment)).toBe(true);
   expect(Array.isArray(body.alsoKnownAs)).toBe(true);
 });
+
+test("served actor doc published is a valid xsd:dateTime even from a SQLite created_at", async () => {
+  // An actor's created_at can be a SQLite datetime('now') value
+  // (YYYY-MM-DD HH:MM:SS.mmm — space-separated, no zone); emitted verbatim it is
+  // an INVALID xsd:dateTime that Mastodon cannot parse (no join date). It must
+  // be normalized to ISO 8601.
+  const db = {
+    query: {
+      actors: {
+        findFirst: spy(() =>
+          Promise.resolve({
+            ...createActor("sqliteuser"),
+            createdAt: "2026-06-20 19:01:17.175",
+          }),
+        ),
+      },
+      activities: { findMany: spy(() => Promise.resolve([])) },
+      follows: { findMany: spy(() => Promise.resolve([])) },
+    },
+    select: spy(() => {
+      throw new Error("collection count should not be queried");
+    }),
+  } as unknown as ReturnType<typeof createDbMock>;
+  const app = createApp(db);
+  const res = await app.fetch(
+    new Request("https://test.local/ap/users/sqliteuser"),
+    { APP_URL: "https://test.local" },
+  );
+  const body = (await res.json()) as Record<string, unknown>;
+  expect(body.published).toEqual("2026-06-20T19:01:17.175Z");
+  expect(String(body.published)).toMatch(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
+  );
+});

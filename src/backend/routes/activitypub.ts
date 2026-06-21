@@ -88,6 +88,21 @@ function buildPublicKey(
   };
 }
 
+/**
+ * Normalize a stored timestamp to an xsd:dateTime string for AS2 `published`.
+ * Post timestamps are written with `toISOString()`, but an actor's `created_at`
+ * is a SQLite `datetime('now')` value (`YYYY-MM-DD HH:MM:SS[.mmm]`, UTC, space-
+ * separated, no zone) — emitting it verbatim yields an INVALID xsd:dateTime
+ * (Mastodon can't parse the join date). Convert it to ISO 8601; pass through
+ * values that already carry the `T` separator.
+ */
+function toIso8601(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  if (value.includes("T")) return value;
+  const d = new Date(value.replace(" ", "T") + "Z");
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
 async function countRows(
   c: HonoContext,
   table: typeof actors | typeof objectsTable,
@@ -347,7 +362,7 @@ ap.get(
       // pending (handleFollow keeps them pending for private accounts). Mirrors
       // the Update(Person) object built in actors.ts.
       manuallyApprovesFollowers: Boolean(actor.isPrivate),
-      published: actor.createdAt,
+      published: toIso8601(actor.createdAt),
     };
 
     // Structured profile metadata -> PropertyValue attachments (Mastodon
