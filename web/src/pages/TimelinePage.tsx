@@ -1,4 +1,4 @@
-import { For, lazy, Show, Suspense } from "solid-js";
+import { For, lazy, onMount, Show, Suspense } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
@@ -44,6 +44,15 @@ export function TimelinePage() {
     const scope = inhabitedScope();
     return scope.kind === "community" ? { name: scope.name } : null;
   };
+
+  // Prefetch the lazy story chunks once the home view is up, so the first tap on
+  // a story (view) or "+" (compose) opens instantly instead of flashing the
+  // Suspense spinner while the chunk downloads. The StoryBar — and thus both
+  // actions — is always present on home; preload is idempotent and non-blocking.
+  onMount(() => {
+    void StoryViewer.preload?.();
+    void StoryComposer.preload?.();
+  });
 
   return (
     <div class="relative flex flex-col h-full">
