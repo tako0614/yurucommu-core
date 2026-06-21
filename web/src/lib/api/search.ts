@@ -26,6 +26,17 @@ export async function searchPosts(query: string): Promise<Post[]> {
   return (data.posts || []).map(normalizePost);
 }
 
+// Exact whole-hashtag search. Unlike searchPosts (a substring/FTS content
+// match, where "#deploy" also hits "#deployed"), this hits the dedicated
+// /search/hashtag/:tag route which matches the tag as a complete token — the
+// behaviour a user expects when they click a #hashtag. Pass the tag WITHOUT the
+// leading '#'.
+export async function searchHashtag(tag: string): Promise<Post[]> {
+  const res = await apiFetch(`/api/search/hashtag/${encodeURIComponent(tag)}`);
+  const data = (await res.json()) as { posts?: Post[] };
+  return (data.posts || []).map(normalizePost);
+}
+
 export async function fetchTrendingHashtags(
   limit = 10,
 ): Promise<{ tag: string; count: number }[]> {

@@ -20,6 +20,7 @@ import {
   joinCommunity,
   likePost,
   searchActors,
+  searchHashtag,
   searchPosts,
   searchRemote,
   unlikePost,
@@ -231,9 +232,15 @@ export function SearchPage() {
       // Inward-first: only the owner's own instance (local actors / posts /
       // joined communities). Remote servers are reached only when the owner
       // explicitly toggles "search other servers".
+      // A "#tag" query is a hashtag lookup: route it to the dedicated endpoint
+      // so it matches the WHOLE tag (#deploy must not return #deployed), not a
+      // substring of the post body. Plain text still uses the content search.
+      const isHashtagQuery = trimmedQuery.startsWith("#");
       const [usersRes, postsRes] = await Promise.all([
         searchActors(trimmedQuery),
-        searchPosts(trimmedQuery),
+        isHashtagQuery
+          ? searchHashtag(trimmedQuery.slice(1))
+          : searchPosts(trimmedQuery),
       ]);
 
       if (gen !== searchGen) return; // a newer search / clear superseded this
