@@ -241,7 +241,12 @@ export function ProfilePage() {
     try {
       await updateProfile({
         name: editName().trim() || undefined,
-        summary: editSummary().trim() || undefined,
+        // Send the (possibly empty) bio verbatim so CLEARING it actually
+        // persists: `"" || undefined` would send `undefined`, which the backend
+        // skips (PUT /me only updates `summary` when it is present) — the bio
+        // would optimistically vanish from the UI but reappear on reload. An
+        // empty string makes the backend store null (clears it).
+        summary: editSummary().trim(),
         icon_url: editIconUrl() || undefined,
         header_url: editHeaderUrl() || undefined,
         is_private: editIsPrivate(),
