@@ -345,6 +345,8 @@ export function AttachmentGrid(props: AttachmentGridProps) {
               <img
                 src={mediaAttachmentUrl(m)}
                 alt={m.name || ""}
+                loading="lazy"
+                decoding="async"
                 onClick={(e) => props.onOpen(idx(), e)}
                 class="w-full object-cover max-h-96 cursor-zoom-in"
               />

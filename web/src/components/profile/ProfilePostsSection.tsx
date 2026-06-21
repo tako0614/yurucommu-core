@@ -231,6 +231,8 @@ function ProfileMediaGrid(props: ProfileMediaGridProps) {
                     <img
                       src={mediaAttachmentUrl(first)}
                       alt={first.name || ""}
+                      loading="lazy"
+                      decoding="async"
                       class="h-full w-full object-cover transition-opacity hover:opacity-90"
                     />
                   }

@@ -49,6 +49,8 @@ export function UserAvatar(props: UserAvatarProps) {
         <img
           src={props.avatarUrl!}
           alt={props.name}
+          loading="lazy"
+          decoding="async"
           class="w-full h-full object-cover"
         />
       </Show>

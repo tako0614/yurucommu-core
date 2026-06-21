@@ -621,6 +621,8 @@ export function SearchPage() {
                               <img
                                 src={community.icon_url ?? undefined}
                                 alt=""
+                                loading="lazy"
+                                decoding="async"
                                 class="w-full h-full object-cover"
                               />
                             </Show>
@@ -973,6 +975,8 @@ export function SearchPage() {
                             <img
                               src={community.icon_url ?? undefined}
                               alt=""
+                              loading="lazy"
+                              decoding="async"
                               class="w-full h-full object-cover"
                             />
                           </Show>
