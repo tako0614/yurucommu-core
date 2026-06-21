@@ -344,7 +344,7 @@ communitiesRouter.get("/:identifier", async (c) => {
     )
     .get();
 
-  if (!community) {
+  if (!community || community.deletedAt) {
     return c.json({ error: "Community not found" }, 404);
   }
 
@@ -379,30 +379,41 @@ communitiesRouter.get("/:identifier", async (c) => {
     }
   }
 
+  // A private community reveals only its IDENTITY (name/display/icon/policy) to a
+  // non-member — enough to render the "private, join with an invite" page — but
+  // never its size / activity / summary / owner. This matches the discovery list,
+  // which hides private communities from non-members entirely; without it, anyone
+  // who guesses the name could read a private community's member/post counts and
+  // description by direct fetch.
+  const restricted = community.visibility !== "public" && !isMember;
+
   // member_count is the maintained `communities.memberCount` column (kept atomic
-  // by addMemberAtomic/removeMemberAtomic on every membership mutation), so the
-  // previous per-request COUNT(*) over community_members was redundant work.
-  // post_count has no denormalized column, so it is still counted (indexed range
-  // via objects_comm_published_idx).
-  const postsCountResult = await db
-    .select({ count: count() })
-    .from(objects)
-    .where(eq(objects.communityApId, community.apId))
-    .get();
+  // by addMemberAtomic/removeMemberAtomic). post_count has no denorm column, so it
+  // is counted (indexed range via objects_comm_published_idx) — but only when the
+  // viewer is allowed to see it.
+  const postCount = restricted
+    ? 0
+    : (
+        await db
+          .select({ count: count() })
+          .from(objects)
+          .where(eq(objects.communityApId, community.apId))
+          .get()
+      )?.count || 0;
 
   return c.json({
     community: {
       ap_id: community.apId,
       name: community.preferredUsername,
       display_name: community.name,
-      summary: community.summary,
+      summary: restricted ? null : community.summary,
       icon_url: community.iconUrl,
       visibility: community.visibility,
       join_policy: community.joinPolicy,
       post_policy: community.postPolicy,
-      member_count: community.memberCount || 0,
-      post_count: postsCountResult?.count || 0,
-      created_by: community.createdBy,
+      member_count: restricted ? 0 : community.memberCount || 0,
+      post_count: postCount,
+      created_by: restricted ? null : community.createdBy,
       created_at: community.createdAt,
       is_member: isMember,
       member_role: memberRole,

@@ -535,3 +535,84 @@ test("community discovery list hides private (non-member) + deleted communities"
   expect(member).toContain("secretclub");
   expect(member).not.toContain("goneclub");
 });
+
+test("community detail redacts a private community's metadata from non-members", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+
+  const apId = `${APP_URL}/ap/groups/vault`;
+  await db.insert(communities).values({
+    apId,
+    preferredUsername: "vault",
+    name: "Vault",
+    summary: "secret summary",
+    visibility: "private",
+    inbox: `${apId}/inbox`,
+    outbox: `${apId}/outbox`,
+    followersUrl: `${apId}/followers`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: alice,
+    memberCount: 3,
+  });
+  await db.insert(communityMembers).values({
+    communityApId: apId,
+    actorApId: alice,
+    joinedAt: "2026-06-20T00:00:00.000Z",
+  });
+
+  type Detail = {
+    name: string;
+    visibility: string;
+    summary: string | null;
+    member_count: number;
+    created_by: string | null;
+  };
+  const detailFor = async (actor: Actor | null): Promise<Detail> => {
+    const app = appWith(db, actor, communitiesRouter);
+    const res = await app.request(`${APP_URL}/vault`, undefined, envFor(db));
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { community: Detail }).community;
+  };
+
+  // Non-member sees identity (so an invite page can render) but NOT the size /
+  // activity / summary / owner.
+  const asBob = await detailFor(fakeActor(bob, "bob"));
+  expect(asBob.name).toBe("vault");
+  expect(asBob.visibility).toBe("private");
+  expect(asBob.summary).toBeNull();
+  expect(asBob.member_count).toBe(0);
+  expect(asBob.created_by).toBeNull();
+
+  // Anonymous: same redaction.
+  const asAnon = await detailFor(null);
+  expect(asAnon.member_count).toBe(0);
+  expect(asAnon.summary).toBeNull();
+
+  // Member: full detail.
+  const asAlice = await detailFor(fakeActor(alice, "alice"));
+  expect(asAlice.summary).toBe("secret summary");
+  expect(asAlice.member_count).toBe(3);
+  expect(asAlice.created_by).toBe(alice);
+});
+
+test("community detail 404s a soft-deleted community", async () => {
+  const db = await freshDb();
+  const apId = `${APP_URL}/ap/groups/gone`;
+  await db.insert(communities).values({
+    apId,
+    preferredUsername: "gone",
+    name: "gone",
+    inbox: `${apId}/inbox`,
+    outbox: `${apId}/outbox`,
+    followersUrl: `${apId}/followers`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: localApId("owner"),
+    deletedAt: "2026-06-20T00:00:00.000Z",
+  });
+  const app = appWith(db, null, communitiesRouter);
+  const res = await app.request(`${APP_URL}/gone`, undefined, envFor(db));
+  expect(res.status).toBe(404);
+});
