@@ -16,7 +16,15 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, blocks, follows, likes, objects } from "../../../db/index.ts";
+import {
+  activities,
+  actors,
+  blocks,
+  follows,
+  inbox,
+  likes,
+  objects,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import dmRoutes from "../../routes/dm/messages.ts";
 import storyRoutes from "../../routes/stories/interactions.ts";
@@ -171,6 +179,70 @@ test("DM send succeeds when there is no block", async () => {
   expect(res.status).toEqual(201);
   const notes = await db.select().from(objects).where(eq(objects.type, "Note"));
   expect(notes.length).toEqual(1);
+});
+
+test("deleting a DM also removes its delivery activity + recipient inbox row (no orphan notification)", async () => {
+  const db = await freshDb();
+  const senderApId = await insertLocalActor(db, "sender");
+  const recipientApId = await insertLocalActor(db, "recipient");
+
+  const app = appWith(db, fakeActor(senderApId, "sender"), dmRoutes);
+  const sendRes = await app.fetch(
+    new Request(
+      `${APP_URL}/user/${encodeURIComponent(recipientApId)}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "secret dm" }),
+      },
+    ),
+    envFor(db),
+  );
+  expect(sendRes.status).toEqual(201);
+  const dmApId = ((await sendRes.json()) as { message: { id: string } }).message
+    .id;
+
+  // Delivery created a Create activity + the recipient's inbox row.
+  expect(
+    (
+      await db
+        .select()
+        .from(activities)
+        .where(eq(activities.objectApId, dmApId))
+    ).length,
+  ).toEqual(1);
+  expect(
+    (await db.select().from(inbox).where(eq(inbox.actorApId, recipientApId)))
+      .length,
+  ).toEqual(1);
+
+  // Delete the DM.
+  const delRes = await app.fetch(
+    new Request(`${APP_URL}/messages/${encodeURIComponent(dmApId)}`, {
+      method: "DELETE",
+    }),
+    envFor(db),
+  );
+  expect(delRes.status).toEqual(200);
+
+  // Object, delivery activity, AND inbox row are all gone — no orphan that the
+  // notifications query (LEFT JOIN to the now-missing object) would resurface
+  // as a blank "mention" with a dead link.
+  expect(
+    (await db.select().from(objects).where(eq(objects.apId, dmApId))).length,
+  ).toEqual(0);
+  expect(
+    (
+      await db
+        .select()
+        .from(activities)
+        .where(eq(activities.objectApId, dmApId))
+    ).length,
+  ).toEqual(0);
+  expect(
+    (await db.select().from(inbox).where(eq(inbox.actorApId, recipientApId)))
+      .length,
+  ).toEqual(0);
 });
 
 test("story like is rejected when author has blocked the liker", async () => {

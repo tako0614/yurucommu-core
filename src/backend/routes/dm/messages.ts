@@ -541,7 +541,25 @@ dm.delete("/messages/:messageId", async (c) => {
   }
   const message = messageOrError;
 
-  // Sequential operations (D1 doesn't support interactive transactions)
+  // Sequential operations (D1 doesn't support interactive transactions).
+  // Also remove the delivery Create activity + the recipient's inbox row created
+  // at send time (messages.ts send path). These tables are addressed by AP id
+  // with no FK to `objects`, so deleting only the object orphans them — and
+  // because the notifications query LEFT JOINs the now-missing object (a
+  // deleted DM's object is gone → NULL visibility → not excluded as "direct"),
+  // the orphan Create inbox row would resurface as a blank "mention"
+  // notification with a dead /post link. Drop them first.
+  const relatedActivities = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(eq(activities.objectApId, message.apId));
+  const activityIds = relatedActivities.map((a) => a.apId);
+  if (activityIds.length > 0) {
+    await db
+      .delete(inboxTable)
+      .where(inArray(inboxTable.activityApId, activityIds));
+    await db.delete(activities).where(inArray(activities.apId, activityIds));
+  }
   await db
     .delete(objectRecipients)
     .where(eq(objectRecipients.objectApId, message.apId));
