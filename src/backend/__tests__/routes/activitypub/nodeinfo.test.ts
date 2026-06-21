@@ -27,7 +27,7 @@ function createApp(db = createCountDb([1, 42])) {
   return app;
 }
 
-test("nodeinfo discovery returns schema 2.1 link", async () => {
+test("nodeinfo discovery advertises both schema 2.0 and 2.1 links", async () => {
   const app = createApp();
   const res = await app.fetch(
     new Request("https://example.test/.well-known/nodeinfo"),
@@ -36,14 +36,50 @@ test("nodeinfo discovery returns schema 2.1 link", async () => {
   const body = (await res.json()) as Record<string, unknown>;
 
   expect(res.status).toEqual(200);
+  // Both versions are advertised so 2.0-only consumers (the widest set of
+  // fediverse crawlers/relays) get JSON, not the SPA HTML fallback.
   expect(body).toEqual({
     links: [
+      {
+        rel: "http://nodeinfo.diaspora.software/ns/schema/2.0",
+        href: "https://example.test/nodeinfo/2.0",
+      },
       {
         rel: "http://nodeinfo.diaspora.software/ns/schema/2.1",
         href: "https://example.test/nodeinfo/2.1",
       },
     ],
   });
+});
+
+test("nodeinfo 2.0 returns required schema fields and omits repository", async () => {
+  const app = createApp(createCountDb([1, 42]));
+  const res = await app.fetch(
+    new Request("https://example.test/nodeinfo/2.0"),
+    { APP_URL: "https://example.test" },
+  );
+  const body = (await res.json()) as {
+    version: string;
+    software: { name: string; version: string; repository?: string };
+    protocols: string[];
+    services: { inbound: string[]; outbound: string[] };
+    usage: { users: { total: number }; localPosts: number };
+    openRegistrations: boolean;
+    metadata: { singleUser: boolean };
+  };
+
+  expect(res.status).toEqual(200);
+  expect(body.version).toEqual("2.0");
+  expect(body.software.name).toEqual("yurucommu");
+  expect(body.software.version).toEqual("1.0.0");
+  // `repository` is a 2.1-only field — it must NOT appear in the 2.0 document.
+  expect(body.software.repository).toEqual(undefined);
+  expect(body.protocols).toEqual(["activitypub"]);
+  expect(body.services).toEqual({ inbound: [], outbound: [] });
+  expect(body.usage.users.total).toEqual(1);
+  expect(body.usage.localPosts).toEqual(42);
+  expect(body.openRegistrations).toEqual(false);
+  expect(body.metadata.singleUser).toEqual(true);
 });
 
 test("nodeinfo 2.1 returns required schema fields", async () => {

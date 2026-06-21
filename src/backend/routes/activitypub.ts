@@ -127,8 +127,17 @@ function canViewPrivateActorCollections(
 
 ap.get("/.well-known/nodeinfo", (c) => {
   const baseUrl = c.env.APP_URL.replace(/\/+$/, "");
+  // Advertise BOTH 2.0 and 2.1. NodeInfo 2.0 is the baseline version the widest
+  // set of fediverse servers / relays / statistics crawlers fetch; advertising
+  // only 2.1 (and letting /nodeinfo/2.0 fall through to the SPA HTML shell) made
+  // those consumers see HTML instead of JSON. Consumers pick the highest schema
+  // they understand from this list.
   return c.json({
     links: [
+      {
+        rel: "http://nodeinfo.diaspora.software/ns/schema/2.0",
+        href: `${baseUrl}/nodeinfo/2.0`,
+      },
       {
         rel: "http://nodeinfo.diaspora.software/ns/schema/2.1",
         href: `${baseUrl}/nodeinfo/2.1`,
@@ -137,7 +146,10 @@ ap.get("/.well-known/nodeinfo", (c) => {
   });
 });
 
-ap.get("/nodeinfo/2.1", async (c) => {
+// Shared instance telemetry for both NodeInfo schema versions. The only
+// difference between 2.0 and 2.1 output is the `software` block (2.1 adds
+// `repository`) and the `version` discriminator, so the rest lives here.
+async function nodeinfoCommon(c: HonoContext) {
   const [totalUsers, localPosts] = await Promise.all([
     countRows(c, actors, notDeleted(actors)),
     countRows(
@@ -151,15 +163,7 @@ ap.get("/nodeinfo/2.1", async (c) => {
     ),
   ]);
 
-  return c.json({
-    version: "2.1",
-    software: {
-      name: "yurucommu",
-      // Real running version (build-injected env, else the in-sync default
-      // constant) instead of a hardcoded literal that silently goes stale.
-      version: c.env.YURUCOMMU_SOFTWARE_VERSION || YURUCOMMU_VERSION,
-      repository: "https://github.com/tako0614/yurucommu",
-    },
+  return {
     protocols: ["activitypub"],
     services: {
       inbound: [],
@@ -180,6 +184,34 @@ ap.get("/nodeinfo/2.1", async (c) => {
     metadata: {
       singleUser: true,
     },
+  };
+}
+
+ap.get("/nodeinfo/2.0", async (c) => {
+  return c.json({
+    version: "2.0",
+    software: {
+      name: "yurucommu",
+      // Real running version (build-injected env, else the in-sync default
+      // constant). NodeInfo 2.0's software block has no `repository` field —
+      // that was introduced in 2.1.
+      version: c.env.YURUCOMMU_SOFTWARE_VERSION || YURUCOMMU_VERSION,
+    },
+    ...(await nodeinfoCommon(c)),
+  });
+});
+
+ap.get("/nodeinfo/2.1", async (c) => {
+  return c.json({
+    version: "2.1",
+    software: {
+      name: "yurucommu",
+      // Real running version (build-injected env, else the in-sync default
+      // constant) instead of a hardcoded literal that silently goes stale.
+      version: c.env.YURUCOMMU_SOFTWARE_VERSION || YURUCOMMU_VERSION,
+      repository: "https://github.com/tako0614/yurucommu",
+    },
+    ...(await nodeinfoCommon(c)),
   });
 });
 
