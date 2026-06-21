@@ -13,6 +13,7 @@ import {
   unbookmarkPost,
   unlikePost,
 } from "../lib/api.ts";
+import { ApiError } from "../lib/api/fetch.ts";
 import { EditPostModal } from "../components/timeline/EditPostModal.tsx";
 import { useI18n } from "../lib/i18n.tsx";
 import { decodeApIdParam } from "../lib/routeApId.ts";
@@ -113,7 +114,13 @@ export function PostDetailPage() {
       .catch((e) => {
         if (gen !== postLoadGen) return;
         console.error("Failed to load post:", e);
-        setError(t("common.error"));
+        // A 404 is the expected "this post does not exist / was deleted" case;
+        // the inline not-found view below already says so, so don't also raise
+        // the generic red error banner (which invites a pointless retry). Only
+        // surface the banner for genuinely unexpected failures.
+        if (!(e instanceof ApiError && e.status === 404)) {
+          setError(t("common.error"));
+        }
       })
       .finally(() => {
         if (gen === postLoadGen) setLoading(false);
@@ -305,7 +312,9 @@ export function PostDetailPage() {
       </Show>
 
       <Show when={!loading() && !post()}>
-        <div class="p-8 text-center text-neutral-500">Post not found</div>
+        <div class="p-8 text-center text-neutral-500">
+          {t("posts.notFound")}
+        </div>
       </Show>
 
       <Show when={!loading() && post()}>
