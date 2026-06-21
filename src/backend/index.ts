@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env, EnvVars, Variables } from "./types.ts";
 import { extractActorFromSession } from "./lib/session-actor.ts";
+import { isBackendPath } from "./lib/backend-paths.ts";
 import { wrapCloudflareBindings } from "./runtime/cloudflare.ts";
 import {
   getOidcClientCredentials,
@@ -497,6 +498,16 @@ function mountCoreRoutes(app: YurucommuApp): void {
 
 function mountStaticFallback(app: YurucommuApp): void {
   app.all("*", async (c) => {
+    // A request that reaches the static fallback under a backend route prefix
+    // means no API / AP / media route matched it — return a genuine JSON 404
+    // instead of the SPA HTML shell. Without this, the Cloudflare ASSETS binding
+    // (single-page-application mode) served index.html with a 200 for unmatched
+    // /api/* paths, so an API client (or our own fetch) got HTML 200 instead of
+    // a 404 — the Bun runtime already guarded this; share one source of truth.
+    if (isBackendPath(new URL(c.req.url).pathname)) {
+      return c.json({ error: "Not Found", code: "NOT_FOUND" }, 404);
+    }
+
     if (c.env.ASSETS) {
       return c.env.ASSETS.fetch(c.req.raw);
     }

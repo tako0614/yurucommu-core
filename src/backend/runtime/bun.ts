@@ -24,6 +24,7 @@ import {
   resolvePathWithinBasePath,
 } from "./shared.ts";
 import { MemoryKV } from "./memory-kv.ts";
+import { isBackendPath } from "../lib/backend-paths.ts";
 import { loadBunSqlite } from "./compat-bun/types.ts";
 import type { BunRuntime, BunSQLiteDatabase } from "./compat-bun/types.ts";
 import path from "node:path";
@@ -487,23 +488,6 @@ function mimeFromExt(filePath: string): string {
   return ASSET_MIME[ext] || "application/octet-stream";
 }
 
-// Backend route prefixes (API, ActivityPub, well-known, media, health). A path
-// under one of these that reaches the static asset handler means the backend
-// router did not match it — that is a genuine 404 for an API/AP client, NOT a
-// candidate for the SPA HTML fallback (which would return 200 text/html and
-// break clients that expect JSON / an AP document).
-const NON_SPA_PREFIXES = [
-  "/api",
-  "/ap",
-  "/.well-known",
-  "/nodeinfo",
-  "/media",
-  "/hosted",
-  "/.takos",
-  "/healthz",
-  "/readyz",
-];
-
 export class BunAssets implements IStaticAssets {
   private basePath: string;
   private realBasePath: string | null = null;
@@ -556,10 +540,7 @@ export class BunAssets implements IStaticAssets {
     const lastDot = url.pathname.lastIndexOf(".");
     const ext = lastDot >= 0 ? url.pathname.slice(lastDot).toLowerCase() : "";
     const hasAssetExt = ext !== "" && ext !== ".html" && ext in ASSET_MIME;
-    const isBackendPath = NON_SPA_PREFIXES.some(
-      (p) => url.pathname === p || url.pathname.startsWith(p + "/"),
-    );
-    const spaFallbackEligible = !hasAssetExt && !isBackendPath;
+    const spaFallbackEligible = !hasAssetExt && !isBackendPath(url.pathname);
 
     let realFilePath: string;
     try {
