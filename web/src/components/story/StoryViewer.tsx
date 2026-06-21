@@ -37,7 +37,7 @@ interface StoryViewerProps {
 // watchdog advances past it, so a stalled/broken video can't freeze the viewer.
 const VIDEO_STALL_TIMEOUT_MS = 8000;
 export function StoryViewer(props: StoryViewerProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [localActorStories, setLocalActorStories] = createSignal(
     props.actorStories,
   );
@@ -552,6 +552,7 @@ export function StoryViewer(props: StoryViewerProps) {
           actor={currentActorStories()!.actor}
           timeLabel={formatRelativeTime(currentStory()!.published, {
             maxDays: 1,
+            locale: language(),
           })}
           isVideo={isVideo()}
           isMuted={isMuted()}

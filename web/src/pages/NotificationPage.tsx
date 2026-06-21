@@ -87,7 +87,7 @@ const FollowRequestIcon = () => (
 type FilterType = "all" | "follow" | "like" | "announce" | "mention" | "reply";
 
 export function NotificationPage() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const navigate = useNavigate();
   const refreshUnread = useSetAtom(refreshNotificationUnreadAtom);
   const [error, setError] = createSignal<string | null>(null);
@@ -493,7 +493,9 @@ export function NotificationPage() {
                             {getNotificationText(notification)}
                           </p>
                           <p class="text-sm text-neutral-600 mt-1">
-                            {formatRelativeTime(notification.created_at)}
+                            {formatRelativeTime(notification.created_at, {
+                              locale: language(),
+                            })}
                           </p>
                         </div>
                       </Dynamic>

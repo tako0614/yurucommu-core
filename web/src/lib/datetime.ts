@@ -23,6 +23,29 @@ function getRelativeFormatter(locale: Locale) {
   return formatter;
 }
 
+// Compact relative-time labels per UI language. The Twitter-style compact form
+// ("2h") is intentional (it has to fit the timeline header), so we localize the
+// suffix rather than switch to Intl.RelativeTimeFormat's verbose "2 hours ago".
+const RELATIVE_LABELS = {
+  ja: {
+    now: "今",
+    m: (n: number) => `${n}分`,
+    h: (n: number) => `${n}時間`,
+    d: (n: number) => `${n}日`,
+  },
+  en: {
+    now: "now",
+    m: (n: number) => `${n}m`,
+    h: (n: number) => `${n}h`,
+    d: (n: number) => `${n}d`,
+  },
+} as const;
+
+function relativeLabels(locale: Locale) {
+  const key = Array.isArray(locale) ? locale[0] : (locale ?? "");
+  return key.startsWith("ja") ? RELATIVE_LABELS.ja : RELATIVE_LABELS.en;
+}
+
 export function formatRelativeTime(
   dateString: string,
   options?: { locale?: Locale; maxDays?: number },
@@ -40,11 +63,12 @@ export function formatRelativeTime(
   const diffHours = Math.floor(diffMs / HOUR_MS);
   const diffDays = Math.floor(diffMs / DAY_MS);
   const maxDays = options?.maxDays ?? 7;
+  const labels = relativeLabels(options?.locale);
 
-  if (diffMins < 1) return "now";
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  if (diffDays < maxDays) return `${diffDays}d`;
+  if (diffMins < 1) return labels.now;
+  if (diffMins < 60) return labels.m(diffMins);
+  if (diffHours < 24) return labels.h(diffHours);
+  if (diffDays < maxDays) return labels.d(diffDays);
   return date.toLocaleDateString(options?.locale);
 }
 

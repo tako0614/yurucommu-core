@@ -5,7 +5,7 @@ import { formatRelativeTime } from "../../lib/datetime.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { PostContent } from "../PostContent.tsx";
 import { HeartIcon, ReplyIcon } from "../icons/SocialIcons.tsx";
-import type { Translate } from "../../lib/i18n.tsx";
+import { type Translate, useI18n } from "../../lib/i18n.tsx";
 import { ScopeChip } from "../scope/ScopeChip.tsx";
 import {
   AttachmentGrid,
@@ -272,6 +272,7 @@ interface ProfilePostItemProps {
 
 function ProfilePostItem(props: ProfilePostItemProps) {
   const lightbox = useMediaLightbox();
+  const { language } = useI18n();
   return (
     <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
       <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>
@@ -294,13 +295,15 @@ function ProfilePostItem(props: ProfilePostItemProps) {
           </span>
           <span class="text-neutral-500">・</span>
           <span class="text-neutral-500 text-sm">
-            {formatRelativeTime(props.post.published)}
+            {formatRelativeTime(props.post.published, { locale: language() })}
           </span>
           <Show when={props.post.edited_at}>
             <span class="text-neutral-500">・</span>
             <span
               class="text-neutral-500 text-sm"
-              title={formatRelativeTime(props.post.edited_at!)}
+              title={formatRelativeTime(props.post.edited_at!, {
+                locale: language(),
+              })}
             >
               {props.t("posts.edited")}
             </span>

@@ -21,7 +21,7 @@ import {
 
 export function BookmarksPage() {
   const actor = useRequiredActor();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const lightbox = useMediaLightbox();
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
@@ -130,7 +130,9 @@ export function BookmarksPage() {
                         </span>
                         <span class="text-neutral-500">·</span>
                         <span class="text-neutral-500 text-sm">
-                          {formatRelativeTime(post.published)}
+                          {formatRelativeTime(post.published, {
+                            locale: language(),
+                          })}
                         </span>
                       </div>
                       <A href={`/post/${encodeURIComponent(post.ap_id)}`}>

@@ -44,7 +44,7 @@ const isCoarsePointer = () =>
   window.matchMedia("(pointer: coarse)").matches;
 
 export function TimelinePostItem(props: TimelinePostItemProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const lightbox = useMediaLightbox();
   const [burst, setBurst] = createSignal(false);
   // Shared content-warning reveal state: a single reveal un-hides both the
@@ -159,13 +159,15 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       </span>
       <span class="text-neutral-500">{"·"}</span>
       <span class="text-sm text-neutral-500">
-        {formatRelativeTime(props.post.published)}
+        {formatRelativeTime(props.post.published, { locale: language() })}
       </span>
       <Show when={props.post.edited_at}>
         <span class="text-neutral-500">{"·"}</span>
         <span
           class="text-sm text-neutral-500"
-          title={formatRelativeTime(props.post.edited_at!)}
+          title={formatRelativeTime(props.post.edited_at!, {
+            locale: language(),
+          })}
         >
           {t("posts.edited")}
         </span>
