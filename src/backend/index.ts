@@ -106,10 +106,12 @@ function collectMissingRequiredBindings(env: Env): string[] {
     hasValue(env.GOOGLE_CLIENT_ID) && hasValue(env.GOOGLE_CLIENT_SECRET);
   const hasX = hasValue(env.X_CLIENT_ID) && hasValue(env.X_CLIENT_SECRET);
   const oidcCredentials = getOidcClientCredentials(env);
+  // The client SECRET is optional — Takosumi materializes a PUBLIC (PKCE-only,
+  // no-secret) OIDC client for auto-provisioned Capsules. issuer + client_id is
+  // a usable auth method (mirrors getAuthConfig's provider gate).
   const hasAccountsOidc =
     hasValue(getOidcIssuerUrl(env) ?? undefined) &&
-    hasValue(oidcCredentials.clientId) &&
-    hasValue(oidcCredentials.clientSecret);
+    hasValue(oidcCredentials.clientId);
   if (!hasPassword && !hasGoogle && !hasX && !hasAccountsOidc) {
     missing.push("AUTH_METHOD");
   }
@@ -153,10 +155,12 @@ function collectMissingRuntimeBindings(env: Env): string[] {
     hasValue(env.GOOGLE_CLIENT_ID) && hasValue(env.GOOGLE_CLIENT_SECRET);
   const hasX = hasValue(env.X_CLIENT_ID) && hasValue(env.X_CLIENT_SECRET);
   const oidcCredentials = getOidcClientCredentials(env);
+  // The client SECRET is optional — Takosumi materializes a PUBLIC (PKCE-only,
+  // no-secret) OIDC client for auto-provisioned Capsules. issuer + client_id is
+  // a usable auth method (mirrors getAuthConfig's provider gate).
   const hasAccountsOidc =
     hasValue(getOidcIssuerUrl(env) ?? undefined) &&
-    hasValue(oidcCredentials.clientId) &&
-    hasValue(oidcCredentials.clientSecret);
+    hasValue(oidcCredentials.clientId);
   if (!hasPassword && !hasGoogle && !hasX && !hasAccountsOidc) {
     missing.push("AUTH_METHOD");
   }

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { createYurucommuBackendApp } from "../index.ts";
+import { getAuthConfig } from "../lib/oauth-providers.ts";
 
 // Wave-4 WIRING cluster regression coverage for src/backend/index.ts.
 
@@ -32,6 +33,34 @@ test("readyz passes for a fresh install without MEDIA / delivery queues", async 
     "DELIVERY_QUEUE",
     "DELIVERY_DLQ",
   ]);
+});
+
+test("readyz treats a PUBLIC OIDC client (issuer + client_id, no secret) as a valid auth method", async () => {
+  const app = createYurucommuBackendApp();
+  // No password / Google / X — only a Takosumi PUBLIC OIDC client (PKCE-only,
+  // no client secret), as auto-materialized for a Capsule. It must satisfy the
+  // AUTH_METHOD readiness gate so an auto-provisioned install comes up ready.
+  const res = await app.fetch(new Request("https://test.local/readyz"), {
+    APP_URL: "https://test.local",
+    DB_INSTANCE: {},
+    KV: {},
+    ENCRYPTION_KEY: "test-encryption-key",
+    TAKOSUMI_ACCOUNTS_ISSUER_URL: "https://app.takosumi.test",
+    TAKOSUMI_ACCOUNTS_CLIENT_ID: "toc_public_client",
+  } as never);
+  expect(res.status).toEqual(200);
+});
+
+test("getAuthConfig offers the Takosumi provider for a secret-less public client", () => {
+  const config = getAuthConfig({
+    TAKOSUMI_ACCOUNTS_ISSUER_URL: "https://app.takosumi.test",
+    TAKOSUMI_ACCOUNTS_CLIENT_ID: "toc_public_client",
+    // no TAKOSUMI_ACCOUNTS_CLIENT_SECRET
+  } as never);
+  const takos = config.providers.find((p) => p.id === "takos");
+  expect(takos).toBeDefined();
+  expect(takos!.issuer).toEqual("https://app.takosumi.test");
+  expect(takos!.jwksUrl).toEqual("https://app.takosumi.test/oauth/jwks");
 });
 
 test("readyz still 503s when a required precondition is missing", async () => {

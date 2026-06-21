@@ -336,8 +336,14 @@ export async function exchangeOAuthToken(
     code,
     redirect_uri: redirectUri,
     client_id: clientId,
-    client_secret: clientSecret,
   };
+  // A PUBLIC client (Takosumi's auto-materialized OIDC client: auth method
+  // "none", no secret) authenticates with PKCE alone — sending an empty
+  // client_secret would be rejected as malformed client auth. Only include it
+  // for a confidential client (secret configured).
+  if (clientSecret) {
+    tokenBody.client_secret = clientSecret;
+  }
 
   if (provider.supportsPkce && codeVerifier) {
     tokenBody.code_verifier = codeVerifier;

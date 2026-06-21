@@ -99,11 +99,15 @@ export function getAuthConfig(env: Env): AuthConfig {
     });
   }
 
-  // Takosumi Accounts OIDC
+  // Takosumi Accounts OIDC. The client SECRET is optional: when Takosumi
+  // materializes the OIDC client for an auto-provisioned Capsule it mints a
+  // PUBLIC client (token_endpoint_auth_method "none", PKCE-only, no secret — the
+  // service-graph resolve path can't deliver a confidential secret). A confidential
+  // client (secret set) also works. Either way PKCE-S256 protects the exchange,
+  // so issuer + client_id are sufficient to offer the provider.
   const oidcIssuer = getOidcIssuerUrl(env);
-  const { clientId: oidcClientId, clientSecret: oidcClientSecret } =
-    getOidcClientCredentials(env);
-  if (oidcIssuer && oidcClientId && oidcClientSecret) {
+  const { clientId: oidcClientId } = getOidcClientCredentials(env);
+  if (oidcIssuer && oidcClientId) {
     providers.push({
       id: "takos",
       name: "Takosumi Accounts",

@@ -47,7 +47,7 @@ async function signIdToken(
 
 function withMockJwks<T>(jwks: unknown, fn: () => Promise<T>): Promise<T> {
   const orig = globalThis.fetch;
-  globalThis.fetch = (() =>
+  globalThis.fetch = ((_input: RequestInfo | URL) =>
     Promise.resolve(
       new Response(JSON.stringify(jwks), {
         status: 200,
