@@ -280,7 +280,12 @@ async function enrichPosts(
  * GET /api/search/actors?q=query&sort=relevance|followers|recent
  */
 search.get("/actors", async (c) => {
-  const query = c.req.query("q")?.trim();
+  const rawQuery = c.req.query("q")?.trim();
+  if (!rawQuery) return c.json({ actors: [] });
+  // Users commonly type the leading "@" of a handle, but preferredUsername is
+  // stored without it — strip it so "@tako" finds "tako". (A full "@user@domain"
+  // handle is the remote-search path's job, not this local/cached lookup.)
+  const query = rawQuery.replace(/^@+/, "");
   if (!query) return c.json({ actors: [] });
 
   const db = c.get("db");
