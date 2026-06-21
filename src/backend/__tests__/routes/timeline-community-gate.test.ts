@@ -21,6 +21,7 @@ import {
   actors,
   communities,
   communityMembers,
+  follows,
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -142,6 +143,7 @@ async function insertCommunityPost(
     communityApId: string;
     content: string;
     published: string;
+    visibility?: string;
   },
 ): Promise<void> {
   await db.insert(objects).values({
@@ -149,7 +151,7 @@ async function insertCommunityPost(
     type: "Note",
     attributedTo: opts.author,
     content: opts.content,
-    visibility: "public",
+    visibility: opts.visibility ?? "public",
     communityApId: opts.communityApId,
     // Community posts address the community group; a non-"[]" audience is what
     // keeps them out of the public/home feed.
@@ -286,4 +288,59 @@ test("community timeline: community posts never leak into the public feed", asyn
   const ids = body.posts?.map((p) => p.ap_id) ?? [];
   expect(ids).toContain(`${APP_URL}/ap/objects/public-post`);
   expect(ids).not.toContain(`${APP_URL}/ap/objects/community-post`);
+});
+
+// ---------------------------------------------------------------------------
+// (iv) a followers-only post in a PUBLIC community stays follow-gated
+// ---------------------------------------------------------------------------
+
+test("community timeline: a followers-only post in a PUBLIC community is NOT leaked to anon / non-followers", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob"); // follows alice
+  const eve = await insertLocalActor(db, "eve"); // member, does NOT follow alice
+  const communityApId = await insertCommunity(db, "books", {
+    visibility: "public",
+  });
+  await db.insert(communityMembers).values([
+    { communityApId, actorApId: alice, role: "owner" },
+    { communityApId, actorApId: bob, role: "member" },
+    { communityApId, actorApId: eve, role: "member" },
+  ]);
+  await db.insert(follows).values({
+    followerApId: bob,
+    followingApId: alice,
+    status: "accepted",
+    acceptedAt: new Date().toISOString(),
+  });
+  const postId = `${APP_URL}/ap/objects/followers-post`;
+  await insertCommunityPost(db, {
+    apId: postId,
+    author: alice,
+    communityApId,
+    content: "followers-only secret",
+    published: new Date().toISOString(),
+    visibility: "followers",
+  });
+
+  const fetchAs = async (actor: Actor | null): Promise<string[]> => {
+    const res = await appWith(db, actor, timelineRoutes).fetch(
+      new Request(
+        `${APP_URL}/?community=${encodeURIComponent(communityApId)}`,
+        {
+          method: "GET",
+        },
+      ),
+      envFor(db),
+    );
+    const body = (await res.json()) as TimelineBody;
+    return body.posts?.map((p) => p.ap_id) ?? [];
+  };
+
+  // anonymous + a non-follower member must NOT see a followers-only post
+  expect(await fetchAs(null)).not.toContain(postId);
+  expect(await fetchAs(fakeActor(eve, "eve"))).not.toContain(postId);
+  // a follower and the author DO see it
+  expect(await fetchAs(fakeActor(bob, "bob"))).toContain(postId);
+  expect(await fetchAs(fakeActor(alice, "alice"))).toContain(postId);
 });

@@ -428,10 +428,37 @@ async function resolveCommunityRead(
   return { gate: "ok", community };
 }
 
+/**
+ * Visibility gate for COMMUNITY-NARROWED posts (objects.communityApId set) in a
+ * feed leg. A community post still honors per-post visibility, matching the
+ * canonical single-object gate (canViewerReadObjectFull): public/unlisted are
+ * readable by anyone with community access; a `followers` post is readable ONLY
+ * by the author's accepted followers (and the author); `direct` is excluded at
+ * the feed base. Without this, the community-filter leg (and the home community
+ * branch) surfaced followers-only community posts to non-followers / anonymous
+ * viewers — because for a PUBLIC community "community access" is granted to
+ * everyone, so the old "members see every post" assumption leaks.
+ */
+function communityPostVisibilityGate(
+  viewerApId: string,
+  followingApIds: string[],
+): SQL | undefined {
+  return or(
+    inArray(objects.visibility, ["public", "unlisted"]),
+    viewerApId ? eq(objects.attributedTo, viewerApId) : undefined,
+    followingApIds.length > 0
+      ? and(
+          eq(objects.visibility, "followers"),
+          inArray(objects.attributedTo, followingApIds),
+        )
+      : undefined,
+  );
+}
+
 // Community-scoped read: returns the community's feed to viewers permitted by
-// `resolveCommunityRead`. Unlike the public feed this does NOT filter on
-// `visibility = "public"` — members are entitled to see every post in their
-// community (public / unlisted / followers), gated only by community access.
+// `resolveCommunityRead`. Per-post visibility is still honored via
+// `communityPostVisibilityGate` (a followers-only post stays follow-gated even
+// inside the community), gated additionally by community access.
 async function handleCommunityTimeline(
   c: Context<{ Bindings: Env; Variables: Variables }>,
   communityParam: string,
@@ -461,11 +488,25 @@ async function handleCommunityTimeline(
   // viewer's reach that belongs to this community — (1) posts deliberately
   // narrowed to it (communityApId), plus (2) the general public/unlisted posts
   // of its members (a community is a named slice of people, not a content silo).
-  const memberRows = await db
-    .select({ actorApId: communityMembers.actorApId })
-    .from(communityMembers)
-    .where(eq(communityMembers.communityApId, gate.community.apId));
+  const [memberRows, followRows] = await Promise.all([
+    db
+      .select({ actorApId: communityMembers.actorApId })
+      .from(communityMembers)
+      .where(eq(communityMembers.communityApId, gate.community.apId)),
+    viewerApId
+      ? db
+          .select({ followingApId: follows.followingApId })
+          .from(follows)
+          .where(
+            and(
+              eq(follows.followerApId, viewerApId),
+              eq(follows.status, "accepted"),
+            ),
+          )
+      : Promise.resolve([]),
+  ]);
   const memberApIds = [...new Set(memberRows.map((r) => r.actorApId))];
+  const followingApIds = followRows.map((f) => f.followingApId);
 
   const conditions = [
     eq(objects.type, "Note"),
@@ -489,7 +530,13 @@ async function handleCommunityTimeline(
           inArray(objects.visibility, ["public", "unlisted"]),
         )
       : undefined;
-  const source = or(eq(objects.communityApId, gate.community.apId), memberFeed);
+  const source = or(
+    and(
+      eq(objects.communityApId, gate.community.apId),
+      communityPostVisibilityGate(viewerApId, followingApIds),
+    ),
+    memberFeed,
+  );
 
   const posts = await db
     .select(POST_FEED_COLUMNS)
@@ -630,7 +677,16 @@ timeline.get(
         );
       }
       if (myCommunityApIds.length > 0) {
-        branches.push(inArray(objects.communityApId, myCommunityApIds));
+        // Honor per-post visibility on community-narrowed posts too — a
+        // followers-only post stays follow-gated even inside a community I'm in
+        // (matches the canonical single-object gate; otherwise a co-member who
+        // doesn't follow the author would see their followers-only post).
+        branches.push(
+          and(
+            inArray(objects.communityApId, myCommunityApIds),
+            communityPostVisibilityGate(viewerApId, followingApIds),
+          ),
+        );
       }
       sourcePredicate = or(...branches);
     }
