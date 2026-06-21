@@ -232,13 +232,29 @@ function mountReadinessRoutes(app: YurucommuApp): void {
   // Minimal RFC 9116 security.txt. The contact points operators at the
   // instance admin; APP_URL (when configured) makes the policy line concrete.
   app.get("/.well-known/security.txt", (c) => {
-    const appUrl = c.env.APP_URL?.trim().replace(/\/+$/, "");
-    const lines = ["Contact: mailto:security@yurucommu.invalid"];
-    if (appUrl) {
-      lines.push(`Policy: ${appUrl}/.well-known/security.txt`);
-    }
-    lines.push("Preferred-Languages: en, ja");
-    lines.push("");
+    // RFC 9116: `Contact` and `Expires` are REQUIRED. The previous file used a
+    // placeholder `mailto:security@yurucommu.invalid` (the .invalid TLD is
+    // non-routable, so vulnerabilities could not actually be reported), pointed
+    // `Policy` circularly at this very file, and omitted `Expires` entirely —
+    // making the document non-compliant (scanners reject it). Default `Contact`
+    // to the upstream project's working security-advisory channel, overridable
+    // by an operator via the SECURITY_CONTACT env (their own mailto:/https
+    // report path), and always emit a future `Expires`.
+    const contact =
+      (c.env as { SECURITY_CONTACT?: string }).SECURITY_CONTACT?.trim() ||
+      "https://github.com/tako0614/yurucommu/security/advisories/new";
+    // Kept ~1 year out (recomputed per request, cached 1h) — well within the
+    // RFC's "less than a year" recommendation and never stale.
+    const expires = new Date(
+      Date.now() + 365 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const lines = [
+      `Contact: ${contact}`,
+      `Expires: ${expires}`,
+      "Policy: https://github.com/tako0614/yurucommu/security/policy",
+      "Preferred-Languages: en, ja",
+      "",
+    ];
     return c.body(lines.join("\n"), 200, {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "public, max-age=3600",

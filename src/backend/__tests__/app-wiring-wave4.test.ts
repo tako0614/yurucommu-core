@@ -70,8 +70,11 @@ test("security.txt exposes a contact line", async () => {
   expect(res.headers.get("Content-Type")).toContain("text/plain");
   const text = await res.text();
   expect(text).toMatch(/^Contact:/m);
-  // APP_URL is configured in this env, so a Policy line is included.
-  expect(text).toContain("Policy: https://test.local/.well-known/security.txt");
+  // RFC 9116: Expires is required; Policy must not point circularly at this file.
+  expect(text).toMatch(/^Expires:/m);
+  expect(text).not.toContain(
+    "Policy: https://test.local/.well-known/security.txt",
+  );
 });
 
 test("a >1MiB body to /media/upload is NOT rejected by the default 1MiB cap", async () => {
