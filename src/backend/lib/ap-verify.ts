@@ -14,9 +14,16 @@
 import { eq } from "drizzle-orm";
 import { actorCache } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
-import { fetchWithTimeout, isSafeRemoteUrl } from "../federation-helpers.ts";
+import {
+  fetchWithTimeout,
+  isSafeRemoteUrl,
+  signRequest,
+} from "../federation-helpers.ts";
 import { tryParseRemoteActor } from "./activitypub-validators.ts";
-import { buildActorCacheFields } from "./activitypub-actor-cache.ts";
+import {
+  buildActorCacheFields,
+  getInstanceFetchSignerByDb,
+} from "./activitypub-actor-cache.ts";
 import { logger } from "./logger.ts";
 import { base64ToBytes, bufferToBase64 } from "./base64.ts";
 
@@ -206,8 +213,25 @@ export async function fetchActorPublicKey(
 
   const fetchPromise = (async (): Promise<string | null> => {
     try {
+      // Sign the key-fetch GET as the instance actor so a remote in
+      // authorized-fetch / secure mode (which 401s unsigned actor GETs) serves
+      // its actor document — otherwise we could never fetch the key needed to
+      // verify that remote's INBOUND activities, silently dropping everything
+      // from secure-mode instances. Falls back to unsigned if the instance
+      // actor row does not exist yet (harmless for non-secure remotes).
+      const signer = await getInstanceFetchSignerByDb(db);
       const res = await fetchWithTimeout(actorUrl, {
-        headers: { Accept: "application/activity+json, application/ld+json" },
+        headers: {
+          Accept: "application/activity+json, application/ld+json",
+          ...(signer
+            ? await signRequest(
+                signer.privateKeyPem,
+                signer.keyId,
+                "GET",
+                actorUrl,
+              )
+            : {}),
+        },
         timeout: 15000,
       });
 

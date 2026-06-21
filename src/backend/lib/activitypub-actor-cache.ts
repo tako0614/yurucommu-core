@@ -38,6 +38,24 @@ export interface RemoteFetchSigner {
   privateKeyPem: string;
 }
 
+/**
+ * Load the instance actor's signing identity straight from the DB (there is
+ * exactly one instance actor row per deployment), WITHOUT lazy-creating it.
+ * Returns null if the row does not exist yet — callers then fall back to an
+ * unsigned fetch. Used by paths that have only a `db` handle (e.g. inbound
+ * signature verification) and not the request context the lazy-creating
+ * `getInstanceFetchSigner(c)` needs.
+ */
+export async function getInstanceFetchSignerByDb(
+  db: Database,
+): Promise<RemoteFetchSigner | null> {
+  const row = await db.query.instanceActor.findFirst({
+    columns: { apId: true, privateKeyPem: true },
+  });
+  if (!row?.privateKeyPem) return null;
+  return { keyId: `${row.apId}#main-key`, privateKeyPem: row.privateKeyPem };
+}
+
 const DEFAULT_FETCH_TIMEOUT_MS = 15000;
 
 /** Drizzle insert-values shape for the `actor_cache` table. */

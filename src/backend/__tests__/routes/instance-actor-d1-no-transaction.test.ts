@@ -9,6 +9,7 @@ import {
   getInstanceActor,
   __instanceActorInternals,
 } from "../../routes/activitypub/query-helpers.ts";
+import { getInstanceFetchSignerByDb } from "../../lib/activitypub-actor-cache.ts";
 
 const APP_URL = "https://yuru.test";
 
@@ -52,4 +53,21 @@ test("getInstanceActor lazy-creates without an interactive transaction (D1-safe)
   expect(again.apId).toEqual(created.apId);
   expect(again.publicKeyPem).toEqual(created.publicKeyPem);
   expect(again.privateKeyPem).toEqual(created.privateKeyPem);
+});
+
+// The inbound signature-verification path has only a `db` handle, so it loads
+// the instance-actor signer via getInstanceFetchSignerByDb (no lazy-create).
+test("getInstanceFetchSignerByDb returns null until the instance actor exists", async () => {
+  __instanceActorInternals.clear();
+  const db = await freshDb();
+
+  // No instance actor row yet → no signer (caller falls back to unsigned).
+  expect(await getInstanceFetchSignerByDb(db)).toBeNull();
+
+  // After the row exists, the signer carries the #main-key keyId + private key.
+  const created = await getInstanceActor(fakeContext(db));
+  const signer = await getInstanceFetchSignerByDb(db);
+  expect(signer).not.toBeNull();
+  expect(signer!.keyId).toEqual(`${created.apId}#main-key`);
+  expect(signer!.privateKeyPem).toEqual(created.privateKeyPem);
 });
