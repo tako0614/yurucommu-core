@@ -47,11 +47,13 @@ import {
   activityApId,
   formatUsername,
   generateId,
+  isSafeRemoteUrl,
   parseLimit,
   parseOffset,
   safeJsonParse,
 } from "../federation-helpers.ts";
 import { enqueueFanoutToFollowers } from "../lib/delivery/queue.ts";
+import { destinationDeclaresAlias } from "../lib/account-migration.ts";
 import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import {
@@ -1247,6 +1249,25 @@ actorsRoute.post("/me/move", async (c) => {
   }
   if (target === actor.ap_id) {
     return c.json({ error: "Cannot move an account to itself" }, 400);
+  }
+  if (!isSafeRemoteUrl(target)) {
+    return c.json({ error: "Invalid move target" }, 400);
+  }
+
+  // Refuse to advertise a migration the destination has not consented to. A
+  // compliant receiver (Mastodon, and our own inbound handleMove) REJECTS a
+  // Move whose destination does not list this account in its `alsoKnownAs`, so
+  // without this check the move would silently no-op on every follower's server
+  // while appearing successful locally. Verifying here gives the user an
+  // actionable error: add this account as an alias on the destination first.
+  if (!(await destinationDeclaresAlias(target, actor.ap_id))) {
+    return c.json(
+      {
+        error:
+          "The destination account must list this account in its aliases (alsoKnownAs) before migrating. Add this account as an alias there, then retry.",
+      },
+      422,
+    );
   }
 
   const db = c.get("db");

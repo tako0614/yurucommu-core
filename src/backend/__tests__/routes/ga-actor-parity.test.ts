@@ -345,53 +345,10 @@ test("served actor document emits attachment PropertyValue + alsoKnownAs + moved
   expect(doc.movedTo).toBe("https://new.example/users/bob");
 });
 
-test("POST /me/move sets moved_to and federates Move(target) to followers", async () => {
-  const db = await freshDb();
-  const actor = await insertLocalActor(db, "carol");
-  const sent: Sent[] = [];
-  const app = actorsApp(db, actor);
-
-  const target = "https://new.example/users/carol";
-  const res = await app.fetch(
-    new Request(`${APP_URL}/me/move`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ target }),
-    }),
-    envFor(db, sent),
-  );
-  expect(res.status).toBe(200);
-
-  const row = await db
-    .select({ movedTo: actors.movedTo })
-    .from(actors)
-    .where(eq(actors.apId, actor.ap_id))
-    .get();
-  expect(row!.movedTo).toBe(target);
-
-  const moves = await db
-    .select()
-    .from(activities)
-    .where(eq(activities.type, "Move"));
-  expect(moves.length).toBe(1);
-  const doc = JSON.parse(moves[0].rawJson) as {
-    type: string;
-    actor: string;
-    object: string;
-    target: string;
-  };
-  expect(doc.type).toBe("Move");
-  expect(doc.actor).toBe(actor.ap_id);
-  expect(doc.object).toBe(actor.ap_id);
-  expect(doc.target).toBe(target);
-  expect(sent).toEqual([
-    {
-      activityId: moves[0].apId,
-      followeeApId: actor.ap_id,
-      type: "fanout_followers",
-    },
-  ]);
-});
+// NOTE: the POST /me/move happy path (destination consents -> moved_to set +
+// Move federated) now requires a mocked consent fetch and lives in the
+// hermetic `actor-move-consent.test.ts`. This file keeps only the pre-fetch
+// validation cases below, which short-circuit before the consent check.
 
 test("POST /me/move rejects invalid / self target", async () => {
   const db = await freshDb();

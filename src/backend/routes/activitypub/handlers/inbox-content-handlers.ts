@@ -14,7 +14,6 @@ import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { deleteObjectCascade } from "../../posts/delete-cascade.ts";
 import {
   activityApId,
-  fetchWithTimeout,
   generateId,
   getDomain,
   isLocal,
@@ -24,6 +23,7 @@ import {
 import { getConversationId } from "../../dm/query-helpers.ts";
 import { fetchAndUpsertActorCache } from "../../../lib/activitypub-actor-cache.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import { destinationDeclaresAlias } from "../../../lib/account-migration.ts";
 import { logger } from "../../../lib/logger.ts";
 import {
   type Activity,
@@ -957,37 +957,6 @@ function getActivityTargetId(activity: Activity): string | null {
 }
 
 /** Fetch a remote actor document and cache it locally. Best-effort (errors are logged, not thrown). */
-/**
- * Verify the destination actor of a Move declares the origin actor in its
- * `alsoKnownAs` (the standard Mastodon account-migration consent check). Fetches
- * the destination actor document fresh and fails closed on any error.
- */
-async function destinationDeclaresAlias(
-  newActorApId: string,
-  oldActorApId: string,
-): Promise<boolean> {
-  try {
-    const res = await fetchWithTimeout(newActorApId, {
-      headers: { Accept: "application/activity+json, application/ld+json" },
-      timeout: 15000,
-    });
-    if (!res.ok) return false;
-    const raw: unknown = await res.json();
-    if (!raw || typeof raw !== "object") return false;
-    const doc = raw as { id?: unknown; alsoKnownAs?: unknown };
-    if (doc.id !== newActorApId) return false;
-    const aka = doc.alsoKnownAs;
-    const aliases = Array.isArray(aka)
-      ? aka
-      : typeof aka === "string"
-        ? [aka]
-        : [];
-    return aliases.includes(oldActorApId);
-  } catch {
-    return false;
-  }
-}
-
 async function refreshActorCache(
   db: Database,
   actorApIdValue: string,
