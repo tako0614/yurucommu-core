@@ -151,6 +151,24 @@ select:focus-visible {
 }
 
 /*
+ * Pointer affordance: a native <button> defaults to the arrow cursor, so
+ * without this every button (compose, like, repost, bookmark, follow, tabs,
+ * trending chips, the menu) felt less obviously clickable than links — which
+ * already get `cursor: pointer`. Restore the pointer on actionable buttons /
+ * role="button" elements, and show the disabled cursor when a control is not
+ * actionable so the state reads from the cursor alone.
+ */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/*
  * Reduced-motion: honour the OS "reduce motion" preference. Disable the
  * decorative/looping MOTION (heart-burst like animation, slide-in drawer,
  * spinner rotation) while keeping functional state changes instant. Color
