@@ -28,6 +28,7 @@ export function renderStoryOverlay(
   votesTotal?: number,
   userVote?: number,
   onVote?: (storyApId: string, optionIndex: number) => Promise<void>,
+  isOwnStory?: boolean,
 ) {
   const { position } = overlay;
 
@@ -55,6 +56,10 @@ export function renderStoryOverlay(
   if (overlay.type === "Question" && overlay.name && overlay.oneOf) {
     const hasVotes = votesTotal && votesTotal > 0;
     const hasUserVoted = userVote !== undefined && userVote !== null;
+    // Hide poll results (bars / percentages / count) until the viewer has voted,
+    // so the displayed distribution does not bias their choice — the standard
+    // story-poll behavior. The author always sees their own poll's results.
+    const showResults = !!hasVotes && (hasUserVoted || !!isOwnStory);
 
     return (
       <div style={style}>
@@ -93,7 +98,7 @@ export function renderStoryOverlay(
                     }}
                     disabled={hasUserVoted ?? undefined}
                   >
-                    <Show when={hasVotes}>
+                    <Show when={showResults}>
                       <div
                         class="absolute inset-0 bg-white/20 transition-all"
                         style={{ width: `${percentage}%` }}
@@ -101,7 +106,7 @@ export function renderStoryOverlay(
                     </Show>
                     <span class="relative z-10 flex items-center justify-between">
                       <span>{option.name}</span>
-                      <Show when={hasVotes}>
+                      <Show when={showResults}>
                         <span class="text-xs ml-2">{percentage}%</span>
                       </Show>
                     </span>
@@ -110,7 +115,7 @@ export function renderStoryOverlay(
               }}
             </For>
           </div>
-          <Show when={hasVotes}>
+          <Show when={showResults}>
             <p class="text-white/60 text-xs text-center mt-2">
               {t("story.votes").replace("{count}", String(votesTotal))}
             </p>

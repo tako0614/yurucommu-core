@@ -659,6 +659,7 @@ export function StoryViewer(props: StoryViewerProps) {
                           currentStory()!.votes_total,
                           currentStory()!.user_vote,
                           handleVote,
+                          isOwnStory(),
                         )}
                       </div>
                     )}
