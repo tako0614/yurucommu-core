@@ -1,4 +1,11 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Index,
+  Show,
+} from "solid-js";
 import type { Actor } from "../../types/index.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { CloseIcon, CloseIconLarge, ImageIcon } from "./TimelineIcons.tsx";
@@ -336,17 +343,21 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                 />
                 <Show when={props.uploadedMedia.length > 0}>
                   <div class="flex flex-col gap-3 mt-2">
-                    <For each={props.uploadedMedia}>
+                    {/* Index (not For): the alt-text inputs are editable and
+                        onMediaAltChange rebuilds the array with a NEW object per
+                        edited row — <For> keys by reference, so it would recreate
+                        the <input> on every keystroke and drop focus. */}
+                    <Index each={props.uploadedMedia}>
                       {(media, idx) => (
                         <div class="flex gap-2 items-start">
                           <div class="relative shrink-0">
                             <img
-                              src={media.preview}
-                              alt={media.name || ""}
+                              src={media().preview}
+                              alt={media().name || ""}
                               class="w-20 h-20 object-cover rounded-lg"
                             />
                             <button
-                              onClick={() => props.onRemoveMedia(idx())}
+                              onClick={() => props.onRemoveMedia(idx)}
                               aria-label={t("compose.removeMedia")}
                               class="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-neutral-900"
                             >
@@ -354,16 +365,16 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                             </button>
                           </div>
                           <div class="flex-1">
-                            <label class="sr-only" for={`media-alt-${idx()}`}>
+                            <label class="sr-only" for={`media-alt-${idx}`}>
                               {t("posts.altLabel")}
                             </label>
                             <input
-                              id={`media-alt-${idx()}`}
+                              id={`media-alt-${idx}`}
                               type="text"
-                              value={media.name || ""}
+                              value={media().name || ""}
                               onInput={(e) =>
                                 props.onMediaAltChange(
-                                  idx(),
+                                  idx,
                                   e.currentTarget.value,
                                 )
                               }
@@ -373,7 +384,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                           </div>
                         </div>
                       )}
-                    </For>
+                    </Index>
                   </div>
                 </Show>
               </div>
