@@ -21,7 +21,10 @@ import {
   objectApId,
 } from "../../../federation-helpers.ts";
 import { getConversationId } from "../../dm/query-helpers.ts";
-import { fetchAndUpsertActorCache } from "../../../lib/activitypub-actor-cache.ts";
+import {
+  fetchAndUpsertActorCache,
+  getInstanceFetchSignerByDb,
+} from "../../../lib/activitypub-actor-cache.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { destinationDeclaresAlias } from "../../../lib/account-migration.ts";
 import { logger } from "../../../lib/logger.ts";
@@ -768,7 +771,13 @@ export async function handleMove(
   // arbitrary unconsenting account (follower-stealing). Require the standard
   // Mastodon Move guard: the destination actor document must list the old actor
   // in `alsoKnownAs`. Fails closed.
-  if (!(await destinationDeclaresAlias(newActorApId, oldActorApId))) {
+  if (
+    !(await destinationDeclaresAlias(
+      newActorApId,
+      oldActorApId,
+      (await getInstanceFetchSignerByDb(db)) ?? undefined,
+    ))
+  ) {
     log.warn("Blocked Move without alsoKnownAs back-reference", {
       event: "ap.move.unverified_alias",
       newActor: newActorApId,
@@ -964,6 +973,8 @@ async function refreshActorCache(
   const result = await fetchAndUpsertActorCache(db, actorApIdValue, {
     timeout: 15000,
     mode: "upsert",
+    // Sign as the instance actor so a secure-mode remote serves its doc.
+    signer: (await getInstanceFetchSignerByDb(db)) ?? undefined,
   });
   if (!result.ok && result.reason === "fetch_failed") {
     // Shared by Move (refresh the migration target) and Update(actor)

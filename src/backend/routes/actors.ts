@@ -57,6 +57,7 @@ import {
   destinationDeclaresAlias,
   resolveMoveTarget,
 } from "../lib/account-migration.ts";
+import { getInstanceFetchSigner } from "./activitypub/query-helpers.ts";
 import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import {
@@ -1267,7 +1268,13 @@ actorsRoute.post("/me/move", async (c) => {
   // without this check the move would silently no-op on every follower's server
   // while appearing successful locally. Verifying here gives the user an
   // actionable error: add this account as an alias on the destination first.
-  if (!(await destinationDeclaresAlias(target, actor.ap_id))) {
+  if (
+    !(await destinationDeclaresAlias(
+      target,
+      actor.ap_id,
+      await getInstanceFetchSigner(c),
+    ))
+  ) {
     return c.json(
       {
         error:

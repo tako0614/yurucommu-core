@@ -18,7 +18,10 @@ import {
 import { isLocal, isSafeRemoteUrl } from "../../federation-helpers.ts";
 import { isActorBlocked } from "../blocklist.ts";
 import { planEndpointsFromActorCache } from "./planner.ts";
-import { fetchAndUpsertActorCache } from "../activitypub-actor-cache.ts";
+import {
+  fetchAndUpsertActorCache,
+  getInstanceFetchSignerByDb,
+} from "../activitypub-actor-cache.ts";
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
   type DeliveryFanoutCommunityMessageV1,
@@ -55,6 +58,9 @@ async function fetchAndCacheRemoteActor(
   await fetchAndUpsertActorCache(db, actorApId, {
     timeout: DELIVERY_HTTP_TIMEOUT_MS,
     mode: "upsert",
+    // Sign as the instance actor so resolving a delivery target on a
+    // secure-mode instance doesn't 401 (unsigned otherwise).
+    signer: (await getInstanceFetchSignerByDb(db)) ?? undefined,
   });
 }
 

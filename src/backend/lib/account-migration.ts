@@ -5,6 +5,8 @@
 // instead of a silent no-op on every compliant receiver).
 
 import { fetchWithTimeout } from "./federation-fetch.ts";
+import { signRequest } from "./ap-signing.ts";
+import type { RemoteFetchSigner } from "./activitypub-actor-cache.ts";
 import { parseWebFinger } from "./activitypub-validators.ts";
 import { isSafeRemoteUrl, normalizeRemoteDomain } from "./ssrf.ts";
 
@@ -66,10 +68,24 @@ export async function resolveMoveTarget(input: string): Promise<string | null> {
 export async function destinationDeclaresAlias(
   newActorApId: string,
   oldActorApId: string,
+  signer?: RemoteFetchSigner,
 ): Promise<boolean> {
   try {
     const res = await fetchWithTimeout(newActorApId, {
-      headers: { Accept: "application/activity+json, application/ld+json" },
+      headers: {
+        Accept: "application/activity+json, application/ld+json",
+        // Sign as the instance actor so a destination on a secure-mode
+        // instance serves its actor doc — otherwise the alias (consent) check
+        // 401s and the Move fails closed even when consent was declared.
+        ...(signer
+          ? await signRequest(
+              signer.privateKeyPem,
+              signer.keyId,
+              "GET",
+              newActorApId,
+            )
+          : {}),
+      },
       timeout: ALIAS_FETCH_TIMEOUT_MS,
     });
     if (!res.ok) return false;

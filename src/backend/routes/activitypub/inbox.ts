@@ -17,7 +17,10 @@ import {
   ActivityPubContractError,
   parseActivity,
 } from "../../lib/activitypub-validators.ts";
-import { fetchAndUpsertActorCache } from "../../lib/activitypub-actor-cache.ts";
+import {
+  fetchAndUpsertActorCache,
+  getInstanceFetchSignerByDb,
+} from "../../lib/activitypub-actor-cache.ts";
 import { logger } from "../../lib/logger.ts";
 import { verifyHttpSignature } from "../../lib/ap-verify.ts";
 import { isActorBlocked, isDomainBlocked } from "../../lib/blocklist.ts";
@@ -444,6 +447,8 @@ async function cacheRemoteActor(
     timeout: 15000,
     mode: "insert",
     publicKey: "require-key",
+    // Sign as the instance actor so a secure-mode remote serves its doc.
+    signer: (await getInstanceFetchSignerByDb(db)) ?? undefined,
   });
   if (result.ok) return;
 
