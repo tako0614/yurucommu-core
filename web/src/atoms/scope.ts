@@ -120,16 +120,27 @@ export const myScopesAtom = atom<InhabitedScope[]>((get) =>
   deriveMyScopes(get(scopeCommunitiesAtom)),
 );
 
+// On a cold load BOTH AppLayout and the timeline page kick hydrateScope on the
+// same mount (the timeline gates its first fetch on scope reconciliation; the
+// layout needs the scope for the sidebar/header). Without deduping, that fired
+// GET /api/communities twice. Share a single in-flight fetch so overlapping
+// hydrations collapse to one request; cleared once settled so a later hydrate
+// (e.g. after a join) still refetches.
+let hydrateCommunitiesInFlight: Promise<CommunityDetail[]> | null = null;
+
 // Action: hydrate the stored scope against live membership. Fetches the
 // communities, refreshes the picker source, and falls back to personal if the
 // stored community is no longer joined.
 export const hydrateScopeAtom = atom(null, async (get, set) => {
   let communities: CommunityDetail[] = [];
   try {
-    communities = await fetchCommunities();
+    hydrateCommunitiesInFlight ??= fetchCommunities();
+    communities = await hydrateCommunitiesInFlight;
   } catch (e) {
     console.error("Failed to hydrate scope communities:", e);
     return;
+  } finally {
+    hydrateCommunitiesInFlight = null;
   }
   set(scopeCommunitiesAtom, communities);
   const reconciled = reconcileScope(get(inhabitedScopeAtom), communities);
