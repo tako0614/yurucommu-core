@@ -72,6 +72,23 @@ test("backend CSP includes the configured Accounts issuer when enabled", async (
   }
 });
 
+test("backend sends a conservative HSTS header (no includeSubDomains/preload)", async () => {
+  const app = createYurucommuBackendApp();
+  const res = await app.fetch(new Request("https://test.local/"), {
+    APP_URL: "https://test.local",
+    DB_INSTANCE: {},
+  } as never);
+
+  const hsts = res.headers.get("Strict-Transport-Security");
+  expect(hsts).toBeTruthy();
+  if (!hsts) throw new Error("missing Strict-Transport-Security header");
+  expect(hsts).toContain("max-age=");
+  // Self-hostable: must NOT force HTTPS onto sibling subdomains or preload-pin
+  // the operator's domain.
+  expect(hsts.includes("includeSubDomains")).toBe(false);
+  expect(hsts.includes("preload")).toBe(false);
+});
+
 test("backend healthz reports degraded runtime bindings before DB middleware", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(new Request("https://test.local/healthz"), {

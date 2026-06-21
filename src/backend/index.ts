@@ -387,6 +387,14 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
       "Permissions-Policy",
       "camera=(), microphone=(), geolocation=()",
     );
+    // HSTS: once a client has reached this host over HTTPS, keep it on HTTPS
+    // (defeats SSL-strip / downgrade). Sent unconditionally — browsers ignore it
+    // when delivered over plain HTTP, so it is harmless for an HTTP-only
+    // self-host, and correct behind a TLS-terminating proxy where the worker
+    // sees HTTP but the client is on HTTPS. Deliberately NO includeSubDomains /
+    // preload: this is a self-hostable app and must not force HTTPS onto sibling
+    // subdomains the operator may serve over HTTP.
+    setSecurityHeader("Strict-Transport-Security", "max-age=31536000");
   });
 
   app.use("*", async (c, next) => {
