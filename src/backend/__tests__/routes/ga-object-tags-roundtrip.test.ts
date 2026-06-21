@@ -294,11 +294,23 @@ test("a relative /media attachment is stored relative but federated as an absolu
   );
   expect(objRes.status).toEqual(200);
   const served = (await objRes.json()) as {
-    attachment?: Array<{ url: string; r2_key?: string }>;
+    attachment?: Array<{
+      type?: string;
+      mediaType?: string;
+      url: string;
+      r2_key?: string;
+      content_type?: string;
+    }>;
   };
-  expect(served.attachment?.[0].url).toEqual(`${APP_URL}/media/abc123.png`);
-  // Non-url fields are preserved.
-  expect(served.attachment?.[0].r2_key).toEqual("uploads/abc123.png");
+  const att = served.attachment?.[0];
+  // AP-standard Document: absolute url, type, mediaType (renamed from the
+  // internal content_type) — and the internal r2_key / content_type are DROPPED
+  // so storage details never leak to remotes.
+  expect(att?.url).toEqual(`${APP_URL}/media/abc123.png`);
+  expect(att?.type).toEqual("Document");
+  expect(att?.mediaType).toEqual("image/png");
+  expect(att?.r2_key).toBeUndefined();
+  expect(att?.content_type).toBeUndefined();
 });
 
 test("a content-warning post federates summary + sensitive on the delivered Create", async () => {

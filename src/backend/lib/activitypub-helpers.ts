@@ -39,28 +39,44 @@ export function safeUrlJoin(baseUrl: string, path: string): string {
 }
 
 /**
- * Absolutize the `url` of each attachment for federation. Media is stored and
- * served locally as an app-relative `/media/<hash>` path; a remote server would
- * resolve that against ITS OWN origin and 404, so every federation egress point
- * (the embedded object in an outbound Create, and the served `/ap/objects/:id`
- * document) must rewrite attachment URLs to absolute. Non-`url` fields are
- * preserved untouched, and already-absolute URLs pass through unchanged.
+ * Map stored attachment rows to AP-standard `Document` attachments for every
+ * federation egress point (the embedded object in an outbound Create, and the
+ * served `/ap/objects/:id` document). The internal shape is
+ * `{ url: "/media/<hash>", content_type, r2_key }`; a remote needs
+ * `{ type: "Document", mediaType, url: <absolute> }`:
+ *   - `url` is absolutized (a relative `/media/...` would resolve against the
+ *     REMOTE's origin and 404);
+ *   - `content_type` is renamed to `mediaType` — the AP/Mastodon field used to
+ *     recognize and render the media (without it, the image may not display);
+ *   - `type: "Document"` is added (the standard AP media-attachment type);
+ *   - the internal `r2_key` (and any other non-AP field) is DROPPED so storage
+ *     details never leak to remotes;
+ *   - `name` (alt text) is preserved when present.
+ * Attachments without a usable `url` are skipped.
  */
-export function absolutizeAttachmentUrls(
+export function toApAttachments(
   attachments: unknown[],
   baseUrl: string,
-): unknown[] {
-  return attachments.map((att) => {
-    if (att && typeof att === "object" && !Array.isArray(att)) {
-      const url = (att as { url?: unknown }).url;
-      if (typeof url === "string" && url.length > 0) {
-        return {
-          ...(att as Record<string, unknown>),
-          url: safeUrlJoin(baseUrl, url),
-        };
-      }
-    }
-    return att;
+): Array<Record<string, unknown>> {
+  return attachments.flatMap((att) => {
+    if (!att || typeof att !== "object" || Array.isArray(att)) return [];
+    const a = att as Record<string, unknown>;
+    const url = typeof a.url === "string" ? a.url : "";
+    if (url.length === 0) return [];
+    const mediaType =
+      (typeof a.mediaType === "string" && a.mediaType) ||
+      (typeof a.content_type === "string" && a.content_type) ||
+      undefined;
+    const name =
+      typeof a.name === "string" && a.name.length > 0 ? a.name : undefined;
+    return [
+      {
+        type: "Document",
+        ...(mediaType ? { mediaType } : {}),
+        url: safeUrlJoin(baseUrl, url),
+        ...(name ? { name } : {}),
+      },
+    ];
   });
 }
 
