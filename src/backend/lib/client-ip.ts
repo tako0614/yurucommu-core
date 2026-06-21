@@ -58,10 +58,15 @@ function isCloudflareEdge(
  *    directly to the worker can set these headers, so trusting them by
  *    default would let arbitrary callers spoof their source IP and
  *    bypass per-IP rate limiting / abuse detection.
- *  - Falls back to "unknown" when no header is present (or trusted).
- *    Rate limiters bucket "unknown" together which means an attacker
- *    with no IP visibility shares a budget with every other anonymous
- *    caller (intentional: degraded mode, not bypass).
+ *  - Falls back to the authentic TCP peer address that the self-host (Bun)
+ *    entrypoint stamps onto the ExecutionContext props (server-side, not a
+ *    client-settable header). This keeps a directly-exposed self-host from
+ *    bucketing every caller as "unknown".
+ *  - Only when none of the above resolve does it fall back to "unknown". Rate
+ *    limiters bucket "unknown" together, so an attacker with no IP visibility
+ *    shares a budget with every other anonymous caller (intentional: degraded
+ *    mode, not bypass). Behind a reverse proxy whose socket address is constant,
+ *    set `TAKOS_TRUST_PROXY=true` so the forwarded client IP is used instead.
  */
 export function getClientIP(
   c: Context<{ Bindings: Env; Variables: Variables }>,
@@ -98,5 +103,34 @@ export function getClientIP(
     if (xRealIp && isValidIP(xRealIp)) return xRealIp;
   }
 
+  // Last resort: the authentic TCP peer address the self-host (Bun) entrypoint
+  // stamps onto the ExecutionContext props. Unlike a header it is NOT
+  // client-controllable, so it is safe to trust without an opt-in. This keeps a
+  // directly-exposed self-host from collapsing every caller into one "unknown"
+  // bucket (which would let any attacker trip the single owner's login-lockout).
+  // On Cloudflare the worker runs without our entrypoint, so this is simply
+  // absent there and the CF-Connecting-IP path above already returned.
+  const socketIp = stampedSocketIp(c);
+  if (socketIp) return socketIp;
+
   return "unknown";
+}
+
+/**
+ * Read the server-stamped TCP peer address from the ExecutionContext props, if
+ * present and valid. `c.executionCtx` throws when the context was created
+ * without one (e.g. some unit tests), so access it defensively.
+ */
+function stampedSocketIp(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+): string | null {
+  try {
+    const ctx = c.executionCtx as unknown as {
+      props?: { socketIp?: unknown };
+    };
+    const ip = ctx?.props?.socketIp;
+    return typeof ip === "string" && isValidIP(ip) ? ip : null;
+  } catch {
+    return null;
+  }
 }

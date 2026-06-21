@@ -555,7 +555,15 @@ async function startServer(env: LocalServerEnv) {
 
   bunLike().serve({
     port: PORT,
-    fetch: (request: Request) => {
+    fetch: (request: Request, server?: BunServerLike) => {
+      // Stamp the authentic TCP peer address onto the (server-side, never
+      // client-controllable) ExecutionContext props. getClientIP uses it as a
+      // last resort so a directly-exposed self-host does not collapse every
+      // caller into one "unknown" rate-limit / login-lockout bucket (which would
+      // let any attacker DoS the single owner's login). It is NOT a header, so a
+      // client cannot forge it; behind a reverse proxy it is the proxy's address
+      // (set TAKOS_TRUST_PROXY to honour X-Forwarded-For instead).
+      const socketIp = server?.requestIP?.(request)?.address;
       const ctx: ExecutionContext = {
         waitUntil: (promise: Promise<unknown>) => {
           promise.catch((error) => {
@@ -566,7 +574,7 @@ async function startServer(env: LocalServerEnv) {
           });
         },
         passThroughOnException: () => {},
-        props: {},
+        props: socketIp ? { socketIp } : {},
       };
       return backendApp.fetch(request, env, ctx);
     },
@@ -598,10 +606,17 @@ if (import.meta.main) {
   });
 }
 
+type BunServerLike = {
+  requestIP?: (request: Request) => { address?: string } | null;
+};
+
 type BunLike = {
   serve(options: {
     port: number;
-    fetch: (request: Request) => Response | Promise<Response>;
+    fetch: (
+      request: Request,
+      server?: BunServerLike,
+    ) => Response | Promise<Response>;
   }): unknown;
 };
 

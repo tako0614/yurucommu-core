@@ -23,6 +23,27 @@ async function whoami(
   return await res.text();
 }
 
+// Variant that passes an ExecutionContext whose props carry the server-stamped
+// socket IP (as the Bun entrypoint does), to exercise the per-connection fallback.
+async function whoamiCtx(
+  env: Record<string, unknown>,
+  headers: Record<string, string>,
+  props: Record<string, unknown>,
+): Promise<string> {
+  const app = makeApp();
+  const ctx = {
+    waitUntil: () => {},
+    passThroughOnException: () => {},
+    props,
+  } as unknown as ExecutionContext;
+  const res = await app.fetch(
+    new Request("https://test.local/whoami", { method: "GET", headers }),
+    env,
+    ctx,
+  );
+  return await res.text();
+}
+
 test("CF-Connecting-IP is ignored when TAKOS_TRUST_PROXY is unset", async () => {
   // Non-Cloudflare deployments do not strip a client-supplied
   // CF-Connecting-IP, so it must not be trusted without operator opt-in.
@@ -98,4 +119,36 @@ test("TAKOS_TRUST_PROXY=false / 0 / unset all reject proxy headers", async () =>
       { "X-Forwarded-For": "203.0.113.51" },
     ),
   ).toEqual("unknown");
+});
+
+test("server-stamped socket IP (props) is used as a last resort, no opt-in needed", async () => {
+  expect(await whoamiCtx({}, {}, { socketIp: "198.51.100.7" })).toEqual(
+    "198.51.100.7",
+  );
+});
+
+test("socket IP comes ONLY from props, never a client-supplied header (unspoofable)", async () => {
+  // A client setting a header cannot influence the bucket — the value is taken
+  // from the server-side ExecutionContext props, not any request header.
+  expect(await whoami({}, { "x-takos-socket-ip": "198.51.100.9" })).toEqual(
+    "unknown",
+  );
+  expect(await whoamiCtx({}, { "x-takos-socket-ip": "1.1.1.1" }, {})).toEqual(
+    "unknown",
+  );
+});
+
+test("a trusted CF-Connecting-IP wins over the socket-IP fallback", async () => {
+  expect(
+    await whoamiCtx(
+      { TAKOS_TRUST_PROXY: "true" },
+      { "CF-Connecting-IP": "203.0.113.60" },
+      { socketIp: "198.51.100.7" },
+    ),
+  ).toEqual("203.0.113.60");
+});
+
+test("an invalid socket IP in props falls back to unknown", async () => {
+  expect(await whoamiCtx({}, {}, { socketIp: "not-an-ip" })).toEqual("unknown");
+  expect(await whoamiCtx({}, {}, { socketIp: 12345 })).toEqual("unknown");
 });
