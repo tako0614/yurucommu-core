@@ -94,6 +94,12 @@ type ActorInfo = {
  */
 function publicSearchableWhere(...extra: Parameters<typeof and>) {
   return and(
+    // Search/trending surface POSTS only. Stories are stored as type='Story'
+    // with visibility='public' (their text lives in attachmentsJson, so content
+    // is empty today and they don't currently match), but gating on type keeps
+    // search consistent with the timeline + outbox and stops any non-Note object
+    // that ever carries content from leaking in.
+    eq(objects.type, "Note"),
     eq(objects.visibility, "public"),
     eq(objects.audienceJson, "[]"),
     ...extra,
