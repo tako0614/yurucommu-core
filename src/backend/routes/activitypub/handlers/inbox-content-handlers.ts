@@ -920,6 +920,28 @@ export async function handleMove(
       };
     });
 
+  // LOCAL followers whose ACCEPTED edge to the old actor we are about to delete.
+  // Each such edge was counted in that follower's followingCount; the re-issued
+  // Follow to the new actor is created PENDING (uncounted) and only re-adds the
+  // +1 when the destination Accepts (handleAccept). So the old +1 must be removed
+  // now, otherwise the eventual Accept stacks a second +1 on the never-removed
+  // old count → a permanent over-count of 1 per migrated follow. Decrementing at
+  // delete time is correct in every Accept-timing case: during the pending window
+  // the follower counts 0 of this relationship (right — it is pending), after the
+  // Accept it is back to 1, and if the Accept never arrives it stays decremented
+  // (right — the edge is perpetually pending). Remote followers' counts are not
+  // ours to manage; only local followingCount is authoritative here.
+  const localAcceptedFollowerApIds = Array.from(
+    new Set(
+      followingRows
+        .filter(
+          (row) =>
+            row.status === "accepted" && isLocal(row.followerApId, baseUrl),
+        )
+        .map((row) => row.followerApId),
+    ),
+  );
+
   // Sequential operations (no interactive transactions in D1)
   if (followerRewrites.length > 0) {
     await db.insert(follows).values(followerRewrites);
@@ -932,6 +954,12 @@ export async function handleMove(
   }
   if (followingRows.length > 0) {
     await db.delete(follows).where(eq(follows.followingApId, oldActorApId));
+  }
+  for (const followerApId of localAcceptedFollowerApIds) {
+    await db
+      .update(actors)
+      .set({ followingCount: sql`${actors.followingCount} - 1` })
+      .where(and(eq(actors.apId, followerApId), gt(actors.followingCount, 0)));
   }
 
   // Record + deliver the outbound Follow activities for migrated local

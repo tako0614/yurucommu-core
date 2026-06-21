@@ -290,3 +290,72 @@ test("handleMove does not create self-follow rows when old/new were already conn
     .get();
   expect(oldFollowing).toBeUndefined();
 });
+
+// ---------------------------------------------------------------------------
+// handleMove must not inflate a local follower's followingCount. A local user
+// who followed the migrating (old) actor had that ACCEPTED edge counted in
+// followingCount. handleMove deletes the old edge and re-issues a PENDING Follow
+// to the new actor; the destination's later Accept does followingCount +1. If
+// the delete does not first remove the old +1, the Accept stacks a SECOND +1 →
+// a permanent over-count. The fix decrements at delete time so the count tracks
+// reality across the whole migration (and in the pending window in between).
+// ---------------------------------------------------------------------------
+
+test("handleMove decrements a migrated local follower's followingCount so the re-follow Accept does not over-count", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+
+  const localFollower = `${APP_URL}/ap/users/carol`;
+
+  await seedActor(db, OLD_ACTOR, "old");
+  await seedActor(db, NEW_ACTOR, "new");
+  await seedActor(db, localFollower, "carol");
+
+  // Carol follows the old (migrating) actor — an ACCEPTED edge counted in her
+  // followingCount.
+  await db
+    .update(actors)
+    .set({ followingCount: 1 })
+    .where(eq(actors.apId, localFollower));
+  await db
+    .insert(follows)
+    .values([
+      {
+        followerApId: localFollower,
+        followingApId: OLD_ACTOR,
+        status: "accepted",
+      },
+    ]);
+
+  const activity: Activity = {
+    type: "Move",
+    actor: OLD_ACTOR,
+    object: OLD_ACTOR,
+    target: NEW_ACTOR,
+  };
+
+  await handleMove(ctx(db), activity, OLD_ACTOR);
+
+  // The migrated edge to the new actor is PENDING (the destination will +1 on
+  // Accept), so the old +1 must already be gone: Carol's followingCount drops to
+  // 0 during the pending window. (Was: stayed 1 → after Accept would read 2.)
+  const carol = await db
+    .select()
+    .from(actors)
+    .where(eq(actors.apId, localFollower))
+    .get();
+  expect(carol?.followingCount).toBe(0);
+
+  // Sanity: the relationship really did migrate to a pending edge.
+  const migrated = await db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, localFollower),
+        eq(follows.followingApId, NEW_ACTOR),
+      ),
+    )
+    .get();
+  expect(migrated?.status).toBe("pending");
+});
