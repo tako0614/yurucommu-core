@@ -150,21 +150,21 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     <div class="flex min-w-0 items-baseline gap-2">
       <A
         href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
-        class="truncate font-bold text-white hover:underline"
+        class="truncate font-bold text-white hover:underline shrink-0 max-w-[60%]"
       >
         {props.post.author.name || props.post.author.username}
       </A>
-      <span class="truncate text-neutral-500">
+      <span class="truncate text-neutral-500 min-w-0">
         @{props.post.author.username}
       </span>
-      <span class="text-neutral-500">{"·"}</span>
-      <span class="text-sm text-neutral-500">
+      <span class="text-neutral-500 shrink-0">{"·"}</span>
+      <span class="text-sm text-neutral-500 shrink-0 whitespace-nowrap">
         {formatRelativeTime(props.post.published, { locale: language() })}
       </span>
       <Show when={props.post.edited_at}>
-        <span class="text-neutral-500">{"·"}</span>
+        <span class="text-neutral-500 shrink-0">{"·"}</span>
         <span
-          class="text-sm text-neutral-500"
+          class="text-sm text-neutral-500 shrink-0 whitespace-nowrap"
           title={formatRelativeTime(props.post.edited_at!, {
             locale: language(),
           })}
