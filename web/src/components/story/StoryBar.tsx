@@ -121,6 +121,8 @@ export function StoryBar(props: StoryBarProps) {
                     e.stopPropagation();
                     props.onAddStory();
                   }}
+                  aria-label={t("story.addStory")}
+                  title={t("story.addStory")}
                   class="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center ring-2 ring-black transition-colors"
                 >
                   <PlusIcon />
