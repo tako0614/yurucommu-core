@@ -39,6 +39,7 @@ import { transformStoryData } from "../../routes/stories/query-helpers.ts";
 import dmRequestRoutes from "../../routes/dm/requests.ts";
 import communityMessageRoutes from "../../routes/communities/messages.ts";
 import communitiesRouter from "../../routes/communities/routes.ts";
+import postsAggregator from "../../routes/posts.ts";
 import storyInteractionRoutes from "../../routes/stories/interactions.ts";
 
 const APP_URL = "https://yuru.test";
@@ -376,6 +377,33 @@ test("community settings: governance fields (visibility) are OWNER-only, not mod
   expect(
     (await patch(fakeActor(owner, "owner"), { visibility: "public" })).status,
   ).toEqual(200);
+});
+
+test("posts route order: GET /bookmarks hits the bookmarks list, not the /:id post lookup", async () => {
+  const db = await freshDb();
+  const actor = await insertLocalActor(db, "tako");
+  const app = appWith(db, fakeActor(actor, "tako"), postsAggregator);
+
+  // /bookmarks must resolve to the bookmarks handler (200 { posts }). When
+  // baseRoutes was mounted first, GET /:id matched id="bookmarks" and 404'd.
+  const bm = await app.fetch(
+    new Request(`${APP_URL}/bookmarks`, { method: "GET" }),
+    envFor(db),
+  );
+  expect(bm.status).toEqual(200);
+  expect(Object.keys((await bm.json()) as object)).toContain("posts");
+
+  // /:id still resolves to the single-post handler (404 for a missing post).
+  const sp = await app.fetch(
+    new Request(
+      `${APP_URL}/${encodeURIComponent("https://yuru.test/ap/objects/nope")}`,
+      {
+        method: "GET",
+      },
+    ),
+    envFor(db),
+  );
+  expect(sp.status).toEqual(404);
 });
 
 // ---------------------------------------------------------------------------
