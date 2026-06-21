@@ -48,8 +48,11 @@ interface StoryComposerProps {
   onSuccess: () => void;
 }
 
-// File size limits
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
+// File size limits. Must match the backend media-upload cap (media.ts
+// MAX_VIDEO_SIZE = 40MB, lowered from 100MB to fit the Worker memory budget):
+// a larger client cap lets a user select + FFmpeg-process a video that the
+// upload then rejects with a 413, a slow late failure. Reject early instead.
+const MAX_VIDEO_SIZE = 40 * 1024 * 1024; // 40MB
 
 type ToolTab = "background" | "text" | "sticker" | "draw" | "video" | "none";
 
