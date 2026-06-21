@@ -379,6 +379,63 @@ test("community settings: governance fields (visibility) are OWNER-only, not mod
   ).toEqual(200);
 });
 
+test("community profile: over-length display_name / summary are rejected on create and update", async () => {
+  const db = await freshDb();
+  const owner = await insertLocalActor(db, "owner");
+
+  const create = (body: Record<string, unknown>) =>
+    appWith(db, fakeActor(owner, "owner"), communitiesRouter).fetch(
+      new Request(`${APP_URL}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      envFor(db),
+    );
+
+  // The handle ("name") is valid, but the summary exceeds the 500-char cap, so
+  // creation is rejected BEFORE the actor is persisted/federated.
+  const longSummary = await create({
+    name: "validclub",
+    summary: "x".repeat(501),
+  });
+  expect(longSummary.status).toEqual(400);
+  expect(((await longSummary.json()) as { error: string }).error).toContain(
+    "Summary",
+  );
+
+  // display_name has a 64-char cap.
+  const longDisplay = await create({
+    name: "validclubtwo",
+    display_name: "y".repeat(65),
+  });
+  expect(longDisplay.status).toEqual(400);
+
+  // The update path enforces the same caps. Seed a community the owner manages.
+  const communityApId = await insertCommunity(db, "club");
+  await db
+    .insert(communityMembers)
+    .values({ communityApId, actorApId: owner, role: "owner" });
+
+  const patchSettings = (body: Record<string, unknown>) =>
+    appWith(db, fakeActor(owner, "owner"), communitiesRouter).fetch(
+      new Request(`${APP_URL}/club/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      envFor(db),
+    );
+
+  expect((await patchSettings({ summary: "z".repeat(501) })).status).toEqual(
+    400,
+  );
+  // Exactly at the cap is allowed.
+  expect((await patchSettings({ summary: "z".repeat(500) })).status).toEqual(
+    200,
+  );
+});
+
 test("posts route order: GET /bookmarks hits the bookmarks list, not the /:id post lookup", async () => {
   const db = await freshDb();
   const actor = await insertLocalActor(db, "tako");

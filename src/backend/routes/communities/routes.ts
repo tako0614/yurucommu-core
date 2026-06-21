@@ -113,6 +113,30 @@ function validateCommunityName(name: string | undefined): string | null {
   return null;
 }
 
+// Cosmetic community profile caps. The handle (`name`/preferredUsername) is
+// strictly validated above, but display_name and summary were stored raw with
+// no server-side bound — a direct API caller could persist an arbitrarily large
+// summary that then bloats every federated actor fetch. Mirror the client
+// CreateScopeModal maxlengths (64 / 500) so create and update agree.
+const MAX_COMMUNITY_DISPLAY_NAME_LENGTH = 64;
+const MAX_COMMUNITY_SUMMARY_LENGTH = 500;
+
+function validateCommunityProfile(
+  displayName: string | undefined,
+  summary: string | undefined,
+): string | null {
+  if (
+    displayName !== undefined &&
+    displayName.length > MAX_COMMUNITY_DISPLAY_NAME_LENGTH
+  ) {
+    return `Display name must be at most ${MAX_COMMUNITY_DISPLAY_NAME_LENGTH} characters`;
+  }
+  if (summary !== undefined && summary.length > MAX_COMMUNITY_SUMMARY_LENGTH) {
+    return `Summary must be at most ${MAX_COMMUNITY_SUMMARY_LENGTH} characters`;
+  }
+  return null;
+}
+
 // GET /api/communities - List all communities
 communitiesRouter.get("/", async (c) => {
   const actor = c.get("actor");
@@ -246,6 +270,11 @@ communitiesRouter.post("/", async (c) => {
   const name = body.name?.trim();
   const nameError = validateCommunityName(name);
   if (nameError) return c.json({ error: nameError }, 400);
+  const profileError = validateCommunityProfile(
+    body.display_name,
+    body.summary,
+  );
+  if (profileError) return c.json({ error: profileError }, 400);
 
   // name is guaranteed non-null after validateCommunityName passes
   const validName = name!;
@@ -448,6 +477,12 @@ communitiesRouter.patch("/:identifier/settings", async (c) => {
     join_policy?: "open" | "approval" | "invite";
     post_policy?: "anyone" | "members" | "mods" | "owners";
   }>();
+
+  const profileError = validateCommunityProfile(
+    body.display_name,
+    body.summary,
+  );
+  if (profileError) return c.json({ error: profileError }, 400);
 
   const updates: Record<string, string | null> = {};
 
