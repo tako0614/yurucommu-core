@@ -15,6 +15,7 @@ import {
 } from "../lib/api.ts";
 import { ApiError } from "../lib/api/fetch.ts";
 import { EditPostModal } from "../components/timeline/EditPostModal.tsx";
+import { PostVisibilityIndicator } from "../components/timeline/PostVisibilityIndicator.tsx";
 import { useI18n } from "../lib/i18n.tsx";
 import { decodeApIdParam } from "../lib/routeApId.ts";
 import { useSetAtom } from "solid-jotai";
@@ -398,10 +399,11 @@ export function PostDetailPage() {
                 </For>
               </div>
             </Show>
-            <div class="text-neutral-500 text-sm mt-3">
-              {formatDateTime(post()!.published)}
+            <div class="text-neutral-500 text-sm mt-3 flex items-center gap-2">
+              <span>{formatDateTime(post()!.published)}</span>
+              <PostVisibilityIndicator visibility={post()!.visibility} />
               <Show when={post()!.edited_at}>
-                <span class="ml-2" title={formatDateTime(post()!.edited_at!)}>
+                <span title={formatDateTime(post()!.edited_at!)}>
                   {"·"} {t("posts.edited")}
                 </span>
               </Show>

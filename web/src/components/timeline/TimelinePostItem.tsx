@@ -12,6 +12,7 @@ import {
   RepostIcon,
 } from "../icons/SocialIcons.tsx";
 import { PostActionsMenu } from "./PostActionsMenu.tsx";
+import { PostVisibilityIndicator } from "./PostVisibilityIndicator.tsx";
 import { ScopeChip } from "../scope/ScopeChip.tsx";
 import {
   AttachmentGrid,
@@ -172,6 +173,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       <span class="text-sm text-neutral-500 shrink-0 whitespace-nowrap">
         {formatRelativeTime(props.post.published, { locale: language() })}
       </span>
+      <PostVisibilityIndicator visibility={props.post.visibility} />
       <Show when={props.post.edited_at}>
         <span class="text-neutral-500 shrink-0">{"·"}</span>
         <span
