@@ -29,6 +29,25 @@ output "takos_app" {
               }
             }
           },
+          # Auto-provision "Sign in with Takosumi Accounts": consume the
+          # accounts-plane `identity.oidc` capability so a `tofu apply`
+          # materializes a PUBLIC OIDC client for this install (auto client_id +
+          # redirect_uri derived from the routed hostname) and injects the
+          # issuer + client_id into the worker env. The worker reads those
+          # (getOidcIssuerUrl / getOidcClientCredentials) and offers the provider
+          # from the start — no operator-typed secret or hand-registered
+          # redirect. The materialized client is PUBLIC (PKCE-only, no secret),
+          # which the worker accepts; password-bootstrap auth (auth_password_hash
+          # below) remains the fallback when no accounts plane is wired.
+          {
+            publication = "identity.oidc"
+            inject = {
+              env = {
+                issuerUrl = "TAKOSUMI_ACCOUNTS_ISSUER_URL"
+                clientId  = "TAKOSUMI_ACCOUNTS_CLIENT_ID"
+              }
+            }
+          },
         ]
         triggers = {
           queues = [
