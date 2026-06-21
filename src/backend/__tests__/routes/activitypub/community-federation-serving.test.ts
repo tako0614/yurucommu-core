@@ -6,7 +6,7 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../../db/schema.ts";
 import type { Database } from "../../../../db/index.ts";
-import { communities } from "../../../../db/index.ts";
+import { actors, communities, communityMembers } from "../../../../db/index.ts";
 import type { Env, Variables } from "../../../types.ts";
 import activitypubRoutes from "../../../routes/activitypub.ts";
 
@@ -119,8 +119,57 @@ test("GET /ap/groups/:name serves a valid Group actor doc for a public community
   expect(doc.followers).toEqual(`${apId}/followers`);
   expect(doc.url).toEqual(`${APP_URL}/groups/club`);
   expect((doc.publicKey as { id: string }).id).toEqual(`${apId}#main-key`);
+  expect(doc.moderators).toEqual(`${apId}/moderators`);
   // open join policy -> auto-accept follows.
   expect(doc.manuallyApprovesFollowers).toEqual(false);
+});
+
+test("GET /ap/groups/:name/moderators lists the owner + moderators", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "club", "public");
+  // community_members.actor_ap_id FKs to actors, so members are LOCAL actors.
+  const insertActor = async (name: string) => {
+    const a = `${APP_URL}/ap/users/${name}`;
+    await db.insert(actors).values({
+      apId: a,
+      type: "Person",
+      preferredUsername: name,
+      inbox: `${a}/inbox`,
+      outbox: `${a}/outbox`,
+      followersUrl: `${a}/followers`,
+      followingUrl: `${a}/following`,
+      publicKeyPem: "pub",
+      privateKeyPem: "priv",
+    });
+    return a;
+  };
+  const owner = await insertActor("owner");
+  const mod = await insertActor("mod");
+  const plainMember = await insertActor("member");
+  await db.insert(communityMembers).values([
+    { communityApId: apId, actorApId: owner, role: "owner" },
+    { communityApId: apId, actorApId: mod, role: "moderator" },
+    { communityApId: apId, actorApId: plainMember, role: "member" },
+  ]);
+
+  const res = await app(db).fetch(
+    new Request(`${APP_URL}/ap/groups/club/moderators`, {
+      headers: { Accept: "application/activity+json" },
+    }),
+    env(),
+  );
+  expect(res.status).toEqual(200);
+  const body = (await res.json()) as {
+    type: string;
+    totalItems: number;
+    orderedItems: string[];
+  };
+  expect(body.type).toEqual("OrderedCollection");
+  expect(body.totalItems).toEqual(2);
+  expect(body.orderedItems).toContain(owner);
+  expect(body.orderedItems).toContain(mod);
+  // a plain member is NOT a moderator.
+  expect(body.orderedItems).not.toContain(plainMember);
 });
 
 test("GET /ap/groups/:name 404s private + nonexistent communities", async () => {

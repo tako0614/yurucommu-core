@@ -560,6 +560,10 @@ ap.get(
       inbox: community.inbox,
       outbox: community.outbox,
       followers: community.followersUrl,
+      // Lemmy/Mobilizon convention: the collection of actors that moderate this
+      // group (its owner + moderators). Lets those consumers attribute and
+      // authorize moderation activities.
+      moderators: `${community.apId}/moderators`,
       endpoints: {
         sharedInbox: `${baseUrl}/ap/inbox`,
       },
