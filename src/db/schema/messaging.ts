@@ -10,7 +10,7 @@ import {
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
-import { nowIso } from "./date-utils.ts";
+import { nowIso, nowIsoUtc } from "./date-utils.ts";
 
 // ---------------------------------------------------------------------------
 // ACTIVITIES
@@ -107,7 +107,12 @@ export const inbox = sqliteTable(
     actorApId: text("actor_ap_id").notNull(),
     activityApId: text("activity_ap_id").notNull(),
     read: integer("read").notNull().default(0),
-    createdAt: text("created_at").notNull().$defaultFn(nowIso),
+    // Canonical UTC (…Z): this column is the notification feed's sort + cursor
+    // key (`desc(created_at)`, `lt(created_at, before)`). The legacy
+    // space-separated `nowIso` would sort below same-instant `…Z` rows written
+    // by the explicit-`toISOString` insert paths (likes/reposts/replies),
+    // mis-ordering the feed. See nowIsoUtc.
+    createdAt: text("created_at").notNull().$defaultFn(nowIsoUtc),
   },
   (t) => [
     primaryKey({ columns: [t.actorApId, t.activityApId] }),
