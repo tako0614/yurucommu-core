@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, count, desc, eq, gt, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, like, or } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import {
   fetchWithTimeout,
@@ -107,6 +107,30 @@ function postOrderByDrizzle(sort: PostSort) {
   }
   return [desc(objects.published)];
 }
+
+// Canonical hashtag tokenizer. Shared by trending and hashtag search so the two
+// agree on what is a WHOLE hashtag token — a content `LIKE '%#tag%'` alone treats
+// "#go" as matching "#golang" (a substring), which is wrong for both surfaces.
+// The character class mirrors the client-side hashtag linkifier (ASCII word chars
+// + Hiragana/Katakana/CJK) so search matches exactly what is rendered as a link.
+const HASHTAG_TOKEN_REGEX = /#([a-zA-Z0-9_぀-ゟ゠-ヿ一-鿿]+)/g;
+
+/** Extract the lowercased hashtag tokens (without the leading '#') from content. */
+function extractHashtags(content: string): string[] {
+  const tags: string[] = [];
+  HASHTAG_TOKEN_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = HASHTAG_TOKEN_REGEX.exec(content)) !== null) {
+    tags.push(match[1].toLowerCase());
+  }
+  return tags;
+}
+
+// Ceiling on the hashtag-search candidate scan. The `LIKE '%#tag%'` prefilter
+// returns a superset (substring matches); the exact whole-token filter then runs
+// in JS (SQLite has no REGEXP). This bounds memory; if a scan hits the ceiling we
+// log so deep results on a busy instance aren't silently dropped.
+const HASHTAG_SEARCH_SCAN_CAP = 1000;
 
 /** Build a merged author lookup map (local actors take priority over cached). */
 async function buildAuthorMap(
@@ -496,30 +520,46 @@ search.get("/hashtag/:tag", async (c) => {
   const limit = parseLimit(c.req.query("limit"), 50, 100);
   const offset = parseOffset(c.req.query("offset"), 0, 10000);
   const hashtagPattern = `#${tag}`;
+  const tagLower = tag.toLowerCase();
 
   const postWhere = publicSearchableWhere(
     like(objects.content, "%" + hashtagPattern + "%"),
   );
 
-  const [totalResult, posts] = await Promise.all([
-    db.select({ count: count() }).from(objects).where(postWhere).get(),
-    db
-      .select({
-        apId: objects.apId,
-        attributedTo: objects.attributedTo,
-        content: objects.content,
-        published: objects.published,
-        likeCount: objects.likeCount,
-      })
-      .from(objects)
-      .where(postWhere)
-      .orderBy(...postOrderByDrizzle(sort))
-      .offset(offset)
-      .limit(limit),
-  ]);
+  // `LIKE '%#tag%'` is a SUPERSET prefilter: it also matches longer tags that
+  // share the prefix (searching "#deploy" would otherwise return "#deployed").
+  // SQLite has no REGEXP, so fetch the ordered candidates and keep only those
+  // whose content carries the tag as a WHOLE token (matching trending + the
+  // client linkifier). Filtering after the DB sort preserves recent/popular
+  // order; pagination + total are computed on the exact-matched set so they stay
+  // consistent. Content-based, so federated posts (no tags_json) are covered.
+  const candidates = await db
+    .select({
+      apId: objects.apId,
+      attributedTo: objects.attributedTo,
+      content: objects.content,
+      published: objects.published,
+      likeCount: objects.likeCount,
+    })
+    .from(objects)
+    .where(postWhere)
+    .orderBy(...postOrderByDrizzle(sort))
+    .limit(HASHTAG_SEARCH_SCAN_CAP);
 
-  const total = totalResult?.count ?? 0;
-  const resultPosts = await enrichPosts(db, posts, actor?.ap_id);
+  if (candidates.length === HASHTAG_SEARCH_SCAN_CAP) {
+    log.warn("hashtag search hit candidate ceiling; deep results may be cut", {
+      event: "search.hashtag.truncated",
+      tag: tagLower,
+    });
+  }
+
+  const matched = candidates.filter((p) =>
+    extractHashtags(p.content || "").includes(tagLower),
+  );
+
+  const total = matched.length;
+  const pagePosts = matched.slice(offset, offset + limit);
+  const resultPosts = await enrichPosts(db, pagePosts, actor?.ap_id);
 
   return c.json({
     posts: resultPosts,
@@ -567,15 +607,11 @@ search.get(
       });
     }
 
-    // Extract and count hashtags
+    // Extract and count hashtags (shared whole-token tokenizer keeps trending
+    // and hashtag search consistent on what counts as a tag).
     const hashtagCounts: Record<string, number> = {};
-    const hashtagRegex = /#([a-zA-Z0-9_぀-ゟ゠-ヿ一-鿿]+)/g;
-
     for (const post of posts) {
-      const content = post.content || "";
-      let match;
-      while ((match = hashtagRegex.exec(content)) !== null) {
-        const tagName = match[1].toLowerCase();
+      for (const tagName of extractHashtags(post.content || "")) {
         hashtagCounts[tagName] = (hashtagCounts[tagName] || 0) + 1;
       }
     }
