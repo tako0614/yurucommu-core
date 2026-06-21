@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, gt, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, like, or, sql } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import {
   fetchWithTimeout,
@@ -131,6 +131,30 @@ function extractHashtags(content: string): string[] {
 // in JS (SQLite has no REGEXP). This bounds memory; if a scan hits the ceiling we
 // log so deep results on a busy instance aren't silently dropped.
 const HASHTAG_SEARCH_SCAN_CAP = 1000;
+
+// Trigram FTS5 indexes 3-grams, so it cannot match a query shorter than 3 chars.
+const FTS_MIN_QUERY_LEN = 3;
+
+/**
+ * Post-content search predicate (used by GET /search/posts).
+ *
+ * For queries >= 3 chars, match via the `objects_fts` trigram index (migration
+ * 0012) — an indexed substring search that works for Japanese, which the default
+ * tokenizer cannot segment. The user input is wrapped as an FTS5 phrase (double
+ * quoted, internal quotes doubled) so it is treated as a LITERAL substring rather
+ * than FTS query syntax (a stray `"` or `*` would otherwise change the match or
+ * error). Shorter queries fall back to LIKE since trigram cannot index them.
+ *
+ * The caller AND-s this with `publicSearchableWhere`, so visibility/audience
+ * gating still applies on top of the match (no private-post leak).
+ */
+function postContentSearchPredicate(query: string) {
+  if (query.length < FTS_MIN_QUERY_LEN) {
+    return like(objects.content, "%" + query + "%");
+  }
+  const phrase = '"' + query.replace(/"/g, '""') + '"';
+  return sql`objects.rowid IN (SELECT rowid FROM objects_fts WHERE objects_fts MATCH ${phrase})`;
+}
 
 /** Build a merged author lookup map (local actors take priority over cached). */
 async function buildAuthorMap(
@@ -392,7 +416,7 @@ search.get("/posts", async (c) => {
       likeCount: objects.likeCount,
     })
     .from(objects)
-    .where(publicSearchableWhere(like(objects.content, "%" + query + "%")))
+    .where(publicSearchableWhere(postContentSearchPredicate(query)))
     .orderBy(...postOrderByDrizzle(sort))
     .limit(50);
 
