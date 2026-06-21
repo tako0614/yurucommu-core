@@ -39,6 +39,11 @@ export const timelinePostsAtom = atom<Post[]>([]);
 export const timelineLoadingAtom = atom(true);
 export const timelineLoadingMoreAtom = atom(false);
 export const timelineHasMoreAtom = atom(true);
+// Server-issued composite cursor (`published apId`) for the next older page.
+// loadMore echoes this back as `before`; a post's ap_id must NOT be used (it
+// decodes as a legacy published-only cursor that matches every row → the feed
+// re-serves page 1 forever). Reset on every full reload.
+export const timelineCursorAtom = atom<string | null>(null);
 // Primary-load failure (shown inline with a Retry button).
 export const timelineLoadErrorAtom = atom<string | null>(null);
 
@@ -74,7 +79,7 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
 
   try {
     const scope = get(scopeQueryAtom);
-    const head = await fetchTimeline({
+    const { posts: head } = await fetchTimeline({
       limit: 20,
       community: scope?.community,
     });
@@ -139,15 +144,17 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
   if (get(timelinePostsAtom).length === 0) set(timelineLoadingAtom, true);
   set(timelineLoadErrorAtom, null);
   set(timelineHasMoreAtom, true);
+  set(timelineCursorAtom, null);
   try {
     const scope = get(scopeQueryAtom);
-    const posts = await fetchTimeline({
+    const page = await fetchTimeline({
       limit: 20,
       community: scope?.community,
     });
     if (gen !== timelineLoadGen) return; // a newer load superseded this one
-    set(timelinePostsAtom, posts);
-    set(timelineHasMoreAtom, posts.length >= 20);
+    set(timelinePostsAtom, page.posts);
+    set(timelineCursorAtom, page.nextCursor);
+    set(timelineHasMoreAtom, page.hasMore);
     // A full reload already shows the freshest head; drop any staged posts.
     set(pendingNewPostsAtom, []);
   } catch (e) {
@@ -163,25 +170,31 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
   const loadingMore = get(timelineLoadingMoreAtom);
   const hasMore = get(timelineHasMoreAtom);
   const posts = get(timelinePostsAtom);
-  if (loadingMore || !hasMore || posts.length === 0) return;
+  const cursor = get(timelineCursorAtom);
+  // No server cursor means there is no defined "next older" boundary to resume
+  // from — stop rather than refetch the head (which would re-serve page 1).
+  if (loadingMore || !hasMore || posts.length === 0 || !cursor) return;
 
   set(timelineLoadingMoreAtom, true);
   const gen = timelineLoadGen;
   try {
-    const lastPost = posts[posts.length - 1];
     const scope = get(scopeQueryAtom);
-    const newPosts = await fetchTimeline({
+    const page = await fetchTimeline({
       limit: 20,
-      before: lastPost.ap_id,
+      // The server-issued composite cursor — NOT lastPost.ap_id, which decodes
+      // as a legacy published-only cursor that matches every row (the feed would
+      // re-serve page 1 forever and stall).
+      before: cursor,
       community: scope?.community,
     });
     // A full reload (e.g. filter switch) happened mid-flight → these are the
     // previous scope's next page; do not append them onto the new feed.
     if (gen !== timelineLoadGen) return;
-    if (newPosts.length > 0) {
-      set(timelinePostsAtom, [...get(timelinePostsAtom), ...newPosts]);
+    if (page.posts.length > 0) {
+      set(timelinePostsAtom, [...get(timelinePostsAtom), ...page.posts]);
     }
-    set(timelineHasMoreAtom, newPosts.length >= 20);
+    set(timelineCursorAtom, page.nextCursor);
+    set(timelineHasMoreAtom, page.hasMore);
   } catch (e) {
     console.error("Failed to load more:", e);
     pushToast(toastWriter(set), get(tAtom)("common.loadFailed"), {
