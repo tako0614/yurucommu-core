@@ -32,6 +32,11 @@ export type DeliveryResolveActorMessageV1 = {
   type: "resolve_actor";
   activityId: string;
   recipientActorApId: string;
+  // How many resolve attempts this message represents. Each failed actor fetch
+  // re-enqueues with attempts+1; the handler gives up at a cap so a permanently
+  // unresolvable recipient does not generate a queue message forever. Absent on
+  // the initial enqueue (treated as 0).
+  attempts?: number;
   scheduledAt: string; // ISO8601 UTC
 };
 

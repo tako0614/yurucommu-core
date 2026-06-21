@@ -182,12 +182,14 @@ export function buildDeliverEndpointMessage(
 export function buildResolveActorMessage(
   activityId: string,
   recipientActorApId: string,
+  attempts = 0,
 ): DeliveryQueueMessageV1 {
   return {
     version: DELIVERY_QUEUE_MESSAGE_VERSION,
     type: "resolve_actor",
     activityId,
     recipientActorApId,
+    ...(attempts > 0 ? { attempts } : {}),
     scheduledAt: nowIso(),
   };
 }

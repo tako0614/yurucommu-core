@@ -48,6 +48,10 @@ import { logger } from "../logger.ts";
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
 const MAX_RECONCILE_ATTEMPTS = 5;
+// Cap on resolve_actor self-requeues (each ~60s apart) before giving up on a
+// permanently-unresolvable recipient — otherwise a dead host churns one queue
+// message every 60s forever.
+const MAX_RESOLVE_ATTEMPTS = 8;
 
 const log = logger.child({ component: "delivery.batching" });
 
@@ -483,15 +487,36 @@ export async function processResolveActor(
     try {
       await fetchAndCacheRemoteActor(db, msg.recipientActorApId);
     } catch (e) {
+      // Bound the retry: a permanently-unresolvable recipient (dead host,
+      // persistent 5xx, SSRF-blocked) must NOT re-enqueue a fresh resolve_actor
+      // every 60s forever. Give up after MAX_RESOLVE_ATTEMPTS so the activity is
+      // dropped for that recipient instead of churning the queue indefinitely.
+      const nextAttempt = (msg.attempts ?? 0) + 1;
+      if (nextAttempt > MAX_RESOLVE_ATTEMPTS) {
+        log.warn("resolve_actor giving up after max attempts", {
+          event: "delivery.resolve_actor.exhausted",
+          actor: msg.recipientActorApId,
+          activityId: msg.activityId,
+          attempts: nextAttempt,
+          error: e,
+        });
+        message.ack();
+        return;
+      }
       log.warn("resolve_actor fetch failed", {
         event: "delivery.resolve_actor.failed",
         actor: msg.recipientActorApId,
         activityId: msg.activityId,
+        attempt: nextAttempt,
         error: e,
       });
       await sendQueueMessage(
         env,
-        buildResolveActorMessage(msg.activityId, msg.recipientActorApId),
+        buildResolveActorMessage(
+          msg.activityId,
+          msg.recipientActorApId,
+          nextAttempt,
+        ),
         60,
       );
       message.ack();

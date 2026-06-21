@@ -503,11 +503,17 @@ export async function processDeliverEndpoint(
         non_retryable: true,
         status,
       });
-      await recordCircuitFailure(db, endpoint);
+      // Do NOT trip the circuit on a permanent 4xx: a 400/403/410/422 is the
+      // remote's per-ACTIVITY verdict (malformed/forbidden/gone for THIS post),
+      // not a signal the endpoint is unhealthy. The circuit is keyed by the
+      // shared inbox, so counting per-activity rejections would let one bad
+      // activity (or one over-strict remote) open the breaker and block delivery
+      // of unrelated, valid activities to every co-located recipient. Only
+      // transient failures (below) reflect endpoint health.
       return;
     }
 
-    // Retryable failure
+    // Retryable failure — this DOES reflect endpoint health, so feed the circuit.
     const nextAttempts = await incrementDeliveryAttempts(db, job.id);
     await recordCircuitFailure(db, endpoint);
 
