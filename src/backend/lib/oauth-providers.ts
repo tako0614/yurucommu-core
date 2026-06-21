@@ -17,6 +17,11 @@ export interface OAuthProvider {
   scopes: string[];
   // PKCE対応
   supportsPkce: boolean;
+  // For OIDC providers (Takosumi Accounts): the issuer origin + JWKS endpoint,
+  // used to verify the ID Token signature + claims in the login callback. Absent
+  // for plain OAuth2 providers (e.g. X) that issue no OIDC ID Token.
+  issuer?: string;
+  jwksUrl?: string;
 }
 
 export interface AuthConfig {
@@ -108,6 +113,8 @@ export function getAuthConfig(env: Env): AuthConfig {
       userInfoUrl: issuerEndpoint(oidcIssuer, "/oauth/userinfo"),
       scopes: ["openid", "profile", "email"],
       supportsPkce: true,
+      issuer: oidcIssuer.replace(/\/+$/, ""),
+      jwksUrl: issuerEndpoint(oidcIssuer, "/oauth/jwks"),
     });
   }
 

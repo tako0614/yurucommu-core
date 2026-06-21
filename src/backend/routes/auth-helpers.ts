@@ -35,6 +35,10 @@ export type OAuthTokens = {
   access_token: string;
   refresh_token?: string;
   expires_in?: number;
+  // OIDC ID Token (a signed JWT). For an OIDC provider (Takosumi Accounts) this
+  // is the primary identity assertion and carries `name`/`email`/`sub` that the
+  // minimal userinfo endpoint may omit; the callback verifies + reads it.
+  id_token?: string;
 };
 
 export type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;

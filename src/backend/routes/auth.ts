@@ -9,6 +9,7 @@ import {
   getClientCredentials,
   getProvider,
 } from "../lib/oauth-providers.ts";
+import { verifyOidcIdToken } from "../lib/oidc-id-token.ts";
 import {
   deleteOAuthState,
   generateCodeChallenge,
@@ -315,6 +316,36 @@ auth.get("/callback/:provider", async (c) => {
       error: err,
     });
     return c.redirect("/?error=user_info_failed");
+  }
+
+  // For an OIDC provider (Takosumi Accounts) the ID Token is the authoritative
+  // identity assertion and carries name/email/sub that the minimal userinfo
+  // endpoint omits. Verify it (ES256 against the issuer JWKS + iss/aud/exp) and
+  // let its claims fill/override the userinfo; an ID Token that is present but
+  // invalid fails the login (fail closed — never trust an unverified subject).
+  if (provider.issuer && provider.jwksUrl && tokens.id_token) {
+    try {
+      const { clientId } = getClientCredentials(c.env, providerId);
+      const claims = await verifyOidcIdToken(tokens.id_token, {
+        issuer: provider.issuer,
+        clientId,
+        jwksUrl: provider.jwksUrl,
+      });
+      userInfo = {
+        ...userInfo,
+        id: claims.sub || userInfo.id,
+        name: claims.name ?? userInfo.name,
+        email: claims.email ?? userInfo.email,
+        username: claims.preferred_username ?? userInfo.username,
+      };
+    } catch (err) {
+      log.error("OIDC ID token verification failed", {
+        event: "auth.oauth.id_token_invalid",
+        provider: providerId,
+        error: err,
+      });
+      return c.redirect("/?error=id_token_invalid");
+    }
   }
 
   const actorData = await findOrCreateOAuthActor(
