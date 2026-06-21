@@ -66,7 +66,17 @@ export function registerMembershipJoinRoutes(
 
       const now = new Date().toISOString();
 
-      if (community.joinPolicy === "approval") {
+      // A PRIVATE community must never be OPENLY self-joinable — open join would
+      // let ANY logged-in actor join and thereby read its members-only content,
+      // defeating the privacy. If an owner left joinPolicy="open" while flipping
+      // the community private, treat the join as "approval" (held pending) so the
+      // owner still gates who gets in. Invite-policy is unaffected.
+      const effectiveJoinPolicy =
+        community.visibility === "private" && community.joinPolicy === "open"
+          ? "approval"
+          : community.joinPolicy;
+
+      if (effectiveJoinPolicy === "approval") {
         // Upsert: check if exists, then insert or update
         const existingRequest = await db
           .select()
@@ -101,7 +111,7 @@ export function registerMembershipJoinRoutes(
         return c.json({ success: true, status: "pending" });
       }
 
-      if (community.joinPolicy === "invite") {
+      if (effectiveJoinPolicy === "invite") {
         if (!inviteId) {
           return c.json(
             { error: "Invite required", status: "invite_required" },

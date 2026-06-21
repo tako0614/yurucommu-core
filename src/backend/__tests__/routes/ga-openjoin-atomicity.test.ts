@@ -209,3 +209,39 @@ test("open join duplicate: rejected, no extra count bump", async () => {
   expect(await memberRow(db, communityAp, joiner.ap_id)).toBeDefined();
   expect(await memberCountOf(db, communityAp)).toBe(6);
 });
+
+// ---------------------------------------------------------------------------
+// A PRIVATE community with a leftover joinPolicy="open" must NOT be openly
+// self-joinable — the join is held PENDING (approval), never auto-accepted,
+// so a non-member cannot self-grant read access to members-only content.
+// ---------------------------------------------------------------------------
+test("private + open join policy: self-join is held pending, not auto-accepted", async () => {
+  const db = await freshDb();
+  await insertActor(db, "owner");
+  await insertActor(db, "joiner");
+  const apId = communityApId("secret");
+  await db.insert(communities).values({
+    apId,
+    preferredUsername: "secret",
+    name: "secret",
+    inbox: `${apId}/inbox`,
+    outbox: `${apId}/outbox`,
+    followersUrl: `${apId}/followers`,
+    visibility: "private",
+    joinPolicy: "open",
+    memberCount: 1,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: actorApId("owner"),
+  });
+  const joiner = fakeActor("joiner");
+
+  const app = appWith(db, joiner);
+  const res = await app.request(joinRequest("secret"), undefined, env);
+
+  expect(res.status).toBe(200);
+  expect(((await res.json()) as { status?: string }).status).toBe("pending");
+  // NOT a member, and the count did not change.
+  expect(await memberRow(db, apId, joiner.ap_id)).toBeUndefined();
+  expect(await memberCountOf(db, apId)).toBe(1);
+});
