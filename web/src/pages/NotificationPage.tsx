@@ -39,12 +39,17 @@ function mergeNotificationsById(
   });
 }
 
-const BellIcon = () => (
-  <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+const BellIcon = (props: { class?: string; strokeWidth?: number }) => (
+  <svg
+    class={props.class ?? "w-10 h-10"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
-      stroke-width={1.5}
+      stroke-width={props.strokeWidth ?? 1.5}
       d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
     />
   </svg>
@@ -356,12 +361,10 @@ export function NotificationPage() {
   const filterTabs: { key: FilterType; label: string; icon: JSX.Element }[] = [
     {
       key: "all",
+      // Bell icon (consistent with the per-type tabs' SVG icons) instead of a
+      // locale-dependent text glyph (「全」/"All") in the icon slot.
       label: t("notifications.filterAll"),
-      icon: (
-        <span class="w-4 h-4 flex items-center justify-center text-xs">
-          {t("notifications.filterAllShort")}
-        </span>
-      ),
+      icon: <BellIcon class="w-4 h-4" strokeWidth={2} />,
     },
     { key: "follow", label: t("profile.follow"), icon: <FollowIcon /> },
     {
