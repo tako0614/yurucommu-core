@@ -7,7 +7,9 @@ import {
   Show,
 } from "solid-js";
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
+import { useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
+import { refreshDmUnreadAtom } from "../atoms/dm-unread.ts";
 import {
   DMContact,
   DMRequest,
@@ -124,6 +126,7 @@ export function DMPage() {
   const params = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const refreshDmUnread = useSetAtom(refreshDmUnreadAtom);
   const [contacts, setContacts] = createSignal<DMContact[]>([]);
   const [communities, setCommunities] = createSignal<DMContact[]>([]);
   const [requests, setRequests] = createSignal<DMRequest[]>([]);
@@ -396,6 +399,9 @@ export function DMPage() {
         prev.map((c) => (c.ap_id === sc.ap_id ? { ...c, unread_count: 0 } : c)),
       );
     }
+    // Refresh the shared nav badge so it drops promptly instead of waiting for
+    // the next 30s poll.
+    void refreshDmUnread();
   };
 
   return (

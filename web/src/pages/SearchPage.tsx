@@ -101,6 +101,11 @@ export function SearchPage() {
   const scopeCommunities = useAtomValue(scopeCommunitiesAtom);
   const lightbox = useMediaLightbox();
   const [error, setError] = createSignal<string | null>(null);
+  // ap_ids with an in-flight follow request — guards the follow button against a
+  // double-tap firing duplicate follow() calls.
+  const [followInFlight, setFollowInFlight] = createSignal<Set<string>>(
+    new Set(),
+  );
   const clearError = () => setError(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -367,6 +372,8 @@ export function SearchPage() {
   const handleFollow = async (targetActor: Actor, e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (followInFlight().has(targetActor.ap_id)) return;
+    setFollowInFlight((s) => new Set(s).add(targetActor.ap_id));
     try {
       const { status } = await follow(targetActor.ap_id);
       // A private/remote account's follow may land as a pending request awaiting
@@ -382,6 +389,12 @@ export function SearchPage() {
     } catch (e) {
       console.error("Failed to follow:", e);
       setError(t("common.error"));
+    } finally {
+      setFollowInFlight((s) => {
+        const next = new Set(s);
+        next.delete(targetActor.ap_id);
+        return next;
+      });
     }
   };
 
@@ -803,7 +816,8 @@ export function SearchPage() {
                         >
                           <button
                             onClick={(e) => handleFollow(user, e)}
-                            class="px-4 py-1.5 bg-white text-black font-medium rounded-full hover:bg-neutral-200 transition-colors text-sm shrink-0"
+                            disabled={followInFlight().has(user.ap_id)}
+                            class="px-4 py-1.5 bg-white text-black font-medium rounded-full hover:bg-neutral-200 transition-colors text-sm shrink-0 disabled:opacity-50"
                           >
                             {t("profile.follow")}
                           </button>

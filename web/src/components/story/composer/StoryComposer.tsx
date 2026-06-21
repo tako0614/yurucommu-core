@@ -10,7 +10,7 @@
  *   useStoryTextEditor, useStoryLayerActions, useStoryPost, useStoryImageUpload
  */
 
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
 import { useDialog } from "../../../lib/useDialog.ts";
 import {
@@ -260,8 +260,13 @@ export function StoryComposer(props: StoryComposerProps) {
 
   // --- Effects ---
 
-  // Initialize canvas
-  createEffect(() => {
+  // Initialize the canvas ONCE. This must be onMount, not createEffect: reading
+  // gradientColors()/gradientAngle() inside a createEffect tracked them, so every
+  // gradient tweak re-ran this, built a fresh StoryCanvas (whose layers start
+  // empty), and discarded all the user's text/stickers/drawings. Live background
+  // changes are applied to the existing canvas by useStoryBackground; this just
+  // seeds the initial background so there is no first-frame flash.
+  onMount(() => {
     const canvas = new StoryCanvas();
     canvas.setBackground({
       type: "gradient",

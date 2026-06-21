@@ -8,11 +8,13 @@ import { AppMenu } from "./AppMenu.tsx";
 import { GlobalPostComposer } from "./GlobalPostComposer.tsx";
 import { ToastLayer } from "../ToastLayer.tsx";
 import { useNotificationPolling } from "../../hooks/useNotificationPolling.ts";
+import { useDmUnreadPolling } from "../../hooks/useDmUnreadPolling.ts";
 import { hydrateScopeAtom } from "../../atoms/scope.ts";
 
 export function AppLayout(props: { children?: JSX.Element }) {
-  // Single mount point for unread-notification polling (pauses when hidden).
+  // Single mount point for unread polling (both pause when the tab is hidden).
   useNotificationPolling();
+  useDmUnreadPolling();
 
   // Hydrate the inhabited-scope rail once per authenticated shell: reconcile the
   // stored scope against live membership and populate the ScopeBar / switcher

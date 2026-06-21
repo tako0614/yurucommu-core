@@ -120,7 +120,17 @@ export function PostDetailPage() {
       });
   });
 
+  // Guard against a double-tap firing two like/bookmark requests off the same
+  // stale state: handleLike reads targetPost.liked and only applies ±1 after the
+  // await, so a second tap would re-read liked=false and apply +1 again → a
+  // permanent local like_count drift. Keyed by ap_id (main post + each reply
+  // guard independently).
+  const likeInFlight = new Set<string>();
+  const bookmarkInFlight = new Set<string>();
+
   const handleLike = async (targetPost: Post, isReply: boolean = false) => {
+    if (likeInFlight.has(targetPost.ap_id)) return;
+    likeInFlight.add(targetPost.ap_id);
     try {
       if (targetPost.liked) {
         await unlikePost(targetPost.ap_id);
@@ -160,6 +170,8 @@ export function PostDetailPage() {
     } catch (e) {
       console.error("Failed to toggle like:", e);
       setError(t("common.error"));
+    } finally {
+      likeInFlight.delete(targetPost.ap_id);
     }
   };
 
@@ -250,6 +262,8 @@ export function PostDetailPage() {
   const handleBookmark = async () => {
     const currentPost = post();
     if (!currentPost) return;
+    if (bookmarkInFlight.has(currentPost.ap_id)) return;
+    bookmarkInFlight.add(currentPost.ap_id);
     try {
       if (currentPost.bookmarked) {
         await unbookmarkPost(currentPost.ap_id);
@@ -261,6 +275,8 @@ export function PostDetailPage() {
     } catch (e) {
       console.error("Failed to toggle bookmark:", e);
       setError(t("common.error"));
+    } finally {
+      bookmarkInFlight.delete(currentPost.ap_id);
     }
   };
 
