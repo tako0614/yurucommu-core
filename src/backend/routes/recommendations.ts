@@ -46,6 +46,9 @@ recommendations.get(
         AND f2.following_ap_id NOT IN (
           SELECT muted_ap_id FROM mutes WHERE muter_ap_id = ${myApId}
         )
+        AND f2.following_ap_id NOT IN (
+          SELECT ap_id FROM actors WHERE deleted_at IS NOT NULL
+        )
       GROUP BY f2.following_ap_id
       ORDER BY mutual_count DESC
       LIMIT 5

@@ -122,8 +122,23 @@ communitiesRouter.get("/", async (c) => {
 
   const actorApIdVal = actor?.ap_id || "";
 
+  // Project only the columns the response renders — never pull the public/
+  // PRIVATE key PEM material (communities.publicKeyPem/privateKeyPem) into the
+  // worker on this hot list path.
   const communitiesList = await db
-    .select()
+    .select({
+      apId: communities.apId,
+      preferredUsername: communities.preferredUsername,
+      name: communities.name,
+      summary: communities.summary,
+      iconUrl: communities.iconUrl,
+      visibility: communities.visibility,
+      joinPolicy: communities.joinPolicy,
+      postPolicy: communities.postPolicy,
+      memberCount: communities.memberCount,
+      createdAt: communities.createdAt,
+      lastMessageAt: communities.lastMessageAt,
+    })
     .from(communities)
     .orderBy(
       sql`CASE WHEN ${communities.lastMessageAt} IS NULL THEN 1 ELSE 0 END`,
@@ -346,18 +361,16 @@ communitiesRouter.get("/:identifier", async (c) => {
     }
   }
 
-  const [memberCountResult, postsCountResult] = await Promise.all([
-    db
-      .select({ count: count() })
-      .from(communityMembers)
-      .where(eq(communityMembers.communityApId, community.apId))
-      .get(),
-    db
-      .select({ count: count() })
-      .from(objects)
-      .where(eq(objects.communityApId, community.apId))
-      .get(),
-  ]);
+  // member_count is the maintained `communities.memberCount` column (kept atomic
+  // by addMemberAtomic/removeMemberAtomic on every membership mutation), so the
+  // previous per-request COUNT(*) over community_members was redundant work.
+  // post_count has no denormalized column, so it is still counted (indexed range
+  // via objects_comm_published_idx).
+  const postsCountResult = await db
+    .select({ count: count() })
+    .from(objects)
+    .where(eq(objects.communityApId, community.apId))
+    .get();
 
   return c.json({
     community: {
@@ -369,7 +382,7 @@ communitiesRouter.get("/:identifier", async (c) => {
       visibility: community.visibility,
       join_policy: community.joinPolicy,
       post_policy: community.postPolicy,
-      member_count: memberCountResult?.count || community.memberCount || 0,
+      member_count: community.memberCount || 0,
       post_count: postsCountResult?.count || 0,
       created_by: community.createdBy,
       created_at: community.createdAt,

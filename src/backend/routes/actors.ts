@@ -792,8 +792,26 @@ actorsRoute.get("/:identifier/posts", async (c) => {
     conditions.push(lt(objects.published, before));
   }
 
+  // Project only the columns the response below reads — the profile feed must
+  // not load the large `raw_json` blob (and other unused columns), mirroring the
+  // timeline's POST_FEED_COLUMNS optimization which this path had missed.
   const posts = await db
-    .select()
+    .select({
+      apId: objects.apId,
+      type: objects.type,
+      attributedTo: objects.attributedTo,
+      content: objects.content,
+      summary: objects.summary,
+      attachmentsJson: objects.attachmentsJson,
+      inReplyTo: objects.inReplyTo,
+      visibility: objects.visibility,
+      communityApId: objects.communityApId,
+      likeCount: objects.likeCount,
+      replyCount: objects.replyCount,
+      announceCount: objects.announceCount,
+      published: objects.published,
+      updated: objects.updated,
+    })
     .from(objects)
     .where(and(...conditions))
     .orderBy(desc(objects.published))
