@@ -37,6 +37,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
   let dialogRef: HTMLDivElement | undefined;
   const [uploadingIcon, setUploadingIcon] = createSignal(false);
   const [uploadingHeader, setUploadingHeader] = createSignal(false);
+  const [uploadError, setUploadError] = createSignal<string | null>(null);
 
   useDialog({
     isOpen: () => props.isOpen,
@@ -69,11 +70,20 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
   ) => {
     if (!file) return;
     setBusy(true);
+    setUploadError(null);
     try {
       const result = await uploadMedia(file);
       apply(result.url);
     } catch (err) {
+      // Surface the failure (e.g. >20MB image, wrong type, network) — it was
+      // previously only console.error'd, so the upload failed silently and the
+      // user was left wondering why their avatar/header never changed.
       console.error("Failed to upload image:", err);
+      setUploadError(
+        err instanceof Error && err.message
+          ? err.message
+          : props.t("common.uploadFailed"),
+      );
     } finally {
       setBusy(false);
     }
@@ -118,6 +128,14 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
             </button>
           </div>
           <div class="p-4 space-y-4">
+            <Show when={uploadError()}>
+              <div
+                role="alert"
+                class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400"
+              >
+                {uploadError()}
+              </div>
+            </Show>
             {/* Header image */}
             <div>
               <label class="block text-sm text-neutral-400 mb-1">
