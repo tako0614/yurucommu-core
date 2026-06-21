@@ -491,3 +491,48 @@ test("no full-table LIKE scan path remains in media authorization", async () => 
   expect(src).toContain("eq(mediaUploads.r2Key, r2Key)");
   expect(src).toContain("eq(objects.attributedTo, uploaderApId)");
 });
+
+test("PERSONAL story media (stored visibility=public, reach=followers) is followers-gated", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const author = await insertLocalActor(db, "alice");
+  const followerApId = await insertLocalActor(db, "bob");
+  await insertLocalActor(db, "mallory");
+  await seedUpload(db, env, author);
+
+  // A personal Story is stored visibility="public" but addressed to followers,
+  // with communityApId NULL (community stories are gated by a separate branch).
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/story1`,
+    type: "Story",
+    attributedTo: author,
+    content: "",
+    attachmentsJson: JSON.stringify([
+      { type: "Image", url: MEDIA_URL, r2_key: R2_KEY },
+    ]),
+    visibility: "public",
+    toJson: JSON.stringify([`${author}/followers`]),
+    ccJson: "[]",
+    audienceJson: "[]",
+    isLocal: 1,
+  });
+  await db.insert(follows).values({
+    followerApId,
+    followingApId: author,
+    status: "accepted",
+  });
+
+  // Authenticated non-follower: DENIED despite the story's stored visibility=public.
+  const mallory = fakeActor(localApId("mallory"), "mallory");
+  expect((await getMedia(db, env, mallory)).status).toEqual(403);
+  // Anonymous: denied (the media handler returns 403 for every denial,
+  // auth-required included).
+  expect((await getMedia(db, env, null)).status).toEqual(403);
+  // Accepted follower + author: allowed.
+  expect(
+    (await getMedia(db, env, fakeActor(followerApId, "bob"))).status,
+  ).toEqual(200);
+  expect((await getMedia(db, env, fakeActor(author, "alice"))).status).toEqual(
+    200,
+  );
+});

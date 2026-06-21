@@ -264,6 +264,7 @@ const ALLOW_PRIVATE: MediaAuthResult = { allowed: true, isPublic: false };
 
 type ReferencingObject = {
   apId: string;
+  type: string;
   attributedTo: string;
   visibility: string;
   toJson: string;
@@ -302,6 +303,7 @@ async function findReferencingObject(
   const candidates = await db
     .select({
       apId: objects.apId,
+      type: objects.type,
       attributedTo: objects.attributedTo,
       visibility: objects.visibility,
       toJson: objects.toJson,
@@ -316,6 +318,7 @@ async function findReferencingObject(
     if (attachmentMatches(row.attachmentsJson, mediaUrl, r2Key)) {
       return {
         apId: row.apId,
+        type: row.type,
         attributedTo: row.attributedTo,
         visibility: row.visibility,
         toJson: row.toJson,
@@ -407,6 +410,28 @@ async function checkMediaAuthorization(
       return currentActorApId ? DENY_NOT_AUTHORIZED : DENY_AUTH_REQUIRED;
     }
     return ALLOW_PRIVATE;
+  }
+
+  // A personal Story is stored visibility="public" but its REACH is the author's
+  // followers (addressed to=<actor>/followers; it only surfaces in followers'
+  // story feed). The public short-circuit below would make its media blob
+  // world-readable to anyone with the URL, so gate it on follower status like a
+  // followers-only post. (Community stories were gated by the branch above; the
+  // author by the branch above that.)
+  if (obj.type === "Story") {
+    if (!currentActorApId) return DENY_AUTH_REQUIRED;
+    const follow = await db
+      .select()
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followerApId, currentActorApId),
+          eq(follows.followingApId, obj.attributedTo),
+          eq(follows.status, "accepted"),
+        ),
+      )
+      .get();
+    return follow ? ALLOW_PRIVATE : DENY_NOT_AUTHORIZED;
   }
 
   if (obj.visibility === "public" || obj.visibility === "unlisted") {
