@@ -51,6 +51,7 @@ import {
 } from "./post-helpers.ts";
 import { requireActor } from "../actors-helpers.ts";
 import { canViewerReadObject } from "../../lib/community-visibility.ts";
+import { isExplicitRecipient } from "../../lib/post-visibility.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { logger } from "../../lib/logger.ts";
 
@@ -385,10 +386,16 @@ posts.get("/:id", async (c) => {
   const liked = likedIds.has(post.apId);
   const bookmarked = bookmarkedIds.has(post.apId);
 
-  // Check visibility - followers-only
+  // Check visibility - followers-only. Author, an accepted follower, OR an
+  // explicitly addressed (to/cc) recipient such as a mention may read it: the
+  // author chose to address them (and it was delivered to their inbox), so a
+  // mentioned non-follower must not 404 on the post they were notified about.
   if (post.visibility === "followers") {
     if (!currentActor) return c.json({ error: "Post not found" }, 404);
-    if (currentActor.ap_id !== post.attributedTo) {
+    if (
+      currentActor.ap_id !== post.attributedTo &&
+      !isExplicitRecipient(post, currentActor.ap_id)
+    ) {
       const followRow = await db
         .select({ followerApId: follows.followerApId })
         .from(follows)
@@ -404,14 +411,15 @@ posts.get("/:id", async (c) => {
     }
   }
 
-  // Check visibility - direct messages
+  // Check visibility - direct messages. Author or any addressed (to/cc)
+  // recipient — a mention in a DM is a cc recipient and is delivered to them.
   if (post.visibility === "direct") {
     if (!currentActor) return c.json({ error: "Post not found" }, 404);
-    if (currentActor.ap_id !== post.attributedTo) {
-      const recipients = safeJsonParse<string[]>(post.toJson, []);
-      if (!recipients.includes(currentActor.ap_id)) {
-        return c.json({ error: "Post not found" }, 404);
-      }
+    if (
+      currentActor.ap_id !== post.attributedTo &&
+      !isExplicitRecipient(post, currentActor.ap_id)
+    ) {
+      return c.json({ error: "Post not found" }, 404);
     }
   }
 

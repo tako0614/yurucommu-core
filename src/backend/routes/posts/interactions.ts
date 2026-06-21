@@ -139,6 +139,7 @@ posts.post("/:id/like", async (c) => {
       visibility: objects.visibility,
       attributedTo: objects.attributedTo,
       toJson: objects.toJson,
+      ccJson: objects.ccJson,
       audienceJson: objects.audienceJson,
       communityApId: objects.communityApId,
     })

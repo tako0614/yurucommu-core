@@ -16,16 +16,34 @@ export type ReadGateObject = {
   visibility: string;
   attributedTo: string;
   toJson: string;
+  ccJson: string;
   audienceJson: string;
   communityApId: string | null;
 };
 
 /**
+ * A viewer the author EXPLICITLY addressed (in `to` or `cc`) — e.g. an
+ * @mention — may read the post even without an accepted-follow edge: the author
+ * chose to send it to them, and it was delivered to that actor's inbox.
+ * Mentions land in `cc` (mergeCc in posts/routes.ts); direct recipients in `to`.
+ */
+export function isExplicitRecipient(
+  obj: { toJson: string; ccJson: string },
+  viewerApId: string,
+): boolean {
+  return (
+    safeJsonParse<string[]>(obj.toJson, []).includes(viewerApId) ||
+    safeJsonParse<string[]>(obj.ccJson, []).includes(viewerApId)
+  );
+}
+
+/**
  * Whether `viewerApId` may read `obj`, honoring BOTH the community membership
  * gate and the per-post visibility:
  *   - public / unlisted  → readable (subject to the community gate);
- *   - followers          → author or an accepted follower of the author;
- *   - direct             → author or an addressed recipient (obj.toJson).
+ *   - followers          → author, an accepted follower, OR an explicitly
+ *                          addressed (to/cc) recipient such as a mention;
+ *   - direct             → author or an addressed recipient (to/cc).
  * An anonymous viewer (`null`) can never satisfy followers/direct. Fails closed.
  */
 export async function canViewerReadObjectFull(
@@ -47,12 +65,13 @@ export async function canViewerReadObjectFull(
   if (obj.visibility === "direct") {
     if (!viewerApId) return false;
     if (obj.attributedTo === viewerApId) return true;
-    return safeJsonParse<string[]>(obj.toJson, []).includes(viewerApId);
+    return isExplicitRecipient(obj, viewerApId);
   }
 
   if (obj.visibility === "followers") {
     if (!viewerApId) return false;
     if (obj.attributedTo === viewerApId) return true;
+    if (isExplicitRecipient(obj, viewerApId)) return true;
     const accepted = await db
       .select({ followerApId: follows.followerApId })
       .from(follows)
