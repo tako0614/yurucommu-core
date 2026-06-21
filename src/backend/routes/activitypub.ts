@@ -219,6 +219,23 @@ ap.get("/nodeinfo/2.1", async (c) => {
 // WebFinger - Actor Discovery (cached 1 hour)
 // ---------------------------------------------------------------------------
 
+// host-meta: the legacy XRD discovery document that points a peer holding only
+// our domain at the WebFinger endpoint (the `lrdd` link template). Modern
+// servers fetch /.well-known/webfinger directly, but some crawlers and older
+// software still resolve host-meta first — without this route it fell through
+// to the SPA HTML shell. The template's `{uri}` is a literal placeholder the
+// caller substitutes, so it must not be URL-encoded.
+ap.get("/.well-known/host-meta", (c) => {
+  const baseUrl = c.env.APP_URL.replace(/\/+$/, "");
+  const xrd =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0">\n' +
+    `  <Link rel="lrdd" type="application/jrd+json" template="${baseUrl}/.well-known/webfinger?resource={uri}"/>\n` +
+    "</XRD>\n";
+  c.header("Content-Type", "application/xrd+xml; charset=utf-8");
+  return c.body(xrd);
+});
+
 ap.get(
   "/.well-known/webfinger",
   withCache({

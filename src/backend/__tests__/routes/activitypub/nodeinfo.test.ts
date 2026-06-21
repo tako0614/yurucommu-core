@@ -122,6 +122,24 @@ test("nodeinfo 2.1 returns required schema fields", async () => {
   expect(body.metadata.singleUser).toEqual(true);
 });
 
+test("host-meta returns an XRD lrdd template pointing at webfinger", async () => {
+  const app = createApp();
+  const res = await app.fetch(
+    new Request("https://example.test/.well-known/host-meta"),
+    { APP_URL: "https://example.test/" },
+  );
+  const body = await res.text();
+
+  expect(res.status).toEqual(200);
+  expect(res.headers.get("content-type")).toContain("application/xrd+xml");
+  expect(body).toContain('rel="lrdd"');
+  // The {uri} placeholder must survive verbatim (not URL-encoded) so callers
+  // can substitute the acct: resource.
+  expect(body).toContain(
+    'template="https://example.test/.well-known/webfinger?resource={uri}"',
+  );
+});
+
 test("nodeinfo 2.1 reports build-injected software version", async () => {
   const app = createApp(createCountDb([1, 42]));
   const res = await app.fetch(
