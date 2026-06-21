@@ -6,7 +6,13 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../../db/schema.ts";
 import type { Database } from "../../../../db/index.ts";
-import { actors, communities, communityMembers } from "../../../../db/index.ts";
+import {
+  actors,
+  activities,
+  communities,
+  communityMembers,
+  objects,
+} from "../../../../db/index.ts";
 import type { Env, Variables } from "../../../types.ts";
 import activitypubRoutes from "../../../routes/activitypub.ts";
 
@@ -191,6 +197,58 @@ test("GET /ap/groups/:name 404s private + nonexistent communities", async () => 
     env(),
   );
   expect(missing.status).toEqual(404);
+});
+
+test("the community outbox SHOWS the group's Announce of a public community post", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "club", "public");
+  const noteId = `${APP_URL}/ap/objects/note-x`;
+  const announceId = `${APP_URL}/ap/activities/announce-x`;
+
+  // A community-scoped public Note + the group's Announce of it (as Slice 3
+  // persists them). The Note carries audienceJson=[community] — the personal
+  // outbox gate would exclude its Announce, but the community gate must include
+  // it (the regression the audit caught: the group outbox was always empty).
+  await db.insert(objects).values({
+    apId: noteId,
+    type: "Note",
+    attributedTo: `${APP_URL}/ap/users/owner`,
+    content: "hello community",
+    visibility: "public",
+    communityApId: apId,
+    audienceJson: JSON.stringify([apId]),
+    published: new Date().toISOString(),
+    isLocal: 1,
+  });
+  await db.insert(activities).values({
+    apId: announceId,
+    type: "Announce",
+    actorApId: apId,
+    objectApId: noteId,
+    rawJson: JSON.stringify({
+      id: announceId,
+      type: "Announce",
+      object: noteId,
+    }),
+    direction: "outbound",
+  });
+
+  const coll = await app(db).fetch(
+    new Request(`${APP_URL}/ap/groups/club/outbox`, {
+      headers: { Accept: "application/activity+json" },
+    }),
+    env(),
+  );
+  expect(((await coll.json()) as { totalItems: number }).totalItems).toEqual(1);
+
+  const page = await app(db).fetch(
+    new Request(`${APP_URL}/ap/groups/club/outbox?page=1`, {
+      headers: { Accept: "application/activity+json" },
+    }),
+    env(),
+  );
+  const items = (await page.json()) as { orderedItems: Array<{ id: string }> };
+  expect(items.orderedItems.map((i) => i.id)).toContain(announceId);
 });
 
 test("community outbox + followers are valid OrderedCollections", async () => {

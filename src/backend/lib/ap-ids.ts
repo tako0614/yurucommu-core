@@ -62,7 +62,12 @@ export function activityApId(baseUrl: string, id: string): string {
 }
 
 export function communityApId(baseUrl: string, name: string): string {
-  return `${baseUrl}/ap/groups/${name}`;
+  // Normalize a trailing slash so the apId minted at community CREATION matches
+  // the one reconstructed on every federation READ (actor doc / inbox / outbox /
+  // followers / moderators / webfinger). Without this, a `APP_URL` configured
+  // with a trailing slash would store `…//ap/groups/<name>` while reads look up
+  // `…/ap/groups/<name>`, 404ing every community.
+  return `${baseUrl.replace(/\/+$/, "")}/ap/groups/${name}`;
 }
 
 export function getDomain(apId: string): string {
