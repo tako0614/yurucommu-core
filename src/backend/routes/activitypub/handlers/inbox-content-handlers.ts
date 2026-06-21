@@ -23,6 +23,7 @@ import {
 } from "../../../federation-helpers.ts";
 import { getConversationId } from "../../dm/query-helpers.ts";
 import { fetchAndUpsertActorCache } from "../../../lib/activitypub-actor-cache.ts";
+import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { logger } from "../../../lib/logger.ts";
 import {
   type Activity,
@@ -856,20 +857,45 @@ export async function handleMove(
       createdAt: row.createdAt,
       acceptedAt: row.acceptedAt,
     }));
+  // For followers that are LOCAL to this instance, a bare edge rewrite is not
+  // enough: the destination server has no record of the follow, so it would
+  // never deliver the migrated account's posts (the local user's following list
+  // would point at the new actor but silently receive nothing). Re-issue a
+  // fresh, *pending* Follow to the new actor and enqueue outbound delivery —
+  // the standard Mastodon "follow the move target on the user's behalf"
+  // behavior; the destination's Accept flips it to accepted. Remote followers
+  // are left as a plain edge rewrite: re-establishing their follow is their own
+  // server's responsibility.
+  const baseUrl = c.env.APP_URL;
+  const localReFollows: { followerApId: string; followId: string }[] = [];
   const followingRewrites = followingRows
     .filter(
       (row) =>
         !existingFollowingSourceSet.has(row.followerApId) &&
         row.followerApId !== newActorApId,
     )
-    .map((row) => ({
-      followerApId: row.followerApId,
-      followingApId: newActorApId,
-      status: row.status,
-      activityApId: row.activityApId,
-      createdAt: row.createdAt,
-      acceptedAt: row.acceptedAt,
-    }));
+    .map((row) => {
+      if (isLocal(row.followerApId, baseUrl)) {
+        const followId = activityApId(baseUrl, generateId());
+        localReFollows.push({ followerApId: row.followerApId, followId });
+        return {
+          followerApId: row.followerApId,
+          followingApId: newActorApId,
+          status: "pending",
+          activityApId: followId,
+          createdAt: row.createdAt,
+          acceptedAt: null,
+        };
+      }
+      return {
+        followerApId: row.followerApId,
+        followingApId: newActorApId,
+        status: row.status,
+        activityApId: row.activityApId,
+        createdAt: row.createdAt,
+        acceptedAt: row.acceptedAt,
+      };
+    });
 
   // Sequential operations (no interactive transactions in D1)
   if (followerRewrites.length > 0) {
@@ -883,6 +909,39 @@ export async function handleMove(
   }
   if (followingRows.length > 0) {
     await db.delete(follows).where(eq(follows.followingApId, oldActorApId));
+  }
+
+  // Record + deliver the outbound Follow activities for migrated local
+  // followers so the destination server registers them as followers and starts
+  // delivering. Best-effort per follower: a delivery enqueue failure must not
+  // abort the rest of the migration (the follow row is already pending and will
+  // simply lack delivery until retried).
+  for (const { followerApId, followId } of localReFollows) {
+    const followActivity = {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: followId,
+      type: "Follow",
+      actor: followerApId,
+      object: newActorApId,
+    };
+    try {
+      await db.insert(activities).values({
+        apId: followId,
+        type: "Follow",
+        actorApId: followerApId,
+        objectApId: newActorApId,
+        rawJson: JSON.stringify(followActivity),
+        direction: "outbound",
+      });
+      await enqueueDeliveryToActor(c.env, followId, newActorApId);
+    } catch (e) {
+      log.warn("Failed to issue migration re-follow to move target", {
+        event: "ap.move.refollow_failed",
+        follower: followerApId,
+        newActor: newActorApId,
+        error: e,
+      });
+    }
   }
 }
 

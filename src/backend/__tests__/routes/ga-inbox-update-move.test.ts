@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, actorCache, follows } from "../../../db/index.ts";
+import { actors, actorCache, activities, follows } from "../../../db/index.ts";
 import type {
   Activity,
   ActivityContext,
@@ -83,6 +83,11 @@ async function freshDb(): Promise<Database> {
   const root = new URL("../../../../migrations/", import.meta.url);
   for (const file of [
     "0001_init.sql",
+    // 0003 rebuilds `activities` dropping the object_ap_id -> objects FK, so the
+    // migration re-follow can record an outbound Follow whose object is a remote
+    // actor (present only in actor_cache). Production applied this; the fixture
+    // must mirror it or D1-style FK enforcement rejects the insert.
+    "0003_activity_remote_object_edges.sql",
     "0008_actor_fields_aka.sql",
     "0009_object_tags.sql",
   ]) {
@@ -95,6 +100,7 @@ async function freshDb(): Promise<Database> {
 function ctx(db: Database): ActivityContext {
   return {
     get: (key: string) => (key === "db" ? db : undefined),
+    env: { APP_URL, DB_INSTANCE: db },
   } as unknown as ActivityContext;
 }
 
@@ -246,6 +252,29 @@ test("handleMove does not create self-follow rows when old/new were already conn
     )
     .get();
   expect(migrated).toBeDefined();
+
+  // The migrated LOCAL follower is re-issued as a *pending* Follow: the
+  // destination server has not Accepted yet, and a bare accepted edge would
+  // leave the local user receiving nothing (the destination never learned of
+  // the follow).
+  expect(migrated?.status).toBe("pending");
+
+  // A fresh outbound Follow to the new actor was recorded (and enqueued for
+  // delivery) so the destination registers the local user as a follower. The
+  // recorded activity id matches the migrated edge's activity_ap_id.
+  const reFollow = await db
+    .select()
+    .from(activities)
+    .where(
+      and(
+        eq(activities.actorApId, localFollower),
+        eq(activities.objectApId, NEW_ACTOR),
+      ),
+    )
+    .get();
+  expect(reFollow?.type).toBe("Follow");
+  expect(reFollow?.direction).toBe("outbound");
+  expect(reFollow?.apId).toBe(migrated!.activityApId!);
 
   // The old actor no longer appears anywhere in the follow graph.
   const oldFollower = await db
