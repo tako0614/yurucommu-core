@@ -304,3 +304,66 @@ test("object endpoint serves stored addressing (cc/audience) + CW sensitive flag
   expect(obj.summary).toEqual("CW: spoilers");
   expect(obj.sensitive).toEqual(true);
 });
+
+test("user outbox excludes ephemeral Story objects (outbox = Notes only)", async () => {
+  const db = await freshDb();
+  const actorApId = await insertLocalActor(db, "alice");
+
+  // A normal public Note — must appear.
+  await insertCreate(db, {
+    actorApId,
+    objectId: `${APP_URL}/ap/objects/note-1`,
+    activityId: `${APP_URL}/ap/activities/note-1`,
+    visibility: "public",
+    content: "PUBLIC_NOTE_BODY",
+    createdAt: "2026-06-20T10:00:00.000Z",
+  });
+
+  // A Story stored with visibility='public' (its reach is followers). Without the
+  // type='Note' gate it would pass the visibility filter and leak into the public
+  // outbox — and linger there after it expires.
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/story-1`,
+    type: "Story",
+    attributedTo: actorApId,
+    content: "STORY_BODY_SECRET",
+    visibility: "public",
+    toJson: JSON.stringify([`${actorApId}/followers`]),
+    published: "2026-06-20T11:00:00.000Z",
+    isLocal: 1,
+  });
+  await db.insert(activities).values({
+    apId: `${APP_URL}/ap/activities/story-1`,
+    type: "Create",
+    actorApId,
+    objectApId: `${APP_URL}/ap/objects/story-1`,
+    direction: "outbound",
+    rawJson: JSON.stringify({
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `${APP_URL}/ap/activities/story-1`,
+      type: "Create",
+      actor: actorApId,
+      object: {
+        id: `${APP_URL}/ap/objects/story-1`,
+        type: "Story",
+        content: "STORY_BODY_SECRET",
+      },
+    }),
+    createdAt: "2026-06-20T11:00:00.000Z",
+  });
+
+  const { status, body } = await fetchOutbox(
+    db,
+    "/ap/users/alice/outbox?page=1",
+  );
+  expect(status).toEqual(200);
+  const ids = ((body.orderedItems ?? []) as Array<Record<string, unknown>>).map(
+    (i) => i.id,
+  );
+  expect(ids).toContain(`${APP_URL}/ap/activities/note-1`);
+  expect(ids).not.toContain(`${APP_URL}/ap/activities/story-1`);
+  expect(JSON.stringify(body)).not.toContain("STORY_BODY_SECRET");
+
+  const total = await fetchOutbox(db, "/ap/users/alice/outbox");
+  expect(total.body.totalItems).toEqual(1);
+});
