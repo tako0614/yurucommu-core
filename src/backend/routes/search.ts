@@ -108,12 +108,22 @@ function publicSearchableWhere(...extra: Parameters<typeof and>) {
   );
 }
 
-/** Build orderBy for post queries. */
+/** Build orderBy for post queries. A unique tiebreaker (`apId`) makes the sort
+ * TOTAL: `published` is a non-unique ISO-timestamp text (imported AP posts often
+ * share a whole second) and `likeCount` ties trivially, so without it SQLite
+ * gives no stable order for equal-key rows — across two independent OFFSET
+ * queries a tied row could shift into the already-consumed window and never be
+ * returned (the notifications keyset cursor uses a composite for the same
+ * reason). `apId` is the objects PK, so the ordering is unambiguous. */
 function postOrderByDrizzle(sort: PostSort) {
   if (sort === "popular") {
-    return [desc(objects.likeCount), desc(objects.published)];
+    return [
+      desc(objects.likeCount),
+      desc(objects.published),
+      desc(objects.apId),
+    ];
   }
-  return [desc(objects.published)];
+  return [desc(objects.published), desc(objects.apId)];
 }
 
 // Canonical hashtag tokenizer. Shared by trending and hashtag search so the two

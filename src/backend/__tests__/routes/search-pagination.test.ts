@@ -6,7 +6,7 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors } from "../../../db/index.ts";
+import { actors, objects } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import searchRoutes from "../../routes/search.ts";
 
@@ -110,4 +110,37 @@ test("actor search pages by limit/offset with exact has_more", async () => {
     (a) => a.preferred_username,
   );
   expect(new Set(seen).size).toBe(5);
+});
+
+test("post search with TIED `published` pages without dropping rows (unique apId tiebreaker)", async () => {
+  const db = await freshDb();
+  await insertActor(db, "author", 0);
+  const author = `${APP_URL}/ap/users/author`;
+  // Five public Notes that all share the SAME published second — without a
+  // unique tiebreaker, OFFSET pagination could reorder a tied row out of an
+  // unreached window and never return it.
+  const ts = "2026-06-21T00:00:00.000Z";
+  for (let i = 0; i < 5; i++) {
+    await db.insert(objects).values({
+      apId: `${APP_URL}/ap/objects/p${i}`,
+      type: "Note",
+      attributedTo: author,
+      content: `aa post ${i}`,
+      visibility: "public",
+      audienceJson: "[]",
+      published: ts,
+    });
+  }
+  const app = appFor(db);
+  const ids = new Set<string>();
+  for (let offset = 0; offset < 6; offset += 2) {
+    const res = await app.request(
+      `${APP_URL}/search/posts?q=${encodeURIComponent("aa")}&limit=2&offset=${offset}`,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { posts: { ap_id: string }[] };
+    for (const p of body.posts) ids.add(p.ap_id);
+  }
+  // All five tied-timestamp posts are reachable across pages (none dropped).
+  expect(ids.size).toBe(5);
 });
