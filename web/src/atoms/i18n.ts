@@ -554,6 +554,9 @@ const translations = {
     "auth.oauthLoginFailed":
       "外部アカウントでのログインに失敗しました。もう一度お試しください。",
     "auth.logoutFailed": "ログアウトに失敗しました",
+    "auth.networkError": "ネットワークエラーが発生しました",
+    "auth.passwordRequired": "パスワードを入力してください",
+    "auth.loginFailed": "ログインに失敗しました",
     "auth.instanceSelectFailed": "インスタンスの選択に失敗しました",
     "auth.instanceRebuildFailed": "インスタンスの再構築に失敗しました",
     "settings.switchAccount": "アカウント切り替え",
@@ -1216,6 +1219,9 @@ const translations = {
     "auth.oauthLoginFailed":
       "External account sign-in failed. Please try again.",
     "auth.logoutFailed": "Failed to log out",
+    "auth.networkError": "Network error",
+    "auth.passwordRequired": "Password required",
+    "auth.loginFailed": "Login failed",
     "auth.instanceSelectFailed": "Failed to select instance",
     "auth.instanceRebuildFailed": "Failed to rebuild instance",
     "settings.switchAccount": "Switch account",

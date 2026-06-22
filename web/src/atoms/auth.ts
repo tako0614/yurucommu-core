@@ -76,7 +76,7 @@ export const checkAuthAtom = atom(null, async (get, set) => {
   }
 });
 
-export const loginAtom = atom(null, async (_get, set, password?: string) => {
+export const loginAtom = atom(null, async (get, set, password?: string) => {
   set(loginErrorAtom, null);
   try {
     const result = await authStrategy.login(password);
@@ -84,8 +84,8 @@ export const loginAtom = atom(null, async (_get, set, password?: string) => {
       window.location.href = result.redirect;
       return false;
     }
-    if (result.error) {
-      set(loginErrorAtom, result.error);
+    if (result.error || result.errorKey) {
+      set(loginErrorAtom, result.error ?? get(tAtom)(result.errorKey!));
       return false;
     }
     if (result.success) {
@@ -95,7 +95,7 @@ export const loginAtom = atom(null, async (_get, set, password?: string) => {
     return false;
   } catch (e) {
     console.error("Login error:", e);
-    set(loginErrorAtom, "Network error");
+    set(loginErrorAtom, get(tAtom)("auth.networkError"));
     return false;
   }
 });

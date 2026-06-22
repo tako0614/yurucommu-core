@@ -1,5 +1,6 @@
 import type { Component } from "solid-js";
 import type { Actor } from "../types/index.ts";
+import type { TranslationKey } from "../atoms/i18n.ts";
 import { fetchWithTimeout } from "./fetch-with-timeout.ts";
 
 export const YURUCOMMU_FRONTEND_PLUGIN_API_VERSION = 1 as const;
@@ -75,7 +76,11 @@ export interface AuthCheckResult {
 export interface LoginResult {
   redirect?: string;
   success?: boolean;
+  // A ready-to-display (possibly server-provided) error message.
   error?: string;
+  // An i18n key for a client-side error, resolved by the caller which holds the
+  // translator. Lets a strategy report errors without depending on i18n.
+  errorKey?: TranslationKey;
 }
 
 export interface AuthStrategy {
@@ -143,7 +148,7 @@ class DefaultSelfHostedStrategy implements AuthStrategy {
 
   async login(password?: string): Promise<LoginResult> {
     if (!password) {
-      return { error: "Password required" };
+      return { errorKey: "auth.passwordRequired" };
     }
     try {
       const res = await fetchWithTimeout("/api/auth/login", {
@@ -154,9 +159,12 @@ class DefaultSelfHostedStrategy implements AuthStrategy {
       });
       const data = (await res.json()) as { success?: boolean; error?: string };
       if (data.success) return { success: true };
-      return { error: data.error || "Login failed" };
+      // A server-provided message passes through; otherwise a localized fallback.
+      return data.error
+        ? { error: data.error }
+        : { errorKey: "auth.loginFailed" };
     } catch {
-      return { error: "Network error" };
+      return { errorKey: "auth.networkError" };
     }
   }
 
