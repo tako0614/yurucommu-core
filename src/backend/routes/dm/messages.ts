@@ -61,7 +61,18 @@ type SenderInfo = {
   icon_url: string | null;
 };
 
-type DmMessageRow = typeof objects.$inferSelect;
+// Only the columns the authorization filter + formatter touch (the fetch query
+// projects exactly these — see fetchAuthorizedMessages; avoids pulling raw_json
+// on the 4s-polled endpoint).
+type DmMessageRow = Pick<
+  typeof objects.$inferSelect,
+  | "apId"
+  | "attributedTo"
+  | "content"
+  | "attachmentsJson"
+  | "published"
+  | "toJson"
+>;
 
 type DmMessageResponse = {
   id: string;
@@ -147,9 +158,19 @@ async function fetchAuthorizedMessages(
     ? and(baseCondition!, lt(objects.published, before))
     : baseCondition;
 
-  // Fetch one extra row to detect whether an older page exists.
+  // Fetch one extra row to detect whether an older page exists. Project only the
+  // 6 columns the formatter/authorization touch — a bare select() pulled every
+  // column incl. the large raw_json blob on a 4s-polled endpoint (mirrors the
+  // POST_FEED_COLUMNS projection already used by the timeline).
   const messages = await db
-    .select()
+    .select({
+      apId: objects.apId,
+      attributedTo: objects.attributedTo,
+      content: objects.content,
+      attachmentsJson: objects.attachmentsJson,
+      published: objects.published,
+      toJson: objects.toJson,
+    })
     .from(objects)
     .where(whereClause!)
     .orderBy(desc(objects.published))

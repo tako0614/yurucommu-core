@@ -492,7 +492,8 @@ async function handleCommunityTimeline(
     db
       .select({ actorApId: communityMembers.actorApId })
       .from(communityMembers)
-      .where(eq(communityMembers.communityApId, gate.community.apId)),
+      .where(eq(communityMembers.communityApId, gate.community.apId))
+      .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES),
     viewerApId
       ? db
           .select({ followingApId: follows.followingApId })
@@ -503,6 +504,7 @@ async function handleCommunityTimeline(
               eq(follows.status, "accepted"),
             ),
           )
+          .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES)
       : Promise.resolve([]),
   ]);
   const memberApIds = [...new Set(memberRows.map((r) => r.actorApId))];
@@ -625,6 +627,11 @@ timeline.get(
       //   A2 co-members (authors who share a community with me) — their public/
       //      unlisted posts only (followers-only stays follow-gated, no leak),
       //   B  posts deliberately narrowed to a community I belong to.
+      // Cap the author fan-in arrays (matching the block/mute filter cap): these
+      // ID lists are spliced into multiple inArray() sites in one home query, so
+      // an uncapped follow/co-member set could approach SQLite's bound-parameter
+      // ceiling and hard-500 the primary feed. Defensive truncation (a JOIN-based
+      // rewrite is the larger lossless fix).
       const [followRows, myCommunityRows] = await Promise.all([
         db
           .select({ followingApId: follows.followingApId })
@@ -634,7 +641,8 @@ timeline.get(
               eq(follows.followerApId, viewerApId),
               eq(follows.status, "accepted"),
             ),
-          ),
+          )
+          .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES),
         db
           .select({ communityApId: communityMembers.communityApId })
           .from(communityMembers)
@@ -653,7 +661,8 @@ timeline.get(
               inArray(communityMembers.communityApId, myCommunityApIds),
               ne(communityMembers.actorApId, viewerApId),
             ),
-          );
+          )
+          .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES);
         coMemberApIds = [...new Set(coMemberRows.map((r) => r.actorApId))];
       }
 
@@ -735,7 +744,8 @@ timeline.get("/following", async (c) => {
           eq(follows.followerApId, viewerApId),
           eq(follows.status, "accepted"),
         ),
-      ),
+      )
+      .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES),
   ]);
 
   const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
