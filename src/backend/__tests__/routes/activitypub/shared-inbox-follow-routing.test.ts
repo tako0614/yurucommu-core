@@ -229,6 +229,43 @@ test("shared-inbox Undo(Follow) targets the followed actor (unfollow not dropped
   expect(bobRow?.followerCount).toBe(0);
 });
 
+test('shared-inbox Undo(Follow) with an ARRAY inner type (["Follow"]) still targets the followed actor', async () => {
+  const db = await freshDb();
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const bob = await seedLocalActor(db, "bob");
+  await db.update(actors).set({ followerCount: 1 }).where(eq(actors.apId, bob));
+  await seedAlice(db, publicKeyPem);
+  const followId = "https://remote.example/activities/follow-bob-arr";
+  await db.insert(follows).values({
+    followerApId: ALICE,
+    followingApId: bob,
+    status: "accepted",
+    activityApId: followId,
+    acceptedAt: new Date().toISOString(),
+  });
+
+  const env = { APP_URL, DB_INSTANCE: db, KV: new MockKV() };
+  // AS2 permits an array `type`. The parser preserves it; the Undo routing must
+  // match "Follow" inside the array (typeIncludes), not drop it.
+  const res = await postSigned(appFor(db), env, privateKeyPem, {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: "https://remote.example/activities/undo-arr",
+    type: "Undo",
+    actor: ALICE,
+    object: { id: followId, type: ["Follow"], actor: ALICE, object: bob },
+  });
+  expect(res.status).toBe(202);
+
+  const edge = await db.query.follows.findFirst({
+    where: and(eq(follows.followerApId, ALICE), eq(follows.followingApId, bob)),
+  });
+  expect(edge).toBeFalsy();
+  const bobRow = await db.query.actors.findFirst({
+    where: eq(actors.apId, bob),
+  });
+  expect(bobRow?.followerCount).toBe(0);
+});
+
 test("shared-inbox Undo(Follow) with a TYPELESS object inner ({id} only) scopes to the followed actor, not a follower of the sender", async () => {
   const db = await freshDb();
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();

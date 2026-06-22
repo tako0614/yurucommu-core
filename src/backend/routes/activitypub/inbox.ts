@@ -13,7 +13,11 @@ import {
 import { getInstanceActor, loadFederatedCommunity } from "./query-helpers.ts";
 import { communityApId } from "../../lib/ap-ids.ts";
 import type { Activity } from "./inbox-types.ts";
-import { getActivityObject, getActivityObjectId } from "./inbox-types.ts";
+import {
+  getActivityObject,
+  getActivityObjectId,
+  typeIncludes,
+} from "./inbox-types.ts";
 import { findFollowByActivityId } from "./handlers/inbox-shared-helpers.ts";
 import {
   ActivityPubContractError,
@@ -912,7 +916,7 @@ async function resolveObjectActorTarget(
   }
   if (activityType === "Undo") {
     const inner = getActivityObject(activity) as {
-      type?: string;
+      type?: string | string[];
       object?: unknown;
     } | null;
     const innerObjectId = inner
@@ -923,7 +927,7 @@ async function resolveObjectActorTarget(
 
     // Undo(Block): the target is the blocked actor named in `inner.object`.
     // Block has no activity-id-keyed edge, so an absent object is a null no-op.
-    if (inner?.type === "Block") {
+    if (typeIncludes(inner?.type, "Block")) {
       return {
         scoped: true,
         target: innerObjectId
@@ -941,7 +945,11 @@ async function resolveObjectActorTarget(
     // (bare-string or typeless object) is treated as a POSSIBLE Undo(Follow); if
     // it resolves no local follow edge it is left to the fan-out, because it may
     // be an Undo(Like|Announce) by id whose actor-keyed handler must still run.
-    if (inner?.type === "Follow" || inner == null || inner.type == null) {
+    if (
+      typeIncludes(inner?.type, "Follow") ||
+      inner == null ||
+      inner.type == null
+    ) {
       if (innerObjectId && isLocal(innerObjectId, baseUrl)) {
         return {
           scoped: true,

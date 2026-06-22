@@ -19,6 +19,7 @@ import {
   type ActivityContext,
   getActivityObject,
   getActivityObjectId,
+  typeIncludes,
 } from "../inbox-types.ts";
 import {
   deleteFollowByCompoundKey,
@@ -278,11 +279,11 @@ export async function handleUndo(
     if (resolved) return;
   }
 
-  if (objectType === "Follow") {
+  if (typeIncludes(objectType, "Follow")) {
     await undoFollow(db, objectId, actor, recipient);
-  } else if (objectType === "Like") {
+  } else if (typeIncludes(objectType, "Like")) {
     await undoLike(db, objectId, activityObject, actor, recipient);
-  } else if (objectType === "Announce") {
+  } else if (typeIncludes(objectType, "Announce")) {
     await undoAnnounce(db, objectId, activityObject, actor);
   }
 }
