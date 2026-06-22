@@ -84,8 +84,19 @@ export function registerMembershipInviteRoutes(
           invited_ap_id?: string;
           expires_in_hours?: number;
         }>();
-        invitedApId = body.invited_ap_id?.trim() || null;
-        expiresInHours = body.expires_in_hours || null;
+        invitedApId =
+          typeof body.invited_ap_id === "string"
+            ? body.invited_ap_id.trim() || null
+            : null;
+        // Only accept a finite POSITIVE number. A non-numeric value (the JSON
+        // type isn't enforced at runtime) would flow into `new Date(now + h*…)`
+        // below as NaN and throw a RangeError on .toISOString() → 500.
+        expiresInHours =
+          typeof body.expires_in_hours === "number" &&
+          Number.isFinite(body.expires_in_hours) &&
+          body.expires_in_hours > 0
+            ? body.expires_in_hours
+            : null;
       } catch {
         invitedApId = null;
         expiresInHours = null;

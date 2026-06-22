@@ -155,7 +155,14 @@ media.post("/upload", async (c) => {
     const actor = c.get("actor");
     if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-    const formData = await c.req.formData();
+    // Parse multipart in its own try so a non-multipart / malformed body is a
+    // 400, not a 500 from the outer catch.
+    let formData: FormData;
+    try {
+      formData = await c.req.formData();
+    } catch {
+      return c.json({ error: "Invalid multipart form data" }, 400);
+    }
     const file = formData.get("file") as File;
     if (!file) return c.json({ error: "No file provided" }, 400);
 

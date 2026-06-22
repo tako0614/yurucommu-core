@@ -3,6 +3,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 import {
   AppError,
+  BadRequestError,
   InternalError,
   isAppError,
   logError,
@@ -31,6 +32,21 @@ function resolveAppError(
   logger: ErrorMiddlewareOptions["logger"],
 ): AppError {
   if (isAppError(err)) return err;
+
+  // Client-input parse failures that reach the top-level handler are 400s, not
+  // 500s, and are not logged as faults (they're expected client behavior):
+  //  - SyntaxError: a malformed/empty JSON request body from `c.req.json()`
+  //    (internal JSON parsing uses safeJsonParse, which never throws).
+  //  - URIError: malformed percent-encoding in a route/query param decoded with
+  //    decodeURIComponent (e.g. a bad `:encodedApId`).
+  // TypeError/RangeError are deliberately NOT mapped here: they usually signal
+  // an internal bug and must be fixed at the call site, not masked as 400.
+  if (err instanceof SyntaxError) {
+    return new BadRequestError("Invalid or malformed JSON request body");
+  }
+  if (err instanceof URIError) {
+    return new BadRequestError("Malformed URL encoding in request");
+  }
 
   logger?.(err, {
     correlationId,

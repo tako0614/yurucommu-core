@@ -10,6 +10,7 @@ const log = logger.child({ component: "errors" });
 
 const ErrorCodes = {
   INTERNAL_ERROR: "INTERNAL_ERROR",
+  BAD_REQUEST: "BAD_REQUEST",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -60,6 +61,12 @@ export class AppError extends Error {
 export class InternalError extends AppError {
   constructor(message = "Internal server error", details?: unknown) {
     super(message, ErrorCodes.INTERNAL_ERROR, 500, details);
+  }
+}
+
+export class BadRequestError extends AppError {
+  constructor(message = "Bad request", details?: unknown) {
+    super(message, ErrorCodes.BAD_REQUEST, 400, details);
   }
 }
 

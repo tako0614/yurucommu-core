@@ -271,7 +271,10 @@ communitiesRouter.post("/", async (c) => {
     summary?: string;
   }>();
 
-  const name = body.name?.trim();
+  // Type-check before trimming: `?.` only guards null/undefined, so a non-string
+  // `name` (e.g. a JSON number) would throw a TypeError → 500. undefined falls
+  // through to validateCommunityName, which rejects it with a 400.
+  const name = typeof body.name === "string" ? body.name.trim() : undefined;
   const nameError = validateCommunityName(name);
   if (nameError) return c.json({ error: nameError }, 400);
   const profileError = validateCommunityProfile(

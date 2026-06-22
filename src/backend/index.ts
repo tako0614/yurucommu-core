@@ -454,12 +454,27 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   app.use("/.takos/tools/*", rateLimit(RateLimitConfigs.general));
   app.use("/api/auth/*", rateLimit(RateLimitConfigs.auth));
   app.use("/api/search/*", rateLimit(RateLimitConfigs.search));
+  // The remote resolver makes an attacker-controlled outbound fetch to an
+  // arbitrary host; throttle it far tighter than the general search budget,
+  // like the other federation-discovery endpoints.
+  app.use(
+    "/api/search/remote",
+    rateLimit(RateLimitConfigs.federationDiscovery),
+  );
   app.use("/api/media/*", rateLimit(RateLimitConfigs.mediaUpload));
   // The bare /media mount serves media and also exposes POST /media/upload;
   // throttle it with the same media budget as /api/media/* for consistency.
   app.use("/media/*", rateLimit(RateLimitConfigs.mediaUpload));
   app.use("/api/dm/*", rateLimit(RateLimitConfigs.dm));
   app.post("/api/posts", rateLimit(RateLimitConfigs.postCreate));
+  // Like/repost are federated WRITES (they sign + deliver activities to remote
+  // inboxes), so bound them at the write budget rather than the general read
+  // budget to limit mass-interaction delivery storms.
+  app.post("/api/posts/:id/like", rateLimit(RateLimitConfigs.postCreate));
+  app.post("/api/posts/:id/repost", rateLimit(RateLimitConfigs.postCreate));
+  // Community creation generates an RSA keypair + actor; bound it at the write
+  // budget rather than the general read budget.
+  app.post("/api/communities", rateLimit(RateLimitConfigs.postCreate));
   app.use("/ap/*/inbox", rateLimit(RateLimitConfigs.inbox));
   // `/ap/inbox` (shared inbox) is not matched by `/ap/*/inbox`; apply the same
   // per-IP inbox throttle since it is unauthenticated and federation peers can
