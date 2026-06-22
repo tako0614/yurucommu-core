@@ -850,6 +850,27 @@ async function resolveLocalFollowerRecipients(
   });
 }
 
+/**
+ * Resolve the LOCAL actor named by `activity.object` (an actor IRI). Used for
+ * object-actor-scoped activities (e.g. `Follow`) delivered to the SHARED inbox:
+ * their recipient is the actor in `object`, not the followers of the sender, so
+ * they must not go through the follower fan-out. Returns null when the object
+ * is missing, remote, or not a known local actor.
+ */
+async function resolveLocalActorFromObject(
+  c: HonoContext,
+  activity: Activity,
+  baseUrl: string,
+): Promise<ActorRow | null> {
+  const objectId = getActivityObjectId(activity);
+  if (!objectId || !isLocal(objectId, baseUrl)) return null;
+  const db = c.get("db");
+  const row = await db.query.actors.findFirst({
+    where: eq(actors.apId, objectId),
+  });
+  return row ?? null;
+}
+
 ap.post("/ap/inbox", async (c) => {
   const baseUrl = c.env.APP_URL;
 
@@ -878,6 +899,39 @@ ap.post("/ap/inbox", async (c) => {
       // signature is satisfied without implying a specific local target.
       await dispatchUserActivity(c, activityType, activity, {
         recipient: { apId: actor } as ActorRow,
+        actor,
+        baseUrl,
+      });
+      await commitActivityDispatch(c, claim.activityId);
+      return c.body(null, 202);
+    }
+
+    // `Follow` is addressed to the actor named in `activity.object` (the
+    // followed actor), NOT to followers of the sender. Routing it through the
+    // follower fan-out below would make handleFollow create a bogus edge against
+    // each local follower of the SENDER (followingApId = the wrong actor), send
+    // an Accept from the wrong actor + drift that actor's followerCount, or — if
+    // the sender has no local followers — silently DROP the follow request.
+    // Resolve the target from `object` and dispatch once to it (mirrors the
+    // per-user inbox). A correctly-addressed Follow normally hits
+    // /ap/users/:username/inbox; this guards peers that point Follows here.
+    if (activityType === "Follow") {
+      const targetActor = await resolveLocalActorFromObject(
+        c,
+        activity,
+        baseUrl,
+      );
+      if (!targetActor) {
+        await commitActivityDispatch(c, claim.activityId);
+        log.info("Shared-inbox Follow names no local target", {
+          event: "ap.shared_inbox.follow_no_target",
+          actor,
+          object: getActivityObjectId(activity),
+        });
+        return c.body(null, 202);
+      }
+      await dispatchUserActivity(c, activityType, activity, {
+        recipient: targetActor,
         actor,
         baseUrl,
       });

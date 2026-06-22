@@ -223,6 +223,38 @@ posts.post("/", async (c) => {
     now,
   });
 
+  // A reply must reach the post it replies to. processMentions only addresses
+  // actors EXPLICITLY @-mentioned in the body, so a reply to a remote post that
+  // doesn't manually @-mention its author was delivered to the replier's own
+  // followers but NEVER to the upstream instance — it never landed in the
+  // original thread (whereas Like/Undo-repost already reach the remote object
+  // author). Auto-address the parent author of a NON-direct reply: add it to cc
+  // and a `Mention` tag (so the reply threads + notifies on the receiving
+  // server) and, when remote, deliver the Create to its inbox. Direct replies
+  // keep mentions-only addressing (no implicit parent disclosure). The local
+  // parent author is already notified by the reply path, so this only augments
+  // addressing/delivery, never a duplicate local notification.
+  const replyRecipients = [...mentionedActorApIds];
+  const replyRemoteRecipients = [...remoteMentionedActorApIds];
+  const replyTags = [...mentionTags];
+  if (
+    body.in_reply_to &&
+    parentAuthor &&
+    parentAuthor !== actor.ap_id &&
+    visibility !== "direct" &&
+    !replyRecipients.includes(parentAuthor)
+  ) {
+    replyRecipients.push(parentAuthor);
+    replyTags.push({
+      type: "Mention",
+      href: parentAuthor,
+      name: `@${formatUsername(parentAuthor)}`,
+    });
+    if (!isLocal(parentAuthor, baseUrl)) {
+      replyRemoteRecipients.push(parentAuthor);
+    }
+  }
+
   // Federate when the post has follower/public/community reach OR when it has
   // resolved mentions (a mention is an explicit recipient, so even a "direct"
   // post must federate the Create to its remote mentioned actors).
@@ -256,10 +288,11 @@ posts.post("/", async (c) => {
       ({ to, cc } = buildAddressing(visibility, followersUrl));
     }
 
-    // Add every mentioned actor IRI to cc (de-duplicated).
-    cc = mergeCc(cc, mentionedActorApIds);
+    // Add every mentioned actor IRI — plus an auto-addressed reply parent — to
+    // cc (de-duplicated).
+    cc = mergeCc(cc, replyRecipients);
 
-    const tag = mentionTags.length > 0 ? mentionTags : undefined;
+    const tag = replyTags.length > 0 ? replyTags : undefined;
 
     const createActivity = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -311,10 +344,11 @@ posts.post("/", async (c) => {
       await persistAndFanout(db, c.env, createActivity, apId);
     }
 
-    // Deliver the Create directly to each remote mentioned actor's inbox.
-    // Community/follower fanout does not include arbitrary remote mentions, so
-    // this is the only path that reaches a remote @user@domain mention.
-    for (const recipient of remoteMentionedActorApIds) {
+    // Deliver the Create directly to each remote mentioned actor's inbox — plus
+    // the remote parent author of a reply (auto-addressed above). Community/
+    // follower fanout does not include arbitrary remote actors, so this is the
+    // only path that reaches a remote @user@domain mention or reply target.
+    for (const recipient of replyRemoteRecipients) {
       try {
         await enqueueDeliveryToActor(c.env, createActivity.id, recipient);
       } catch (err) {
