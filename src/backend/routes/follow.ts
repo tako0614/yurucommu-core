@@ -38,7 +38,10 @@ const log = logger.child({ component: "follow" });
 // union; reach it through a narrow structural cast (matching the other routes).
 type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
-const MAX_BATCH_ACCEPT_SIZE = 100;
+// Capped at 90 (not 100): the accepted ids are re-queried via
+// `inArray(follows.followerApId, requesterApIds)` and Cloudflare D1 allows at
+// most 100 bound parameters per query (libsql, used by the tests, allows ~32k).
+const MAX_BATCH_ACCEPT_SIZE = 90;
 
 const follow = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -486,7 +489,11 @@ follow.get("/requests", async (c) => {
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
   const db = c.get("db");
-  const limit = parseLimit(c.req.query("limit"), 100, 500);
+  // Capped at 90: this page's followerApIds are re-queried via `inArray` below,
+  // and Cloudflare D1 allows at most 100 bound parameters per query. The
+  // unclamped fallback (parseLimit returns it verbatim when no param is given)
+  // must also be <=90, hence 90/90. Offset paginates the rest.
+  const limit = parseLimit(c.req.query("limit"), 90, 90);
   const offset = parseOffset(c.req.query("offset"), 0, 10000);
 
   const followRows = await db

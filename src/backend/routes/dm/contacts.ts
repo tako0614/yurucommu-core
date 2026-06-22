@@ -23,6 +23,7 @@ import {
   objects,
 } from "../../../db/index.ts";
 import { formatUsername } from "../../federation-helpers.ts";
+import { chunkForInClause } from "../../lib/chunk.ts";
 import {
   buildActorInfoMap,
   byTimeDesc,
@@ -135,25 +136,32 @@ contacts.get("/contacts", async (c) => {
 
     await Promise.all(
       Array.from(lastReadAtMap.entries()).map(async ([lastReadAt, convIds]) => {
-        const unreadMessages = await db
-          .select({
-            conversation: objects.conversation,
-            count: count(),
-          })
-          .from(objects)
-          .where(
-            and(
-              inArray(objects.conversation, convIds),
-              eq(objects.visibility, "direct"),
-              ne(objects.attributedTo, actor.ap_id),
-              sql`${objects.published} > ${lastReadAt}`,
-            ),
-          )
-          .groupBy(objects.conversation);
+        // Chunk the IN(...) lookup: the contact list keeps up to 2000
+        // conversations and a single lastReadAt bucket can hold all of them,
+        // while D1 caps a query at 100 bound parameters. Each conversation is in
+        // exactly one bucket and one chunk, so the per-chunk count is complete
+        // and `.set` is collision-free (no summing across chunks).
+        for (const chunk of chunkForInClause(convIds)) {
+          const unreadMessages = await db
+            .select({
+              conversation: objects.conversation,
+              count: count(),
+            })
+            .from(objects)
+            .where(
+              and(
+                inArray(objects.conversation, chunk),
+                eq(objects.visibility, "direct"),
+                ne(objects.attributedTo, actor.ap_id),
+                sql`${objects.published} > ${lastReadAt}`,
+              ),
+            )
+            .groupBy(objects.conversation);
 
-        for (const msg of unreadMessages) {
-          if (msg.conversation) {
-            unreadCounts.set(msg.conversation, msg.count);
+          for (const msg of unreadMessages) {
+            if (msg.conversation) {
+              unreadCounts.set(msg.conversation, msg.count);
+            }
           }
         }
       }),
@@ -229,7 +237,16 @@ contacts.get("/contacts", async (c) => {
       )
       .where(
         and(
-          inArray(objectRecipients.recipientApId, communityApIds),
+          // Subquery, not `inArray(communityApIds)`: a user in >~100 communities
+          // would exceed D1's 100-bound-parameter limit. Same set as
+          // communityApIds (the viewer's joined communities).
+          inArray(
+            objectRecipients.recipientApId,
+            db
+              .select({ id: communityMembers.communityApId })
+              .from(communityMembers)
+              .where(eq(communityMembers.actorApId, actor.ap_id)),
+          ),
           eq(objectRecipients.type, "audience"),
           eq(objects.type, "Note"),
           isNull(objects.communityApId),

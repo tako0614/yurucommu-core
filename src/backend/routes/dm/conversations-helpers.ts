@@ -11,6 +11,7 @@ import {
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { safeJsonParse } from "../../federation-helpers.ts";
+import { chunkForInClause } from "../../lib/chunk.ts";
 
 /**
  * Build a safe LIKE condition that matches the JSON-quoted token for an AP-ID
@@ -211,19 +212,26 @@ export async function findRepliedConversations(
 ): Promise<Set<string | null>> {
   if (conversationIds.length === 0) return new Set();
 
-  const replies = await db
-    .selectDistinct({
-      conversation: objects.conversation,
-    })
-    .from(objects)
-    .where(
-      and(
-        inArray(objects.conversation, conversationIds),
-        eq(objects.attributedTo, actorApId),
-      ),
-    );
-
-  return new Set(replies.map((r) => r.conversation));
+  // Chunk the IN(...) lookup: the caller passes every conversation in the
+  // contact list (up to 2000) and D1 caps a query at 100 bound parameters.
+  // Chunks are disjoint id slices, so unioning the replied-conversation sets is
+  // collision-free.
+  const result = new Set<string | null>();
+  for (const ids of chunkForInClause(conversationIds)) {
+    const replies = await db
+      .selectDistinct({
+        conversation: objects.conversation,
+      })
+      .from(objects)
+      .where(
+        and(
+          inArray(objects.conversation, ids),
+          eq(objects.attributedTo, actorApId),
+        ),
+      );
+    for (const r of replies) result.add(r.conversation);
+  }
+  return result;
 }
 
 /** Collect unique values from a map's entries via accessor function. */

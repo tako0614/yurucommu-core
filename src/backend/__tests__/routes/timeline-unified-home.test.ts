@@ -30,9 +30,11 @@ import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
+  blocks,
   communities,
   communityMembers,
   follows,
+  mutes,
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -567,4 +569,55 @@ test("unified home + /following are lossless past 1000 follows (subquery, not ca
   const body = (await res.json()) as TimelineBody;
   const followingIds = body.posts?.map((p) => p.ap_id) ?? [];
   expect(followingIds).toContain(`${APP_URL}/ap/objects/far-follow`);
+});
+
+// ---------------------------------------------------------------------------
+// Block / mute exclusion (regression for the subquery-based feed exclusion).
+//
+// The exclusion is expressed as `attributed_to NOT IN (SELECT blocked) AND
+// NOT IN (SELECT muted)` (lib/feed-exclude.ts) — db.select subqueries, not a
+// materialised `notInArray([...ids])`, so it never exceeds D1's 100-bound-
+// parameter ceiling regardless of how many accounts the viewer has blocked or
+// muted. This asserts the behavior is preserved: a followed author the viewer
+// has blocked or muted is removed from the home feed.
+// ---------------------------------------------------------------------------
+
+test("unified home: excludes posts by blocked and muted authors", async () => {
+  const db = await freshDb();
+  const me = await insertLocalActor(db, "me");
+  const normal = await insertLocalActor(db, "fnormal");
+  const blocked = await insertLocalActor(db, "fblocked");
+  const muted = await insertLocalActor(db, "fmuted");
+
+  // I follow all three; then block one and mute another.
+  await acceptFollow(db, me, normal);
+  await acceptFollow(db, me, blocked);
+  await acceptFollow(db, me, muted);
+  await db.insert(blocks).values({ blockerApId: me, blockedApId: blocked });
+  await db.insert(mutes).values({ muterApId: me, mutedApId: muted });
+
+  await insertPersonalPost(db, {
+    apId: `${APP_URL}/ap/objects/normal`,
+    author: normal,
+    content: "visible",
+    published: "2026-01-03T00:00:00.000Z",
+  });
+  await insertPersonalPost(db, {
+    apId: `${APP_URL}/ap/objects/blocked`,
+    author: blocked,
+    content: "from a blocked author",
+    published: "2026-01-02T00:00:00.000Z",
+  });
+  await insertPersonalPost(db, {
+    apId: `${APP_URL}/ap/objects/muted`,
+    author: muted,
+    content: "from a muted author",
+    published: "2026-01-01T00:00:00.000Z",
+  });
+
+  const ids = await getHome(db, fakeActor(me, "me"));
+
+  expect(ids).toContain(`${APP_URL}/ap/objects/normal`);
+  expect(ids).not.toContain(`${APP_URL}/ap/objects/blocked`);
+  expect(ids).not.toContain(`${APP_URL}/ap/objects/muted`);
 });

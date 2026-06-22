@@ -9,6 +9,7 @@ import {
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { communityApId } from "../../federation-helpers.ts";
+import { chunkForInClause } from "../../lib/chunk.ts";
 
 export const managerRoles = new Set(["owner", "moderator"]);
 
@@ -188,31 +189,37 @@ export async function batchLoadActorInfo(
     iconUrl: actorCache.iconUrl,
   } as const;
 
-  const [localActors, cachedActors] = await Promise.all([
-    db.select(selectLocalBase).from(actors).where(inArray(actors.apId, apIds)),
-    db
-      .select(selectCachedBase)
-      .from(actorCache)
-      .where(inArray(actorCache.apId, apIds)),
-  ]);
-
-  // Cached first so local overrides
+  // Chunk the IN(...) lookups: a community roster page can carry up to ~90
+  // member ids and D1 caps a query at 100 bound parameters. Chunks are disjoint
+  // id slices, so per-chunk maps merge collision-free; cached-then-local
+  // ordering still gives local-wins within each chunk.
   const map = new Map<string, ActorInfo>();
-  for (const a of cachedActors) {
-    const info: ActorInfo = {
-      preferredUsername: a.preferredUsername,
-      name: a.name,
-    };
-    if (includeIcon) info.iconUrl = a.iconUrl;
-    map.set(a.apId, info);
-  }
-  for (const a of localActors) {
-    const info: ActorInfo = {
-      preferredUsername: a.preferredUsername,
-      name: a.name,
-    };
-    if (includeIcon) info.iconUrl = a.iconUrl;
-    map.set(a.apId, info);
+  for (const ids of chunkForInClause(apIds)) {
+    const [localActors, cachedActors] = await Promise.all([
+      db.select(selectLocalBase).from(actors).where(inArray(actors.apId, ids)),
+      db
+        .select(selectCachedBase)
+        .from(actorCache)
+        .where(inArray(actorCache.apId, ids)),
+    ]);
+
+    // Cached first so local overrides
+    for (const a of cachedActors) {
+      const info: ActorInfo = {
+        preferredUsername: a.preferredUsername,
+        name: a.name,
+      };
+      if (includeIcon) info.iconUrl = a.iconUrl;
+      map.set(a.apId, info);
+    }
+    for (const a of localActors) {
+      const info: ActorInfo = {
+        preferredUsername: a.preferredUsername,
+        name: a.name,
+      };
+      if (includeIcon) info.iconUrl = a.iconUrl;
+      map.set(a.apId, info);
+    }
   }
   return map;
 }

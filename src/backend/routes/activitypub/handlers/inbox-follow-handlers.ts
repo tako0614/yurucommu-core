@@ -464,25 +464,31 @@ async function undoLike(
   // Deriving each affected object's likeCount from COUNT(*) of the remaining like
   // rows makes the fallback idempotent so a crash-then-retry CONVERGES instead of
   // drifting.
-  const recipientObjects = await db
+  // The recipient (local user) can have authored thousands of objects; splicing
+  // every id into an `IN (...)` would blow D1's 100-bound-parameter ceiling.
+  // Express the affected set as a SUBQUERY (delete) and a direct predicate
+  // (update) so no per-object parameter is bound. An empty set is a harmless
+  // no-op batch, so the previous early-return is unnecessary.
+  const recipientObjectsSubquery = db
     .select({ apId: objects.apId })
     .from(objects)
     .where(eq(objects.attributedTo, recipient.apId));
-  if (recipientObjects.length === 0) return;
 
-  const objectIds = recipientObjects.map((o) => o.apId);
   await runBatch(db, [
     db
       .delete(likes)
       .where(
-        and(eq(likes.actorApId, actor), inArray(likes.objectApId, objectIds)),
+        and(
+          eq(likes.actorApId, actor),
+          inArray(likes.objectApId, recipientObjectsSubquery),
+        ),
       ),
     db
       .update(objects)
       .set({
         likeCount: sql`(SELECT COUNT(*) FROM ${likes} WHERE ${likes.objectApId} = ${objects.apId})`,
       })
-      .where(inArray(objects.apId, objectIds)),
+      .where(eq(objects.attributedTo, recipient.apId)),
   ]);
 }
 

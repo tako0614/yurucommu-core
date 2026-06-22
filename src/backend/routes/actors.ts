@@ -696,7 +696,16 @@ actorsRoute.post("/me/delete", async (c) => {
         .set({ memberCount: sql`${communities.memberCount} - 1` })
         .where(
           and(
-            inArray(communities.apId, communityApIds),
+            // Subquery, not `inArray(communityApIds)`: a user in >~100
+            // communities would otherwise exceed D1's 100-bound-parameter limit.
+            // Resolved before the membership rows are deleted just below.
+            inArray(
+              communities.apId,
+              db
+                .select({ id: communityMembers.communityApId })
+                .from(communityMembers)
+                .where(eq(communityMembers.actorApId, actorApIdVal)),
+            ),
             gt(communities.memberCount, 0),
           ),
         );

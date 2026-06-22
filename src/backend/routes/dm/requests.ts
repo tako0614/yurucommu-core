@@ -112,23 +112,25 @@ requests.post("/requests/reject", async (c) => {
     body.sender_ap_id,
   );
 
-  const messagesToDelete = await db
-    .select({ apId: objects.apId })
-    .from(objects)
-    .where(
-      and(
-        eq(objects.conversation, conversationId),
-        eq(objects.attributedTo, body.sender_ap_id),
-      ),
-    );
-
-  const messageApIds = messagesToDelete.map((m) => m.apId);
-
-  if (messageApIds.length > 0) {
-    await db
-      .delete(objectRecipients)
-      .where(inArray(objectRecipients.objectApId, messageApIds));
-  }
+  // Delete the recipient rows for every message the sender wrote in this
+  // conversation. Expressed as a SUBQUERY (`objectApId IN (SELECT ...)`) rather
+  // than materialising every message id into an `IN (...)`, which would blow
+  // D1's 100-bound-parameter ceiling once a sender has written >~100 messages
+  // (e.g. a spammer's request rejected after a long thread).
+  await db.delete(objectRecipients).where(
+    inArray(
+      objectRecipients.objectApId,
+      db
+        .select({ apId: objects.apId })
+        .from(objects)
+        .where(
+          and(
+            eq(objects.conversation, conversationId),
+            eq(objects.attributedTo, body.sender_ap_id),
+          ),
+        ),
+    ),
+  );
 
   await db
     .delete(objects)

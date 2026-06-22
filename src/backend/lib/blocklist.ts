@@ -20,9 +20,15 @@ import { logger } from "./logger.ts";
 
 const log = logger.child({ component: "blocklist" });
 
-// Max ids per IN(...) lookup, kept well under SQLite's bound-parameter ceiling
-// so a large recipient set is queried in chunks rather than throwing.
-const BLOCKLIST_IN_CHUNK = 500;
+// Max ids per IN(...) lookup. Cloudflare D1 caps a query at 100 bound
+// parameters (libsql/better-sqlite3 — what the tests run on — allow ~32k, which
+// is why an over-large chunk passes CI but throws "too many SQL variables" on
+// production D1). Each chunk element binds one parameter, so keep this <=90 to
+// leave headroom: a large recipient set is queried in chunks rather than
+// throwing — and a throw here is swallowed by the fail-open catch below,
+// silently disabling the operator blocklist for the whole fan-out (a
+// defederation bypass we must not allow).
+const BLOCKLIST_IN_CHUNK = 90;
 
 /**
  * Normalise an actor AP-ID hostname for blocklist lookups: lowercase and

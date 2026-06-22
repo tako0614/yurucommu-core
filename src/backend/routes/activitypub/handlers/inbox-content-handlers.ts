@@ -852,7 +852,16 @@ export async function handleMove(
           .where(
             and(
               eq(follows.followerApId, newActorApId),
-              inArray(follows.followingApId, followerTargets),
+              // Subquery, not `inArray(followerTargets)`: the old actor's follow
+              // graph can exceed D1's 100-bound-parameter ceiling. Same set as
+              // followerTargets (the old actor's followees).
+              inArray(
+                follows.followingApId,
+                db
+                  .select({ id: follows.followingApId })
+                  .from(follows)
+                  .where(eq(follows.followerApId, oldActorApId)),
+              ),
             ),
           )
       : [];
@@ -863,7 +872,16 @@ export async function handleMove(
           .from(follows)
           .where(
             and(
-              inArray(follows.followerApId, followingSources),
+              // Subquery, not `inArray(followingSources)`: the old actor's
+              // follower graph can exceed D1's 100-bound-parameter ceiling. Same
+              // set as followingSources (the old actor's followers).
+              inArray(
+                follows.followerApId,
+                db
+                  .select({ id: follows.followerApId })
+                  .from(follows)
+                  .where(eq(follows.followingApId, oldActorApId)),
+              ),
               eq(follows.followingApId, newActorApId),
             ),
           )

@@ -1,16 +1,7 @@
 // Story routes for Yurucommu backend
 // v2: 1 Story = 1 Media (Instagram style)
 import { Hono } from "hono";
-import {
-  and,
-  desc,
-  eq,
-  gt,
-  inArray,
-  isNull,
-  notInArray,
-  sql,
-} from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
   activities,
@@ -32,6 +23,7 @@ import {
   objectApId,
 } from "../../federation-helpers.ts";
 import { storyToActivityPub } from "../../lib/activitypub-helpers.ts";
+import { excludeBlockedMutedAuthors } from "../../lib/feed-exclude.ts";
 import { maybeReapDrainedTombstones } from "../actors.ts";
 import { checkCommunityPostPermission } from "../posts/post-helpers.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
@@ -155,9 +147,15 @@ const MAX_STORY_CAPTION_LENGTH = 500;
 // inbound Create(Story) has no per-author cap, so a hostile followed host could
 // accumulate tens of thousands of live (24h) Story rows and make this
 // authenticated read path (hit on every app open) load an unbounded set into
-// Worker memory. Bound it like every other feed query. 500 covers realistic
-// many-author usage while capping the blast radius.
-const MAX_STORY_FEED_ITEMS = 500;
+// Worker memory. Bound it like every other feed query.
+//
+// Capped at 90 (not 500): the returned story ids are re-queried via
+// `inArray(storyApIds)` for view/like/author enrichment, and Cloudflare D1
+// allows at most 100 bound parameters per query — a 500-item feed would throw
+// "too many SQL variables" on production D1 (libsql, which the tests run on,
+// allows ~32k and hides this). 90 active stories is ample for a single-user
+// feed page; a busy instance simply shows the 90 most recent.
+const MAX_STORY_FEED_ITEMS = 90;
 
 /** Build a StoryAuthor from available data sources. */
 function buildAuthor(
@@ -345,9 +343,14 @@ stories.get("/", async (c) => {
   // (the Worker has no scheduled handler; see maybeReapDrainedTombstones).
   maybeReapDrainedTombstones(db);
 
-  // Get followed user IDs
-  const followRows = await db
-    .select({ followingApId: follows.followingApId })
+  // Personal scope shows self + accepted-follows. Express the follow set as a
+  // subquery (`attributed_to IN (SELECT ...)`) so the feed stays lossless for
+  // any follow count without splicing every followed id into the query as a
+  // bound parameter — Cloudflare D1 caps a query at 100, so the old
+  // `inArray(followedIds)` 500'd the story feed for anyone following >~100
+  // accounts (libsql, which the tests run on, allows ~32k and hid this).
+  const followingSubquery = db
+    .select({ id: follows.followingApId })
     .from(follows)
     .where(
       and(
@@ -355,14 +358,6 @@ stories.get("/", async (c) => {
         eq(follows.status, "accepted"),
       ),
     );
-  const followedIds = followRows.map((f) => f.followingApId);
-  followedIds.push(actor.ap_id); // Include self
-
-  const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(
-    db,
-    actor.ap_id,
-  );
-  const excludeIds = [...blockedIds, ...mutedIds];
 
   // Scope filter:
   //  - community scope: stories whose communityApId = the target community.
@@ -381,14 +376,15 @@ stories.get("/", async (c) => {
           eq(objects.type, "Story"),
           gt(objects.endTime, now),
           isNull(objects.communityApId),
-          inArray(objects.attributedTo, followedIds),
+          or(
+            eq(objects.attributedTo, actor.ap_id),
+            inArray(objects.attributedTo, followingSubquery),
+          ),
         );
 
-  if (excludeIds.length > 0) {
-    storiesWhere = and(
-      storiesWhere,
-      notInArray(objects.attributedTo, excludeIds),
-    );
+  const excludeAuthors = excludeBlockedMutedAuthors(db, actor.ap_id);
+  if (excludeAuthors) {
+    storiesWhere = and(storiesWhere, excludeAuthors);
   }
 
   const storiesData = await db

@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import type { Env, Variables } from "../../types.ts";
 import { and, eq, inArray } from "drizzle-orm";
 import { activities, actorCache, actors, follows } from "../../../db/index.ts";
+import { chunkForInClause } from "../../lib/chunk.ts";
 import {
   activityApId,
   actorApId,
@@ -850,9 +851,15 @@ async function resolveLocalFollowerRecipients(
     .filter((apId) => isLocal(apId, baseUrl));
   if (localFollowerApIds.length === 0) return [];
 
-  return await db.query.actors.findMany({
-    where: inArray(actors.apId, localFollowerApIds),
-  });
+  // Chunk the IN(...) lookup: the fan-out is capped at MAX_SHARED_INBOX_FANOUT
+  // (1000) and D1 allows at most 100 bound parameters per query. The id slices
+  // are disjoint, so flattening the per-chunk actor rows is collision-free.
+  const chunks = await Promise.all(
+    chunkForInClause(localFollowerApIds).map((ids) =>
+      db.query.actors.findMany({ where: inArray(actors.apId, ids) }),
+    ),
+  );
+  return chunks.flat();
 }
 
 /**

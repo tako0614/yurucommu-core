@@ -4,7 +4,10 @@ import { objects } from "../../../db/index.ts";
 import { recipientObjectIds } from "./conversations-helpers.ts";
 
 export const MAX_DM_CONTENT_LENGTH = 5000;
-export const MAX_DM_PAGE_LIMIT = 100;
+// Capped at 90 (not 100): a page of DM ids is re-queried via `inArray` for
+// author/recipient enrichment, and Cloudflare D1 allows at most 100 bound
+// parameters per query. (Tests run on libsql's ~32k ceiling, which hides this.)
+export const MAX_DM_PAGE_LIMIT = 90;
 
 /**
  * Derive the deterministic conversation ID for a DM between two actors.

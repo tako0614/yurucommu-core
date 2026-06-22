@@ -1,30 +1,18 @@
 // Timeline routes for Yurucommu backend
 import { Hono } from "hono";
 import type { Context } from "hono";
-import {
-  and,
-  desc,
-  eq,
-  inArray,
-  isNull,
-  lt,
-  ne,
-  notInArray,
-  or,
-} from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { Database } from "../../db/index.ts";
 import {
   actorCache,
   actors,
   announces,
-  blocks,
   bookmarks,
   communities,
   communityMembers,
   follows,
   likes,
-  mutes,
   objects,
 } from "../../db/index.ts";
 import type { Env, Variables } from "../types.ts";
@@ -35,9 +23,9 @@ import {
   safeJsonParse,
 } from "../federation-helpers.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
+import { excludeBlockedMutedAuthors } from "../lib/feed-exclude.ts";
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
-const MAX_BLOCK_MUTE_FILTER_ENTRIES = 1000;
 
 // Explicit column projection for timeline feeds. Selecting `*` pulls the large
 // `raw_json` blob (plus other unused columns like to_json/cc_json/audience_json/
@@ -184,42 +172,6 @@ async function batchGetInteractionStatus(
     bookmarkedSet: new Set(bookmarkRows.map((b) => b.objectApId)),
     repostedSet: new Set(announceRows.map((a) => a.objectApId)),
   };
-}
-
-// Helper to get blocked and muted users
-async function getBlockedAndMutedUsers(
-  db: Database,
-  viewerApId: string,
-): Promise<{ blockedApIds: string[]; mutedApIds: string[] }> {
-  if (!viewerApId) {
-    return { blockedApIds: [], mutedApIds: [] };
-  }
-
-  const [blockRows, muteRows] = await Promise.all([
-    db
-      .select({ blockedApId: blocks.blockedApId })
-      .from(blocks)
-      .where(eq(blocks.blockerApId, viewerApId))
-      .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES),
-    db
-      .select({ mutedApId: mutes.mutedApId })
-      .from(mutes)
-      .where(eq(mutes.muterApId, viewerApId))
-      .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES),
-  ]);
-
-  return {
-    blockedApIds: blockRows.map((b) => b.blockedApId),
-    mutedApIds: muteRows.map((m) => m.mutedApId),
-  };
-}
-
-// Merge blocked + muted AP IDs into a single deduplicated exclusion list
-function buildExcludedApIds(
-  blockedApIds: string[],
-  mutedApIds: string[],
-): string[] {
-  return Array.from(new Set([...blockedApIds, ...mutedApIds]));
 }
 
 // Paginate a fetched-with-extra-1 result set and determine has_more
@@ -497,11 +449,7 @@ async function handleCommunityTimeline(
     return c.json({ error: "Not a community member" }, 403);
   }
 
-  const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(
-    db,
-    viewerApId,
-  );
-  const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
+  const excludeAuthors = excludeBlockedMutedAuthors(db, viewerApId);
 
   // This is the home "narrow to a community" filter: it shows the slice of the
   // viewer's reach that belongs to this community — (1) posts deliberately
@@ -524,8 +472,8 @@ async function handleCommunityTimeline(
     // gate it at the base.
     ne(objects.visibility, "direct"),
   ];
-  if (excludedApIds.length > 0) {
-    conditions.push(notInArray(objects.attributedTo, excludedApIds));
+  if (excludeAuthors) {
+    conditions.push(excludeAuthors);
   }
   if (before) conditions.push(feedCursorPredicate(decodeFeedCursor(before)));
 
@@ -591,11 +539,7 @@ timeline.get(
     const before = c.req.query("before");
     const viewerApId = actor?.ap_id || "";
 
-    const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(
-      db,
-      viewerApId,
-    );
-    const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
+    const excludeAuthors = excludeBlockedMutedAuthors(db, viewerApId);
 
     const base = [
       eq(objects.type, "Note"),
@@ -607,8 +551,8 @@ timeline.get(
       // only in /dm, never in any timeline feed; exclude them at the base.
       ne(objects.visibility, "direct"),
     ];
-    if (excludedApIds.length > 0) {
-      base.push(notInArray(objects.attributedTo, excludedApIds));
+    if (excludeAuthors) {
+      base.push(excludeAuthors);
     }
     if (before) base.push(feedCursorPredicate(decodeFeedCursor(before)));
 
@@ -640,6 +584,14 @@ timeline.get(
         .from(communityMembers)
         .where(eq(communityMembers.actorApId, viewerApId));
       const myCommunityApIds = myCommunityRows.map((r) => r.communityApId);
+      // The membership set re-expressed as a subquery for the feed predicate, so
+      // a viewer in many communities never splices community ids into the query
+      // as bound parameters (D1 caps a query at 100). The materialised list above
+      // is used only for the cheap `length` guard, never bound.
+      const myCommunitySubquery = db
+        .select({ id: communityMembers.communityApId })
+        .from(communityMembers)
+        .where(eq(communityMembers.actorApId, viewerApId));
 
       const branches = [
         and(
@@ -665,7 +617,7 @@ timeline.get(
           .from(communityMembers)
           .where(
             and(
-              inArray(communityMembers.communityApId, myCommunityApIds),
+              inArray(communityMembers.communityApId, myCommunitySubquery),
               ne(communityMembers.actorApId, viewerApId),
             ),
           );
@@ -682,7 +634,7 @@ timeline.get(
         // doesn't follow the author would see their followers-only post).
         branches.push(
           and(
-            inArray(objects.communityApId, myCommunityApIds),
+            inArray(objects.communityApId, myCommunitySubquery),
             communityPostVisibilityGate(db, viewerApId),
           ),
         );
@@ -724,12 +676,7 @@ timeline.get("/following", async (c) => {
   const before = c.req.query("before");
   const viewerApId = actor.ap_id;
 
-  const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(
-    db,
-    viewerApId,
-  );
-
-  const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
+  const excludeAuthors = excludeBlockedMutedAuthors(db, viewerApId);
 
   // Own posts: all visibilities except direct
   // Followed users' posts: public, unlisted, or followers visibility
@@ -754,8 +701,8 @@ timeline.get("/following", async (c) => {
       ),
     ),
   ];
-  if (excludedApIds.length > 0) {
-    conditions.push(notInArray(objects.attributedTo, excludedApIds));
+  if (excludeAuthors) {
+    conditions.push(excludeAuthors);
   }
   if (before) conditions.push(feedCursorPredicate(decodeFeedCursor(before)));
 

@@ -2,7 +2,12 @@ import { formatUsername, safeJsonParse } from "../../federation-helpers.ts";
 
 export const MAX_POST_CONTENT_LENGTH = 5000;
 export const MAX_POST_SUMMARY_LENGTH = 500;
-export const MAX_POSTS_PAGE_LIMIT = 100;
+// Capped at 90 (not 100): a page's object ids are re-queried via
+// `inArray(col, objectApIds)` for like/bookmark enrichment, and Cloudflare D1
+// allows at most 100 bound parameters per query. 90 leaves headroom for the
+// other bound params in those enrichment statements. (Tests run on libsql,
+// whose ~32k ceiling hides this — see lib/blocklist.ts for the same constraint.)
+export const MAX_POSTS_PAGE_LIMIT = 90;
 
 export type PostRow = {
   ap_id: string;

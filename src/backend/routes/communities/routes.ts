@@ -141,7 +141,11 @@ function validateCommunityProfile(
 communitiesRouter.get("/", async (c) => {
   const actor = c.get("actor");
   const db = c.get("db");
-  const limit = parseLimit(c.req.query("limit"), 100, 500);
+  // Capped at 90: this page's communityApIds are re-queried via `inArray` for
+  // membership/pending-join enrichment, and Cloudflare D1 allows at most 100
+  // bound parameters per query (the unclamped fallback must be <=90 too). Offset
+  // paginates the rest.
+  const limit = parseLimit(c.req.query("limit"), 90, 90);
   const offset = parseOffset(c.req.query("offset"), 0, 10000);
 
   const actorApIdVal = actor?.ap_id || "";

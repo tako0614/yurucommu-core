@@ -34,9 +34,12 @@ type ActorCacheRow = {
   lastFetchedAt: string;
 };
 
-// Max ids per IN(...) lookup, kept well under SQLite's bound-parameter ceiling
-// so a large recipient set is loaded in chunks rather than throwing.
-const PLANNER_IN_CHUNK = 500;
+// Max ids per IN(...) lookup. Cloudflare D1 caps a query at 100 bound
+// parameters (libsql/better-sqlite3 — what the tests run on — allow ~32k, so an
+// over-large chunk passes CI but throws "too many SQL variables" on production
+// D1). Each chunk element binds one parameter, so keep this <=90: a large
+// recipient set is loaded in chunks rather than throwing.
+const PLANNER_IN_CHUNK = 90;
 
 function isActorCacheFresh(row: ActorCacheRow, nowMs: number): boolean {
   const lastFetched = safeParseIsoTimeMs(row.lastFetchedAt);

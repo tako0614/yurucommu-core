@@ -225,7 +225,10 @@ notifications.get("/", async (c) => {
   const db = c.get("db");
   await maybeCleanupArchivedNotifications(db, actor.ap_id);
 
-  const limit = parseLimit(c.req.query("limit"), 20, 100);
+  // Max 90 (not 100): this page's activityApIds are re-queried via
+  // `inArray(inboxTable.activityApId, ...)` for the archived-state join, and
+  // Cloudflare D1 allows at most 100 bound parameters per query.
+  const limit = parseLimit(c.req.query("limit"), 20, 90);
   const offset = parseOffset(c.req.query("offset"), 0, 10000);
   const before = c.req.query("before");
   const typeFilter = c.req.query("type");

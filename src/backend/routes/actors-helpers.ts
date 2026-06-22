@@ -11,6 +11,7 @@ import {
   likes,
   mutes,
 } from "../../db/index.ts";
+import { chunkForInClause } from "../lib/chunk.ts";
 import type { Actor, Env, Variables } from "../types.ts";
 import {
   actorApId,
@@ -30,7 +31,11 @@ export type AppContext = Context<
 // Constants
 // ---------------------------------------------------------------------------
 
-export const MAX_ACTOR_POSTS_LIMIT = 100;
+// Capped at 90 (not 100): a profile page's post ids are re-queried via
+// `inArray(col, postApIds)` for like/bookmark/announce enrichment, and
+// Cloudflare D1 allows at most 100 bound parameters per query. (libsql, which
+// the tests run on, allows ~32k and hides this.)
+export const MAX_ACTOR_POSTS_LIMIT = 90;
 export const MAX_PROFILE_NAME_LENGTH = 50;
 export const MAX_PROFILE_SUMMARY_LENGTH = 500;
 export const MAX_PROFILE_URL_LENGTH = 2000;
@@ -113,17 +118,22 @@ export async function loadActorInfoMap(
   const localSelect = mode === "full" ? selectFull : selectAuthor;
   const cacheSelect = mode === "full" ? selectCacheFull : selectCacheAuthor;
 
-  const [local, cached] = await Promise.all([
-    db.select(localSelect).from(actors).where(inArray(actors.apId, apIds)),
-    db
-      .select(cacheSelect)
-      .from(actorCache)
-      .where(inArray(actorCache.apId, apIds)),
-  ]);
-
+  // Chunk the IN(...) lookups: callers may pass a whole page of author ids
+  // (up to ~90) and D1 caps a query at 100 bound parameters. Chunks are
+  // disjoint id slices, so merging their maps is collision-free; cached-then-
+  // local ordering still gives local-wins within each chunk.
   const map = new Map<string, ActorInfo>();
-  for (const a of cached) map.set(a.apId, a);
-  for (const a of local) map.set(a.apId, a); // local wins
+  for (const ids of chunkForInClause(apIds)) {
+    const [local, cached] = await Promise.all([
+      db.select(localSelect).from(actors).where(inArray(actors.apId, ids)),
+      db
+        .select(cacheSelect)
+        .from(actorCache)
+        .where(inArray(actorCache.apId, ids)),
+    ]);
+    for (const a of cached) map.set(a.apId, a);
+    for (const a of local) map.set(a.apId, a); // local wins
+  }
   return map;
 }
 
@@ -181,7 +191,15 @@ export async function resolveActorApId(
     .where(
       and(
         eq(actorCache.preferredUsername, username),
-        sql`${actorCache.apId} LIKE ${"%" + domain + "%"}`,
+        // Match the domain as a LITERAL substring of the AP-ID via instr() — NOT
+        // `LIKE '%' || domain || '%'`. The domain comes from a federated handle
+        // (`@user@domain`) and is caller-influenceable: an unescaped LIKE would
+        // (a) treat a `%`/`_` in `domain` as a wildcard — `@alice@%` would match
+        // ANY cached `alice` regardless of domain (wrong-actor resolution), and
+        // (b) trip D1's LIKE pattern-complexity limit (SQLITE_ERROR 7500) for a
+        // long domain. instr() is literal (no wildcards, no escaping) and has no
+        // length limit, so `@alice@%` correctly resolves to null.
+        sql`instr(${actorCache.apId}, ${domain}) > 0`,
       ),
     )
     .get();
