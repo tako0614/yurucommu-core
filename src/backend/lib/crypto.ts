@@ -166,6 +166,16 @@ async function requireEncryptionKey(
 /**
  * Encrypt a string value using AES-GCM.
  * Returns format: iv:ciphertext (both hex encoded)
+ *
+ * AAD NOTE (deferred, by design): this AES-GCM call binds no associated data, so
+ * a ciphertext is not cryptographically tied to the record it lives in. That
+ * would only matter for an attacker with DB WRITE access who relocates a
+ * ciphertext between rows — and today the only thing encrypted is the OAuth
+ * providerAccessToken/RefreshToken, which is WRITE-ONLY: `decrypt` has no callers
+ * and the stored token is merely presence-checked (`!!providerAccessToken`).
+ * AAD has no value until a decrypt-and-USE path exists; bind it THEN (to the
+ * member/session context that consumes the token) so the binding matches the
+ * use, rather than guessing the context now.
  */
 export async function encrypt(
   plaintext: string,

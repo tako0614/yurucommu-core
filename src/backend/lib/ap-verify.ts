@@ -31,6 +31,19 @@ const log = logger.child({ component: "activitypub.inbox" });
 
 // Maximum allowed clock skew for HTTP signature validation (5 minutes)
 const MAX_SIGNATURE_AGE_MS = 5 * 60 * 1000;
+// Only a small clock-AHEAD skew is tolerated. A far-future Date would otherwise
+// (with a symmetric ±5min window) let a captured request stay "fresh" for up to
+// 5 minutes into the future, widening the replay window.
+const MAX_FUTURE_SKEW_MS = 30 * 1000;
+
+/**
+ * A signed request's Date must be recent: within the past window (peer clock
+ * skew + transit) and at most MAX_FUTURE_SKEW_MS into the future.
+ */
+function withinSignatureWindow(requestDate: Date): boolean {
+  const ageMs = Date.now() - requestDate.getTime();
+  return ageMs <= MAX_SIGNATURE_AGE_MS && ageMs >= -MAX_FUTURE_SKEW_MS;
+}
 
 // ---------------------------------------------------------------------------
 // Actor public-key cache (TTL + in-flight de-dup + key-rotation detection)
@@ -255,7 +268,12 @@ export async function fetchActorPublicKey(
           keyId,
           actorUrl,
         });
-        return cached?.publicKeyPem ?? null;
+        // Fail CLOSED, not back to the stale key: an invalid document is not a
+        // transient network blip — it means the actor doc genuinely changed (or
+        // an on-path attacker is serving garbage to keep a rotated/compromised
+        // key alive). Falling back to the cached key would let a key the owner
+        // already rotated away from keep verifying.
+        return null;
       }
       if (!actorData.publicKey?.publicKeyPem) {
         log.warn("Actor has no public key", {
@@ -264,7 +282,9 @@ export async function fetchActorPublicKey(
           actorUrl,
           actor: actorData.id,
         });
-        return cached?.publicKeyPem ?? null;
+        // Fail closed: a well-formed actor doc that now has NO key means the key
+        // was removed — don't keep trusting the stale cached one.
+        return null;
       }
 
       const result: ActorFetchResult = {
@@ -298,7 +318,10 @@ export async function fetchActorPublicKey(
           actorUrl,
           receivedId: actorData.id,
         });
-        return cached?.publicKeyPem ?? null;
+        // Fail closed: the document served under this actor URL claims a
+        // DIFFERENT id — a redirect/substitution, not a transient error. Never
+        // fall back to the stale key on a mismatch.
+        return null;
       }
 
       if (
@@ -391,7 +414,7 @@ export async function verifyGetHttpSignature(
   if (!requestDate) {
     return { valid: false, error: "unable_to_parse_date" };
   }
-  if (Math.abs(Date.now() - requestDate.getTime()) > MAX_SIGNATURE_AGE_MS) {
+  if (!withinSignatureWindow(requestDate)) {
     return {
       valid: false,
       error: "Request timestamp outside acceptable window",
@@ -489,7 +512,7 @@ export async function verifyHttpSignature(
   if (!requestDate) {
     return { valid: false, error: "unable_to_parse_date" };
   }
-  if (Math.abs(Date.now() - requestDate.getTime()) > MAX_SIGNATURE_AGE_MS) {
+  if (!withinSignatureWindow(requestDate)) {
     return {
       valid: false,
       error: "Request timestamp outside acceptable window",

@@ -20,9 +20,21 @@ const STATE_TTL_MS = STATE_TTL_SECONDS * 1000;
  * Generate a cryptographically random string from the given alphabet.
  */
 function randomString(length: number, alphabet: string): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+  const n = alphabet.length;
+  // Rejection sampling: discard bytes in the biased tail (>= 256 - 256%n) so
+  // every character is uniformly distributed. A plain `b % n` slightly favors
+  // the first (256 % n) characters when n does not divide 256 — a minor but
+  // real bias in OAuth state / PKCE / nonce tokens.
+  const limit = 256 - (256 % n);
+  const out: string[] = [];
+  while (out.length < length) {
+    const bytes = new Uint8Array(length - out.length);
+    crypto.getRandomValues(bytes);
+    for (const b of bytes) {
+      if (b < limit) out.push(alphabet[b % n]);
+    }
+  }
+  return out.join("");
 }
 
 export function generateId(length = 21): string {
