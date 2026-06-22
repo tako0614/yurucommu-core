@@ -197,7 +197,13 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     <div class="flex items-center gap-6 mt-3">
       <button
         onClick={() => props.onReply(props.post)}
-        aria-label={t("posts.reply")}
+        // Include the visible count in the accessible name (WCAG 2.5.3 Label in
+        // Name) so the name a voice-control user reads matches what they see.
+        aria-label={
+          props.post.reply_count
+            ? `${t("posts.reply")} ${props.post.reply_count}`
+            : t("posts.reply")
+        }
         class="flex items-center gap-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
       >
         <ReplyIcon />
@@ -207,7 +213,10 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
         <button
           onClick={() => props.onRepost(props.post)}
           aria-label={
-            props.post.reposted ? t("posts.undoRepost") : t("posts.repost")
+            (props.post.reposted ? t("posts.undoRepost") : t("posts.repost")) +
+            (props.post.announce_count > 0
+              ? ` ${props.post.announce_count}`
+              : "")
           }
           aria-pressed={props.post.reposted}
           class={`flex items-center gap-2 transition-colors ${
@@ -224,7 +233,10 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       </Show>
       <button
         onClick={() => props.onLike(props.post)}
-        aria-label={props.post.liked ? t("posts.unlike") : t("posts.like")}
+        aria-label={
+          (props.post.liked ? t("posts.unlike") : t("posts.like")) +
+          (props.post.like_count > 0 ? ` ${props.post.like_count}` : "")
+        }
         aria-pressed={props.post.liked}
         class={`flex items-center gap-2 transition-colors ${
           props.post.liked
