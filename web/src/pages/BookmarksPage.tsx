@@ -29,6 +29,9 @@ export function BookmarksPage() {
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [posts, setPosts] = createSignal<Post[]>([]);
   const [loading, setLoading] = createSignal(true);
+  const [cursor, setCursor] = createSignal<string | null>(null);
+  const [hasMore, setHasMore] = createSignal(false);
+  const [loadingMore, setLoadingMore] = createSignal(false);
 
   onMount(() => {
     loadBookmarks();
@@ -40,12 +43,34 @@ export function BookmarksPage() {
     setLoadError(null);
     try {
       const data = await fetchBookmarks();
-      setPosts(data);
+      setPosts(data.posts);
+      setCursor(data.nextCursor);
+      setHasMore(data.hasMore);
     } catch (e) {
       console.error("Failed to load bookmarks:", e);
       setLoadError(t("common.loadFailed"));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMore = async () => {
+    const before = cursor();
+    if (loadingMore() || !hasMore() || !before) return;
+    setLoadingMore(true);
+    try {
+      const data = await fetchBookmarks({ before });
+      setPosts((prev) => {
+        const seen = new Set(prev.map((p) => p.ap_id));
+        return [...prev, ...data.posts.filter((p) => !seen.has(p.ap_id))];
+      });
+      setCursor(data.nextCursor);
+      setHasMore(data.hasMore);
+    } catch (e) {
+      console.error("Failed to load more bookmarks:", e);
+      setError(t("common.error"));
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -192,6 +217,18 @@ export function BookmarksPage() {
                   </div>
                 )}
               </For>
+              <Show when={hasMore()}>
+                <div class="p-4 text-center">
+                  <button
+                    type="button"
+                    onClick={loadMore}
+                    disabled={loadingMore()}
+                    class="text-sm text-accent hover:underline disabled:opacity-50"
+                  >
+                    {loadingMore() ? t("common.loading") : t("common.loadMore")}
+                  </button>
+                </div>
+              </Show>
             </Show>
           </Show>
         </Show>

@@ -133,24 +133,23 @@ async function insertAcceptedFollow(
   follower: string,
   following: string,
 ): Promise<void> {
-  await db
-    .insert(follows)
-    .values({
-      followerApId: follower,
-      followingApId: following,
-      status: "accepted",
-    });
+  await db.insert(follows).values({
+    followerApId: follower,
+    followingApId: following,
+    status: "accepted",
+  });
 }
 
 async function bookmark(
   db: Database,
   viewer: string,
   objectApId: string,
+  createdAt?: string,
 ): Promise<void> {
   await db.insert(bookmarks).values({
     actorApId: viewer,
     objectApId,
-    createdAt: new Date().toISOString(),
+    createdAt: createdAt ?? new Date().toISOString(),
   });
 }
 
@@ -363,4 +362,57 @@ test("bookmarks listing returns public-community posts (no over-blocking)", asyn
   };
   const ids = body.posts.map((p) => p.ap_id);
   expect(ids).toContain(commPostId);
+});
+
+type BookmarksBody = {
+  posts: { ap_id: string }[];
+  has_more: boolean;
+  next_cursor: string | null;
+};
+
+test("bookmarks paginate: has_more + composite cursor reach every bookmark (no same-ms skip)", async () => {
+  const db = await freshDb();
+  const viewer = await insertLocalActor(db, "viewer");
+  const author = await insertLocalActor(db, "author");
+
+  const all = new Set<string>();
+  // 5 public posts bookmarked. Bookmarks 2 & 3 share an EXACT createdAt ms — a
+  // bare createdAt cursor would skip one at the page boundary.
+  const times = [
+    "2026-01-01T00:00:05.000Z",
+    "2026-01-01T00:00:04.000Z",
+    "2026-01-01T00:00:03.000Z", // tie
+    "2026-01-01T00:00:03.000Z", // tie
+    "2026-01-01T00:00:01.000Z",
+  ];
+  for (let i = 0; i < times.length; i++) {
+    const apId = await insertPost(db, author, `bm-${i}`, `post ${i}`, {
+      visibility: "public",
+    });
+    all.add(apId);
+    await bookmark(db, viewer, apId, times[i]);
+  }
+
+  const app = appFor(db, viewer);
+  const seen = new Set<string>();
+  let before: string | null = null;
+  // Page through 2 at a time; every readable bookmark must be reached once.
+  for (let guard = 0; guard < 10; guard++) {
+    const qs = before
+      ? `?limit=2&before=${encodeURIComponent(before)}`
+      : "?limit=2";
+    const res = await app.request(`${APP_URL}/posts/bookmarks${qs}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as BookmarksBody;
+    for (const p of body.posts) {
+      expect(seen.has(p.ap_id)).toBe(false); // no overlap across pages
+      seen.add(p.ap_id);
+    }
+    if (!body.has_more) break;
+    expect(body.next_cursor).toBeTruthy();
+    before = body.next_cursor;
+  }
+
+  expect(seen.size).toEqual(all.size);
+  for (const id of all) expect(seen.has(id)).toBe(true);
 });

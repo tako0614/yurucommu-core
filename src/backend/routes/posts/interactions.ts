@@ -13,7 +13,7 @@ import {
   likes,
   objects,
 } from "../../../db/index.ts";
-import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import type { BatchItem } from "drizzle-orm/batch";
 import {
@@ -39,6 +39,11 @@ const log = logger.child({ component: "posts.interactions" });
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Separator for the bookmarks composite cursor "<createdAt> <objectApId>". A
+// space is strictly less than every char in the timestamp / https ap_id, so the
+// concatenated lexical order equals the (createdAt, objectApId) tuple order.
+const BOOKMARK_CURSOR_SEP = " ";
 
 // ---------------------------------------------------------------------------
 // Shared helpers (file-local)
@@ -567,19 +572,41 @@ posts.get("/bookmarks", async (c) => {
   const limit = parseLimit(c.req.query("limit"), 20, MAX_POSTS_PAGE_LIMIT);
   const before = c.req.query("before");
 
-  const whereCondition = before
-    ? and(
-        eq(bookmarks.actorApId, actor.ap_id),
-        sql`${bookmarks.createdAt} < ${before}`,
-      )
-    : eq(bookmarks.actorApId, actor.ap_id);
+  // Composite (createdAt, objectApId) cursor — createdAt is not unique, so a
+  // bare cursor would skip same-timestamp bookmarks at a page boundary.
+  // objectApId is the unique tiebreaker (bookmarks PK is actorApId+objectApId).
+  // `before` is "<createdAt> <objectApId>"; a legacy createdAt-only value is
+  // still accepted.
+  const cursorPredicate = (() => {
+    if (!before) return undefined;
+    const sepIdx = before.indexOf(BOOKMARK_CURSOR_SEP);
+    if (sepIdx < 0) return lt(bookmarks.createdAt, before);
+    const cCreated = before.slice(0, sepIdx);
+    const cObj = before.slice(sepIdx + BOOKMARK_CURSOR_SEP.length);
+    return or(
+      lt(bookmarks.createdAt, cCreated),
+      and(eq(bookmarks.createdAt, cCreated), lt(bookmarks.objectApId, cObj)),
+    );
+  })();
 
-  const allBookmarkRows = await db.query.bookmarks.findMany({
-    where: whereCondition,
+  // Fetch limit+1 and advance the cursor by the last SCANNED row, so the
+  // visibility gate dropping rows can only shorten a page, never make a readable
+  // bookmark permanently unreachable (load-more continues past the dropped ones).
+  const scanned = await db.query.bookmarks.findMany({
+    where: cursorPredicate
+      ? and(eq(bookmarks.actorApId, actor.ap_id), cursorPredicate)
+      : eq(bookmarks.actorApId, actor.ap_id),
     with: { object: true },
-    orderBy: desc(bookmarks.createdAt),
-    limit,
+    orderBy: [desc(bookmarks.createdAt), desc(bookmarks.objectApId)],
+    limit: limit + 1,
   });
+  const hasMore = scanned.length > limit;
+  const allBookmarkRows = hasMore ? scanned.slice(0, limit) : scanned;
+  const lastScanned = allBookmarkRows[allBookmarkRows.length - 1];
+  const nextCursor =
+    hasMore && lastScanned
+      ? `${lastScanned.createdAt}${BOOKMARK_CURSOR_SEP}${lastScanned.objectApId}`
+      : null;
 
   // Re-check read-access at read time so a bookmark can never resurface a post
   // the viewer can no longer read. `canViewerReadObject` only gates PRIVATE-
@@ -723,7 +750,7 @@ posts.get("/bookmarks", async (c) => {
     };
   });
 
-  return c.json({ posts: result });
+  return c.json({ posts: result, has_more: hasMore, next_cursor: nextCursor });
 });
 
 export default posts;
