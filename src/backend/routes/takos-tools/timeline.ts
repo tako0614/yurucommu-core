@@ -4,10 +4,10 @@
  * Handles: yurucommu_get_timeline, yurucommu_get_notifications
  */
 
-import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { actors, inbox, objects } from "../../../db/index.ts";
-
 import { NO_AUDIENCE_PREDICATE } from "../../lib/community-visibility.ts";
+import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
 import {
   ACTOR_SUMMARY_COLUMNS,
   errAuth,
@@ -16,13 +16,6 @@ import {
   toolLimit,
 } from "../takos-tools-response.ts";
 import type { Input, ToolContext } from "./types.ts";
-
-// Composite (published, apId) cursor — matches the human feed's tuple cursor so
-// agent pagination doesn't skip posts that share a published millisecond.
-// `next_cursor` is opaque to the caller; a legacy published-only `before` (no
-// space separator) is still accepted. A space is strictly less than every char
-// in an ISO timestamp / https ap_id, so the encoded order matches the tuple.
-const TOOL_CURSOR_SEP = " ";
 
 export async function handleGetTimeline(
   c: ToolContext,
@@ -38,23 +31,10 @@ export async function handleGetTimeline(
     NO_AUDIENCE_PREDICATE,
     isNull(objects.deletedAt),
   ];
-  if (before) {
-    const sep = before.indexOf(TOOL_CURSOR_SEP);
-    if (sep >= 0) {
-      const cPublished = before.slice(0, sep);
-      const cApId = before.slice(sep + TOOL_CURSOR_SEP.length);
-      // published < c.published OR (published = c.published AND apId < c.apId)
-      whereConditions.push(
-        or(
-          lt(objects.published, cPublished),
-          and(eq(objects.published, cPublished), lt(objects.apId, cApId)),
-        )!,
-      );
-    } else {
-      // Legacy published-only cursor.
-      whereConditions.push(lt(objects.published, before));
-    }
-  }
+  // Composite (published, apId) cursor so agent pagination doesn't skip posts
+  // sharing a published millisecond (see lib/feed-cursor.ts).
+  const toolCursor = feedCursorWhere(objects.published, objects.apId, before);
+  if (toolCursor) whereConditions.push(toolCursor);
 
   const posts = await db
     .select()
@@ -88,7 +68,10 @@ export async function handleGetTimeline(
       }),
       next_cursor:
         posts.length > 0
-          ? `${posts[posts.length - 1].published}${TOOL_CURSOR_SEP}${posts[posts.length - 1].apId}`
+          ? encodeFeedCursor(
+              posts[posts.length - 1].published,
+              posts[posts.length - 1].apId,
+            )
           : null,
     }),
   );

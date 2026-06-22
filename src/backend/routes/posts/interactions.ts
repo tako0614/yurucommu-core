@@ -13,7 +13,7 @@ import {
   likes,
   objects,
 } from "../../../db/index.ts";
-import { and, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import type { BatchItem } from "drizzle-orm/batch";
 import {
@@ -31,6 +31,7 @@ import {
   enqueueFanoutToFollowers,
 } from "../../lib/delivery/queue.ts";
 import { canViewerReadObject } from "../../lib/community-visibility.ts";
+import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
 import { canViewerReadObjectFull } from "../../lib/post-visibility.ts";
 import { logger } from "../../lib/logger.ts";
 
@@ -39,11 +40,6 @@ const log = logger.child({ component: "posts.interactions" });
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-// Separator for the bookmarks composite cursor "<createdAt> <objectApId>". A
-// space is strictly less than every char in the timestamp / https ap_id, so the
-// concatenated lexical order equals the (createdAt, objectApId) tuple order.
-const BOOKMARK_CURSOR_SEP = " ";
 
 // ---------------------------------------------------------------------------
 // Shared helpers (file-local)
@@ -573,21 +569,13 @@ posts.get("/bookmarks", async (c) => {
   const before = c.req.query("before");
 
   // Composite (createdAt, objectApId) cursor — createdAt is not unique, so a
-  // bare cursor would skip same-timestamp bookmarks at a page boundary.
-  // objectApId is the unique tiebreaker (bookmarks PK is actorApId+objectApId).
-  // `before` is "<createdAt> <objectApId>"; a legacy createdAt-only value is
-  // still accepted.
-  const cursorPredicate = (() => {
-    if (!before) return undefined;
-    const sepIdx = before.indexOf(BOOKMARK_CURSOR_SEP);
-    if (sepIdx < 0) return lt(bookmarks.createdAt, before);
-    const cCreated = before.slice(0, sepIdx);
-    const cObj = before.slice(sepIdx + BOOKMARK_CURSOR_SEP.length);
-    return or(
-      lt(bookmarks.createdAt, cCreated),
-      and(eq(bookmarks.createdAt, cCreated), lt(bookmarks.objectApId, cObj)),
-    );
-  })();
+  // bare cursor would skip same-timestamp bookmarks at a boundary; objectApId is
+  // the unique tiebreaker (see lib/feed-cursor.ts).
+  const cursorPredicate = feedCursorWhere(
+    bookmarks.createdAt,
+    bookmarks.objectApId,
+    before,
+  );
 
   // Fetch limit+1 and advance the cursor by the last SCANNED row, so the
   // visibility gate dropping rows can only shorten a page, never make a readable
@@ -605,7 +593,7 @@ posts.get("/bookmarks", async (c) => {
   const lastScanned = allBookmarkRows[allBookmarkRows.length - 1];
   const nextCursor =
     hasMore && lastScanned
-      ? `${lastScanned.createdAt}${BOOKMARK_CURSOR_SEP}${lastScanned.objectApId}`
+      ? encodeFeedCursor(lastScanned.createdAt, lastScanned.objectApId)
       : null;
 
   // Re-check read-access at read time so a bookmark can never resurface a post

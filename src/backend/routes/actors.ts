@@ -78,14 +78,10 @@ import {
   resolveActorApId,
 } from "./actors-helpers.ts";
 import { safeUrlJoin } from "../lib/activitypub-helpers.ts";
+import { encodeFeedCursor, feedCursorWhere } from "../lib/feed-cursor.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "actors" });
-
-// Separator for the profile-posts composite cursor "<published> <apId>". A space
-// is strictly less than every char in an ISO timestamp / https ap_id, so the
-// concatenated lexical order equals the (published, apId) tuple order.
-const ACTOR_POSTS_CURSOR_SEP = " ";
 
 // Mastodon-parity profile metadata limits. Mastodon caps profile fields at 4
 // rows with bounded name/value lengths; we mirror that to keep the served
@@ -853,24 +849,14 @@ actorsRoute.get("/:identifier/posts", async (c) => {
     conditions.push(eq(objects.visibility, "public"));
     conditions.push(eq(objects.audienceJson, "[]"));
   }
-  if (before) {
-    // Composite (published, apId) cursor so posts sharing a published
-    // millisecond aren't skipped at a page boundary (published is not unique).
-    // `before` is "<published> <apId>"; a legacy published-only value still works.
-    const sepIdx = before.indexOf(ACTOR_POSTS_CURSOR_SEP);
-    if (sepIdx < 0) {
-      conditions.push(lt(objects.published, before));
-    } else {
-      const cPublished = before.slice(0, sepIdx);
-      const cApId = before.slice(sepIdx + ACTOR_POSTS_CURSOR_SEP.length);
-      conditions.push(
-        or(
-          lt(objects.published, cPublished),
-          and(eq(objects.published, cPublished), lt(objects.apId, cApId)),
-        )!,
-      );
-    }
-  }
+  // Composite (published, apId) cursor so posts sharing a published millisecond
+  // aren't skipped at a page boundary (see lib/feed-cursor.ts).
+  const profileCursor = feedCursorWhere(
+    objects.published,
+    objects.apId,
+    before,
+  );
+  if (profileCursor) conditions.push(profileCursor);
 
   // Project only the columns the response below reads — the profile feed must
   // not load the large `raw_json` blob (and other unused columns), mirroring the
@@ -902,7 +888,7 @@ actorsRoute.get("/:identifier/posts", async (c) => {
   const lastPost = posts[posts.length - 1];
   const nextCursor =
     hasMore && lastPost
-      ? `${lastPost.published}${ACTOR_POSTS_CURSOR_SEP}${lastPost.apId}`
+      ? encodeFeedCursor(lastPost.published, lastPost.apId)
       : null;
 
   const postApIds = posts.map((p) => p.apId);

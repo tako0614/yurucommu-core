@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { actors, follows, objects } from "../../../db/index.ts";
 import type { Database } from "../../../db/index.ts";
-import { and, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { Actor, Env, Variables } from "../../types.ts";
 import {
   activityApId,
@@ -51,6 +51,7 @@ import {
 } from "./post-helpers.ts";
 import { requireActor } from "../actors-helpers.ts";
 import { canViewerReadObject } from "../../lib/community-visibility.ts";
+import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
 import { isExplicitRecipient } from "../../lib/post-visibility.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { logger } from "../../lib/logger.ts";
@@ -64,11 +65,6 @@ type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const PUBLIC_COLLECTION = "https://www.w3.org/ns/activitystreams#Public";
-
-// Separator for the replies composite cursor "<published> <apId>". A space is
-// strictly less than every char in an ISO timestamp / https ap_id, so the
-// concatenated lexical order equals the (published, apId) tuple order.
-const REPLY_CURSOR_SEP = " ";
 
 /** Reply row shape needed for the visibility gate (subset of the object row). */
 type ReplyVisibilityRow = {
@@ -502,20 +498,12 @@ posts.get("/:id/replies", async (c) => {
   }
 
   // Composite (published, apId) cursor so replies sharing a published
-  // millisecond aren't skipped at a page boundary (published is not unique;
-  // mirrors the feed cursor). `before` is "<published> <apId>"; a legacy
-  // published-only value (no separator) is still accepted.
-  const cursorPredicate = (() => {
-    if (!before) return undefined;
-    const sepIdx = before.indexOf(REPLY_CURSOR_SEP);
-    if (sepIdx < 0) return lt(objects.published, before);
-    const cPublished = before.slice(0, sepIdx);
-    const cApId = before.slice(sepIdx + REPLY_CURSOR_SEP.length);
-    return or(
-      lt(objects.published, cPublished),
-      and(eq(objects.published, cPublished), lt(objects.apId, cApId)),
-    );
-  })();
+  // millisecond aren't skipped at a page boundary (see lib/feed-cursor.ts).
+  const cursorPredicate = feedCursorWhere(
+    objects.published,
+    objects.apId,
+    before,
+  );
 
   // Fetch limit+1 to compute has_more, then SLICE before the per-reply
   // visibility filter. Advancing the cursor by the last SCANNED row (not the
@@ -535,7 +523,7 @@ posts.get("/:id/replies", async (c) => {
   const lastScanned = page[page.length - 1];
   const nextCursor =
     hasMore && lastScanned
-      ? `${lastScanned.published}${REPLY_CURSOR_SEP}${lastScanned.apId}`
+      ? encodeFeedCursor(lastScanned.published, lastScanned.apId)
       : null;
 
   // Apply the SAME visibility gate as GET /:id, per-reply: a follower-only or

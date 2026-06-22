@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import {
   activities,
   communities,
@@ -9,6 +9,7 @@ import {
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { formatUsername, generateId } from "../../federation-helpers.ts";
+import { feedCursorWhere } from "../../lib/feed-cursor.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import {
   batchLoadActorInfo,
@@ -21,9 +22,6 @@ import {
 
 const MAX_COMMUNITY_MESSAGE_LENGTH = 5000;
 const MAX_COMMUNITY_MESSAGES_LIMIT = 100;
-// Separator for the message composite cursor "<published> <apId>" (space < every
-// ISO/URL char, so concat lexical order == the (published, apId) tuple order).
-const COMMUNITY_MESSAGE_CURSOR_SEP = " ";
 
 // D1's batch() (atomic multi-statement) is only on the concrete D1/libsql
 // driver, not the shared `Database` union; reach it through a narrow cast.
@@ -135,24 +133,10 @@ messagesRouter.get("/:identifier/messages", async (c) => {
     eq(objects.type, "Note"),
     isNull(objects.communityApId),
   ];
-  if (before) {
-    // Composite (published, apId) cursor so same-millisecond messages aren't
-    // skipped on a load-older boundary. `before` is "<published> <apId>"; a
-    // legacy published-only value still works.
-    const sepIdx = before.indexOf(COMMUNITY_MESSAGE_CURSOR_SEP);
-    if (sepIdx < 0) {
-      whereConditions.push(lt(objects.published, before));
-    } else {
-      const cPublished = before.slice(0, sepIdx);
-      const cApId = before.slice(sepIdx + COMMUNITY_MESSAGE_CURSOR_SEP.length);
-      whereConditions.push(
-        or(
-          lt(objects.published, cPublished),
-          and(eq(objects.published, cPublished), lt(objects.apId, cApId)),
-        )!,
-      );
-    }
-  }
+  // Composite (published, apId) cursor so same-millisecond messages aren't
+  // skipped on a load-older boundary (see lib/feed-cursor.ts).
+  const chatCursor = feedCursorWhere(objects.published, objects.apId, before);
+  if (chatCursor) whereConditions.push(chatCursor);
 
   // Fetch one extra to detect whether an OLDER page exists (powers the thread's
   // "load older" affordance; `before` is the oldest shown message's cursor).
