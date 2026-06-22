@@ -60,6 +60,10 @@ const REMOTE_ACTOR_QUERY_PATTERN = /^@?[^@\s]+@[^@\s]+$/;
 
 type SearchTab = "users" | "posts" | "communities";
 
+const SEARCH_PAGE_SIZE = 20;
+const USER_SORTS = ["relevance", "followers", "recent"] as const;
+const POST_SORTS = ["recent", "popular"] as const;
+
 const CloseIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path
@@ -119,6 +123,16 @@ export function SearchPage() {
   const [searched, setSearched] = createSignal(false);
   const [searchError, setSearchError] = createSignal<string | null>(null);
   const [lastQuery, setLastQuery] = createSignal("");
+  // Sort + keyset-less offset pagination for the users / posts result tabs.
+  // `usersOffset` / `postsOffset` track the INWARD fetch cursor only (remote
+  // webfinger merges append separately and never advance the cursor).
+  const [usersSort, setUsersSort] = createSignal("relevance");
+  const [postsSort, setPostsSort] = createSignal("recent");
+  const [usersOffset, setUsersOffset] = createSignal(0);
+  const [postsOffset, setPostsOffset] = createSignal(0);
+  const [usersHasMore, setUsersHasMore] = createSignal(false);
+  const [postsHasMore, setPostsHasMore] = createSignal(false);
+  const [loadingMore, setLoadingMore] = createSignal(false);
   // Inward-first: search stays inside the owner's own graph / in-scope data
   // (local actors, posts, joined communities) by default. Reaching out to
   // remote servers via webfinger is an explicit, secondary opt-in so a
@@ -238,16 +252,32 @@ export function SearchPage() {
       // substring of the post body. Plain text still uses the content search.
       const isHashtagQuery = trimmedQuery.startsWith("#");
       const [usersRes, postsRes] = await Promise.all([
-        searchActors(trimmedQuery),
+        searchActors(trimmedQuery, {
+          sort: usersSort(),
+          offset: 0,
+          limit: SEARCH_PAGE_SIZE,
+        }),
         isHashtagQuery
-          ? searchHashtag(trimmedQuery.slice(1))
-          : searchPosts(trimmedQuery),
+          ? searchHashtag(trimmedQuery.slice(1), {
+              sort: postsSort(),
+              offset: 0,
+              limit: SEARCH_PAGE_SIZE,
+            })
+          : searchPosts(trimmedQuery, {
+              sort: postsSort(),
+              offset: 0,
+              limit: SEARCH_PAGE_SIZE,
+            }),
       ]);
 
       if (gen !== searchGen) return; // a newer search / clear superseded this
 
-      setSearchUsersResult(usersRes);
-      setSearchPostsResult(postsRes);
+      setSearchUsersResult(usersRes.items);
+      setSearchPostsResult(postsRes.items);
+      setUsersOffset(usersRes.items.length);
+      setPostsOffset(postsRes.items.length);
+      setUsersHasMore(usersRes.hasMore);
+      setPostsHasMore(postsRes.hasMore);
 
       // Client-side community filter
       const lowerQuery = trimmedQuery.toLowerCase();
@@ -265,8 +295,8 @@ export function SearchPage() {
       // the posts tab) so it is never bounced off by an empty result.
       if (!suppressAutoSelect) {
         autoSelectNonEmptyTab({
-          users: usersRes.length,
-          posts: postsRes.length,
+          users: usersRes.items.length,
+          posts: postsRes.items.length,
           communities: matchedCommunities.length,
         });
       }
@@ -306,6 +336,94 @@ export function SearchPage() {
       console.error("Remote search failed:", e);
     } finally {
       setSearchingRemote(false);
+    }
+  };
+
+  // Append the next page of INWARD users (deduped by ap_id; the offset cursor
+  // tracks inward fetches only, so a prior remote merge does not skew it).
+  const loadMoreUsers = async () => {
+    if (loadingMore() || !usersHasMore()) return;
+    const query = lastQuery();
+    if (!query) return;
+    const gen = searchGen;
+    setLoadingMore(true);
+    try {
+      const res = await searchActors(query, {
+        sort: usersSort(),
+        offset: usersOffset(),
+        limit: SEARCH_PAGE_SIZE,
+      });
+      if (gen !== searchGen) return;
+      setSearchUsersResult((prev) => {
+        const seen = new Set(prev.map((u) => u.ap_id));
+        return [...prev, ...res.items.filter((u) => !seen.has(u.ap_id))];
+      });
+      setUsersOffset((o) => o + res.items.length);
+      setUsersHasMore(res.hasMore);
+    } catch (e) {
+      console.error("Load more users failed:", e);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMorePosts = async () => {
+    if (loadingMore() || !postsHasMore()) return;
+    const query = lastQuery();
+    if (!query) return;
+    const gen = searchGen;
+    const isHashtagQuery = query.startsWith("#");
+    setLoadingMore(true);
+    try {
+      const res = isHashtagQuery
+        ? await searchHashtag(query.slice(1), {
+            sort: postsSort(),
+            offset: postsOffset(),
+            limit: SEARCH_PAGE_SIZE,
+          })
+        : await searchPosts(query, {
+            sort: postsSort(),
+            offset: postsOffset(),
+            limit: SEARCH_PAGE_SIZE,
+          });
+      if (gen !== searchGen) return;
+      setSearchPostsResult((prev) => {
+        const seen = new Set(prev.map((p) => p.ap_id));
+        return [...prev, ...res.items.filter((p) => !seen.has(p.ap_id))];
+      });
+      setPostsOffset((o) => o + res.items.length);
+      setPostsHasMore(res.hasMore);
+    } catch (e) {
+      console.error("Load more posts failed:", e);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // Change the sort for a tab and re-run the search from the top.
+  const changeUsersSort = (sort: string) => {
+    if (sort === usersSort()) return;
+    setUsersSort(sort);
+    if (lastQuery()) void performSearch(lastQuery(), true);
+  };
+  const changePostsSort = (sort: string) => {
+    if (sort === postsSort()) return;
+    setPostsSort(sort);
+    if (lastQuery()) void performSearch(lastQuery(), true);
+  };
+
+  const sortLabel = (s: string): string => {
+    switch (s) {
+      case "relevance":
+        return t("search.sortRelevance");
+      case "followers":
+        return t("search.sortFollowers");
+      case "recent":
+        return t("search.sortRecent");
+      case "popular":
+        return t("search.sortPopular");
+      default:
+        return s;
     }
   };
 
@@ -759,6 +877,23 @@ export function SearchPage() {
                     </p>
                   </Show>
                 </div>
+                <Show when={searchUsersResult().length > 0}>
+                  <div class="flex items-center justify-end gap-2 px-4 py-2 border-b border-neutral-900">
+                    <label for="users-sort" class="text-xs text-neutral-500">
+                      {t("search.sortLabel")}
+                    </label>
+                    <select
+                      id="users-sort"
+                      value={usersSort()}
+                      onChange={(e) => changeUsersSort(e.currentTarget.value)}
+                      class="bg-neutral-800 text-neutral-200 text-xs rounded-md px-2 py-1 border border-neutral-700 focus:outline-none focus:border-accent"
+                    >
+                      <For each={USER_SORTS}>
+                        {(s) => <option value={s}>{sortLabel(s)}</option>}
+                      </For>
+                    </select>
+                  </div>
+                </Show>
                 <Show
                   when={searchUsersResult().length > 0}
                   fallback={
@@ -848,11 +983,41 @@ export function SearchPage() {
                       </div>
                     )}
                   </For>
+                  <Show when={usersHasMore()}>
+                    <div class="flex justify-center py-4">
+                      <button
+                        onClick={loadMoreUsers}
+                        disabled={loadingMore()}
+                        class="rounded-full bg-neutral-800 px-4 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                      >
+                        {loadingMore()
+                          ? t("common.loading")
+                          : t("common.loadMore")}
+                      </button>
+                    </div>
+                  </Show>
                 </Show>
               </Show>
 
               {/* Posts tab */}
               <Show when={searchTab() === "posts"}>
+                <Show when={searchPostsResult().length > 0}>
+                  <div class="flex items-center justify-end gap-2 px-4 py-2 border-b border-neutral-900">
+                    <label for="posts-sort" class="text-xs text-neutral-500">
+                      {t("search.sortLabel")}
+                    </label>
+                    <select
+                      id="posts-sort"
+                      value={postsSort()}
+                      onChange={(e) => changePostsSort(e.currentTarget.value)}
+                      class="bg-neutral-800 text-neutral-200 text-xs rounded-md px-2 py-1 border border-neutral-700 focus:outline-none focus:border-accent"
+                    >
+                      <For each={POST_SORTS}>
+                        {(s) => <option value={s}>{sortLabel(s)}</option>}
+                      </For>
+                    </select>
+                  </div>
+                </Show>
                 <Show
                   when={searchPostsResult().length > 0}
                   fallback={
@@ -949,6 +1114,19 @@ export function SearchPage() {
                       </div>
                     )}
                   </For>
+                  <Show when={postsHasMore()}>
+                    <div class="flex justify-center py-4">
+                      <button
+                        onClick={loadMorePosts}
+                        disabled={loadingMore()}
+                        class="rounded-full bg-neutral-800 px-4 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                      >
+                        {loadingMore()
+                          ? t("common.loading")
+                          : t("common.loadMore")}
+                      </button>
+                    </div>
+                  </Show>
                 </Show>
               </Show>
 
