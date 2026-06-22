@@ -1,4 +1,4 @@
-import { type Accessor, For, Show } from "solid-js";
+import { type Accessor, For, onCleanup, onMount, Show } from "solid-js";
 import type { Actor } from "../../types/index.ts";
 import { formatMonthYear } from "../../lib/datetime.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
@@ -46,6 +46,34 @@ export function ProfileSummary(props: ProfileSummaryProps) {
   // Only keep fully-populated label/value pairs for display.
   const visibleFields = () =>
     (props.profile.fields ?? []).filter((f) => f.name.trim() && f.value.trim());
+
+  // Dismiss the mute/block menu on outside click or Escape (it is otherwise
+  // keyboard-undismissable and stays open when the user clicks away). menuRoot
+  // wraps both the trigger and the menu, so clicking the trigger never counts
+  // as "outside". Escape also returns focus to the trigger.
+  let menuRoot: HTMLDivElement | undefined;
+  let menuTrigger: HTMLButtonElement | undefined;
+  const onDocClick = (e: MouseEvent) => {
+    if (props.showMenu && menuRoot && !menuRoot.contains(e.target as Node)) {
+      props.onCloseMenu();
+    }
+  };
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (props.showMenu && e.key === "Escape") {
+      e.preventDefault();
+      props.onCloseMenu();
+      menuTrigger?.focus();
+    }
+  };
+  onMount(() => {
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("keydown", onKeyDown);
+  });
+  onCleanup(() => {
+    document.removeEventListener("click", onDocClick);
+    document.removeEventListener("keydown", onKeyDown);
+  });
+
   return (
     <>
       {/* Header Image */}
@@ -75,8 +103,9 @@ export function ProfileSummary(props: ProfileSummaryProps) {
         {/* Follow Button & Menu */}
         <div class="flex justify-end pt-3 pb-12 gap-2">
           <Show when={!props.isOwnProfile}>
-            <div class="relative">
+            <div class="relative" ref={menuRoot}>
               <button
+                ref={menuTrigger}
                 onClick={props.onToggleMenu}
                 aria-label={props.t("profile.moreOptions")}
                 aria-haspopup="menu"
@@ -88,6 +117,13 @@ export function ProfileSummary(props: ProfileSummaryProps) {
               <Show when={props.showMenu}>
                 <div
                   role="menu"
+                  ref={(el) =>
+                    queueMicrotask(() =>
+                      el
+                        .querySelector<HTMLElement>('[role="menuitem"]')
+                        ?.focus(),
+                    )
+                  }
                   class="absolute right-0 top-full mt-1 bg-neutral-900 rounded-xl shadow-lg py-1 min-w-[180px] z-20 border border-neutral-800"
                 >
                   <button

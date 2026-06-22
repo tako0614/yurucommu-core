@@ -339,6 +339,7 @@ export function useTimelineState() {
     hasMore,
     loadError,
     loadTimeline,
+    loadMore,
     newPostsCount: () => pendingNewPosts().length,
     handleShowNewPosts,
     actorStories,

@@ -32,6 +32,10 @@ export async function fetchTimeline(options?: {
   if (options?.community) params.set("community", options.community);
   const query = params.toString() ? `?${params}` : "";
   const res = await apiFetch(`/api/timeline${query}`);
+  // Throw on a non-OK response (the backend returns a JSON `{ error }` body, so
+  // without this res.json() would resolve, posts would be undefined, and the
+  // caller would render an empty "welcome" feed instead of an error+retry UI).
+  await assertOk(res, "Failed to load timeline");
   const data = (await res.json()) as {
     posts?: Post[];
     next_cursor?: string | null;
@@ -53,6 +57,7 @@ export async function fetchFollowingTimeline(options?: {
   if (options?.before) params.set("before", options.before);
   const query = params.toString() ? `?${params}` : "";
   const res = await apiFetch(`/api/timeline/following${query}`);
+  await assertOk(res, "Failed to load timeline");
   const data = (await res.json()) as { posts?: Post[] };
   return (data.posts || []).map(normalizePost);
 }

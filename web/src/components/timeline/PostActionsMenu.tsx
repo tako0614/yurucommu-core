@@ -38,6 +38,7 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
   const [confirmingDelete, setConfirmingDelete] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
   let root: HTMLDivElement | undefined;
+  let triggerBtn: HTMLButtonElement | undefined;
 
   const close = () => {
     setOpen(false);
@@ -46,8 +47,25 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
   const onDocClick = (e: MouseEvent) => {
     if (root && !root.contains(e.target as Node)) close();
   };
-  onMount(() => document.addEventListener("click", onDocClick));
-  onCleanup(() => document.removeEventListener("click", onDocClick));
+  // Escape closes the menu and returns focus to the trigger (keyboard users
+  // would otherwise be stranded with the menu's content gone). Restore focus
+  // only on Escape — an item selection may open the ConfirmSheet, which manages
+  // its own focus, and an outside click should keep focus where the user clicked.
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (open() && e.key === "Escape") {
+      e.preventDefault();
+      close();
+      triggerBtn?.focus();
+    }
+  };
+  onMount(() => {
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("keydown", onKeyDown);
+  });
+  onCleanup(() => {
+    document.removeEventListener("click", onDocClick);
+    document.removeEventListener("keydown", onKeyDown);
+  });
 
   const stop = (e: Event) => e.stopPropagation();
 
@@ -78,6 +96,7 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
   return (
     <div class="relative ml-auto" ref={root}>
       <button
+        ref={triggerBtn}
         onClick={(e) => {
           stop(e);
           setOpen(!open());
@@ -99,6 +118,11 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
       <Show when={open()}>
         <div
           role="menu"
+          ref={(el) =>
+            queueMicrotask(() =>
+              el.querySelector<HTMLElement>('[role="menuitem"]')?.focus(),
+            )
+          }
           onClick={stop}
           class="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-neutral-800 bg-neutral-900 shadow-xl overflow-hidden"
         >

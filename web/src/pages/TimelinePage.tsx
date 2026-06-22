@@ -215,6 +215,26 @@ export function TimelinePage() {
                 class="h-px w-full"
                 aria-hidden="true"
               />
+              {/* Keyboard/SR-reachable equivalent of the scroll sentinel: the
+                  IntersectionObserver only fires on scroll, leaving keyboard and
+                  screen-reader users with no way to page. loadMore() self-guards
+                  on loadingMore/hasMore. */}
+              <Show
+                when={
+                  state.hasMore() &&
+                  !state.loadingMore() &&
+                  state.posts().length > 0
+                }
+              >
+                <div class="flex justify-center py-4">
+                  <button
+                    onClick={() => state.loadMore()}
+                    class="px-4 py-2 text-sm text-neutral-400 hover:text-white rounded-full border border-neutral-800 hover:bg-neutral-800/50 transition-colors"
+                  >
+                    {state.t()("common.loadMore")}
+                  </button>
+                </div>
+              </Show>
               <Show when={state.loadingMore()}>
                 <div
                   class="flex justify-center py-4"

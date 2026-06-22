@@ -63,6 +63,7 @@ export async function fetchFollowers(identifier: string): Promise<Actor[]> {
   const res = await apiFetch(
     `/api/actors/${encodeURIComponent(identifier)}/followers`,
   );
+  await assertOk(res, "Failed to fetch followers");
   const data = (await res.json()) as { followers?: Actor[] };
   return (data.followers || []).map(normalizeActor);
 }
@@ -71,6 +72,7 @@ export async function fetchFollowing(identifier: string): Promise<Actor[]> {
   const res = await apiFetch(
     `/api/actors/${encodeURIComponent(identifier)}/following`,
   );
+  await assertOk(res, "Failed to fetch following");
   const data = (await res.json()) as { following?: Actor[] };
   return (data.following || []).map(normalizeActor);
 }

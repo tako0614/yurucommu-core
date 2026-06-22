@@ -8,7 +8,7 @@
  * - Real-time preview
  */
 
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { FONTS } from "../../lib/story-canvas.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
@@ -91,7 +91,10 @@ export function TextEditorModal(props: TextEditorModalProps) {
       const timeoutId = setTimeout(() => {
         inputRef?.focus();
       }, 100);
-      return () => clearTimeout(timeoutId);
+      // onCleanup, NOT a returned function: Solid ignores an effect's return
+      // value, so the returned clearTimeout never ran and the deferred focus
+      // could fire after the modal closed.
+      onCleanup(() => clearTimeout(timeoutId));
     }
   });
 

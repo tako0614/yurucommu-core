@@ -19,6 +19,7 @@ export async function fetchNotifications(options?: {
   if (options?.archived) params.set("archived", "true");
   const query = params.toString() ? `?${params}` : "";
   const res = await apiFetch(`/api/notifications${query}`);
+  await assertOk(res, "Failed to load notifications");
   const data = (await res.json()) as {
     notifications?: Notification[];
     has_more?: boolean;

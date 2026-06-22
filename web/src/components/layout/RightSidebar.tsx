@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { useRequiredActor } from "../../hooks/useRequiredActor.ts";
 import type { RecommendedUser } from "../../lib/api/recommendations.ts";
@@ -13,18 +13,26 @@ function RecommendedUserCard(props: {
 }) {
   const { t } = useI18n();
   const [following, setFollowing] = createSignal(false);
+  const [requested, setRequested] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
 
   const handleFollow = async (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (loading() || following()) return;
+    if (loading() || following() || requested()) return;
 
     setLoading(true);
     try {
-      await follow(props.user.ap_id);
-      setFollowing(true);
-      setTimeout(() => props.onFollowed(props.user.ap_id), 600);
+      const { status } = await follow(props.user.ap_id);
+      if (status === "pending") {
+        // A private/remote follow lands as a pending request, NOT an accepted
+        // follow — show "Requested" and keep the card rather than claiming
+        // "Following" and dismissing it.
+        setRequested(true);
+      } else {
+        setFollowing(true);
+        setTimeout(() => props.onFollowed(props.user.ap_id), 600);
+      }
     } catch {
       // Silent fail for non-critical feature
     } finally {
@@ -52,14 +60,18 @@ function RecommendedUserCard(props: {
       </div>
       <button
         onClick={handleFollow}
-        disabled={loading() || following()}
+        disabled={loading() || following() || requested()}
         class={`px-3 py-1 rounded-full text-xs font-bold transition-colors shrink-0 ${
-          following()
+          following() || requested()
             ? "bg-transparent text-neutral-500 border border-neutral-700"
             : "bg-white text-black hover:bg-neutral-200"
         }`}
       >
-        {following() ? t("profile.following") : t("profile.follow")}
+        {following()
+          ? t("profile.following")
+          : requested()
+            ? t("profile.followRequested")
+            : t("profile.follow")}
       </button>
     </A>
   );
@@ -76,6 +88,14 @@ export function RightSidebar() {
       () => actor.ap_id,
       () => {
         let cancelled = false;
+        // Solid does NOT treat a value returned from an effect/on() callback as
+        // cleanup (on() forwards it as the next prevInput), so register the
+        // cancel flag via onCleanup — it runs before the next actor change and
+        // on unmount, preventing a stale in-flight response from overwriting a
+        // newer actor's recommendations.
+        onCleanup(() => {
+          cancelled = true;
+        });
         fetchRecommendedUsers()
           .then((data) => {
             if (!cancelled) setUsers(data);
@@ -83,9 +103,6 @@ export function RightSidebar() {
           .finally(() => {
             if (!cancelled) setLoading(false);
           });
-        return () => {
-          cancelled = true;
-        };
       },
     ),
   );

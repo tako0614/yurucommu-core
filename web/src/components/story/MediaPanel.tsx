@@ -47,6 +47,8 @@ export function MediaPanel(props: MediaPanelProps) {
           <button
             onClick={props.onDelete}
             class="p-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
+            title={t("common.delete")}
+            aria-label={t("common.delete")}
           >
             <TrashIcon />
           </button>

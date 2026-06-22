@@ -524,6 +524,16 @@ export function StoryViewer(props: StoryViewerProps) {
   // Handle keyboard navigation
   createEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // While the delete-confirmation prompt is open it owns the keyboard:
+      // Escape cancels the prompt (not the whole viewer) and navigation keys
+      // must not advance stories behind the modal.
+      if (showDeleteConfirm()) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setShowDeleteConfirm(false);
+        }
+        return;
+      }
       if (e.key === "ArrowLeft") {
         goPrev();
       } else if (e.key === "ArrowRight" || e.key === " ") {

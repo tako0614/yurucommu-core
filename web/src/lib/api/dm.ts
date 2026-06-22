@@ -49,6 +49,7 @@ const normalizeDmRequest = (request: DMRequest): DMRequest => ({
 // Fetch contacts (followers + communities) - no room creation needed
 export async function fetchDMContacts(): Promise<DMContactsResponse> {
   const res = await apiFetch("/api/dm/contacts");
+  await assertOk(res, "Failed to load conversations");
   const data = (await res.json()) as {
     mutual_followers?: DMContact[];
     communities?: DMContact[];
@@ -84,6 +85,7 @@ export async function fetchDMUnreadCount(): Promise<DMUnreadCount> {
 // Fetch message requests
 export async function fetchDMRequests(): Promise<DMRequest[]> {
   const res = await apiFetch("/api/dm/requests");
+  await assertOk(res, "Failed to load message requests");
   const data = (await res.json()) as { requests?: DMRequest[] };
   return (data.requests || []).map(normalizeDmRequest);
 }
