@@ -204,13 +204,28 @@ export function registerMembershipMemberRoutes(
         }
       }
 
-      const members = await db
-        .select()
-        .from(communityMembers)
-        .where(eq(communityMembers.communityApId, community.apId))
-        .orderBy(desc(communityMembers.role), asc(communityMembers.joinedAt))
-        .limit(limit)
-        .offset(offset);
+      // Fetch limit+1 to signal whether more members exist beyond this page —
+      // previously the roster was silently truncated at the page size with no
+      // has_more, so a client could not tell a >page community from a complete
+      // one. `total` is an accurate COUNT (the indexed communityApId scan is
+      // cheap) so the UI can show the real member count.
+      const [scanned, countRow] = await Promise.all([
+        db
+          .select()
+          .from(communityMembers)
+          .where(eq(communityMembers.communityApId, community.apId))
+          .orderBy(desc(communityMembers.role), asc(communityMembers.joinedAt))
+          .limit(limit + 1)
+          .offset(offset),
+        db
+          .select({ c: count() })
+          .from(communityMembers)
+          .where(eq(communityMembers.communityApId, community.apId))
+          .get(),
+      ]);
+      const hasMore = scanned.length > limit;
+      const members = hasMore ? scanned.slice(0, limit) : scanned;
+      const total = countRow?.c ?? members.length;
 
       const memberApIds = members.map((m) => m.actorApId);
       const actorInfoMap = await batchLoadActorInfo(db, memberApIds);
@@ -228,7 +243,7 @@ export function registerMembershipMemberRoutes(
         };
       });
 
-      return c.json({ members: result });
+      return c.json({ members: result, has_more: hasMore, total });
     },
   );
 

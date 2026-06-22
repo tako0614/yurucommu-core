@@ -195,8 +195,13 @@ export async function sendCommunityMessage(
 export async function fetchCommunityMembers(
   identifier: string,
 ): Promise<CommunityMember[]> {
+  // Request the server's max page (500) so the realistic range of communities
+  // shows its full roster without a load-more affordance — the default page
+  // (100) silently truncated larger communities. A >500-member community still
+  // needs cursor pagination (a documented follow-up); has_more/total in the
+  // response signal when that boundary is hit.
   const res = await apiFetch(
-    `/api/communities/${encodeURIComponent(identifier)}/members`,
+    `/api/communities/${encodeURIComponent(identifier)}/members?limit=500`,
   );
   await assertOk(res, "Failed to fetch members");
   const data = (await res.json()) as { members?: CommunityMember[] };
