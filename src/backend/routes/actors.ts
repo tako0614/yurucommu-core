@@ -1067,6 +1067,11 @@ actorsRoute.put("/me", async (c) => {
   const updates: Record<string, string | number | null> = {};
 
   if (body.name !== undefined) {
+    // The json<{...}>() cast is compile-time only; a client can send a non-string
+    // (number/object/array), so guard before .trim() (else TypeError → 500).
+    if (typeof body.name !== "string") {
+      return c.json({ error: "Invalid name" }, 400);
+    }
     const name = body.name.trim();
     if (name.length > MAX_PROFILE_NAME_LENGTH) {
       return c.json(
@@ -1079,6 +1084,9 @@ actorsRoute.put("/me", async (c) => {
     updates.name = name;
   }
   if (body.summary !== undefined) {
+    if (typeof body.summary !== "string") {
+      return c.json({ error: "Invalid summary" }, 400);
+    }
     const summary = body.summary.trim();
     if (summary.length > MAX_PROFILE_SUMMARY_LENGTH) {
       return c.json(
@@ -1096,6 +1104,9 @@ actorsRoute.put("/me", async (c) => {
   ] as const) {
     const raw = body[bodyKey];
     if (raw !== undefined) {
+      if (typeof raw !== "string") {
+        return c.json({ error: `Invalid ${bodyKey}` }, 400);
+      }
       const trimmed = raw.trim();
       if (trimmed.length > MAX_PROFILE_URL_LENGTH) {
         return c.json(

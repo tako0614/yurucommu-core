@@ -5,9 +5,15 @@
  *          yurucommu_get_trending, yurucommu_get_user_profile
  */
 
-import { and, desc, eq, isNull, like, or } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, objects } from "../../../db/index.ts";
+
+// Escape SQLite LIKE metacharacters so a query containing `%`/`_`/`\` matches
+// literally, not as a wildcard (mirrors search.ts / media.ts).
+function escapeLike(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
 import { NO_AUDIENCE_PREDICATE } from "../../lib/community-visibility.ts";
 import {
   ACTOR_SUMMARY_COLUMNS,
@@ -72,8 +78,8 @@ async function searchUsers(c: ToolContext, input: Input) {
       and(
         eq(actors.isPrivate, 0),
         or(
-          like(actors.preferredUsername, `%${query}%`),
-          like(actors.name, `%${query}%`),
+          sql`${actors.preferredUsername} LIKE ${`%${escapeLike(query)}%`} ESCAPE '\\'`,
+          sql`${actors.name} LIKE ${`%${escapeLike(query)}%`} ESCAPE '\\'`,
         ),
       ),
     )
@@ -103,7 +109,7 @@ async function searchPosts(c: ToolContext, input: Input) {
     .from(objects)
     .where(
       and(
-        like(objects.content, `%${query}%`),
+        sql`${objects.content} LIKE ${`%${escapeLike(query)}%`} ESCAPE '\\'`,
         eq(objects.visibility, "public"),
         NO_AUDIENCE_PREDICATE,
         isNull(objects.deletedAt),

@@ -9,6 +9,10 @@ import { and, count, eq, gt } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, bookmarks, likes, objects } from "../../../db/index.ts";
 import {
+  MAX_POST_CONTENT_LENGTH,
+  normalizeVisibility,
+} from "../posts/transformers.ts";
+import {
   errAuth,
   errNotFound,
   errRequired,
@@ -33,10 +37,20 @@ export async function handleCreatePost(
 
   const db = c.get("db");
   const content = requireString(input, "content");
-  const visibility = String(input.visibility || "public");
+  // Constrain visibility to the canonical enum (unknown → "public"), matching
+  // the web post route; a raw value would be invisible to every feed filter.
+  const visibility = normalizeVisibility(String(input.visibility || "public"));
   const inReplyTo = input.in_reply_to ? String(input.in_reply_to) : null;
 
   if (!content) return c.json(errRequired("Content"), 400);
+  // Enforce the same content cap as the canonical post route so this MCP path
+  // can't store an oversized Note that then federates + renders everywhere.
+  if (content.length > MAX_POST_CONTENT_LENGTH) {
+    return c.json(
+      { success: false, error: "Content too long" } as ToolResponse,
+      400,
+    );
+  }
 
   const postId = crypto.randomUUID();
   const now = new Date().toISOString();

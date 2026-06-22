@@ -480,15 +480,17 @@ stories.post("/:id/share", async (c) => {
 // Get share count for a story
 stories.get("/:id/shares", async (c) => {
   const db = c.get("db");
+  const actor = c.get("actor");
   const baseUrl = c.env.APP_URL;
   const apId = resolveStoryApId(c.req.param("id"), baseUrl);
 
-  const story = await db
-    .select({ shareCount: objects.shareCount })
-    .from(objects)
-    .where(and(eq(objects.apId, apId), eq(objects.type, "Story")))
-    .get();
+  // Full row (not just shareCount) so the visibility gate can read
+  // attributedTo / communityApId, mirroring the view/vote/like handlers.
+  const story = await findStory(db, apId);
   if (!story) return c.json({ error: "Story not found" }, 404);
+  if (!(await canViewerReadStory(db, story, actor?.ap_id))) {
+    return c.json({ error: "Story not found" }, 404);
+  }
 
   return c.json({ share_count: story.shareCount || 0 });
 });
@@ -505,6 +507,13 @@ stories.get("/:id/votes", async (c) => {
 
   const story = await findStory(db, apId);
   if (!story) return c.json({ error: "Story not found" }, 404);
+  // Gate the poll tally behind the same visibility rule as the view/vote
+  // handlers — a non-follower / non-member (or anonymous) must not read the
+  // tally of a followers-only / private-community story. 404 (not 403) so the
+  // gate isn't a story-existence oracle.
+  if (!(await canViewerReadStory(db, story, actor?.ap_id))) {
+    return c.json({ error: "Story not found" }, 404);
+  }
 
   const votes = await getVoteCounts(db, apId);
 

@@ -26,6 +26,7 @@ import {
   actors,
   communities,
   communityMembers,
+  follows,
   objects,
   storyVotes,
 } from "../../../db/index.ts";
@@ -488,6 +489,14 @@ test("story /:id/votes accepts a full story ap_id (matches like/share routes)", 
     actorApId: voter,
     optionIndex: 0,
   });
+  // The voter can read the story (accepted follow) — the votes/shares read is
+  // gated by canViewerReadStory just like the view/vote/like handlers.
+  await db.insert(follows).values({
+    followerApId: voter,
+    followingApId: author,
+    status: "accepted",
+    acceptedAt: new Date().toISOString(),
+  });
 
   const app = appWith(db, fakeActor(voter, "voter"), storyInteractionRoutes);
   const res = await app.fetch(
@@ -502,6 +511,40 @@ test("story /:id/votes accepts a full story ap_id (matches like/share routes)", 
   const body = (await res.json()) as { total: number; user_vote?: number };
   expect(body.total).toEqual(1);
   expect(body.user_vote).toEqual(0);
+});
+
+test("story /:id/votes + /:id/shares deny a non-follower (no poll-tally leak)", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author");
+  const stranger = await insertLocalActor(db, "stranger"); // not a follower
+  const storyApId = `${APP_URL}/ap/objects/story-gated`;
+
+  await db.insert(objects).values({
+    apId: storyApId,
+    type: "Story",
+    attributedTo: author,
+    content: "poll",
+    visibility: "public",
+    shareCount: 3,
+    published: new Date().toISOString(),
+    endTime: new Date(Date.now() + 86_400_000).toISOString(),
+  });
+
+  const app = appWith(
+    db,
+    fakeActor(stranger, "stranger"),
+    storyInteractionRoutes,
+  );
+  for (const path of ["votes", "shares"]) {
+    const res = await app.fetch(
+      new Request(`${APP_URL}/${encodeURIComponent(storyApId)}/${path}`, {
+        method: "GET",
+      }),
+      envFor(db),
+    );
+    // A non-follower must not read the tally/count — 404 (not a 403 oracle).
+    expect(res.status).toEqual(404);
+  }
 });
 
 // ---------------------------------------------------------------------------

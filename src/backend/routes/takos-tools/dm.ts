@@ -20,7 +20,10 @@ import {
   objectApId,
   safeJsonParse,
 } from "../../federation-helpers.ts";
-import { getConversationId } from "../dm/query-helpers.ts";
+import {
+  getConversationId,
+  MAX_DM_CONTENT_LENGTH,
+} from "../dm/query-helpers.ts";
 import {
   errAuth,
   errNotFound,
@@ -29,6 +32,7 @@ import {
   requireString,
   resolveDmPartner,
   toolLimit,
+  type ToolResponse,
 } from "../takos-tools-response.ts";
 import type { Input, ToolContext } from "./types.ts";
 
@@ -49,6 +53,13 @@ export async function handleSendDm(
   const content = requireString(input, "content");
   if (!recipient || !content) {
     return c.json(errRequired("Recipient and content"), 400);
+  }
+  // Same content cap as the canonical DM route.
+  if (content.length > MAX_DM_CONTENT_LENGTH) {
+    return c.json(
+      { success: false, error: "Content too long" } as ToolResponse,
+      400,
+    );
   }
 
   const target = await db
