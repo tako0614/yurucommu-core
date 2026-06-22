@@ -139,6 +139,9 @@ function extractHashtags(content: string): string[] {
 // in JS (SQLite has no REGEXP). This bounds memory; if a scan hits the ceiling we
 // log so deep results on a busy instance aren't silently dropped.
 const HASHTAG_SEARCH_SCAN_CAP = 1000;
+// Per-source (local + cached) row cap for actor search before the union/sort/
+// slice. Generous for a single-user instance; bounds the in-memory merge.
+const ACTOR_SEARCH_SCAN_CAP = 200;
 
 // Trigram FTS5 indexes 3-grams, so it cannot match a query shorter than 3 chars.
 const FTS_MIN_QUERY_LEN = 3;
@@ -314,6 +317,8 @@ search.get("/actors", async (c) => {
     ALLOWED_ACTOR_SORTS,
     "relevance",
   );
+  const limit = parseLimit(c.req.query("limit"), 20, 50);
+  const offset = parseOffset(c.req.query("offset"), 0, 10000);
   const lowerQuery = query.toLowerCase();
 
   const orderByClause =
@@ -341,7 +346,7 @@ search.get("/actors", async (c) => {
         ),
       )
       .orderBy(...orderByClause)
-      .limit(20),
+      .limit(ACTOR_SEARCH_SCAN_CAP),
     // Previously-discovered remote actors live in actorCache (populated by the
     // /remote webfinger lookup). Consult it here so an account someone already
     // found stays re-findable by name/username without re-typing the full
@@ -361,7 +366,7 @@ search.get("/actors", async (c) => {
           likeContains(actorCache.name, query),
         ),
       )
-      .limit(20),
+      .limit(ACTOR_SEARCH_SCAN_CAP),
   ]);
 
   // UNION local + cached, with local taking priority on apId collision.
@@ -406,7 +411,15 @@ search.get("/actors", async (c) => {
     });
   }
 
-  const result = actorRows.map((a) => ({
+  // Page the merged+sorted set in app code (the two underlying queries are each
+  // scan-capped, then unioned/sorted, so SQL LIMIT/OFFSET cannot paginate the
+  // combined result — same shape as the hashtag handler). has_more is exact up
+  // to the scan cap.
+  const total = actorRows.length;
+  const pageRows = actorRows.slice(offset, offset + limit);
+  const has_more = offset + pageRows.length < total;
+
+  const result = pageRows.map((a) => ({
     ap_id: a.apId,
     preferred_username: a.preferredUsername,
     name: a.name,
@@ -417,7 +430,7 @@ search.get("/actors", async (c) => {
     username: formatUsername(a.apId),
   }));
 
-  return c.json({ actors: result });
+  return c.json({ actors: result, limit, offset, has_more });
 });
 
 /**
@@ -431,8 +444,11 @@ search.get("/posts", async (c) => {
   const actor = c.get("actor");
   const db = c.get("db");
   const sort = validateSort(c.req.query("sort"), ALLOWED_POST_SORTS, "recent");
+  const limit = parseLimit(c.req.query("limit"), 20, 50);
+  const offset = parseOffset(c.req.query("offset"), 0, 10000);
 
-  const posts = await db
+  // Fetch one extra past the page to report has_more without a COUNT.
+  const rows = await db
     .select({
       apId: objects.apId,
       attributedTo: objects.attributedTo,
@@ -443,9 +459,18 @@ search.get("/posts", async (c) => {
     .from(objects)
     .where(publicSearchableWhere(postContentSearchPredicate(query)))
     .orderBy(...postOrderByDrizzle(sort))
-    .limit(50);
+    .limit(limit + 1)
+    .offset(offset);
 
-  return c.json({ posts: await enrichPosts(db, posts, actor?.ap_id) });
+  const has_more = rows.length > limit;
+  const posts = has_more ? rows.slice(0, limit) : rows;
+
+  return c.json({
+    posts: await enrichPosts(db, posts, actor?.ap_id),
+    limit,
+    offset,
+    has_more,
+  });
 });
 
 /**
