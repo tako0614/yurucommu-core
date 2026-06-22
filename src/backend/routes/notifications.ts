@@ -33,14 +33,20 @@ import {
 import { batchLoadActorInfo } from "./communities/membership-shared.ts";
 import { requireActor } from "./actors-helpers.ts";
 import { communityReadableApIds } from "../lib/community-visibility.ts";
+import { chunkForInClause } from "../lib/chunk.ts";
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const ARCHIVE_RETENTION_DAYS = 90;
 const ARCHIVED_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-const MAX_ARCHIVE_BATCH_SIZE = 100;
-const MAX_READ_BATCH_SIZE = 100;
-const ARCHIVE_CREATE_BATCH_SIZE = 100;
+// Client-facing batch caps. <=90 because each id is re-queried via
+// `inArray(..., body.ids)` plus an `eq()` param, and Cloudflare D1 caps a query
+// at 100 bound parameters (libsql, used by tests, allows ~32k and hides this).
+const MAX_ARCHIVE_BATCH_SIZE = 90;
+const MAX_READ_BATCH_SIZE = 90;
+// Multi-row INSERT chunk: each archive row binds 3 columns, so a chunk of N
+// rows uses 3*N bound params. 30*3 = 90, under D1's 100-param ceiling.
+const ARCHIVE_CREATE_BATCH_SIZE = 30;
 const ARCHIVE_ALL_CAP = 1000;
 const NOTIFICATION_ACTIVITY_TYPES = ["Follow", "Like", "Announce", "Create"];
 
@@ -123,14 +129,21 @@ async function cleanupArchivedNotifications(
 
   const activityApIds = archivedToDelete.map((a) => a.activityApId);
 
-  await db
-    .delete(inboxTable)
-    .where(
-      and(
-        eq(inboxTable.actorApId, actorApId),
-        inArray(inboxTable.activityApId, activityApIds),
-      ),
-    );
+  // Chunk the IN(...) delete: a user can accumulate far more than 100 expired
+  // archived rows, and D1 caps a query at 100 bound parameters — an unbounded
+  // inArray here threw "too many SQL variables", which (since this delete runs
+  // before the archived-rows delete below) left the rows undrained and 500'd
+  // the GET /notifications + /unread/count paths permanently for that user.
+  for (const ids of chunkForInClause(activityApIds)) {
+    await db
+      .delete(inboxTable)
+      .where(
+        and(
+          eq(inboxTable.actorApId, actorApId),
+          inArray(inboxTable.activityApId, ids),
+        ),
+      );
+  }
 
   await db
     .delete(notificationArchived)

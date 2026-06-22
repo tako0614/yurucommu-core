@@ -3,7 +3,10 @@ import { Hono } from "hono";
 
 import notificationRoutes from "../../routes/notifications.ts";
 
-const MAX_BATCH = 100;
+// Matches MAX_READ_BATCH_SIZE / MAX_ARCHIVE_BATCH_SIZE in the route — capped at
+// 90 so the per-id `inArray(..., body.ids)` re-query stays under D1's 100-bound-
+// parameter limit.
+const MAX_BATCH = 90;
 
 /**
  * Minimal DB stub. The batch-size cap is enforced before any DB access, so the

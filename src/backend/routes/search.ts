@@ -24,6 +24,7 @@ import {
   tryParseRemoteActor,
 } from "../lib/activitypub-validators.ts";
 import { logger } from "../lib/logger.ts";
+import { chunkForInClause } from "../lib/chunk.ts";
 import { withCache } from "../middleware/cache.ts";
 
 const log = logger.child({ component: "search" });
@@ -227,13 +228,21 @@ async function loadLikedPostIds(
 ): Promise<Set<string>> {
   if (!actorApId || postApIds.length === 0) return new Set();
 
-  const likeRows = await db
-    .select({ objectApId: likes.objectApId })
-    .from(likes)
-    .where(
-      and(eq(likes.actorApId, actorApId), inArray(likes.objectApId, postApIds)),
-    );
-  return new Set(likeRows.map((l) => l.objectApId));
+  // Chunk the IN(...) lookup: a full hashtag-search page is up to 100 post ids
+  // and D1 caps a query at 100 bound parameters (the extra eq() param pushes a
+  // 100-id IN over the edge). Chunks are disjoint id slices, so unioning the
+  // liked-id sets is collision-free.
+  const liked = new Set<string>();
+  for (const ids of chunkForInClause(postApIds)) {
+    const likeRows = await db
+      .select({ objectApId: likes.objectApId })
+      .from(likes)
+      .where(
+        and(eq(likes.actorApId, actorApId), inArray(likes.objectApId, ids)),
+      );
+    for (const l of likeRows) liked.add(l.objectApId);
+  }
+  return liked;
 }
 
 type PostRow = {
