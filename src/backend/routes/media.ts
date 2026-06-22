@@ -220,21 +220,28 @@ media.post("/upload", async (c) => {
     }
     // Stream the file body directly to R2 rather than materializing a full
     // ArrayBuffer in memory, keeping the upload path memory-safe.
-    const r2Upload = media.put(r2Key, file.stream(), {
+    await media.put(r2Key, file.stream(), {
       httpMetadata: { contentType },
     });
 
-    // Record ownership and upload to R2 in parallel
+    // Record ownership AFTER the blob lands. If the DB write fails, delete the
+    // now-unreferenced blob: the media GC reaps R2 by iterating media_uploads
+    // rows, so a blob with NO DB record can never be reaped and would leak
+    // forever. (Previously the put + insert ran in Promise.all, so a DB failure
+    // while the put succeeded orphaned the blob.)
     const db = c.get("db");
-    const dbRecord = db.insert(mediaUploads).values({
-      id,
-      r2Key,
-      uploaderApId: actor.ap_id,
-      contentType,
-      size: file.size,
-    });
-
-    await Promise.all([r2Upload, dbRecord]);
+    try {
+      await db.insert(mediaUploads).values({
+        id,
+        r2Key,
+        uploaderApId: actor.ap_id,
+        contentType,
+        size: file.size,
+      });
+    } catch (dbError) {
+      await media.delete(r2Key).catch(() => {});
+      throw dbError;
+    }
 
     const url = `/media/${filename}`;
 
