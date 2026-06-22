@@ -147,3 +147,67 @@ test("DM messages paginate: has_more + before fetches the older page", async () 
   expect(page2.has_more).toBe(false);
   expect(page2.messages.map((m) => m.created_at)).toEqual([stamps[0]]);
 });
+
+test("DM load-older composite cursor does not skip a same-millisecond message", async () => {
+  const db = await freshDb();
+  const alice = `${APP_URL}/ap/users/alice`;
+  const bob = `${APP_URL}/ap/users/bob`;
+  await seedActor(db, alice, "alice");
+  await seedActor(db, bob, "bob");
+
+  const conversation = getConversationId(APP_URL, alice, bob);
+  // dm-1 and dm-2 share an EXACT published ms; the page boundary (limit 2) falls
+  // between them. A bare-published cursor would skip the one that falls onto the
+  // next page; the composite (published, apId) cursor must reach all four.
+  const stamps = [
+    "2026-06-21T10:00:00.000Z", // dm-0 (oldest)
+    "2026-06-21T10:00:01.000Z", // dm-1 (tie)
+    "2026-06-21T10:00:01.000Z", // dm-2 (tie)
+    "2026-06-21T10:00:02.000Z", // dm-3 (newest)
+  ];
+  const all = new Set<string>();
+  for (let i = 0; i < stamps.length; i++) {
+    const apId = `${APP_URL}/ap/objects/dm-${i}`;
+    all.add(apId);
+    await db.insert(objects).values({
+      apId,
+      type: "Note",
+      attributedTo: alice,
+      content: `msg ${i}`,
+      visibility: "direct",
+      toJson: JSON.stringify([bob]),
+      ccJson: "[]",
+      conversation,
+      published: stamps[i],
+      isLocal: 1,
+    });
+  }
+
+  const app = appWith(db, fakeActor(alice, "alice"));
+  const env = { APP_URL, DB_INSTANCE: db } as unknown as Env;
+
+  const seen = new Set<string>();
+  let before: string | null = null;
+  for (let guard = 0; guard < 10; guard++) {
+    const qs = before
+      ? `?limit=2&before=${encodeURIComponent(before)}`
+      : "?limit=2";
+    const res = await app.fetch(
+      new Request(`${APP_URL}/user/${encodeURIComponent(bob)}/messages${qs}`),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const page = (await res.json()) as MessagesResponse;
+    for (const m of page.messages) {
+      expect(seen.has(m.id)).toBe(false); // no overlap
+      seen.add(m.id);
+    }
+    if (!page.has_more) break;
+    // The client builds the composite cursor from the oldest shown message.
+    const oldest = page.messages[0];
+    before = `${oldest.created_at} ${oldest.id}`;
+  }
+
+  expect(seen.size).toEqual(all.size);
+  for (const id of all) expect(seen.has(id)).toBe(true);
+});

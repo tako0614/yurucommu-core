@@ -179,14 +179,14 @@ export function DMChatPanel(props: DMChatPanelProps) {
     const el = scrollContainerRef;
     const prevHeight = el?.scrollHeight ?? 0;
     try {
+      // Composite cursor "<published> <apId>" so a same-millisecond message at
+      // the boundary isn't skipped (server falls back to a legacy bare-published
+      // cursor if no space is present). `oldest.id` is the message apId.
+      const cursor = `${oldest.created_at} ${oldest.id}`;
       const { messages: older, hasMore } =
         sentType === "community"
-          ? await fetchCommunityMessages(sentApId, {
-              before: oldest.created_at,
-            })
-          : await fetchUserDMMessages(sentApId, {
-              before: oldest.created_at,
-            });
+          ? await fetchCommunityMessages(sentApId, { before: cursor })
+          : await fetchUserDMMessages(sentApId, { before: cursor });
       if (props.contact.ap_id !== sentApId || props.contact.type !== sentType) {
         return; // switched conversations mid-flight
       }

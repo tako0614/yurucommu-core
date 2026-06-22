@@ -3,7 +3,7 @@
 // Threading via conversation field
 
 import { Hono } from "hono";
-import { and, desc, eq, inArray, like, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, like, lt, or } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
   activities,
@@ -38,6 +38,12 @@ const log = logger.child({ component: "dm.messages" });
 // `.batch` lives only on the concrete D1/libsql subclasses, not the Database
 // union; reach it through a narrow structural cast (matching the other routes).
 type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
+
+// Separator for the message composite cursor "<published> <apId>". A space is
+// strictly less than every char in an ISO timestamp / https ap_id, so the
+// concatenated lexical order equals the (published, apId) tuple order. The
+// client builds the cursor as `${oldest.created_at} ${oldest.id}`.
+const MESSAGE_CURSOR_SEP = " ";
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -158,9 +164,21 @@ async function fetchAuthorizedMessages(
     eq(objects.conversation, conversationId),
   );
 
-  const whereClause = before
-    ? and(baseCondition!, lt(objects.published, before))
-    : baseCondition;
+  // Composite (published, apId) cursor so two messages sharing a published
+  // millisecond aren't skipped on a load-older that straddles that ms. `before`
+  // is "<published> <apId>"; a legacy published-only value is still accepted.
+  const cursor = (() => {
+    if (!before) return undefined;
+    const sepIdx = before.indexOf(MESSAGE_CURSOR_SEP);
+    if (sepIdx < 0) return lt(objects.published, before);
+    const cPublished = before.slice(0, sepIdx);
+    const cApId = before.slice(sepIdx + MESSAGE_CURSOR_SEP.length);
+    return or(
+      lt(objects.published, cPublished),
+      and(eq(objects.published, cPublished), lt(objects.apId, cApId)),
+    );
+  })();
+  const whereClause = cursor ? and(baseCondition!, cursor) : baseCondition;
 
   // Fetch one extra row to detect whether an older page exists. Project only the
   // 6 columns the formatter/authorization touch — a bare select() pulled every
@@ -177,7 +195,7 @@ async function fetchAuthorizedMessages(
     })
     .from(objects)
     .where(whereClause!)
-    .orderBy(desc(objects.published))
+    .orderBy(desc(objects.published), desc(objects.apId))
     .limit(limit + 1);
 
   // Defence-in-depth: re-validate authorization at the code level. (In practice
