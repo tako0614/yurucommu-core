@@ -67,6 +67,10 @@ export function PostVisibilityIndicator(props: {
       {(m) => (
         <span
           class="text-neutral-500 shrink-0 inline-flex items-center"
+          // role="img" is required for aria-label to be valid here — a bare
+          // <span> has the implicit `generic` role, on which aria-label is
+          // prohibited (the meaningful icon would then go unnamed for AT).
+          role="img"
           title={m().label}
           aria-label={m().label}
         >

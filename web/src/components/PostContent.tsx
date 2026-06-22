@@ -95,7 +95,10 @@ export function PostContent(props: PostContentProps) {
           return (
             <A
               href={tokenSearchHref(`${prefix}${part.value}`)}
-              class="text-accent hover:underline"
+              // Persistent underline (not hover-only): an inline link inside a
+              // text block must be distinguishable by more than color (WCAG
+              // 1.4.1). underline-offset keeps it readable against the text.
+              class="text-accent underline underline-offset-2"
               onClick={(e) => e.stopPropagation()}
             >
               {prefix}

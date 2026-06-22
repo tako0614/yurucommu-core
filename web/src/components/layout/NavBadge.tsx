@@ -12,6 +12,10 @@ export function NavBadge(props: NavBadgeProps) {
   return (
     <Show when={props.count > 0}>
       <span
+        // role="img" makes aria-label valid here — a bare <span> has the
+        // implicit `generic` role, which prohibits aria-label (the badge's
+        // "3 unread …" context would be dropped for assistive tech).
+        role="img"
         aria-label={props.label}
         class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center"
       >
