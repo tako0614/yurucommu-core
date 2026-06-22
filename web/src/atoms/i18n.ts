@@ -149,6 +149,9 @@ const translations = {
     "groups.descriptionPlaceholder": "コミュニティの説明を入力",
     "groups.join": "参加",
     "groups.leave": "退出",
+    "groups.leaveConfirmTitle": "コミュニティから退出しますか？",
+    "groups.leaveConfirmBody":
+      "もう一度参加するには再申請が必要な場合があります。",
     "groups.pending": "承認待ち",
     "groups.members": "メンバー",
     "groups.rooms": "ルーム",
@@ -579,6 +582,9 @@ const translations = {
     "settings.noMutedUsers": "ミュートしたユーザーはいません",
     "settings.unmute": "ミュート解除",
     "settings.logout": "ログアウト",
+    "settings.logoutConfirmTitle": "ログアウトしますか？",
+    "settings.logoutConfirmBody":
+      "もう一度ログインするにはパスワードが必要です。",
     "settings.deleteAccount": "アカウントを削除",
     "settings.deleteAccountWarning":
       "この操作は取り消せません。すべての投稿・いいね・フォローが削除されます。",
@@ -807,6 +813,8 @@ const translations = {
     "groups.descriptionPlaceholder": "Enter community description",
     "groups.join": "Join",
     "groups.leave": "Leave",
+    "groups.leaveConfirmTitle": "Leave this community?",
+    "groups.leaveConfirmBody": "You may need to request to join again.",
     "groups.pending": "Pending",
     "groups.members": "Members",
     "groups.rooms": "Rooms",
@@ -1235,6 +1243,8 @@ const translations = {
     "settings.noMutedUsers": "No muted users",
     "settings.unmute": "Unmute",
     "settings.logout": "Logout",
+    "settings.logoutConfirmTitle": "Log out?",
+    "settings.logoutConfirmBody": "You'll need your password to sign back in.",
     "settings.deleteAccount": "Delete Account",
     "settings.deleteAccountWarning":
       "This action cannot be undone. All posts, likes, and follows will be deleted.",

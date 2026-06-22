@@ -171,6 +171,8 @@ export function DMPage() {
   // Touch handling for swipe
   let touchStartX = 0;
   let touchEndX = 0;
+  let touchStartY = 0;
+  let touchEndY = 0;
 
   // Memoize error message to prevent unnecessary re-renders
   const errorMessage = createMemo(() => t("common.error"));
@@ -334,21 +336,30 @@ export function DMPage() {
 
   const handleTouchStart = (e: TouchEvent) => {
     touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    // Seed the end coords so a tap (no move event) can't reuse a stale delta
+    // from a previous gesture and phantom-switch tabs.
+    touchEndX = touchStartX;
+    touchEndY = touchStartY;
   };
 
   const handleTouchMove = (e: TouchEvent) => {
     touchEndX = e.touches[0].clientX;
+    touchEndY = e.touches[0].clientY;
   };
 
   const handleTouchEnd = () => {
-    const diff = touchStartX - touchEndX;
+    const diffX = touchStartX - touchEndX;
+    const diffY = touchStartY - touchEndY;
     const threshold = 50;
     const currentIndex = tabs.indexOf(activeTab());
 
-    if (Math.abs(diff) > threshold) {
-      if (diff > 0 && currentIndex < tabs.length - 1) {
+    // Only treat as a horizontal tab-swipe when horizontal motion dominates —
+    // a vertical list scroll with slight horizontal drift must not switch tabs.
+    if (Math.abs(diffX) > threshold && Math.abs(diffX) > Math.abs(diffY)) {
+      if (diffX > 0 && currentIndex < tabs.length - 1) {
         setActiveTab(tabs[currentIndex + 1]);
-      } else if (diff < 0 && currentIndex > 0) {
+      } else if (diffX < 0 && currentIndex > 0) {
         setActiveTab(tabs[currentIndex - 1]);
       }
     }

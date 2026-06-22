@@ -1,4 +1,4 @@
-import { createEffect, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
@@ -15,6 +15,7 @@ import {
   switchAccountAtom,
 } from "../../atoms/timeline.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
+import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import {
   BookmarkIconMenu,
   ProfileIconMenu,
@@ -108,6 +109,8 @@ export function AppMenu() {
   const doLoadAccounts = useSetAtom(loadAccountsAtom);
   const doSwitchAccount = useSetAtom(switchAccountAtom);
   const doLogout = useSetAtom(logoutAtom);
+  const [confirmLogout, setConfirmLogout] = createSignal(false);
+  const [loggingOut, setLoggingOut] = createSignal(false);
 
   let drawerRef: HTMLDivElement | undefined;
 
@@ -130,6 +133,7 @@ export function AppMenu() {
   const handleLogout = async () => {
     // Route through logoutAtom so the observation scope is reset (resetScope);
     // a direct lib/api logout would leave the previous owner's community lens.
+    setLoggingOut(true);
     try {
       await doLogout();
     } catch {
@@ -356,7 +360,7 @@ export function AppMenu() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleLogout}
+                  onClick={() => setConfirmLogout(true)}
                   class="w-full flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors text-left"
                 >
                   <LogoutIcon />
@@ -364,6 +368,16 @@ export function AppMenu() {
                 </button>
               </nav>
             </div>
+            <ConfirmSheet
+              open={confirmLogout()}
+              title={t("settings.logoutConfirmTitle")}
+              body={t("settings.logoutConfirmBody")}
+              confirmLabel={t("settings.logout")}
+              destructive
+              busy={loggingOut()}
+              onConfirm={handleLogout}
+              onCancel={() => setConfirmLogout(false)}
+            />
           </div>
         );
       })()}

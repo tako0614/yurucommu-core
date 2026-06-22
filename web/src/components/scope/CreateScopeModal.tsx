@@ -204,7 +204,13 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
                 <Show
                   when={isReserved()}
                   fallback={
-                    <p class="mt-1 text-xs text-neutral-500">
+                    <p
+                      class={`mt-1 text-xs ${
+                        name().trim().length > 0 && !isNameValid(name())
+                          ? "text-amber-400"
+                          : "text-neutral-500"
+                      }`}
+                    >
                       {t("scope.createNameHint")}
                     </p>
                   }

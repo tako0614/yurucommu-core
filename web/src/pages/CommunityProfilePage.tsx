@@ -48,6 +48,8 @@ export function CommunityProfilePage() {
     request: CommunityJoinRequest;
     action: "accept" | "reject";
   } | null>(null);
+  // Leave action staged so the shared ConfirmSheet can gate the destructive op.
+  const [confirmLeave, setConfirmLeave] = createSignal(false);
   const params = useParams();
   const navigate = useNavigate();
   const [community, setCommunity] = createSignal<CommunityDetail | null>(null);
@@ -232,6 +234,7 @@ export function CommunityProfilePage() {
       setError(t("common.error"));
     } finally {
       setJoining(false);
+      setConfirmLeave(false);
     }
   };
 
@@ -503,7 +506,7 @@ export function CommunityProfilePage() {
             community={community()!}
             joining={joining()}
             onJoin={handleJoin}
-            onLeave={handleLeave}
+            onLeave={() => setConfirmLeave(true)}
             chatPath={`/dm?c=${encodeURIComponent(community()!.ap_id)}`}
           />
           {/* Tabs */}
@@ -608,6 +611,16 @@ export function CommunityProfilePage() {
         destructive={pendingRequest()?.action === "reject"}
         onConfirm={confirmRequest}
         onCancel={() => setPendingRequest(null)}
+      />
+      <ConfirmSheet
+        open={confirmLeave()}
+        title={t("groups.leaveConfirmTitle")}
+        body={t("groups.leaveConfirmBody")}
+        confirmLabel={t("groups.leave")}
+        destructive
+        busy={joining()}
+        onConfirm={handleLeave}
+        onCancel={() => setConfirmLeave(false)}
       />
       <Show when={invitePromptOpen()}>
         <Portal>
