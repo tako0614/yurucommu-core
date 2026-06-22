@@ -131,28 +131,36 @@ export function registerMembershipMemberRoutes(
         return c.json({ error: "User is not a member" }, 404);
       }
 
-      // Can't demote yourself if you're the last owner
+      // Can't demote yourself if you're the last owner. Enforced ATOMICALLY:
+      // a count(owners) > 1 check then a separate UPDATE is a TOCTOU two
+      // concurrent owners can both pass → zero owners. Condition the role change
+      // on another owner still existing; D1 serializes the two updates so the
+      // second sees the first already demoted. Re-read for an accurate message
+      // (driver-agnostic — no reliance on affected-row counts).
       if (
         targetApId === actor.ap_id &&
         targetMembership.role === "owner" &&
         body.role !== "owner"
       ) {
-        const ownerCountResult = await db
-          .select({ count: count() })
-          .from(communityMembers)
+        const anotherOwnerExists = sql`EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${community.apId} AND ${communityMembers.role} = 'owner' AND ${communityMembers.actorApId} <> ${actor.ap_id})`;
+        await db
+          .update(communityMembers)
+          .set({ role: body.role })
           .where(
-            and(
-              eq(communityMembers.communityApId, community.apId),
-              eq(communityMembers.role, "owner"),
-            ),
-          )
+            and(memberWhere(community.apId, targetApId), anotherOwnerExists),
+          );
+        const after = await db
+          .select({ role: communityMembers.role })
+          .from(communityMembers)
+          .where(memberWhere(community.apId, targetApId))
           .get();
-        if ((ownerCountResult?.count ?? 0) <= 1) {
+        if (after?.role === "owner") {
           return c.json(
             { error: "Cannot demote: you are the only owner" },
             400,
           );
         }
+        return c.json({ success: true });
       }
 
       await db

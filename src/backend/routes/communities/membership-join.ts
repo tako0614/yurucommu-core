@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, count, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
 import {
   affectedRowCount,
   communities,
@@ -12,6 +12,7 @@ import {
   fetchCommunityDetails,
   memberWhere,
   removeMemberAtomic,
+  removeOwnerIfAnotherExists,
 } from "./membership-shared.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import { logger } from "../../lib/logger.ts";
@@ -284,21 +285,21 @@ export function registerMembershipJoinRoutes(
         return c.json({ error: "Not a member" }, 400);
       }
 
-      // Don't allow the last owner to leave
+      // Don't allow the last owner to leave. Enforced ATOMICALLY rather than as
+      // a count(owners) > 1 check then a separate delete — that is a TOCTOU two
+      // concurrent owners can both pass, leaving the community with ZERO owners.
+      // removeOwnerIfAnotherExists conditions the delete on another owner still
+      // existing and reports whether it removed.
       if (membership.role === "owner") {
-        const ownerCountResult = await db
-          .select({ count: count() })
-          .from(communityMembers)
-          .where(
-            and(
-              eq(communityMembers.communityApId, community.apId),
-              eq(communityMembers.role, "owner"),
-            ),
-          )
-          .get();
-        if ((ownerCountResult?.count ?? 0) <= 1) {
+        const removed = await removeOwnerIfAnotherExists(
+          db,
+          community.apId,
+          actor.ap_id,
+        );
+        if (!removed) {
           return c.json({ error: "Cannot leave: you are the only owner" }, 400);
         }
+        return c.json({ success: true });
       }
 
       await removeMemberAtomic(db, community.apId, actor.ap_id);

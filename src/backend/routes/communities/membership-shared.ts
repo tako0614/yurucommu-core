@@ -49,6 +49,55 @@ export async function removeMemberAtomic(
 }
 
 /**
+ * Atomically remove an OWNER only if ANOTHER owner still remains. Returns false
+ * (nothing removed) when the actor is the last owner.
+ *
+ * A plain `count(owners) > 1` check followed by a separate delete is a TOCTOU:
+ * two concurrent last-owner leaves both read count=2, both pass, both delete →
+ * the community is orphaned with ZERO owners. Conditioning the delete (and its
+ * memberCount decrement) on `EXISTS(another owner)` evaluated INSIDE the
+ * statement closes the window: D1 serializes the two deletes, so the second one
+ * to execute sees the first already gone and matches 0 rows.
+ */
+export async function removeOwnerIfAnotherExists(
+  db: Database,
+  communityApIdVal: string,
+  actorApIdVal: string,
+): Promise<boolean> {
+  const anotherOwnerExists = sql`EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${communityApIdVal} AND ${communityMembers.role} = 'owner' AND ${communityMembers.actorApId} <> ${actorApIdVal})`;
+  const memberExists = sql`EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${communityApIdVal} AND ${communityMembers.actorApId} = ${actorApIdVal})`;
+  await (db as unknown as Batchable).batch([
+    db
+      .update(communities)
+      .set({ memberCount: sql`${communities.memberCount} - 1` })
+      .where(
+        and(
+          eq(communities.apId, communityApIdVal),
+          gt(communities.memberCount, 0),
+          memberExists,
+          anotherOwnerExists,
+        ),
+      ),
+    db
+      .delete(communityMembers)
+      .where(
+        and(memberWhere(communityApIdVal, actorApIdVal), anotherOwnerExists),
+      ),
+  ]);
+  // Re-read whether the row is gone rather than trusting a batch affected-row
+  // count (its shape differs between D1 and the libsql test driver). The member
+  // row is keyed by (community, actor) and only this actor's leave touches it,
+  // so this read is reliable. Absent → removed (another owner existed); present
+  // → not removed (the actor was the last owner).
+  const stillMember = await db
+    .select({ actorApId: communityMembers.actorApId })
+    .from(communityMembers)
+    .where(memberWhere(communityApIdVal, actorApIdVal))
+    .get();
+  return !stillMember;
+}
+
+/**
  * Atomically add a member and increment memberCount in ONE batch. The increment
  * is guarded by `NOT EXISTS(member)` so a duplicate concurrent add (or a retry)
  * cannot double-count; the insert is onConflictDoNothing. Mirrors the open-join
