@@ -76,6 +76,7 @@ async function insertNote(
     communityApId: string | null;
     visibility: string;
     content: string;
+    published?: string;
   },
 ): Promise<void> {
   await db.insert(objects).values({
@@ -87,6 +88,7 @@ async function insertNote(
     audienceJson: JSON.stringify(opts.audience),
     toJson: JSON.stringify(opts.audience),
     communityApId: opts.communityApId,
+    published: opts.published ?? new Date().toISOString(),
     isLocal: 1,
   });
 }
@@ -143,4 +145,63 @@ test("own profile feed excludes group-chat messages, keeps personal + community-
   expect(contents).toContain("personal post");
   expect(contents).toContain("community feed post");
   expect(contents).not.toContain("group chat message");
+});
+
+test("profile posts paginate: has_more + composite cursor reach every post (no same-ms skip)", async () => {
+  const db = await freshDb();
+  const alice = await insertActor(db);
+
+  const all = new Set<string>();
+  // 5 personal public posts. Posts 2 & 3 share an EXACT published ms — a bare
+  // published cursor would skip one at the page boundary; apId tiebreaks.
+  const times = [
+    "2026-02-01T00:00:05.000Z",
+    "2026-02-01T00:00:04.000Z",
+    "2026-02-01T00:00:03.000Z", // tie
+    "2026-02-01T00:00:03.000Z", // tie
+    "2026-02-01T00:00:01.000Z",
+  ];
+  for (let i = 0; i < times.length; i++) {
+    const id = `pp-${i}`;
+    await insertNote(db, {
+      id,
+      audience: [],
+      communityApId: null,
+      visibility: "public",
+      content: `post ${i}`,
+      published: times[i],
+    });
+    all.add(`${APP_URL}/ap/objects/${id}`);
+  }
+
+  const a = app(db, alice);
+  const seen = new Set<string>();
+  let before: string | null = null;
+  for (let guard = 0; guard < 10; guard++) {
+    const qs = before
+      ? `?limit=2&before=${encodeURIComponent(before)}`
+      : "?limit=2";
+    const res = await a.fetch(
+      new Request(`${APP_URL}/${encodeURIComponent(ALICE)}/posts${qs}`, {
+        method: "GET",
+      }),
+      { APP_URL, DB_INSTANCE: db } as unknown as Env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      posts: Array<{ ap_id: string }>;
+      has_more: boolean;
+      next_cursor: string | null;
+    };
+    for (const p of body.posts) {
+      expect(seen.has(p.ap_id)).toBe(false);
+      seen.add(p.ap_id);
+    }
+    if (!body.has_more) break;
+    expect(body.next_cursor).toBeTruthy();
+    before = body.next_cursor;
+  }
+
+  expect(seen.size).toEqual(all.size);
+  for (const id of all) expect(seen.has(id)).toBe(true);
 });

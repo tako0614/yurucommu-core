@@ -82,6 +82,11 @@ import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "actors" });
 
+// Separator for the profile-posts composite cursor "<published> <apId>". A space
+// is strictly less than every char in an ISO timestamp / https ap_id, so the
+// concatenated lexical order equals the (published, apId) tuple order.
+const ACTOR_POSTS_CURSOR_SEP = " ";
+
 // Mastodon-parity profile metadata limits. Mastodon caps profile fields at 4
 // rows with bounded name/value lengths; we mirror that to keep the served
 // actor document and federated Update(Person) bounded.
@@ -849,7 +854,22 @@ actorsRoute.get("/:identifier/posts", async (c) => {
     conditions.push(eq(objects.audienceJson, "[]"));
   }
   if (before) {
-    conditions.push(lt(objects.published, before));
+    // Composite (published, apId) cursor so posts sharing a published
+    // millisecond aren't skipped at a page boundary (published is not unique).
+    // `before` is "<published> <apId>"; a legacy published-only value still works.
+    const sepIdx = before.indexOf(ACTOR_POSTS_CURSOR_SEP);
+    if (sepIdx < 0) {
+      conditions.push(lt(objects.published, before));
+    } else {
+      const cPublished = before.slice(0, sepIdx);
+      const cApId = before.slice(sepIdx + ACTOR_POSTS_CURSOR_SEP.length);
+      conditions.push(
+        or(
+          lt(objects.published, cPublished),
+          and(eq(objects.published, cPublished), lt(objects.apId, cApId)),
+        )!,
+      );
+    }
   }
 
   // Project only the columns the response below reads — the profile feed must
@@ -874,8 +894,16 @@ actorsRoute.get("/:identifier/posts", async (c) => {
     })
     .from(objects)
     .where(and(...conditions))
-    .orderBy(desc(objects.published))
-    .limit(limit);
+    .orderBy(desc(objects.published), desc(objects.apId))
+    .limit(limit + 1);
+
+  const hasMore = posts.length > limit;
+  if (hasMore) posts.pop();
+  const lastPost = posts[posts.length - 1];
+  const nextCursor =
+    hasMore && lastPost
+      ? `${lastPost.published}${ACTOR_POSTS_CURSOR_SEP}${lastPost.apId}`
+      : null;
 
   const postApIds = posts.map((p) => p.apId);
   const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
@@ -914,7 +942,11 @@ actorsRoute.get("/:identifier/posts", async (c) => {
     };
   });
 
-  return c.json({ posts: resultList });
+  return c.json({
+    posts: resultList,
+    has_more: hasMore,
+    next_cursor: nextCursor,
+  });
 });
 
 // Get actor by AP ID or username

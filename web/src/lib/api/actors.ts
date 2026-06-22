@@ -29,10 +29,16 @@ export async function updateProfile(data: {
   await assertOk(res, "Failed to update profile");
 }
 
+export interface ActorPostsPage {
+  posts: Post[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 export async function fetchActorPosts(
   identifier: string,
   options?: { limit?: number; before?: string },
-): Promise<Post[]> {
+): Promise<ActorPostsPage> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
   if (options?.before) params.set("before", options.before);
@@ -41,8 +47,16 @@ export async function fetchActorPosts(
     `/api/actors/${encodeURIComponent(identifier)}/posts${query}`,
   );
   await assertOk(res, "Failed to fetch actor posts");
-  const data = (await res.json()) as { posts?: Post[] };
-  return (data.posts || []).map(normalizePost);
+  const data = (await res.json()) as {
+    posts?: Post[];
+    next_cursor?: string | null;
+    has_more?: boolean;
+  };
+  return {
+    posts: (data.posts || []).map(normalizePost),
+    nextCursor: data.next_cursor ?? null,
+    hasMore: data.has_more ?? false,
+  };
 }
 
 export async function fetchFollowers(identifier: string): Promise<Actor[]> {

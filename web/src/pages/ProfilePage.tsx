@@ -49,6 +49,7 @@ export function ProfilePage() {
   const [posts, setPosts] = createSignal<Post[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [postsHasMore, setPostsHasMore] = createSignal(false);
+  const [postsCursor, setPostsCursor] = createSignal<string | null>(null);
   const [loadingMorePosts, setLoadingMorePosts] = createSignal(false);
   const [isFollowing, setIsFollowing] = createSignal(false);
   // A private/remote follow can be pending the target's approval; track it so we
@@ -128,8 +129,9 @@ export function ProfilePage() {
         limit: PROFILE_POSTS_PAGE,
       });
       if (gen !== profileLoadGen) return;
-      setPosts(postsData);
-      setPostsHasMore(postsData.length >= PROFILE_POSTS_PAGE);
+      setPosts(postsData.posts);
+      setPostsCursor(postsData.nextCursor);
+      setPostsHasMore(postsData.hasMore);
     } catch (e) {
       if (gen !== profileLoadGen) return;
       console.error("Failed to load profile:", e);
@@ -139,20 +141,23 @@ export function ProfilePage() {
     }
   };
 
-  // Older posts: page back via the endpoint's published-timestamp cursor.
+  // Older posts: page back via the endpoint's composite (published, apId)
+  // cursor — a bare published cursor skips posts that share a millisecond.
   const loadMorePosts = async () => {
-    if (loadingMorePosts() || !postsHasMore()) return;
-    const current = posts();
-    const last = current[current.length - 1];
-    if (!last?.published) return;
+    const before = postsCursor();
+    if (loadingMorePosts() || !postsHasMore() || !before) return;
     setLoadingMorePosts(true);
     try {
       const more = await fetchActorPosts(targetActorId(), {
         limit: PROFILE_POSTS_PAGE,
-        before: last.published,
+        before,
       });
-      setPosts([...posts(), ...more]);
-      setPostsHasMore(more.length >= PROFILE_POSTS_PAGE);
+      setPosts((prev) => {
+        const seen = new Set(prev.map((p) => p.ap_id));
+        return [...prev, ...more.posts.filter((p) => !seen.has(p.ap_id))];
+      });
+      setPostsCursor(more.nextCursor);
+      setPostsHasMore(more.hasMore);
     } catch (e) {
       console.error("Failed to load more posts:", e);
       pushToast(setToasts, t("common.loadFailed"), { kind: "error" });
