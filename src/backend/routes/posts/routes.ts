@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { actors, follows, objects } from "../../../db/index.ts";
 import type { Database } from "../../../db/index.ts";
-import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import type { Actor, Env, Variables } from "../../types.ts";
 import {
   activityApId,
@@ -64,6 +64,11 @@ type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const PUBLIC_COLLECTION = "https://www.w3.org/ns/activitystreams#Public";
+
+// Separator for the replies composite cursor "<published> <apId>". A space is
+// strictly less than every char in an ISO timestamp / https ap_id, so the
+// concatenated lexical order equals the (published, apId) tuple order.
+const REPLY_CURSOR_SEP = " ";
 
 /** Reply row shape needed for the visibility gate (subset of the object row). */
 type ReplyVisibilityRow = {
@@ -496,25 +501,48 @@ posts.get("/:id/replies", async (c) => {
     return c.json({ error: "Post not found" }, 404);
   }
 
-  const whereCondition = before
-    ? and(
-        eq(objects.inReplyTo, parentPost.apId),
-        sql`${objects.published} < ${before}`,
-      )
-    : eq(objects.inReplyTo, parentPost.apId);
+  // Composite (published, apId) cursor so replies sharing a published
+  // millisecond aren't skipped at a page boundary (published is not unique;
+  // mirrors the feed cursor). `before` is "<published> <apId>"; a legacy
+  // published-only value (no separator) is still accepted.
+  const cursorPredicate = (() => {
+    if (!before) return undefined;
+    const sepIdx = before.indexOf(REPLY_CURSOR_SEP);
+    if (sepIdx < 0) return lt(objects.published, before);
+    const cPublished = before.slice(0, sepIdx);
+    const cApId = before.slice(sepIdx + REPLY_CURSOR_SEP.length);
+    return or(
+      lt(objects.published, cPublished),
+      and(eq(objects.published, cPublished), lt(objects.apId, cApId)),
+    );
+  })();
 
-  const allReplies = await db.query.objects.findMany({
-    where: whereCondition,
+  // Fetch limit+1 to compute has_more, then SLICE before the per-reply
+  // visibility filter. Advancing the cursor by the last SCANNED row (not the
+  // last readable one) means unreadable replies are skipped without ever
+  // skipping a readable one — so load-more reaches every readable reply, and
+  // the gate dropping rows can only make a page short, never lose a reply.
+  const scanned = await db.query.objects.findMany({
+    where: cursorPredicate
+      ? and(eq(objects.inReplyTo, parentPost.apId), cursorPredicate)
+      : eq(objects.inReplyTo, parentPost.apId),
     with: AUTHOR_WITH,
-    orderBy: desc(objects.published),
-    limit,
+    orderBy: [desc(objects.published), desc(objects.apId)],
+    limit: limit + 1,
   });
+  const hasMore = scanned.length > limit;
+  const page = hasMore ? scanned.slice(0, limit) : scanned;
+  const lastScanned = page[page.length - 1];
+  const nextCursor =
+    hasMore && lastScanned
+      ? `${lastScanned.published}${REPLY_CURSOR_SEP}${lastScanned.apId}`
+      : null;
 
   // Apply the SAME visibility gate as GET /:id, per-reply: a follower-only or
   // direct reply must not leak to a viewer who is not its author / an accepted
   // follower / an addressed recipient. Resolve the accepted-follow edges the
   // viewer needs in a single batched query to avoid an N+1.
-  const replies = await filterVisibleReplies(db, currentActor, allReplies);
+  const replies = await filterVisibleReplies(db, currentActor, page);
 
   // Batch load cached authors and interaction flags in parallel
   const replyApIds = replies.map((r) => r.apId);
@@ -535,7 +563,11 @@ posts.get("/:id/replies", async (c) => {
     return formatPost(postRow, currentActor?.ap_id);
   });
 
-  return c.json({ replies: result });
+  return c.json({
+    replies: result,
+    has_more: hasMore,
+    next_cursor: nextCursor,
+  });
 });
 
 // Edit post

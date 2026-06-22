@@ -262,3 +262,127 @@ test("replies listing hides followers/direct replies from a non-follower and rev
   expect(dmView).toContain(directReply);
   expect(dmView).not.toContain(followersReply);
 });
+
+async function fetchRepliesPage(
+  db: Database,
+  viewer: Actor | null,
+  parentApId: string,
+  opts: { limit?: number; before?: string } = {},
+): Promise<{ ids: string[]; hasMore: boolean; nextCursor: string | null }> {
+  const env = envFor(db);
+  const app = appWith(db, env, viewer);
+  const params = new URLSearchParams();
+  if (opts.limit) params.set("limit", String(opts.limit));
+  if (opts.before) params.set("before", opts.before);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await app.fetch(
+    new Request(`${APP_URL}/${encodeURIComponent(parentApId)}/replies${qs}`, {
+      method: "GET",
+    }),
+    env,
+  );
+  expect(res.status).toEqual(200);
+  const body = (await res.json()) as {
+    replies: Array<{ ap_id: string }>;
+    has_more: boolean;
+    next_cursor: string | null;
+  };
+  return {
+    ids: body.replies.map((r) => r.ap_id),
+    hasMore: body.has_more,
+    nextCursor: body.next_cursor,
+  };
+}
+
+async function insertPublicParent(db: Database, author: string) {
+  const parentApId = `${APP_URL}/ap/objects/parent-page`;
+  await db.insert(objects).values({
+    apId: parentApId,
+    type: "Note",
+    attributedTo: author,
+    content: "parent",
+    visibility: "public",
+    toJson: JSON.stringify(["https://www.w3.org/ns/activitystreams#Public"]),
+    ccJson: "[]",
+    audienceJson: "[]",
+    published: "2026-01-01T00:00:00.000Z",
+    isLocal: 1,
+  });
+  return parentApId;
+}
+
+test("replies paginate: has_more + cursor reach every reply across pages", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author");
+  const parentApId = await insertPublicParent(db, author);
+
+  const total = 25;
+  const all = new Set<string>();
+  for (let i = 0; i < total; i++) {
+    // Distinct, increasing timestamps (newest last). String-padded so the
+    // lexical published order is unambiguous.
+    const published = `2026-01-02T00:00:${String(i).padStart(2, "0")}.000Z`;
+    all.add(
+      await insertReply(db, {
+        id: `rp-${String(i).padStart(2, "0")}`,
+        author,
+        parentApId,
+        visibility: "public",
+        published,
+      }),
+    );
+  }
+
+  const page1 = await fetchRepliesPage(db, null, parentApId, { limit: 20 });
+  expect(page1.ids.length).toEqual(20);
+  expect(page1.hasMore).toBe(true);
+  expect(page1.nextCursor).toBeTruthy();
+
+  const page2 = await fetchRepliesPage(db, null, parentApId, {
+    limit: 20,
+    before: page1.nextCursor!,
+  });
+  expect(page2.hasMore).toBe(false);
+
+  // Every reply is reachable across the two pages with no overlap.
+  const seen = new Set([...page1.ids, ...page2.ids]);
+  expect(seen.size).toEqual(total);
+  for (const id of all) expect(seen.has(id)).toBe(true);
+});
+
+test("replies composite cursor does not skip replies that share a published millisecond", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author");
+  const parentApId = await insertPublicParent(db, author);
+
+  // Two replies at the EXACT same millisecond — a published-only cursor would
+  // drop the second on the load-older page. apId is the unique tiebreaker.
+  const sameMs = "2026-01-03T00:00:00.000Z";
+  const a = await insertReply(db, {
+    id: "tie-a",
+    author,
+    parentApId,
+    visibility: "public",
+    published: sameMs,
+  });
+  const b = await insertReply(db, {
+    id: "tie-b",
+    author,
+    parentApId,
+    visibility: "public",
+    published: sameMs,
+  });
+
+  const page1 = await fetchRepliesPage(db, null, parentApId, { limit: 1 });
+  expect(page1.ids.length).toEqual(1);
+  expect(page1.hasMore).toBe(true);
+
+  const page2 = await fetchRepliesPage(db, null, parentApId, {
+    limit: 1,
+    before: page1.nextCursor!,
+  });
+  // The sibling at the same ms is returned, not skipped.
+  const seen = new Set([...page1.ids, ...page2.ids]);
+  expect(seen.has(a)).toBe(true);
+  expect(seen.has(b)).toBe(true);
+});

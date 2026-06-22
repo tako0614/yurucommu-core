@@ -82,6 +82,9 @@ export function PostDetailPage() {
   const clearError = () => setError(null);
   const [post, setPost] = createSignal<Post | null>(null);
   const [replies, setReplies] = createSignal<Post[]>([]);
+  const [repliesCursor, setRepliesCursor] = createSignal<string | null>(null);
+  const [repliesHasMore, setRepliesHasMore] = createSignal(false);
+  const [loadingMoreReplies, setLoadingMoreReplies] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
   const [replyContent, setReplyContent] = createSignal("");
   const [replying, setReplying] = createSignal(false);
@@ -113,7 +116,9 @@ export function PostDetailPage() {
       .then(([postData, repliesData]) => {
         if (gen !== postLoadGen) return;
         setPost(postData);
-        setReplies(repliesData);
+        setReplies(repliesData.replies);
+        setRepliesCursor(repliesData.nextCursor);
+        setRepliesHasMore(repliesData.hasMore);
       })
       .catch((e) => {
         if (gen !== postLoadGen) return;
@@ -130,6 +135,31 @@ export function PostDetailPage() {
         if (gen === postLoadGen) setLoading(false);
       });
   });
+
+  // Append the next page of replies. Guarded against a post→post navigation
+  // mid-flight (capture the load generation) and deduped by ap_id.
+  const loadMoreReplies = async () => {
+    const cursor = repliesCursor();
+    if (loadingMoreReplies() || !repliesHasMore() || !cursor) return;
+    const decodedPostId = decodeApIdParam(params.postId);
+    const gen = postLoadGen;
+    setLoadingMoreReplies(true);
+    try {
+      const next = await fetchReplies(decodedPostId, { before: cursor });
+      if (gen !== postLoadGen) return;
+      setReplies((prev) => {
+        const seen = new Set(prev.map((r) => r.ap_id));
+        return [...prev, ...next.replies.filter((r) => !seen.has(r.ap_id))];
+      });
+      setRepliesCursor(next.nextCursor);
+      setRepliesHasMore(next.hasMore);
+    } catch (e) {
+      console.error("Failed to load more replies:", e);
+      if (gen === postLoadGen) setError(t("common.error"));
+    } finally {
+      if (gen === postLoadGen) setLoadingMoreReplies(false);
+    }
+  };
 
   // Guard against a double-tap firing two like/bookmark requests off the same
   // stale state: handleLike reads targetPost.liked and only applies ±1 after the
@@ -603,6 +633,21 @@ export function PostDetailPage() {
               </div>
             )}
           </For>
+
+          <Show when={repliesHasMore()}>
+            <div class="p-4 text-center">
+              <button
+                type="button"
+                onClick={loadMoreReplies}
+                disabled={loadingMoreReplies()}
+                class="text-sm text-accent hover:underline disabled:opacity-50"
+              >
+                {loadingMoreReplies()
+                  ? t("common.loading")
+                  : t("common.loadMore")}
+              </button>
+            </div>
+          </Show>
 
           <Show when={replies().length === 0}>
             <div class="p-8 text-center text-neutral-500">
