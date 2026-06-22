@@ -6,9 +6,12 @@ import { Notification } from "../types/index.ts";
 import { refreshNotificationUnreadAtom } from "../atoms/notifications.ts";
 import {
   acceptFollowRequest,
+  archiveAllNotifications,
+  archiveNotifications,
   fetchNotifications,
   markNotificationsRead,
   rejectFollowRequest,
+  unarchiveNotifications,
 } from "../lib/api.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { formatRelativeTime } from "../lib/datetime.ts";
@@ -51,6 +54,23 @@ const BellIcon = (props: { class?: string; strokeWidth?: number }) => (
       stroke-linejoin="round"
       stroke-width={props.strokeWidth ?? 1.5}
       d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
+    />
+  </svg>
+);
+
+const ArchiveIcon = (props: { class?: string }) => (
+  <svg
+    class={props.class ?? "w-4 h-4"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
     />
   </svg>
 );
@@ -104,6 +124,12 @@ export function NotificationPage() {
     Record<string, boolean>
   >({});
   const [filter, setFilter] = createSignal<FilterType>("all");
+  // Inbox vs the archived view. Archived notifications are read-only history:
+  // the load effect passes `archived=true` and skips the mark-as-read sweep.
+  const [viewArchived, setViewArchived] = createSignal(false);
+  const [archivingAll, setArchivingAll] = createSignal(false);
+  // Per-row in-flight guard for archive/unarchive.
+  const [archiving, setArchiving] = createSignal<Record<string, boolean>>({});
   // Bumping this re-runs the load effect for the current filter (retry).
   const [reloadKey, setReloadKey] = createSignal(0);
   // Whether an OLDER page exists past the last notification shown. Seeded from
@@ -114,6 +140,7 @@ export function NotificationPage() {
 
   createEffect(() => {
     const currentFilter = filter();
+    const archived = viewArchived();
     reloadKey();
 
     setNotifications([]);
@@ -127,16 +154,18 @@ export function NotificationPage() {
       try {
         const { notifications: data, hasMore } = await fetchNotifications({
           type: currentFilter === "all" ? undefined : currentFilter,
+          archived,
         });
         if (cancelled) return;
         setNotifications(data);
         setHasMoreOlder(hasMore);
 
+        // Archived notifications are read-only history — never mark-read here.
         // Mark unread as read — in its OWN try/catch so a failed mark-read POST
         // does NOT discard the notifications we just loaded successfully (it
         // would otherwise hit the outer catch and replace the list with the
         // error-retry UI).
-        const unread = data.filter((n) => !n.read);
+        const unread = archived ? [] : data.filter((n) => !n.read);
         if (unread.length > 0) {
           try {
             await markNotificationsRead(unread.map((n) => n.id));
@@ -173,6 +202,58 @@ export function NotificationPage() {
 
   const retryLoad = () => setReloadKey((k) => k + 1);
 
+  // Archive (inbox view) or unarchive (archived view) a single notification.
+  // Optimistically drop the row from the current view; on failure reload to
+  // restore the true state and surface an inline error.
+  const handleArchiveToggle = async (notification: Notification) => {
+    if (archiving()[notification.id]) return;
+    const wasArchived = viewArchived();
+    setArchiving((p) => ({ ...p, [notification.id]: true }));
+    setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+    try {
+      if (wasArchived) {
+        await unarchiveNotifications([notification.id]);
+      } else {
+        await archiveNotifications([notification.id]);
+      }
+      // Re-sync the badge: archiving an unread item lowers the count.
+      void refreshUnread();
+    } catch (e) {
+      console.error("Failed to (un)archive notification:", e);
+      setError(
+        t(
+          wasArchived
+            ? "notifications.unarchiveFailed"
+            : "notifications.archiveFailed",
+        ),
+      );
+      retryLoad(); // restore the true list
+    } finally {
+      setArchiving((p) => {
+        const next = { ...p };
+        delete next[notification.id];
+        return next;
+      });
+    }
+  };
+
+  const handleArchiveAll = async () => {
+    if (archivingAll() || notifications().length === 0) return;
+    setArchivingAll(true);
+    try {
+      await archiveAllNotifications();
+      setNotifications([]);
+      setHasMoreOlder(false);
+      void refreshUnread();
+    } catch (e) {
+      console.error("Failed to archive all notifications:", e);
+      setError(t("notifications.archiveAllFailed"));
+      retryLoad();
+    } finally {
+      setArchivingAll(false);
+    }
+  };
+
   // Append the page of notifications OLDER than the last one shown. The list is
   // newest-first, so the oldest is the final element and older items are
   // appended. The cursor is a composite of (created_at, id) — `id` is the
@@ -190,13 +271,15 @@ export function NotificationPage() {
       ? `${oldest.created_at}\u0000${oldest.id}`
       : oldest.created_at;
     const currentFilter = filter();
+    const archived = viewArchived();
     setLoadingOlder(true);
     try {
       const { notifications: older, hasMore } = await fetchNotifications({
         type: currentFilter === "all" ? undefined : currentFilter,
         before,
+        archived,
       });
-      if (filter() !== currentFilter) return; // filter changed mid-flight
+      if (filter() !== currentFilter || viewArchived() !== archived) return; // changed mid-flight
       setNotifications((prev) => {
         const ids = new Set(prev.map((n) => n.id));
         const fresh = older.filter((n) => !ids.has(n.id));
@@ -216,15 +299,17 @@ export function NotificationPage() {
   const refreshInPlace = async () => {
     if (loading() || loadError()) return;
     const currentFilter = filter();
+    const archived = viewArchived();
     try {
       const { notifications: data } = await fetchNotifications({
         type: currentFilter === "all" ? undefined : currentFilter,
+        archived,
       });
-      // Ignore late responses if the filter changed mid-flight.
-      if (filter() !== currentFilter) return;
+      // Ignore late responses if the filter / view changed mid-flight.
+      if (filter() !== currentFilter || viewArchived() !== archived) return;
       setNotifications((prev) => mergeNotificationsById(prev, data));
 
-      const unread = data.filter((n) => !n.read);
+      const unread = archived ? [] : data.filter((n) => !n.read);
       if (unread.length > 0) {
         try {
           await markNotificationsRead(unread.map((n) => n.id));
@@ -440,7 +525,36 @@ export function NotificationPage() {
       </Show>
       {/* Header */}
       <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <h1 class="text-xl font-bold px-4 py-3">{t("notifications.title")}</h1>
+        <div class="flex items-center justify-between gap-2 px-4 py-3">
+          <h1 class="text-xl font-bold">{t("notifications.title")}</h1>
+          <div class="flex items-center gap-1">
+            <Show when={!viewArchived() && notifications().length > 0}>
+              <button
+                onClick={handleArchiveAll}
+                disabled={archivingAll()}
+                class="px-3 py-1.5 text-sm text-neutral-300 rounded-full hover:bg-neutral-800 transition-colors disabled:opacity-50"
+              >
+                {t("notifications.archiveAll")}
+              </button>
+            </Show>
+            <button
+              onClick={() => setViewArchived((v) => !v)}
+              aria-pressed={viewArchived()}
+              class={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors ${
+                viewArchived()
+                  ? "bg-neutral-800 text-white"
+                  : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+              }`}
+            >
+              <ArchiveIcon />
+              <span>
+                {viewArchived()
+                  ? t("notifications.showInbox")
+                  : t("notifications.showArchived")}
+              </span>
+            </button>
+          </div>
+        </div>
         {/* Filter tabs */}
         <div
           role="tablist"
@@ -484,14 +598,22 @@ export function NotificationPage() {
               when={filteredNotifications().length > 0}
               fallback={
                 <EmptyState
-                  icon={<BellIcon />}
+                  icon={
+                    viewArchived() ? (
+                      <ArchiveIcon class="w-10 h-10" />
+                    ) : (
+                      <BellIcon />
+                    )
+                  }
                   title={
-                    filter() === "all"
-                      ? t("notifications.empty")
-                      : t("notifications.emptyFiltered")
+                    viewArchived()
+                      ? t("notifications.emptyArchived")
+                      : filter() === "all"
+                        ? t("notifications.empty")
+                        : t("notifications.emptyFiltered")
                   }
                   hint={
-                    filter() === "all"
+                    !viewArchived() && filter() === "all"
                       ? t("notifications.emptyHint")
                       : undefined
                   }
@@ -568,6 +690,23 @@ export function NotificationPage() {
                           </button>
                         </div>
                       </Show>
+                      <button
+                        onClick={() => handleArchiveToggle(notification)}
+                        disabled={archiving()[notification.id]}
+                        aria-label={t(
+                          viewArchived()
+                            ? "notifications.unarchive"
+                            : "notifications.archive",
+                        )}
+                        title={t(
+                          viewArchived()
+                            ? "notifications.unarchive"
+                            : "notifications.archive",
+                        )}
+                        class="shrink-0 self-center p-2 rounded-full text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors disabled:opacity-50"
+                      >
+                        <ArchiveIcon />
+                      </button>
                     </div>
                   );
                 }}
