@@ -1253,6 +1253,13 @@ const translations = {
 export type TranslationKey = keyof typeof translations.ja;
 export type Translate = (key: TranslationKey) => string;
 
+/**
+ * @internal Test-only handle on the raw translation tables. `TranslationKey` is
+ * derived from `translations.ja` alone and the runtime fallback renders the raw
+ * key, so `en` drift produces no compile error — a parity test guards it.
+ */
+export const __i18nTranslations = translations;
+
 const detectLanguage = (): Language => {
   const saved = localStorage.getItem("language");
   if (saved === "ja" || saved === "en") return saved;
