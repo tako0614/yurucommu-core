@@ -198,8 +198,11 @@ export async function resolveActorApId(
         // ANY cached `alice` regardless of domain (wrong-actor resolution), and
         // (b) trip D1's LIKE pattern-complexity limit (SQLITE_ERROR 7500) for a
         // long domain. instr() is literal (no wildcards, no escaping) and has no
-        // length limit, so `@alice@%` correctly resolves to null.
-        sql`instr(${actorCache.apId}, ${domain}) > 0`,
+        // length limit, so `@alice@%` correctly resolves to null. Both sides are
+        // lowercased to preserve LIKE's ASCII case-insensitivity: a handle typed
+        // with a non-canonical host case (`@alice@Mastodon.Social`) — which
+        // webfinger treats as equivalent — still matches the lowercase cached host.
+        sql`instr(lower(${actorCache.apId}), lower(${domain})) > 0`,
       ),
     )
     .get();
