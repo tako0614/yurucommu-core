@@ -224,6 +224,43 @@ test("shared-inbox Undo(Follow) targets the followed actor (unfollow not dropped
   expect(bobRow?.followerCount).toBe(0);
 });
 
+test("shared-inbox Undo(Follow) with a typed inner that carries only its id (no inner.object) resolves the target via the follow edge", async () => {
+  const db = await freshDb();
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const bob = await seedLocalActor(db, "bob");
+  await db.update(actors).set({ followerCount: 1 }).where(eq(actors.apId, bob));
+  await seedAlice(db, publicKeyPem);
+  const followId = "https://remote.example/activities/follow-bob-2";
+  await db.insert(follows).values({
+    followerApId: ALICE,
+    followingApId: bob,
+    status: "accepted",
+    activityApId: followId,
+    acceptedAt: new Date().toISOString(),
+  });
+
+  const env = { APP_URL, DB_INSTANCE: db, KV: new MockKV() };
+  // Typed inner Follow WITHOUT `object` — must fall back to the edge lookup,
+  // not be dropped as a no-op (the per-user inbox undoes this same shape).
+  const res = await postSigned(appFor(db), env, privateKeyPem, {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: "https://remote.example/activities/undo-2",
+    type: "Undo",
+    actor: ALICE,
+    object: { id: followId, type: "Follow" },
+  });
+  expect(res.status).toBe(202);
+
+  const edge = await db.query.follows.findFirst({
+    where: and(eq(follows.followerApId, ALICE), eq(follows.followingApId, bob)),
+  });
+  expect(edge).toBeFalsy();
+  const bobRow = await db.query.actors.findFirst({
+    where: eq(actors.apId, bob),
+  });
+  expect(bobRow?.followerCount).toBe(0);
+});
+
 test("shared-inbox Block targets the blocked actor and severs both follow edges", async () => {
   const db = await freshDb();
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();

@@ -321,10 +321,21 @@ export function NotificationPage() {
       // older pages loaded via "load older". Merge the newest page in place, then
       // re-append the still-present older items so a focus/visibility refresh
       // doesn't snap a 60-item list back to 20 (losing history + scroll context).
+      // Only re-append items STRICTLY older than the refreshed page's boundary
+      // (same (created_at, id) keyset order): an item from the newest-page region
+      // that the server dropped must not be resurrected or rendered out of order.
       setNotifications((prev) => {
         const merged = mergeNotificationsById(prev, data);
         const newIds = new Set(merged.map((n) => n.id));
-        const older = prev.filter((n) => !newIds.has(n.id));
+        const boundary = data[data.length - 1];
+        const older = boundary
+          ? prev.filter(
+              (n) =>
+                !newIds.has(n.id) &&
+                (n.created_at < boundary.created_at ||
+                  (n.created_at === boundary.created_at && n.id < boundary.id)),
+            )
+          : [];
         return older.length > 0 ? [...merged, ...older] : merged;
       });
 
@@ -333,9 +344,15 @@ export function NotificationPage() {
         try {
           await markNotificationsRead(unread.map((n) => n.id));
           if (filter() === currentFilter) {
-            // Only the still-unread rows change reference (read flips true).
+            // Flip ONLY the rows we actually marked on the server (the newest
+            // page's unread). The list may now include older pages whose unread
+            // rows were never POSTed — a blanket flip would mark them read
+            // locally while the server still holds them unread.
+            const marked = new Set(unread.map((n) => n.id));
             setNotifications((prev) =>
-              prev.map((n) => (n.read ? n : { ...n, read: true })),
+              prev.map((n) =>
+                n.read || !marked.has(n.id) ? n : { ...n, read: true },
+              ),
             );
             void refreshUnread();
           }

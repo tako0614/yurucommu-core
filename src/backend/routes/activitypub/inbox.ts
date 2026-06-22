@@ -915,30 +915,61 @@ async function resolveObjectActorTarget(
       type?: string;
       object?: unknown;
     } | null;
-    if (inner?.type === "Follow" || inner?.type === "Block") {
-      const targetId =
-        typeof inner.object === "string"
-          ? inner.object
-          : ((inner.object as { id?: string } | undefined)?.id ?? null);
-      if (!targetId) return { scoped: true, target: null };
+    const innerObjectId = inner
+      ? typeof inner.object === "string"
+        ? inner.object
+        : ((inner.object as { id?: string } | undefined)?.id ?? null)
+      : null;
+
+    // Undo(Block): the target is the blocked actor named in `inner.object`.
+    // Block has no activity-id-keyed edge, so an absent object is a null no-op.
+    if (inner?.type === "Block") {
       return {
         scoped: true,
-        target: await findLocalActorByApId(c, targetId, baseUrl),
+        target: innerObjectId
+          ? await findLocalActorByApId(c, innerObjectId, baseUrl)
+          : null,
       };
     }
-    // Bare-string inner: only an Undo(Follow) referencing a known local edge is
-    // actor-scoped; anything else (Undo of a like/announce by id, or unknown)
-    // falls through to the follower fan-out.
-    const innerId = getActivityObjectId(activity);
-    if (innerId) {
-      const follow = await findFollowByActivityId(c.get("db"), innerId);
-      if (follow && isLocal(follow.followingApId, baseUrl)) {
+
+    // Undo(Follow): the followed actor — undoFollow keys the followerCount
+    // decrement on `recipient`, so the recipient MUST be the followed actor.
+    // Resolve it from `inner.object` if present, else from the referenced follow
+    // EDGE (a typed inner that carries only its own id, OR a bare-string activity
+    // id — mirrors the per-user inbox's findFollowByActivityId path). A
+    // bare-string inner of unknown type is treated as a possible Undo(Follow);
+    // if it resolves no local edge it is left to the fan-out (it may be an
+    // Undo(Like|Announce) by id, which is actor-keyed + idempotent).
+    if (inner?.type === "Follow" || inner == null) {
+      if (innerObjectId && isLocal(innerObjectId, baseUrl)) {
         return {
           scoped: true,
-          target: await findLocalActorByApId(c, follow.followingApId, baseUrl),
+          target: await findLocalActorByApId(c, innerObjectId, baseUrl),
         };
       }
+      const innerId = getActivityObjectId(activity);
+      if (innerId) {
+        const follow = await findFollowByActivityId(c.get("db"), innerId);
+        if (follow && isLocal(follow.followingApId, baseUrl)) {
+          return {
+            scoped: true,
+            target: await findLocalActorByApId(
+              c,
+              follow.followingApId,
+              baseUrl,
+            ),
+          };
+        }
+      }
+      // A typed Follow inner is object-scoped even with an unresolvable edge
+      // (commit a no-op; do NOT fan out to the sender's followers). A bare-string
+      // of unknown type keeps the fan-out.
+      return inner?.type === "Follow"
+        ? { scoped: true, target: null }
+        : { scoped: false, target: null };
     }
+
+    // Undo(Like|Announce|…) — actor-keyed + idempotent; keep the follower fan-out.
     return { scoped: false, target: null };
   }
   return { scoped: false, target: null };
