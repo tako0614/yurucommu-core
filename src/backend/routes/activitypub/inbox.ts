@@ -935,12 +935,13 @@ async function resolveObjectActorTarget(
     // Undo(Follow): the followed actor — undoFollow keys the followerCount
     // decrement on `recipient`, so the recipient MUST be the followed actor.
     // Resolve it from `inner.object` if present, else from the referenced follow
-    // EDGE (a typed inner that carries only its own id, OR a bare-string activity
-    // id — mirrors the per-user inbox's findFollowByActivityId path). A
-    // bare-string inner of unknown type is treated as a possible Undo(Follow);
-    // if it resolves no local edge it is left to the fan-out (it may be an
-    // Undo(Like|Announce) by id, which is actor-keyed + idempotent).
-    if (inner?.type === "Follow" || inner == null) {
+    // EDGE (a typed inner that carries only its own id, a bare-string activity
+    // id, OR a typeless object inner — all mirror the per-user inbox's
+    // findFollowByActivityId path). An inner WITHOUT an explicit "Follow" type
+    // (bare-string or typeless object) is treated as a POSSIBLE Undo(Follow); if
+    // it resolves no local follow edge it is left to the fan-out, because it may
+    // be an Undo(Like|Announce) by id whose actor-keyed handler must still run.
+    if (inner?.type === "Follow" || inner == null || inner.type == null) {
       if (innerObjectId && isLocal(innerObjectId, baseUrl)) {
         return {
           scoped: true,
@@ -962,8 +963,9 @@ async function resolveObjectActorTarget(
         }
       }
       // A typed Follow inner is object-scoped even with an unresolvable edge
-      // (commit a no-op; do NOT fan out to the sender's followers). A bare-string
-      // of unknown type keeps the fan-out.
+      // (commit a no-op; do NOT fan out to the sender's followers). An inner with
+      // no explicit Follow type that resolved no follow edge keeps the fan-out —
+      // it may be an Undo(Like|Announce) whose decrement the handler must apply.
       return inner?.type === "Follow"
         ? { scoped: true, target: null }
         : { scoped: false, target: null };

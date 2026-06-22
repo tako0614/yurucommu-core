@@ -7,7 +7,12 @@ import { Hono } from "hono";
 
 import * as schema from "../../../../db/schema.ts";
 import type { Database } from "../../../../db/index.ts";
-import { actors, actorCache, follows } from "../../../../db/index.ts";
+import {
+  activities,
+  actors,
+  actorCache,
+  follows,
+} from "../../../../db/index.ts";
 import inboxRoutes from "../../../routes/activitypub/inbox.ts";
 import { generateKeyPair, signRequest } from "../../../federation-helpers.ts";
 
@@ -222,6 +227,71 @@ test("shared-inbox Undo(Follow) targets the followed actor (unfollow not dropped
     where: eq(actors.apId, bob),
   });
   expect(bobRow?.followerCount).toBe(0);
+});
+
+test("shared-inbox Undo(Follow) with a TYPELESS object inner ({id} only) scopes to the followed actor, not a follower of the sender", async () => {
+  const db = await freshDb();
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const bob = await seedLocalActor(db, "bob"); // the followed target
+  const carol = await seedLocalActor(db, "carol"); // a LOCAL FOLLOWER of the sender (the trap)
+  await db.update(actors).set({ followerCount: 1 }).where(eq(actors.apId, bob));
+  await db
+    .update(actors)
+    .set({ followerCount: 5 })
+    .where(eq(actors.apId, carol));
+  await seedAlice(db, publicKeyPem);
+  const followId = "https://remote.example/activities/follow-bob-3";
+  await db.insert(follows).values([
+    {
+      followerApId: ALICE,
+      followingApId: bob,
+      status: "accepted",
+      activityApId: followId,
+      acceptedAt: new Date().toISOString(),
+    },
+    // carol follows alice -> would be the wrong fan-out recipient.
+    {
+      followerApId: carol,
+      followingApId: ALICE,
+      status: "accepted",
+      acceptedAt: new Date().toISOString(),
+    },
+  ]);
+  // The stored Follow activity (normal production state) — a typeless Undo is
+  // resolved by handleUndo via resolveUndoByActivityId against this row.
+  await db.insert(activities).values({
+    apId: followId,
+    type: "Follow",
+    actorApId: ALICE,
+    objectApId: bob,
+    rawJson: "{}",
+    direction: "inbound",
+  });
+
+  const env = { APP_URL, DB_INSTANCE: db, KV: new MockKV() };
+  // Inner object carries ONLY an id (no `type`) — must still resolve via the
+  // follow edge and scope to bob, never fan out to carol.
+  const res = await postSigned(appFor(db), env, privateKeyPem, {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: "https://remote.example/activities/undo-3",
+    type: "Undo",
+    actor: ALICE,
+    object: { id: followId },
+  });
+  expect(res.status).toBe(202);
+
+  const edge = await db.query.follows.findFirst({
+    where: and(eq(follows.followerApId, ALICE), eq(follows.followingApId, bob)),
+  });
+  expect(edge).toBeFalsy();
+  const bobRow = await db.query.actors.findFirst({
+    where: eq(actors.apId, bob),
+  });
+  expect(bobRow?.followerCount).toBe(0); // decremented correctly
+  const carolRow = await db.query.actors.findFirst({
+    where: eq(actors.apId, carol),
+  });
+  expect(carolRow?.followerCount).toBe(5); // NOT wrongly decremented
 });
 
 test("shared-inbox Undo(Follow) with a typed inner that carries only its id (no inner.object) resolves the target via the follow edge", async () => {
