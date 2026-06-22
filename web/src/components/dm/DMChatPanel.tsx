@@ -162,8 +162,8 @@ export function DMChatPanel(props: DMChatPanelProps) {
 
   // Load the page of messages OLDER than the oldest one currently shown and
   // prepend it, preserving the reader's scroll position (anchor on the height
-  // added above). DM threads only for now. The `before` cursor is the oldest
-  // shown message's timestamp; the server returns `published < before`.
+  // added above). The `before` cursor is the oldest shown message's composite
+  // "<published> <apId>" key; the server returns rows older than that tuple.
   const loadOlder = async () => {
     if (loadingOlder()) return;
     const current = messages();
