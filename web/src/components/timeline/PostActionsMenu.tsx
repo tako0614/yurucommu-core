@@ -11,6 +11,9 @@ interface PostActionsMenuProps {
   onBlock: (post: Post) => void;
   // Optional: when provided, own posts get an "edit" item above delete.
   onEdit?: (post: Post) => void;
+  // Optional: when provided, a REMOTE non-own post gets a "report" item that
+  // files an abuse Flag to the author's instance.
+  onReport?: (post: Post) => void;
 }
 
 const MoreIcon = () => (
@@ -27,7 +30,8 @@ const MoreIcon = () => (
 );
 
 // Per-post overflow (⋯) menu: copy link for any post, delete for your own,
-// mute/block for others. Report is omitted until a report API exists.
+// mute/block for others, and report for a REMOTE other's post (files an abuse
+// Flag to the author's instance when onReport is wired).
 export function PostActionsMenu(props: PostActionsMenuProps) {
   const { t } = useI18n();
   const [open, setOpen] = createSignal(false);
@@ -46,6 +50,17 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
   onCleanup(() => document.removeEventListener("click", onDocClick));
 
   const stop = (e: Event) => e.stopPropagation();
+
+  // A post is remote when its author lives on another host. Reporting notifies
+  // the AUTHOR's instance, so it only makes sense for remote content (local
+  // abuse is handled by the owner's own moderation tools).
+  const isRemote = () => {
+    try {
+      return new URL(props.post.author.ap_id).host !== globalThis.location.host;
+    } catch {
+      return false;
+    }
+  };
 
   const copyLink = () => {
     const url = `${globalThis.location.origin}/post/${encodeURIComponent(
@@ -138,6 +153,18 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
             >
               {t("posts.block")}
             </button>
+            <Show when={props.onReport && isRemote()}>
+              <button
+                role="menuitem"
+                class={itemClass}
+                onClick={() => {
+                  props.onReport!(props.post);
+                  close();
+                }}
+              >
+                {t("posts.report")}
+              </button>
+            </Show>
           </Show>
         </div>
       </Show>

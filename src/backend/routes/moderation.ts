@@ -18,7 +18,13 @@ import { Hono } from "hono";
 import { desc, eq, isNull } from "drizzle-orm";
 
 import type { Env, Variables } from "../types.ts";
-import { parseLimit, parseOffset } from "../federation-helpers.ts";
+import {
+  activityApId,
+  generateId,
+  isLocal,
+  parseLimit,
+  parseOffset,
+} from "../federation-helpers.ts";
 import {
   blockActor,
   blockDomain,
@@ -26,12 +32,17 @@ import {
   unblockDomain,
 } from "../lib/blocklist.ts";
 import {
+  activities,
   blockedActors,
   blockedDomains,
   nowIso,
   reports,
 } from "../../db/index.ts";
 import { requireActor } from "./actors-helpers.ts";
+import { getInstanceActor } from "./activitypub/query-helpers.ts";
+import { enqueueDeliveryToActor } from "../lib/delivery/queue.ts";
+
+const MAX_REPORT_REASON_LEN = 1000;
 
 export const moderationRoutes = new Hono<{
   Bindings: Env;
@@ -278,6 +289,88 @@ moderationRoutes.post("/reports/:id/resolve", async (c) => {
   }
 
   return c.json({ success: true, resolved_at: resolvedAt });
+});
+
+// ---------------------------------------------------------------------------
+// Outbound reports (file an abuse Flag to a REMOTE actor's instance)
+// ---------------------------------------------------------------------------
+
+/**
+ * `POST /reports/outbound` — file an AS2 `Flag` against a remote actor (and,
+ * optionally, one of their posts) and federate it to their instance, so a
+ * yurucommu owner can report abusive remote content the same way they can
+ * triage inbound Flags. The Flag is sent FROM the instance actor (Mastodon's
+ * convention — the individual reporter stays anonymous to the remote moderators)
+ * and signed with the instance actor's key (the delivery worker resolves it).
+ *
+ * Owner-gated. Local targets are rejected: there is no remote instance to
+ * notify — the owner should block/mute/defederate instead (stronger local
+ * tools). The same CSRF + rate-limit apply at the `/api/*` mount.
+ */
+moderationRoutes.post("/reports/outbound", async (c) => {
+  const owner = requireOwner(c);
+  if (owner instanceof Response) return owner;
+
+  const baseUrl = c.env.APP_URL;
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const targetActorApId =
+    typeof body.target_actor_ap_id === "string"
+      ? body.target_actor_ap_id.trim()
+      : "";
+  const postApId =
+    typeof body.post_ap_id === "string" ? body.post_ap_id.trim() : "";
+  const reason = readReason(body) ?? "";
+
+  if (!targetActorApId) {
+    return c.json({ error: "target_actor_ap_id required" }, 400);
+  }
+  if (isLocal(targetActorApId, baseUrl)) {
+    return c.json(
+      { error: "Cannot report a local actor; use block/mute instead" },
+      400,
+    );
+  }
+  if (reason.length > MAX_REPORT_REASON_LEN) {
+    return c.json({ error: "reason too long" }, 400);
+  }
+
+  const db = c.get("db");
+  const instance = await getInstanceActor(c);
+  const flagId = activityApId(baseUrl, generateId());
+
+  // AS2/Mastodon `Flag`: `object` lists the reported entity(ies) — the post (if
+  // given) plus the actor, so the remote moderator can locate the content.
+  const object = postApId ? [postApId, targetActorApId] : [targetActorApId];
+  const flag = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: flagId,
+    type: "Flag",
+    actor: instance.apId,
+    object,
+    ...(reason ? { content: reason } : {}),
+    to: [targetActorApId],
+  };
+
+  await db.insert(activities).values({
+    apId: flagId,
+    type: "Flag",
+    actorApId: instance.apId,
+    objectApId: targetActorApId,
+    rawJson: JSON.stringify(flag),
+    direction: "outbound",
+  });
+
+  // Async federation (no remote POST in the request path); the worker signs as
+  // the instance actor and delivers to the reported actor's inbox.
+  await enqueueDeliveryToActor(c.env, flagId, targetActorApId);
+
+  return c.json({ success: true });
 });
 
 export default moderationRoutes;

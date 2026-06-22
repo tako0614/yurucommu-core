@@ -25,6 +25,7 @@ import {
 import { toggleBookmark, toggleLike, toggleRepost } from "../atoms/posts.ts";
 import { deletePost, editPost } from "../lib/api/posts.ts";
 import { blockUser, muteUser } from "../lib/api/actors.ts";
+import { reportContent } from "../lib/api/moderation.ts";
 import type { ActorStories, Post } from "../types/index.ts";
 
 export function useTimelineState() {
@@ -295,6 +296,32 @@ export function useTimelineState() {
     }
   };
 
+  // Outbound report flow: a menu pick opens the reason sheet; submit files the
+  // Flag to the remote author's instance.
+  const [reportingPost, setReportingPost] = createSignal<Post | null>(null);
+  const [reportBusy, setReportBusy] = createSignal(false);
+  const handleReport = (post: Post) => setReportingPost(post);
+  const cancelReport = () => setReportingPost(null);
+  const submitReport = async (reason: string) => {
+    const post = reportingPost();
+    if (!post || reportBusy()) return;
+    setReportBusy(true);
+    try {
+      await reportContent({
+        targetActorApId: post.author.ap_id,
+        postApId: post.ap_id,
+        reason: reason || undefined,
+      });
+      pushToast(setToasts, t()("report.submitted"), { kind: "success" });
+      setReportingPost(null);
+    } catch (e) {
+      console.error("Failed to submit report:", e);
+      toastError("report.failed");
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
   return {
     t: () => t(),
     get scrollContainerRef() {
@@ -332,6 +359,11 @@ export function useTimelineState() {
     handleDelete,
     handleMute,
     handleBlock,
+    handleReport,
+    reportingPost,
+    reportBusy,
+    submitReport,
+    cancelReport,
     editingPost,
     setEditingPost,
     savingEdit,

@@ -32,6 +32,7 @@ interface TimelinePostItemProps {
   onMute?: (post: Post) => void;
   onBlock?: (post: Post) => void;
   onEdit?: (post: Post) => void;
+  onReport?: (post: Post) => void;
 }
 
 // A repost is an Announce to Public, so only a publicly-reachable post may be
@@ -260,6 +261,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
           onMute={props.onMute!}
           onBlock={props.onBlock!}
           onEdit={props.onEdit}
+          onReport={props.onReport}
         />
       </Show>
     </div>

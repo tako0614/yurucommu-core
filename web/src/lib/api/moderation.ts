@@ -81,3 +81,18 @@ export async function resolveReport(id: string, reopen = false): Promise<void> {
   );
   await assertOk(res, "Failed to resolve report");
 }
+
+// File an outbound abuse Flag against a remote actor (and optionally one of
+// their posts), federated to their instance from this instance's actor.
+export async function reportContent(input: {
+  targetActorApId: string;
+  postApId?: string;
+  reason?: string;
+}): Promise<void> {
+  const res = await apiPost("/api/moderation/reports/outbound", {
+    target_actor_ap_id: input.targetActorApId,
+    post_ap_id: input.postApId,
+    reason: input.reason,
+  });
+  await assertOk(res, "Failed to submit report");
+}

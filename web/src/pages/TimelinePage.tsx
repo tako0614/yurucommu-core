@@ -18,6 +18,7 @@ import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { FirstFeedEmptyState } from "../components/FirstFeedEmptyState.tsx";
 import { TimelinePostItem } from "../components/timeline/TimelinePostItem.tsx";
 import { EditPostModal } from "../components/timeline/EditPostModal.tsx";
+import { ReportSheet } from "../components/ReportSheet.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 import { PluginSlot } from "../components/PluginSlot.tsx";
 import { useTimelineState } from "./useTimelineState.ts";
@@ -92,6 +93,13 @@ export function TimelinePage() {
           />
         )}
       </Show>
+
+      <ReportSheet
+        open={state.reportingPost() !== null}
+        busy={state.reportBusy()}
+        onSubmit={state.submitReport}
+        onCancel={state.cancelReport}
+      />
 
       {/* Home header. The individual is the base, so there is no scope to name or
           switch; the optional home view filter ("すべて" + each joined community)
@@ -186,6 +194,7 @@ export function TimelinePage() {
                       onMute={state.handleMute}
                       onBlock={state.handleBlock}
                       onEdit={state.handleEdit}
+                      onReport={state.handleReport}
                     />
                     <Show
                       when={
