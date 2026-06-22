@@ -10,6 +10,9 @@ import type { Translate } from "../../lib/i18n.tsx";
 interface SettingsAccountsSectionProps {
   accounts: AccountInfo[];
   loading: boolean;
+  /** Set when the account list fetch failed (shown as an inline banner + retry). */
+  loadError?: string | null;
+  onRetry?: () => void;
   switching: boolean;
   showCreateAccount: boolean;
   newUsername: string;
@@ -43,6 +46,19 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
             </div>
           }
         >
+          <Show when={props.loadError}>
+            <div class="m-4 p-3 rounded-lg bg-rose-500/10 flex items-center justify-between gap-3">
+              <span class="text-sm text-rose-300">{props.loadError}</span>
+              <Show when={props.onRetry}>
+                <button
+                  onClick={() => props.onRetry?.()}
+                  class="text-sm text-accent hover:underline shrink-0"
+                >
+                  {props.t("common.retry")}
+                </button>
+              </Show>
+            </div>
+          </Show>
           {/* Account list */}
           <For each={props.accounts}>
             {(account) => (

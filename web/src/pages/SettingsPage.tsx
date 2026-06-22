@@ -6,6 +6,7 @@ import { useAtomValue, useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
   accountsAtom,
+  accountsErrorAtom,
   accountsLoadingAtom,
   createAccountAtom,
   currentApIdAtom,
@@ -66,6 +67,7 @@ export function SettingsPage() {
   // list and current selection never go stale across the two surfaces.
   const accounts = useAtomValue(accountsAtom);
   const accountsLoading = useAtomValue(accountsLoadingAtom);
+  const accountsError = useAtomValue(accountsErrorAtom);
   const currentApId = useAtomValue(currentApIdAtom);
   const doLoadAccounts = useSetAtom(loadAccountsAtom);
   const doSwitchAccount = useSetAtom(switchAccountAtom);
@@ -272,6 +274,8 @@ export function SettingsPage() {
         <SettingsAccountsSection
           accounts={accounts()}
           loading={accountsLoading()}
+          loadError={accountsError()}
+          onRetry={() => doLoadAccounts()}
           switching={switching()}
           showCreateAccount={showCreateAccount()}
           newUsername={newUsername()}

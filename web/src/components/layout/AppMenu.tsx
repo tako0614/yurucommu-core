@@ -7,6 +7,7 @@ import { actorAtom, logoutAtom } from "../../atoms/auth.ts";
 import { appMenuOpenAtom } from "../../atoms/shell.ts";
 import {
   accountsAtom,
+  accountsErrorAtom,
   accountsLoadingAtom,
   currentApIdAtom,
   loadAccountsAtom,
@@ -102,6 +103,7 @@ export function AppMenu() {
   );
   const accounts = useAtomValue(accountsAtom);
   const accountsLoading = useAtomValue(accountsLoadingAtom);
+  const accountsError = useAtomValue(accountsErrorAtom);
   const currentApId = useAtomValue(currentApIdAtom);
   const doLoadAccounts = useSetAtom(loadAccountsAtom);
   const doSwitchAccount = useSetAtom(switchAccountAtom);
@@ -236,44 +238,63 @@ export function AppMenu() {
                       </div>
                     }
                   >
-                    <div class="py-2">
-                      <For each={accounts()}>
-                        {(account) => (
+                    <Show
+                      when={!accountsError() || accounts().length > 0}
+                      fallback={
+                        <div class="p-4 flex flex-col items-center gap-2 text-center">
+                          <span class="text-sm text-neutral-500">
+                            {accountsError()}
+                          </span>
                           <button
-                            onClick={() => doSwitchAccount(account.ap_id)}
-                            class={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 transition-colors ${
-                              account.ap_id === currentApId()
-                                ? "bg-neutral-900/50"
-                                : ""
-                            }`}
+                            onClick={() => doLoadAccounts()}
+                            class="text-sm text-accent hover:underline"
                           >
-                            <UserAvatar
-                              avatarUrl={account.icon_url}
-                              name={account.name || account.preferred_username}
-                              size={40}
-                            />
-                            <div class="flex-1 text-left">
-                              <p class="font-bold text-white">
-                                {account.name || account.preferred_username}
-                              </p>
-                              <p class="text-sm text-neutral-500">
-                                @{account.preferred_username}
-                              </p>
-                            </div>
-                            <Show when={account.ap_id === currentApId()}>
-                              <svg
-                                class="w-5 h-5 text-accent"
-                                fill="currentColor"
-                                viewBox="0 0 24 24"
-                                aria-hidden="true"
-                              >
-                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                              </svg>
-                            </Show>
+                            {t("common.retry")}
                           </button>
-                        )}
-                      </For>
-                    </div>
+                        </div>
+                      }
+                    >
+                      <div class="py-2">
+                        <For each={accounts()}>
+                          {(account) => (
+                            <button
+                              onClick={() => doSwitchAccount(account.ap_id)}
+                              class={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 transition-colors ${
+                                account.ap_id === currentApId()
+                                  ? "bg-neutral-900/50"
+                                  : ""
+                              }`}
+                            >
+                              <UserAvatar
+                                avatarUrl={account.icon_url}
+                                name={
+                                  account.name || account.preferred_username
+                                }
+                                size={40}
+                              />
+                              <div class="flex-1 text-left">
+                                <p class="font-bold text-white">
+                                  {account.name || account.preferred_username}
+                                </p>
+                                <p class="text-sm text-neutral-500">
+                                  @{account.preferred_username}
+                                </p>
+                              </div>
+                              <Show when={account.ap_id === currentApId()}>
+                                <svg
+                                  class="w-5 h-5 text-accent"
+                                  fill="currentColor"
+                                  viewBox="0 0 24 24"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                                </svg>
+                              </Show>
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
                   </Show>
                 </div>
               </Show>

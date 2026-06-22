@@ -13,6 +13,7 @@ import {
   pendingNewPostsAtom,
   showStoryComposerAtom,
   showStoryViewerAtom,
+  storiesErrorAtom,
   storiesLoadingAtom,
   storyViewerActorIndexAtom,
   timelineHasMoreAtom,
@@ -52,6 +53,7 @@ export function useTimelineState() {
   const setActorStories = useSetAtom(actorStoriesAtom);
   const storiesLoading = useAtomValue(storiesLoadingAtom);
   const setStoriesLoading = useSetAtom(storiesLoadingAtom);
+  const storiesError = useAtomValue(storiesErrorAtom);
   const [showStoryViewer, setShowStoryViewer] = useAtom(showStoryViewerAtom);
   const storyViewerActorIndex = useAtomValue(storyViewerActorIndexAtom);
   const [showStoryComposer, setShowStoryComposer] = useAtom(
@@ -314,6 +316,7 @@ export function useTimelineState() {
     handleShowNewPosts,
     actorStories,
     storiesLoading,
+    storiesError,
     showStoryViewer,
     setShowStoryViewer,
     storyViewerActorIndex,

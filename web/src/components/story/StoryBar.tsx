@@ -7,6 +7,10 @@ interface StoryBarProps {
   actor: Actor;
   actorStories: ActorStories[];
   loading?: boolean;
+  /** Set when the stories fetch failed; shows an inline error + retry instead
+   * of silently degrading to the empty "add story" state. */
+  error?: string | null;
+  onRetry?: () => void;
   onStoryClick: (actorStories: ActorStories, index: number) => void;
   onAddStory: () => void;
 }
@@ -56,13 +60,14 @@ export function StoryBar(props: StoryBarProps) {
       }
     >
       <Show
-        when={props.actorStories.length > 0 || hasMyStories()}
+        when={!props.error}
         fallback={
           <div class="px-4 py-3 border-b border-neutral-900">
-            <div class="flex gap-4 overflow-x-auto scrollbar-hide">
+            <div class="flex items-center gap-3 overflow-x-auto scrollbar-hide">
               <button
                 onClick={props.onAddStory}
                 class="flex flex-col items-center gap-1 flex-shrink-0 group"
+                aria-label={t("story.addStory")}
               >
                 <div class="relative">
                   <div class="w-16 h-16 rounded-full ring-2 ring-neutral-700 flex items-center justify-center">
@@ -76,93 +81,133 @@ export function StoryBar(props: StoryBarProps) {
                     <PlusIcon />
                   </div>
                 </div>
-                <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
-                  {t("story.yourStory")}
-                </span>
               </button>
+              <div class="flex flex-col items-start gap-1 min-w-0">
+                <span class="text-xs text-neutral-400 line-clamp-1">
+                  {props.error}
+                </span>
+                <Show when={props.onRetry}>
+                  <button
+                    onClick={() => props.onRetry?.()}
+                    class="text-xs text-accent hover:underline"
+                  >
+                    {t("common.retry")}
+                  </button>
+                </Show>
+              </div>
             </div>
           </div>
         }
       >
-        <div class="px-4 py-3 border-b border-neutral-900">
-          <div class="flex gap-4 overflow-x-auto scrollbar-hide">
-            {/* My story / Add story button (always first) */}
-            <div class="flex flex-col items-center gap-1 flex-shrink-0">
-              <div class="relative">
-                {/* Avatar - click to view stories if any */}
+        <Show
+          when={props.actorStories.length > 0 || hasMyStories()}
+          fallback={
+            <div class="px-4 py-3 border-b border-neutral-900">
+              <div class="flex gap-4 overflow-x-auto scrollbar-hide">
                 <button
-                  onClick={() => {
-                    const ms = myStories();
-                    if (hasMyStories() && ms) {
-                      props.onStoryClick(ms, 0);
-                    } else {
-                      props.onAddStory();
-                    }
-                  }}
-                  class={`w-16 h-16 rounded-full p-0.5 ${
-                    hasMyStories() && myStories()
-                      ? myStories()!.has_unviewed
-                        ? "bg-gradient-to-tr from-accent to-accent"
-                        : "bg-neutral-600"
-                      : "ring-2 ring-neutral-700"
-                  }`}
-                >
-                  <div class="w-full h-full rounded-full bg-neutral-900 p-0.5">
-                    <UserAvatar
-                      avatarUrl={props.actor.icon_url}
-                      name={props.actor.name || props.actor.username}
-                      size={56}
-                    />
-                  </div>
-                </button>
-                {/* + button - always visible, always adds new story */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.onAddStory();
-                  }}
-                  aria-label={t("story.addStory")}
-                  title={t("story.addStory")}
-                  class="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center ring-2 ring-black transition-colors"
-                >
-                  <PlusIcon />
-                </button>
-              </div>
-              <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
-                {hasMyStories() ? t("story.yourStory") : t("story.addStory")}
-              </span>
-            </div>
-
-            {/* Other users' stories */}
-            <For each={otherStories()}>
-              {(as, idx) => (
-                <button
-                  onClick={() => props.onStoryClick(as, idx())}
+                  onClick={props.onAddStory}
                   class="flex flex-col items-center gap-1 flex-shrink-0 group"
                 >
-                  <div
+                  <div class="relative">
+                    <div class="w-16 h-16 rounded-full ring-2 ring-neutral-700 flex items-center justify-center">
+                      <UserAvatar
+                        avatarUrl={props.actor.icon_url}
+                        name={props.actor.name || props.actor.username}
+                        size={60}
+                      />
+                    </div>
+                    <div class="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center ring-2 ring-black">
+                      <PlusIcon />
+                    </div>
+                  </div>
+                  <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
+                    {t("story.yourStory")}
+                  </span>
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <div class="px-4 py-3 border-b border-neutral-900">
+            <div class="flex gap-4 overflow-x-auto scrollbar-hide">
+              {/* My story / Add story button (always first) */}
+              <div class="flex flex-col items-center gap-1 flex-shrink-0">
+                <div class="relative">
+                  {/* Avatar - click to view stories if any */}
+                  <button
+                    onClick={() => {
+                      const ms = myStories();
+                      if (hasMyStories() && ms) {
+                        props.onStoryClick(ms, 0);
+                      } else {
+                        props.onAddStory();
+                      }
+                    }}
                     class={`w-16 h-16 rounded-full p-0.5 ${
-                      as.has_unviewed
-                        ? "bg-gradient-to-tr from-accent to-accent"
-                        : "bg-neutral-600"
+                      hasMyStories() && myStories()
+                        ? myStories()!.has_unviewed
+                          ? "bg-gradient-to-tr from-accent to-accent"
+                          : "bg-neutral-600"
+                        : "ring-2 ring-neutral-700"
                     }`}
                   >
                     <div class="w-full h-full rounded-full bg-neutral-900 p-0.5">
                       <UserAvatar
-                        avatarUrl={as.actor.icon_url}
-                        name={as.actor.name || as.actor.preferred_username}
+                        avatarUrl={props.actor.icon_url}
+                        name={props.actor.name || props.actor.username}
                         size={56}
                       />
                     </div>
-                  </div>
-                  <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
-                    {as.actor.name || as.actor.preferred_username}
-                  </span>
-                </button>
-              )}
-            </For>
+                  </button>
+                  {/* + button - always visible, always adds new story */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onAddStory();
+                    }}
+                    aria-label={t("story.addStory")}
+                    title={t("story.addStory")}
+                    class="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center ring-2 ring-black transition-colors"
+                  >
+                    <PlusIcon />
+                  </button>
+                </div>
+                <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
+                  {hasMyStories() ? t("story.yourStory") : t("story.addStory")}
+                </span>
+              </div>
+
+              {/* Other users' stories */}
+              <For each={otherStories()}>
+                {(as, idx) => (
+                  <button
+                    onClick={() => props.onStoryClick(as, idx())}
+                    class="flex flex-col items-center gap-1 flex-shrink-0 group"
+                  >
+                    <div
+                      class={`w-16 h-16 rounded-full p-0.5 ${
+                        as.has_unviewed
+                          ? "bg-gradient-to-tr from-accent to-accent"
+                          : "bg-neutral-600"
+                      }`}
+                    >
+                      <div class="w-full h-full rounded-full bg-neutral-900 p-0.5">
+                        <UserAvatar
+                          avatarUrl={as.actor.icon_url}
+                          name={as.actor.name || as.actor.preferred_username}
+                          size={56}
+                        />
+                      </div>
+                    </div>
+                    <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
+                      {as.actor.name || as.actor.preferred_username}
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
           </div>
-        </div>
+        </Show>
       </Show>
     </Show>
   );

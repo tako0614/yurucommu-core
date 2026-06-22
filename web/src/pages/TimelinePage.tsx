@@ -103,6 +103,8 @@ export function TimelinePage() {
         actor={actor}
         actorStories={state.actorStories()}
         loading={state.storiesLoading()}
+        error={state.storiesError()}
+        onRetry={state.loadStories}
         onStoryClick={state.handleStoryClick}
         onAddStory={state.handleAddStory}
       />
