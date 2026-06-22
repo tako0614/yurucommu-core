@@ -96,7 +96,7 @@ export async function handleDeletePost(
   if (!postId) return c.json(errRequired("Post ID"), 400);
 
   const post = await db
-    .select()
+    .select({ apId: objects.apId })
     .from(objects)
     .where(and(eq(objects.apId, postId), eq(objects.attributedTo, actor.ap_id)))
     .get();
@@ -136,7 +136,7 @@ export async function handleLikePost(
   if (!postId) return c.json(errRequired("Post ID"), 400);
 
   const post = await db
-    .select()
+    .select({ apId: objects.apId })
     .from(objects)
     .where(eq(objects.apId, postId))
     .get();
@@ -169,7 +169,7 @@ export async function handleBookmarkPost(
   if (!postId) return c.json(errRequired("Post ID"), 400);
 
   const post = await db
-    .select()
+    .select({ apId: objects.apId })
     .from(objects)
     .where(eq(objects.apId, postId))
     .get();

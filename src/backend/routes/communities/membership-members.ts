@@ -1,6 +1,7 @@
 import type { Context, Hono } from "hono";
 import { and, asc, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { communities, communityMembers } from "../../../db/index.ts";
+import { chunkForInClause } from "../../lib/chunk.ts";
 import type { Env, Variables } from "../../types.ts";
 import {
   formatUsername,
@@ -277,6 +278,30 @@ export function registerMembershipMemberRoutes(
 
       const results: { ap_id: string; success: boolean; error?: string }[] = [];
 
+      // Pre-load every target's membership in ONE (chunked) query instead of a
+      // SELECT per target; the role/owner checks below read from this map and
+      // only the atomic removal stays per-target. Chunked because the batch
+      // (<=100) plus the community param would otherwise exceed D1's 100-bound-
+      // parameter cap.
+      const membershipByApId = new Map<string, { role: string }>();
+      for (const chunk of chunkForInClause(body.actor_ap_ids)) {
+        const rows = await db
+          .select({
+            actorApId: communityMembers.actorApId,
+            role: communityMembers.role,
+          })
+          .from(communityMembers)
+          .where(
+            and(
+              eq(communityMembers.communityApId, community.apId),
+              inArray(communityMembers.actorApId, chunk),
+            ),
+          );
+        for (const r of rows) {
+          membershipByApId.set(r.actorApId, { role: r.role });
+        }
+      }
+
       for (const targetApId of body.actor_ap_ids) {
         try {
           if (targetApId === actor.ap_id) {
@@ -288,11 +313,7 @@ export function registerMembershipMemberRoutes(
             continue;
           }
 
-          const targetMembership = await db
-            .select()
-            .from(communityMembers)
-            .where(memberWhere(community.apId, targetApId))
-            .get();
+          const targetMembership = membershipByApId.get(targetApId);
           if (!targetMembership) {
             results.push({
               ap_id: targetApId,

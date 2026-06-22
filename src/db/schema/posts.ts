@@ -59,14 +59,14 @@ export const objects = sqliteTable(
       t.published,
     ),
     index("objects_conversation_idx").on(t.conversation),
+    // Composite for the DM message reader (where conversation=X order by
+    // published desc) so the hot, ~4s-polled thread endpoint reads in published
+    // order instead of filesorting the conversation's rows on every poll.
+    index("objects_conversation_published_idx").on(t.conversation, t.published),
     index("objects_comm_published_idx").on(t.communityApId, t.published),
     // Supports the B0.3 Story scope read path: active community-scoped stories
     // (type='Story' AND community_ap_id=? AND end_time>?).
-    index("objects_type_comm_end_idx").on(
-      t.type,
-      t.communityApId,
-      t.endTime,
-    ),
+    index("objects_type_comm_end_idx").on(t.type, t.communityApId, t.endTime),
     index("objects_is_local_idx").on(t.isLocal),
   ],
 );

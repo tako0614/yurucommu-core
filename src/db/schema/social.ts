@@ -30,6 +30,10 @@ export const follows = sqliteTable(
     index("follows_follower_status_idx").on(t.followerApId, t.status),
     index("follows_following_status_idx").on(t.followingApId, t.status),
     index("follows_following_created_idx").on(t.followingApId, t.createdAt),
+    // Mirror of follows_following_created_idx for the FOLLOWING-list direction
+    // (where follower_ap_id=X order by created_at) — previously only the
+    // followers direction had a created-at covering index.
+    index("follows_follower_created_idx").on(t.followerApId, t.createdAt),
     index("follows_activity_idx").on(t.activityApId),
   ],
 );
