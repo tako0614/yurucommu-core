@@ -79,6 +79,7 @@ import {
 } from "./actors-helpers.ts";
 import { safeUrlJoin } from "../lib/activitypub-helpers.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../lib/feed-cursor.ts";
+import { chunkForInClause } from "../lib/chunk.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "actors" });
@@ -181,41 +182,51 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
 
     if (deleteActivityIds.length > 0) {
       // Any non-terminal delivery job for those Delete activities means the
-      // signer may still need this actor's key — skip reaping for now.
-      const pending = await db
-        .select({ id: deliveryQueue.id })
-        .from(deliveryQueue)
-        .where(
-          and(
-            inArray(deliveryQueue.activityApId, deleteActivityIds),
-            // Non-terminal delivery states (anything other than the terminal
-            // "delivered" / "dead_letter"). A "retry_wait" row is a Delete that
-            // is between attempts and will be re-sent, so reaping the tombstone
-            // (and its signing key) while one exists would strand the retry
-            // unsigned. queue-delivery.ts writes: pending / processing / failed
-            // / retry_wait / delivered / dead_letter.
-            inArray(deliveryQueue.status, [
-              "pending",
-              "processing",
-              "failed",
-              "retry_wait",
-            ]),
-          ),
-        )
-        .limit(1)
-        .get();
-      if (pending) continue;
+      // signer may still need this actor's key — skip reaping for now. Chunked:
+      // a prolific deleted actor can have >100 Delete activities, which would
+      // blow D1's 100-bound-param cap and 500 this fire-and-forget reap, leaking
+      // the tombstone (and its signing key) forever.
+      let hasPendingDelivery = false;
+      for (const chunk of chunkForInClause(deleteActivityIds)) {
+        const pending = await db
+          .select({ id: deliveryQueue.id })
+          .from(deliveryQueue)
+          .where(
+            and(
+              inArray(deliveryQueue.activityApId, chunk),
+              // Non-terminal delivery states (anything other than the terminal
+              // "delivered" / "dead_letter"). A "retry_wait" row is a Delete
+              // between attempts and will be re-sent, so reaping the tombstone
+              // (and its signing key) while one exists would strand the retry
+              // unsigned. queue-delivery.ts writes: pending / processing /
+              // failed / retry_wait / delivered / dead_letter.
+              inArray(deliveryQueue.status, [
+                "pending",
+                "processing",
+                "failed",
+                "retry_wait",
+              ]),
+            ),
+          )
+          .limit(1)
+          .get();
+        if (pending) {
+          hasPendingDelivery = true;
+          break;
+        }
+      }
+      if (hasPendingDelivery) continue;
     }
 
     // Drained: remove the terminal delivery_queue rows, the preserved Delete
-    // activities, then the tombstone row itself.
+    // activities, then the tombstone row itself (chunked for D1's param cap).
     if (deleteActivityIds.length > 0) {
-      await db
-        .delete(deliveryQueue)
-        .where(inArray(deliveryQueue.activityApId, deleteActivityIds));
-      await db
-        .delete(activities)
-        .where(inArray(activities.apId, deleteActivityIds));
+      for (const chunk of chunkForInClause(deleteActivityIds)) {
+        await db
+          .delete(deliveryQueue)
+          .where(inArray(deliveryQueue.activityApId, chunk));
+        await db.delete(activities).where(inArray(activities.apId, chunk));
+      }
     }
     await db.delete(actors).where(eq(actors.apId, apId));
     reaped += 1;
@@ -265,16 +276,21 @@ export async function cancelTombstoneDelete(
   const deleteActivityIds = deleteActivities.map((a) => a.apId);
   if (deleteActivityIds.length === 0) return 0;
 
-  // Atomic: drop every delivery_queue row for those Delete activities (any
-  // status — the Delete is superseded, including in-flight retry_wait jobs)
-  // together with the preserved Delete activity rows, so no signer can pick up
-  // a job referencing an activity whose actor row has been rotated.
-  await (db as unknown as BatchableDb).batch([
-    db
-      .delete(deliveryQueue)
-      .where(inArray(deliveryQueue.activityApId, deleteActivityIds)),
-    db.delete(activities).where(inArray(activities.apId, deleteActivityIds)),
-  ]);
+  // Drop every delivery_queue row for those Delete activities (any status — the
+  // Delete is superseded, including in-flight retry_wait jobs) together with the
+  // preserved Delete activity rows, so no signer can pick up a job referencing
+  // an activity whose actor row has been rotated. Each chunk's two deletes stay
+  // paired in one atomic batch; chunked because a prolific actor can have >100
+  // Delete activities, which would blow D1's 100-bound-param cap and 500 the
+  // revive.
+  for (const chunk of chunkForInClause(deleteActivityIds)) {
+    await (db as unknown as BatchableDb).batch([
+      db
+        .delete(deliveryQueue)
+        .where(inArray(deliveryQueue.activityApId, chunk)),
+      db.delete(activities).where(inArray(activities.apId, chunk)),
+    ]);
+  }
 
   return deleteActivityIds.length;
 }
