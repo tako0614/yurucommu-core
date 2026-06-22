@@ -47,6 +47,10 @@ const MAX_READ_BATCH_SIZE = 90;
 // Multi-row INSERT chunk: each archive row binds 3 columns, so a chunk of N
 // rows uses 3*N bound params. 30*3 = 90, under D1's 100-param ceiling.
 const ARCHIVE_CREATE_BATCH_SIZE = 30;
+// Bound the opportunistic retention-cleanup per run so a user with a very large
+// archived backlog doesn't load + delete it all in one fired-from-read-path run;
+// the rest drains on later runs.
+const ARCHIVE_CLEANUP_BATCH = 200;
 const ARCHIVE_ALL_CAP = 1000;
 const NOTIFICATION_ACTIVITY_TYPES = ["Follow", "Like", "Announce", "Create"];
 
@@ -123,17 +127,20 @@ async function cleanupArchivedNotifications(
         eq(notificationArchived.actorApId, actorApId),
         lt(notificationArchived.archivedAt, retentionDateStr),
       ),
-    );
+    )
+    .limit(ARCHIVE_CLEANUP_BATCH);
 
   if (archivedToDelete.length === 0) return;
 
   const activityApIds = archivedToDelete.map((a) => a.activityApId);
 
-  // Chunk the IN(...) delete: a user can accumulate far more than 100 expired
-  // archived rows, and D1 caps a query at 100 bound parameters — an unbounded
-  // inArray here threw "too many SQL variables", which (since this delete runs
-  // before the archived-rows delete below) left the rows undrained and 500'd
-  // the GET /notifications + /unread/count paths permanently for that user.
+  // Delete the inbox rows AND the archived markers for EXACTLY the bounded set,
+  // chunked for D1's 100-bound-parameter cap. Both target the same activity ids
+  // (not a broad `archivedAt < retentionDate`): with the per-run limit, a broad
+  // archived-marker delete would drop markers for rows whose inbox entry wasn't
+  // deleted this run, re-surfacing an expired-archived notification as active.
+  // The inbox delete runs first so a crash can't leave a notification visible
+  // with its retention marker already gone.
   for (const ids of chunkForInClause(activityApIds)) {
     await db
       .delete(inboxTable)
@@ -143,16 +150,15 @@ async function cleanupArchivedNotifications(
           inArray(inboxTable.activityApId, ids),
         ),
       );
+    await db
+      .delete(notificationArchived)
+      .where(
+        and(
+          eq(notificationArchived.actorApId, actorApId),
+          inArray(notificationArchived.activityApId, ids),
+        ),
+      );
   }
-
-  await db
-    .delete(notificationArchived)
-    .where(
-      and(
-        eq(notificationArchived.actorApId, actorApId),
-        lt(notificationArchived.archivedAt, retentionDateStr),
-      ),
-    );
 }
 
 async function maybeCleanupArchivedNotifications(
