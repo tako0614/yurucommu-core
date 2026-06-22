@@ -3,6 +3,7 @@ import {
   createMemo,
   createSignal,
   For,
+  on,
   onMount,
   Show,
 } from "solid-js";
@@ -13,10 +14,13 @@ import { refreshDmUnreadAtom } from "../atoms/dm-unread.ts";
 import {
   DMContact,
   DMRequest,
+  archiveDMConversation,
+  fetchArchivedDMConversations,
   fetchDMContact,
   fetchDMContacts,
   fetchDMRequests,
   rejectDMRequest,
+  unarchiveDMConversation,
 } from "../lib/api.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { DMChatPanel } from "../components/dm/DMChatPanel.tsx";
@@ -119,7 +123,7 @@ function RequestItem(props: RequestItemProps) {
   );
 }
 
-type TabType = "all" | "friends" | "communities" | "requests";
+type TabType = "all" | "friends" | "communities" | "requests" | "archived";
 
 export function DMPage() {
   const actor = useRequiredActor();
@@ -141,6 +145,12 @@ export function DMPage() {
   const [listError, setListError] = createSignal<string | null>(null);
   const [activeTab, setActiveTab] = createSignal<TabType>("all");
   const [searchQuery, setSearchQuery] = createSignal("");
+  // Archived one-to-one conversations (lazy-loaded when the archived tab opens).
+  const [archived, setArchived] = createSignal<DMContact[]>([]);
+  const [loadingArchived, setLoadingArchived] = createSignal(false);
+  const [archiveBusy, setArchiveBusy] = createSignal<Record<string, boolean>>(
+    {},
+  );
   let tabContainerRef!: HTMLDivElement;
   const { t } = useI18n();
 
@@ -314,7 +324,13 @@ export function DMPage() {
   };
 
   // Swipe handlers
-  const tabs: TabType[] = ["all", "friends", "communities", "requests"];
+  const tabs: TabType[] = [
+    "all",
+    "friends",
+    "communities",
+    "requests",
+    "archived",
+  ];
 
   const handleTouchStart = (e: TouchEvent) => {
     touchStartX = e.touches[0].clientX;
@@ -366,6 +382,9 @@ export function DMPage() {
       case "communities":
         result = communities();
         break;
+      case "archived":
+        result = archived();
+        break;
       default:
         result = [];
     }
@@ -382,6 +401,67 @@ export function DMPage() {
 
     return result;
   });
+
+  // Lazy-load archived conversations when the archived tab opens. `on(activeTab)`
+  // tracks ONLY the tab — not `archived()`, which the callback sets — so this
+  // never self-retriggers.
+  createEffect(
+    on(activeTab, (tab) => {
+      if (tab !== "archived") return;
+      setLoadingArchived(true);
+      fetchArchivedDMConversations()
+        .then(setArchived)
+        .catch((e) =>
+          console.error("Failed to load archived conversations:", e),
+        )
+        .finally(() => setLoadingArchived(false));
+    }),
+  );
+
+  const handleArchive = async (contact: DMContact) => {
+    if (archiveBusy()[contact.ap_id]) return;
+    setArchiveBusy((p) => ({ ...p, [contact.ap_id]: true }));
+    // Optimistically drop it from the inbox; restore by reloading on failure.
+    setContacts((prev) => prev.filter((c) => c.ap_id !== contact.ap_id));
+    try {
+      await archiveDMConversation(contact.ap_id);
+      void refreshDmUnread();
+    } catch (e) {
+      console.error("Failed to archive conversation:", e);
+      setListError(t("dm.archiveFailed"));
+      void loadContacts();
+    } finally {
+      setArchiveBusy((p) => {
+        const next = { ...p };
+        delete next[contact.ap_id];
+        return next;
+      });
+    }
+  };
+
+  const handleUnarchive = async (contact: DMContact) => {
+    if (archiveBusy()[contact.ap_id]) return;
+    setArchiveBusy((p) => ({ ...p, [contact.ap_id]: true }));
+    setArchived((prev) => prev.filter((c) => c.ap_id !== contact.ap_id));
+    try {
+      await unarchiveDMConversation(contact.ap_id);
+      // It returns to the inbox; refresh both the inbox list and the badge.
+      void loadContacts();
+      void refreshDmUnread();
+    } catch (e) {
+      console.error("Failed to unarchive conversation:", e);
+      setListError(t("dm.unarchiveFailed"));
+      fetchArchivedDMConversations()
+        .then(setArchived)
+        .catch(() => {});
+    } finally {
+      setArchiveBusy((p) => {
+        const next = { ...p };
+        delete next[contact.ap_id];
+        return next;
+      });
+    }
+  };
 
   const tabIndex = () => tabs.indexOf(activeTab());
 
@@ -539,6 +619,16 @@ export function DMPage() {
                       </span>
                     </Show>
                   </button>
+                  <button
+                    onClick={() => setActiveTab("archived")}
+                    class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                      activeTab() === "archived"
+                        ? "text-white"
+                        : "text-neutral-500"
+                    }`}
+                  >
+                    {t("dm.archived")}
+                  </button>
                   {/* Tab indicator - underline style */}
                   <div
                     class="absolute bottom-0 h-0.5 bg-accent transition-all duration-200"
@@ -550,7 +640,9 @@ export function DMPage() {
                             ? "52px"
                             : tabIndex() === 2
                               ? "64px"
-                              : "72px",
+                              : tabIndex() === 3
+                                ? "72px"
+                                : "84px",
                       left:
                         tabIndex() === 0
                           ? "0px"
@@ -558,7 +650,9 @@ export function DMPage() {
                             ? "68px"
                             : tabIndex() === 2
                               ? "136px"
-                              : "216px",
+                              : tabIndex() === 3
+                                ? "216px"
+                                : "300px",
                     }}
                   />
                 </div>
@@ -633,6 +727,7 @@ export function DMPage() {
                 <Show
                   when={
                     !loading() &&
+                    !(activeTab() === "archived" && loadingArchived()) &&
                     activeTab() !== "requests" &&
                     currentContacts().length === 0
                   }
@@ -660,7 +755,9 @@ export function DMPage() {
                           ? t("dm.noTalks")
                           : activeTab() === "friends"
                             ? t("dm.noFriends")
-                            : t("groups.noGroups")}
+                            : activeTab() === "archived"
+                              ? t("dm.archivedEmpty")
+                              : t("groups.noGroups")}
                     </p>
                     <p class="text-neutral-500 text-sm">
                       {searchQuery()
@@ -669,7 +766,9 @@ export function DMPage() {
                           ? t("dm.emptyAllHint")
                           : activeTab() === "friends"
                             ? t("dm.emptyFriendsHint")
-                            : t("dm.emptyGroupsHint")}
+                            : activeTab() === "archived"
+                              ? ""
+                              : t("dm.emptyGroupsHint")}
                     </p>
                   </div>
                 </Show>
@@ -687,6 +786,16 @@ export function DMPage() {
                           contact={contact}
                           onClick={() => handleSelectContact(contact)}
                           unreadCount={contact.unread_count || 0}
+                          onArchive={
+                            activeTab() === "archived"
+                              ? undefined
+                              : () => handleArchive(contact)
+                          }
+                          onUnarchive={
+                            activeTab() === "archived"
+                              ? () => handleUnarchive(contact)
+                              : undefined
+                          }
                         />
                       )}
                     </For>

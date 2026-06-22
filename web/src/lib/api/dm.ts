@@ -1,6 +1,6 @@
 import type { DMMessage } from "../../types/index.ts";
 import { normalizeActor } from "./normalize.ts";
-import { apiFetch, apiPost, assertOk } from "./fetch.ts";
+import { apiDelete, apiFetch, apiPost, assertOk } from "./fetch.ts";
 
 // Contact types for the unified DM view
 export interface DMContact {
@@ -176,6 +176,40 @@ export async function markDMAsRead(userApId: string): Promise<void> {
     `/api/dm/user/${encodeURIComponent(userApId)}/read`,
   );
   await assertOk(res, "Failed to mark as read");
+}
+
+// Archive a one-to-one DM conversation (by the other party's AP-ID). Archived
+// conversations drop out of the inbox + unread count and live under the
+// archived view until unarchived.
+export async function archiveDMConversation(userApId: string): Promise<void> {
+  const res = await apiPost(
+    `/api/dm/user/${encodeURIComponent(userApId)}/archive`,
+  );
+  await assertOk(res, "Failed to archive conversation");
+}
+
+export async function unarchiveDMConversation(userApId: string): Promise<void> {
+  const res = await apiDelete(
+    `/api/dm/user/${encodeURIComponent(userApId)}/archive`,
+  );
+  await assertOk(res, "Failed to unarchive conversation");
+}
+
+export async function fetchArchivedDMConversations(): Promise<DMContact[]> {
+  const res = await apiFetch("/api/dm/archived");
+  await assertOk(res, "Failed to load archived conversations");
+  const data = (await res.json()) as { archived?: Partial<DMContact>[] };
+  // The archived endpoint returns actor-profile fields + conversation_id +
+  // last_message_at (no preview / unread). Normalize to a one-to-one DMContact.
+  return (data.archived || []).map((c) => {
+    const a = normalizeActor(c as DMContact);
+    return {
+      ...a,
+      type: "user" as const,
+      last_message: null,
+      unread_count: 0,
+    };
+  });
 }
 
 // Mark a community (group chat) as read so its unread badge clears.
