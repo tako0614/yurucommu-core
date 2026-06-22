@@ -82,18 +82,26 @@ contacts.get("/contacts", async (c) => {
     archivedConversations.map((a) => a.conversationId),
   );
 
-  // Get DM conversations for this actor with limit to prevent DoS
+  // Get the latest message per conversation. SQLite's bare-column + single
+  // MAX() rule fills the non-aggregated columns (attributedTo, toJson, content)
+  // from the row holding MAX(published), so this returns exactly one row per
+  // conversation = its newest message. That makes the 2000-row cap bound
+  // CONVERSATIONS, not messages — previously a few very active threads could
+  // fill the 2000 most-recent message rows and silently drop older-but-active
+  // conversations from the contact list. We now keep the 2000 most recently
+  // active conversations instead.
   const dmObjects = await db
     .select({
       conversation: objects.conversation,
       attributedTo: objects.attributedTo,
       toJson: objects.toJson,
-      published: objects.published,
       content: objects.content,
+      published: sql<string>`MAX(${objects.published})`,
     })
     .from(objects)
     .where(dmWhere)
-    .orderBy(desc(objects.published))
+    .groupBy(objects.conversation)
+    .orderBy(desc(sql`MAX(${objects.published})`))
     .limit(2000);
 
   const conversationMap = groupConversations(

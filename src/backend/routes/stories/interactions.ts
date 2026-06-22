@@ -27,6 +27,7 @@ import {
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import { logger } from "../../lib/logger.ts";
+import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 
 const log = logger.child({ component: "stories.interactions" });
 
@@ -236,18 +237,31 @@ stories.post("/:id/like", async (c) => {
   // Co-commit the like edge + count bump in one batch so a crash between them
   // can't drift likeCount; the bare insert throws on a concurrent duplicate,
   // rolling back the whole batch (no double-count).
-  await (db as unknown as Batchable).batch([
-    db.insert(likes).values({
-      actorApId: actor.ap_id,
-      objectApId: apId,
-      activityApId: likeActivityApId,
-      createdAt: now,
-    }),
-    db
-      .update(objects)
-      .set({ likeCount: sql`${objects.likeCount} + 1` })
-      .where(eq(objects.apId, apId)),
-  ]);
+  try {
+    await (db as unknown as Batchable).batch([
+      db.insert(likes).values({
+        actorApId: actor.ap_id,
+        objectApId: apId,
+        activityApId: likeActivityApId,
+        createdAt: now,
+      }),
+      db
+        .update(objects)
+        .set({ likeCount: sql`${objects.likeCount} + 1` })
+        .where(eq(objects.apId, apId)),
+    ]);
+  } catch (e) {
+    // A concurrent like won the race (TOCTOU past the existing-check); treat as
+    // idempotent success instead of surfacing a 500 unique-constraint error.
+    if (isUniqueConstraintError(e)) {
+      return c.json({
+        success: true,
+        liked: true,
+        like_count: story.likeCount,
+      });
+    }
+    throw e;
+  }
 
   const likeActivityRaw = {
     "@context": "https://www.w3.org/ns/activitystreams",
@@ -427,18 +441,30 @@ stories.post("/:id/share", async (c) => {
 
   // Co-commit the share edge + count bump in one batch (crash-safe; the bare
   // insert rolls the batch back on a duplicate).
-  await (db as unknown as Batchable).batch([
-    db.insert(storyShares).values({
-      id: generateId(),
-      storyApId: apId,
-      actorApId: actor.ap_id,
-      sharedAt: now,
-    }),
-    db
-      .update(objects)
-      .set({ shareCount: sql`${objects.shareCount} + 1` })
-      .where(eq(objects.apId, apId)),
-  ]);
+  try {
+    await (db as unknown as Batchable).batch([
+      db.insert(storyShares).values({
+        id: generateId(),
+        storyApId: apId,
+        actorApId: actor.ap_id,
+        sharedAt: now,
+      }),
+      db
+        .update(objects)
+        .set({ shareCount: sql`${objects.shareCount} + 1` })
+        .where(eq(objects.apId, apId)),
+    ]);
+  } catch (e) {
+    // Concurrent share won the race past the existing-check; idempotent success.
+    if (isUniqueConstraintError(e)) {
+      return c.json({
+        success: true,
+        shared: true,
+        share_count: story.shareCount || 0,
+      });
+    }
+    throw e;
+  }
 
   return c.json({
     success: true,

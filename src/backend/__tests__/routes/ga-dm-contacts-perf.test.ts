@@ -234,6 +234,60 @@ test("unread_count reflects messages from others after the read baseline", async
   expect(conv?.unread_count).toEqual(2);
 });
 
+test("contacts cap bounds CONVERSATIONS, not message rows (busy thread can't evict an older conversation)", async () => {
+  const db = await freshDb();
+  const viewer = await insertLocalActor(db, "viewer");
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+
+  // One OLD conversation: alice -> viewer, a single January message.
+  await insertDm(
+    db,
+    alice,
+    viewer,
+    "conv-stale",
+    "stale-1",
+    "2024-01-01T00:00:00Z",
+  );
+
+  // One VERY busy conversation: viewer -> bob, 2000 February messages (all
+  // newer than conv-stale). Authored by the viewer so dmWhere matches via
+  // attributed_to without needing object_recipients rows. Generated in a single
+  // recursive-CTE insert so the test stays fast.
+  await db.run(sql`
+    INSERT INTO objects
+      (ap_id, type, attributed_to, content, to_json, visibility, conversation, published, is_local)
+    WITH RECURSIVE seq(n) AS (
+      SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 2000
+    )
+    SELECT
+      ${APP_URL} || '/ap/objects/busy-' || n,
+      'Note',
+      ${viewer},
+      'busy-' || n,
+      json_array(${bob}),
+      'direct',
+      'conv-busy',
+      '2024-02-01T00:00:00.' || printf('%04d', n) || 'Z',
+      1
+    FROM seq
+  `);
+
+  const app = appWith(db, fakeActor(viewer, "viewer"));
+  const data = await getContacts(app, db);
+
+  const convIds = data.mutual_followers.map((m) => m.conversation_id);
+  // Pre-fix, the 2000 busy message rows filled the row-capped window and
+  // dropped conv-stale entirely. Post-fix (one row per conversation), both
+  // appear and the busy thread shows only its latest message.
+  expect(convIds).toContain("conv-stale");
+  expect(convIds).toContain("conv-busy");
+  const busy = data.mutual_followers.find(
+    (m) => m.conversation_id === "conv-busy",
+  );
+  expect(busy?.last_message?.content).toEqual("busy-2000");
+});
+
 test("GET /contacts performs no writes (side-effect-free)", async () => {
   const db = await freshDb();
   const viewer = await insertLocalActor(db, "viewer");
