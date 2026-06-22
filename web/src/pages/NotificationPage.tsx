@@ -298,6 +298,15 @@ export function NotificationPage() {
       setHasMoreOlder(hasMore);
     } catch (e) {
       console.error("Failed to load older notifications:", e);
+      // Surface via the dismissible banner (not the full-page retry) so the
+      // already-loaded list stays visible; guard against a mid-flight change.
+      if (
+        filter() === currentFilter &&
+        viewArchived() === archived &&
+        reloadKey() === key
+      ) {
+        setError(t("common.error"));
+      }
     } finally {
       setLoadingOlder(false);
     }

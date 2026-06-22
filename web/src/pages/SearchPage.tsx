@@ -334,6 +334,9 @@ export function SearchPage() {
       });
     } catch (e) {
       console.error("Remote search failed:", e);
+      if (gen === searchGen) {
+        pushToast(setToasts, t("search.remoteSearchFailed"), { kind: "error" });
+      }
     } finally {
       setSearchingRemote(false);
     }
@@ -362,6 +365,9 @@ export function SearchPage() {
       setUsersHasMore(res.hasMore);
     } catch (e) {
       console.error("Load more users failed:", e);
+      if (gen === searchGen) {
+        pushToast(setToasts, t("common.error"), { kind: "error" });
+      }
     } finally {
       setLoadingMore(false);
     }
@@ -395,6 +401,9 @@ export function SearchPage() {
       setPostsHasMore(res.hasMore);
     } catch (e) {
       console.error("Load more posts failed:", e);
+      if (gen === searchGen) {
+        pushToast(setToasts, t("common.error"), { kind: "error" });
+      }
     } finally {
       setLoadingMore(false);
     }

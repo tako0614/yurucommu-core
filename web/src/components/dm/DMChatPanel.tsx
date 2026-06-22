@@ -202,6 +202,11 @@ export function DMChatPanel(props: DMChatPanelProps) {
       });
     } catch (e) {
       console.error("Failed to load older messages:", e);
+      // Surface the failure (guarded against a mid-flight thread switch) instead
+      // of a silent revert that looks like "end of history".
+      if (props.contact.ap_id === sentApId && props.contact.type === sentType) {
+        setErrorMessage(t("common.error"));
+      }
     } finally {
       setLoadingOlder(false);
     }

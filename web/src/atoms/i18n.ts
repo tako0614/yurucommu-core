@@ -267,6 +267,7 @@ const translations = {
       "この相手やコミュニティは見つかりませんでした。削除されたか、まだ届いていない可能性があります。",
     "story.shareCopied": "リンクをコピーしました",
     "story.shareFailed": "共有に失敗しました",
+    "story.shareUnavailable": "このブラウザでは共有を利用できません",
     "story.shareRecordFailed": "共有の記録に失敗しました",
     "story.text": "テキスト",
     "story.stamp": "スタンプ",
@@ -478,6 +479,7 @@ const translations = {
     "search.searchOtherServersHint":
       "@ユーザー@ドメイン の形式で他のサーバーを検索します",
     "search.searchingRemote": "他のサーバーを検索中...",
+    "search.remoteSearchFailed": "他のサーバーの検索に失敗しました",
     "search.remoteFormatHint": "@ユーザー@ドメイン の形式で入力してください",
     "search.remoteHandlePromptTitle": "他のサーバーのアカウントかもしれません",
     "search.remoteHandlePromptHint":
@@ -929,6 +931,7 @@ const translations = {
       "We couldn't find this person or community. It may have been removed, or hasn't reached you yet.",
     "story.shareCopied": "Link copied",
     "story.shareFailed": "Failed to share story",
+    "story.shareUnavailable": "Sharing isn't available in this browser",
     "story.shareRecordFailed": "Failed to record share",
     "story.text": "Text",
     "story.stamp": "Sticker",
@@ -1138,6 +1141,7 @@ const translations = {
     "search.searchOtherServers": "Search other servers",
     "search.searchOtherServersHint": "Look up other servers as @user@domain",
     "search.searchingRemote": "Searching other servers...",
+    "search.remoteSearchFailed": "Couldn't search other servers",
     "search.remoteFormatHint": "Enter as @user@domain",
     "search.remoteHandlePromptTitle":
       "This may be an account on another server",

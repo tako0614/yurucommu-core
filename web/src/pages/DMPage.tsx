@@ -420,11 +420,15 @@ export function DMPage() {
     on(activeTab, (tab) => {
       if (tab !== "archived") return;
       setLoadingArchived(true);
+      setListError(null);
       fetchArchivedDMConversations()
         .then(setArchived)
-        .catch((e) =>
-          console.error("Failed to load archived conversations:", e),
-        )
+        .catch((e) => {
+          console.error("Failed to load archived conversations:", e);
+          // Surface the failure instead of falling through to the empty-state,
+          // which would wrongly read as "no archived conversations".
+          if (activeTab() === "archived") setListError(t("common.error"));
+        })
         .finally(() => setLoadingArchived(false));
     }),
   );

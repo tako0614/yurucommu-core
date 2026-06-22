@@ -387,8 +387,15 @@ export function StoryViewer(props: StoryViewerProps) {
           console.error("Failed to record story share:", err);
           setToastMessage(t("story.shareRecordFailed"));
         }
+      } else {
+        // No Web Share and no Clipboard API: surface a message rather than
+        // leaving the Share button a silent dead no-op.
+        setToastMessage(t("story.shareUnavailable"));
       }
     } catch (err) {
+      // A user dismissing the native share sheet rejects with AbortError —
+      // that's a cancel, not a failure, so don't show an error toast for it.
+      if (err instanceof Error && err.name === "AbortError") return;
       console.error("Failed to share story:", err);
       setToastMessage(t("story.shareFailed"));
     }

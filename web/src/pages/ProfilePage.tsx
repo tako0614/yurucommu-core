@@ -54,6 +54,7 @@ export function ProfilePage() {
   // A private/remote follow can be pending the target's approval; track it so we
   // don't present a pending request as an accepted follow.
   const [followPending, setFollowPending] = createSignal(false);
+  const [followBusy, setFollowBusy] = createSignal(false);
   const [activeTab, setActiveTab] = createSignal<"posts">("posts");
   // List is the default: Note (text) is yurucommu's primary content type, so
   // the profile must show text posts up front rather than a media-only grid
@@ -184,6 +185,10 @@ export function ProfilePage() {
     if (!profile()) return;
     // A follow request that is awaiting approval should not be re-issued.
     if (followPending()) return;
+    // In-flight guard: a rapid double-tap would otherwise fire duplicate
+    // follow/unfollow requests and drift the optimistic follower_count.
+    if (followBusy()) return;
+    setFollowBusy(true);
     try {
       if (isFollowing()) {
         await unfollow(profile()!.ap_id);
@@ -215,6 +220,8 @@ export function ProfilePage() {
     } catch (e) {
       console.error("Failed to toggle follow:", e);
       pushToast(setToasts, t("feedback.followFailed"), { kind: "error" });
+    } finally {
+      setFollowBusy(false);
     }
   };
 

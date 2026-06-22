@@ -5,6 +5,7 @@ import { useI18n } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
 import { actorAtom, logoutAtom } from "../../atoms/auth.ts";
 import { appMenuOpenAtom } from "../../atoms/shell.ts";
+import { pushToast, toastsAtom } from "../../atoms/toast.ts";
 import {
   accountsAtom,
   accountsErrorAtom,
@@ -109,8 +110,22 @@ export function AppMenu() {
   const doLoadAccounts = useSetAtom(loadAccountsAtom);
   const doSwitchAccount = useSetAtom(switchAccountAtom);
   const doLogout = useSetAtom(logoutAtom);
+  const setToasts = useSetAtom(toastsAtom);
   const [confirmLogout, setConfirmLogout] = createSignal(false);
   const [loggingOut, setLoggingOut] = createSignal(false);
+
+  // switchAccountAtom reloads the page on success and throws on failure; the
+  // call site (this menu, with no inline error UI) must surface the failure as
+  // a toast rather than swallow an unhandled rejection (the menu would look
+  // frozen — a tap that silently does nothing).
+  const handleSwitchAccount = async (apId: string) => {
+    try {
+      await doSwitchAccount(apId);
+    } catch (e) {
+      console.error("Failed to switch account:", e);
+      pushToast(setToasts, t("common.error"), { kind: "error" });
+    }
+  };
 
   let drawerRef: HTMLDivElement | undefined;
 
@@ -262,7 +277,7 @@ export function AppMenu() {
                         <For each={accounts()}>
                           {(account) => (
                             <button
-                              onClick={() => doSwitchAccount(account.ap_id)}
+                              onClick={() => handleSwitchAccount(account.ap_id)}
                               class={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 transition-colors ${
                                 account.ap_id === currentApId()
                                   ? "bg-neutral-900/50"
