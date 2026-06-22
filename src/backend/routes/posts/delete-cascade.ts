@@ -34,12 +34,6 @@ import {
   storyVotes,
 } from "../../../db/index.ts";
 
-// Escape SQLite LIKE metacharacters so an r2_key containing `%`/`_`/`\` is
-// matched literally (mirrors the helper in media.ts / search.ts).
-function escapeLike(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
-}
-
 /**
  * Reap the `media_uploads` rows attached to a single object.
  *
@@ -108,14 +102,16 @@ async function deleteAttachedMediaUploads(
   // excludes the object being reaped.
   const stillReferencedKeys = new Set<string>();
   if (media) {
-    // For each orphaned key, ask SQL (escaped LIKE, indexed by attributedTo)
-    // whether ANOTHER present object of this author still references it — instead
-    // of loading EVERY other object's attachmentsJson into memory and substring-
-    // scanning them all (O(objects × keys), unbounded for a prolific author).
-    // `orphaned` is only this object's own attachments (a handful), so this is a
-    // small, bounded set of indexed lookups. Mirrors media.ts findReferencingObject.
+    // For each orphaned key, ask SQL (indexed by attributedTo) whether ANOTHER
+    // present object of this author still references it — instead of loading
+    // EVERY other object's attachmentsJson into memory and substring-scanning
+    // them all (O(objects × keys), unbounded for a prolific author). `orphaned`
+    // is only this object's own attachments (a handful), so this is a small,
+    // bounded set of indexed lookups. Uses instr() (literal substring), NOT
+    // `LIKE '%<key>%'`: a 73-char `uploads/<64-hex>.png` key in a `%...%` pattern
+    // exceeds D1's LIKE pattern-complexity limit (SQLITE_ERROR 7500, ~50 chars).
+    // Mirrors media.ts findReferencingObject.
     for (const m of orphaned) {
-      const keyLike = `%${escapeLike(m.r2Key)}%`;
       const ref = await db
         .select({ apId: objects.apId })
         .from(objects)
@@ -123,7 +119,7 @@ async function deleteAttachedMediaUploads(
           and(
             eq(objects.attributedTo, obj.attributedTo),
             ne(objects.apId, objectApId),
-            sql`${objects.attachmentsJson} LIKE ${keyLike} ESCAPE '\\'`,
+            sql`instr(${objects.attachmentsJson}, ${m.r2Key}) > 0`,
           ),
         )
         .get();

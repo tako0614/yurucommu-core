@@ -169,16 +169,13 @@ const FTS_MIN_QUERY_LEN = 3;
  * The caller AND-s this with `publicSearchableWhere`, so visibility/audience
  * gating still applies on top of the match (no private-post leak).
  */
-// Escape SQLite LIKE metacharacters so a query containing `%` or `_` (or a
-// backslash) matches them literally instead of as wildcards. Mirrors the
-// escaping in media.ts / dm/conversations-helpers; the bare `like()` calls
-// honoured no ESCAPE, so a search for "%" or "_" used to over-match every row.
-function escapeLike(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
-}
-
 function likeContains(column: Parameters<typeof like>[0], value: string) {
-  return sql`${column} LIKE ${"%" + escapeLike(value) + "%"} ESCAPE '\\'`;
+  // Match with instr() (a LITERAL substring search), lowercased for the same
+  // ASCII case-insensitivity LIKE gives — NOT `LIKE '%...%'`: a long search term
+  // (>~48 chars) trips D1's LIKE pattern-complexity limit (SQLITE_ERROR 7500).
+  // instr() has no wildcards (so a user's literal `%`/`_` matches literally,
+  // which is what search wants) and no length limit.
+  return sql`instr(lower(${column}), lower(${value})) > 0`;
 }
 
 function postContentSearchPredicate(query: string) {
@@ -618,8 +615,11 @@ search.get("/hashtag/:tag", async (c) => {
   const hashtagPattern = `#${tag}`;
   const tagLower = tag.toLowerCase();
 
+  // instr() (literal, lowercased for case-insensitivity), NOT `LIKE '%...%'`: a
+  // long #tag would trip D1's LIKE pattern-complexity limit (SQLITE_ERROR 7500).
+  // This is a SUPERSET prefilter; the exact #tag check below narrows it.
   const postWhere = publicSearchableWhere(
-    like(objects.content, "%" + hashtagPattern + "%"),
+    sql`instr(lower(${objects.content}), lower(${hashtagPattern})) > 0`,
   );
 
   // `LIKE '%#tag%'` is a SUPERSET prefilter: it also matches longer tags that

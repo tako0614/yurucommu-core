@@ -27,13 +27,15 @@ import { safeJsonParse } from "../../federation-helpers.ts";
  */
 export function recipientToJsonLike(apId: string): SQL {
   // JSON.stringify yields a quoted token whose surrounding quotes delimit the
-  // value; escaping the LIKE metacharacters keeps the wildcard semantics from
-  // leaking out of the caller-supplied AP-ID.
-  const token = JSON.stringify(apId)
-    .replace(/\\/g, "\\\\")
-    .replace(/%/g, "\\%")
-    .replace(/_/g, "\\_");
-  return sql`${objects.toJson} LIKE ${"%" + token + "%"} ESCAPE '\\'`;
+  // value, so a recipient ID that is a textual prefix of another cannot
+  // cross-match. Match with instr() (a LITERAL substring search) — NOT
+  // `LIKE '%...%'`: the AP-ID is caller-supplied and often long (a remote
+  // `https://host/users/name` quoted token easily exceeds D1's LIKE
+  // pattern-complexity limit, SQLITE_ERROR 7500 at ~50 chars). instr() has no
+  // wildcards (so no escaping needed) and no length limit, and is exact
+  // (AP-IDs are matched case-sensitively, as they must be).
+  const token = JSON.stringify(apId);
+  return sql`instr(${objects.toJson}, ${token}) > 0`;
 }
 
 /**

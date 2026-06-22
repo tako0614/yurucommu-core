@@ -9,11 +9,6 @@ import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, objects } from "../../../db/index.ts";
 
-// Escape SQLite LIKE metacharacters so a query containing `%`/`_`/`\` matches
-// literally, not as a wildcard (mirrors search.ts / media.ts).
-function escapeLike(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
-}
 import { NO_AUDIENCE_PREDICATE } from "../../lib/community-visibility.ts";
 import {
   ACTOR_SUMMARY_COLUMNS,
@@ -78,8 +73,8 @@ async function searchUsers(c: ToolContext, input: Input) {
       and(
         eq(actors.isPrivate, 0),
         or(
-          sql`${actors.preferredUsername} LIKE ${`%${escapeLike(query)}%`} ESCAPE '\\'`,
-          sql`${actors.name} LIKE ${`%${escapeLike(query)}%`} ESCAPE '\\'`,
+          sql`instr(lower(${actors.preferredUsername}), lower(${query})) > 0`,
+          sql`instr(lower(${actors.name}), lower(${query})) > 0`,
         ),
       ),
     )
@@ -109,7 +104,7 @@ async function searchPosts(c: ToolContext, input: Input) {
     .from(objects)
     .where(
       and(
-        sql`${objects.content} LIKE ${`%${escapeLike(query)}%`} ESCAPE '\\'`,
+        sql`instr(lower(${objects.content}), lower(${query})) > 0`,
         eq(objects.visibility, "public"),
         NO_AUDIENCE_PREDICATE,
         isNull(objects.deletedAt),
