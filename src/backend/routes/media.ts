@@ -293,27 +293,25 @@ function attachmentMatches(
   return attachmentsJson.includes(mediaUrl) || attachmentsJson.includes(r2Key);
 }
 
-// Escape SQLite LIKE metacharacters so a media URL / R2 key containing `%` or
-// `_` (or a backslash) is matched literally, not as a wildcard.
-function escapeLike(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
-}
-
 async function findReferencingObject(
   db: Database,
   uploaderApId: string,
   mediaUrl: string,
   r2Key: string,
 ): Promise<ReferencingObject | null> {
-  // Push the substring match into SQL (escaped LIKE) instead of materializing
-  // EVERY object the uploader has ever authored and substring-matching each in
-  // app code. A prolific uploader has thousands of objects, almost none of which
+  // Push the substring match into SQL (LIKE) instead of materializing EVERY
+  // object the uploader has ever authored and substring-matching each in app
+  // code. A prolific uploader has thousands of objects, almost none of which
   // reference this media; the old `eq(attributedTo).all()` loaded all of their
   // attachmentsJson per media request. The LIKE narrows to the (usually 0-1)
   // rows that actually contain the URL/key, gated by the indexed attributedTo.
-  // `attachmentMatches` re-checks the survivors exactly (the LIKE only narrows).
-  const urlLike = `%${escapeLike(mediaUrl)}%`;
-  const keyLike = `%${escapeLike(r2Key)}%`;
+  // Substring-match in SQL via `instr()` (not `LIKE '%needle%'`), gated by the
+  // indexed attributed_to. `attachmentMatches` re-checks every survivor EXACTLY,
+  // so this only needs to narrow. Why instr() and not LIKE: a `%<64-char r2 key>%`
+  // LIKE pattern trips D1's "LIKE or GLOB pattern too complex" limit
+  // (SQLITE_ERROR 7500), which 500'd EVERY media fetch since the SQL-match
+  // optimization landed (~commit d9f0823f). instr() is a plain literal substring
+  // search — no wildcards, no escaping, no pattern-complexity limit.
   const candidates = await db
     .select({
       apId: objects.apId,
@@ -329,8 +327,8 @@ async function findReferencingObject(
       and(
         eq(objects.attributedTo, uploaderApId),
         or(
-          sql`${objects.attachmentsJson} LIKE ${urlLike} ESCAPE '\\'`,
-          sql`${objects.attachmentsJson} LIKE ${keyLike} ESCAPE '\\'`,
+          sql`instr(${objects.attachmentsJson}, ${mediaUrl}) > 0`,
+          sql`instr(${objects.attachmentsJson}, ${r2Key}) > 0`,
         ),
       ),
     )
