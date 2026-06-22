@@ -19,7 +19,7 @@
  * the remote `handleDelete` inbox path so neither can orphan rows.
  */
 
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import {
@@ -33,6 +33,12 @@ import {
   storyViews,
   storyVotes,
 } from "../../../db/index.ts";
+
+// Escape SQLite LIKE metacharacters so an r2_key containing `%`/`_`/`\` is
+// matched literally (mirrors the helper in media.ts / search.ts).
+function escapeLike(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
 
 /**
  * Reap the `media_uploads` rows attached to a single object.
@@ -100,24 +106,29 @@ async function deleteAttachedMediaUploads(
   // `attachments_json` happens to point back at this object's reap set is
   // honoured; the lookup is scoped to the author's own objects (indexed) and
   // excludes the object being reaped.
-  let stillReferencedKeys = new Set<string>();
+  const stillReferencedKeys = new Set<string>();
   if (media) {
-    const otherObjects = await db
-      .select({ attachmentsJson: objects.attachmentsJson })
-      .from(objects)
-      .where(
-        and(
-          eq(objects.attributedTo, obj.attributedTo),
-          ne(objects.apId, objectApId),
-        ),
-      );
-    stillReferencedKeys = new Set(
-      orphaned
-        .filter((m) =>
-          otherObjects.some((o) => o.attachmentsJson?.includes(m.r2Key)),
+    // For each orphaned key, ask SQL (escaped LIKE, indexed by attributedTo)
+    // whether ANOTHER present object of this author still references it — instead
+    // of loading EVERY other object's attachmentsJson into memory and substring-
+    // scanning them all (O(objects × keys), unbounded for a prolific author).
+    // `orphaned` is only this object's own attachments (a handful), so this is a
+    // small, bounded set of indexed lookups. Mirrors media.ts findReferencingObject.
+    for (const m of orphaned) {
+      const keyLike = `%${escapeLike(m.r2Key)}%`;
+      const ref = await db
+        .select({ apId: objects.apId })
+        .from(objects)
+        .where(
+          and(
+            eq(objects.attributedTo, obj.attributedTo),
+            ne(objects.apId, objectApId),
+            sql`${objects.attachmentsJson} LIKE ${keyLike} ESCAPE '\\'`,
+          ),
         )
-        .map((m) => m.r2Key),
-    );
+        .get();
+      if (ref) stillReferencedKeys.add(m.r2Key);
+    }
   }
 
   // Delete the media_uploads rows whose blob we are actually purging. Rows

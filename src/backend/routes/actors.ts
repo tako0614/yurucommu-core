@@ -504,20 +504,43 @@ actorsRoute.post("/me/delete", async (c) => {
     // a single guarded -1 over the affected local actors is exact:
     //  - everyone the deleted actor FOLLOWED loses a follower,
     //  - everyone who FOLLOWED the deleted actor loses a following.
-    // inArray naturally scopes to LOCAL actors (remote actors have no `actors`
-    // row / locally-tracked count); gt(...,0) guards against underflow.
-    const followingTargets = (
-      await db
-        .select({ apId: follows.followingApId })
-        .from(follows)
-        .where(eq(follows.followerApId, actorApIdVal))
-    ).map((r) => r.apId);
-    const followerSources = (
-      await db
-        .select({ apId: follows.followerApId })
-        .from(follows)
-        .where(eq(follows.followingApId, actorApIdVal))
-    ).map((r) => r.apId);
+    // The membership is expressed as `actors.apId IN (SELECT ... FROM follows)`
+    // subqueries (run BEFORE the edges are deleted) so the reconcile is lossless
+    // for any follow-graph size and never splices thousands of ids into the
+    // query as bound parameters (D1's variable ceiling — the same hazard the
+    // timeline feeds were converted away from). The subquery naturally scopes to
+    // LOCAL actors (remote actors have no `actors` row); gt(...,0) guards
+    // underflow.
+    await db
+      .update(actors)
+      .set({ followerCount: sql`${actors.followerCount} - 1` })
+      .where(
+        and(
+          inArray(
+            actors.apId,
+            db
+              .select({ id: follows.followingApId })
+              .from(follows)
+              .where(eq(follows.followerApId, actorApIdVal)),
+          ),
+          gt(actors.followerCount, 0),
+        ),
+      );
+    await db
+      .update(actors)
+      .set({ followingCount: sql`${actors.followingCount} - 1` })
+      .where(
+        and(
+          inArray(
+            actors.apId,
+            db
+              .select({ id: follows.followerApId })
+              .from(follows)
+              .where(eq(follows.followingApId, actorApIdVal)),
+          ),
+          gt(actors.followingCount, 0),
+        ),
+      );
 
     await db
       .delete(follows)
@@ -527,29 +550,6 @@ actorsRoute.post("/me/delete", async (c) => {
           eq(follows.followingApId, actorApIdVal),
         ),
       );
-
-    if (followingTargets.length > 0) {
-      await db
-        .update(actors)
-        .set({ followerCount: sql`${actors.followerCount} - 1` })
-        .where(
-          and(
-            inArray(actors.apId, followingTargets),
-            gt(actors.followerCount, 0),
-          ),
-        );
-    }
-    if (followerSources.length > 0) {
-      await db
-        .update(actors)
-        .set({ followingCount: sql`${actors.followingCount} - 1` })
-        .where(
-          and(
-            inArray(actors.apId, followerSources),
-            gt(actors.followingCount, 0),
-          ),
-        );
-    }
 
     await db
       .delete(blocks)
@@ -592,8 +592,13 @@ actorsRoute.post("/me/delete", async (c) => {
       const media = c.env.MEDIA;
       if (media) {
         const keys = uploads.map((u) => u.r2Key);
+        // R2 caps a single delete() at 1000 keys; an account with more uploads
+        // would otherwise throw and leak every backing blob. Chunk the purge.
+        const R2_DELETE_BATCH = 1000;
         try {
-          await media.delete(keys);
+          for (let i = 0; i < keys.length; i += R2_DELETE_BATCH) {
+            await media.delete(keys.slice(i, i + R2_DELETE_BATCH));
+          }
         } catch (err) {
           log.error("Failed to purge R2 objects for deleted account", {
             event: "actors.account.delete_media_purge_failed",
@@ -713,27 +718,32 @@ actorsRoute.post("/me/delete", async (c) => {
         ),
       );
 
-    const authoredObjects = await db
-      .select({ apId: objects.apId })
-      .from(objects)
-      .where(eq(objects.attributedTo, actorApIdVal));
-    const objectIds = authoredObjects.map((o) => o.apId);
-
-    if (objectIds.length > 0) {
-      await db.delete(likes).where(inArray(likes.objectApId, objectIds));
-      await db
-        .delete(announces)
-        .where(inArray(announces.objectApId, objectIds));
-      await db
-        .delete(bookmarks)
-        .where(inArray(bookmarks.objectApId, objectIds));
-      await db
-        .delete(storyVotes)
-        .where(inArray(storyVotes.storyApId, objectIds));
-      await db
-        .delete(storyViews)
-        .where(inArray(storyViews.storyApId, objectIds));
-    }
+    // Delete interactions on the actor's authored objects via subqueries
+    // (`object_ap_id IN (SELECT ap_id FROM objects WHERE attributed_to = ?)`),
+    // run BEFORE the objects themselves are deleted. A subquery is lossless for
+    // any post count and never materializes thousands of object ids as bound
+    // parameters (D1's variable ceiling). Each delete builds its own subquery
+    // so there is no shared-AST reuse across statements.
+    const authoredObjectIds = () =>
+      db
+        .select({ id: objects.apId })
+        .from(objects)
+        .where(eq(objects.attributedTo, actorApIdVal));
+    await db
+      .delete(likes)
+      .where(inArray(likes.objectApId, authoredObjectIds()));
+    await db
+      .delete(announces)
+      .where(inArray(announces.objectApId, authoredObjectIds()));
+    await db
+      .delete(bookmarks)
+      .where(inArray(bookmarks.objectApId, authoredObjectIds()));
+    await db
+      .delete(storyVotes)
+      .where(inArray(storyVotes.storyApId, authoredObjectIds()));
+    await db
+      .delete(storyViews)
+      .where(inArray(storyViews.storyApId, authoredObjectIds()));
 
     // Phase 2: explicit ordered hard-delete to satisfy trigger expectations.
     await db.delete(objects).where(eq(objects.attributedTo, actorApIdVal));
