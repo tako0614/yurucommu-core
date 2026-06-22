@@ -6,7 +6,7 @@
 import type { Message } from "@cloudflare/workers-types";
 import type { Env } from "../../types.ts";
 import type { Database } from "../../../db/index.ts";
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import { and, eq, lt, notInArray, or, sql } from "drizzle-orm";
 import {
   activities,
   actorCache,
@@ -344,14 +344,42 @@ export async function processDeliverEndpoint(
 
   await bulkhead.acquire(host);
   try {
-    // Mark processing
-    await db
+    // Mark processing — VERIFIED CAS. Cloudflare Queues is at-least-once and the
+    // SELECT above ran BEFORE bulkhead.acquire (the bulkhead is keyed by host,
+    // not jobId), so two runners can hold the same jobId concurrently and both
+    // reach here. Claim only if the row is still claimable: a non-processing,
+    // non-terminal status, OR a STALE 'processing' row (a crashed runner — the
+    // same condition the pre-acquire stale check at :316 lets fall through). If
+    // our UPDATE changes 0 rows another live runner already owns the job → ack
+    // without re-enqueue so the signed activity is POSTed exactly once.
+    const staleThresholdIso = new Date(
+      Date.now() - STALE_PROCESSING_MS,
+    ).toISOString();
+    const claim = await db
       .update(deliveryQueue)
       .set({
         status: "processing",
         processingStartedAt: nowIso(),
       })
-      .where(eq(deliveryQueue.id, job.id));
+      .where(
+        and(
+          eq(deliveryQueue.id, job.id),
+          or(
+            notInArray(deliveryQueue.status, [
+              "processing",
+              ...TERMINAL_JOB_STATUSES,
+            ]),
+            and(
+              eq(deliveryQueue.status, "processing"),
+              lt(deliveryQueue.processingStartedAt, staleThresholdIso),
+            ),
+          ),
+        ),
+      );
+    if (((claim as { meta?: { changes?: number } }).meta?.changes ?? 0) === 0) {
+      message.ack();
+      return;
+    }
 
     const activity = await db
       .select({

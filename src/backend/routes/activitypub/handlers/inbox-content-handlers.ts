@@ -956,24 +956,45 @@ export async function handleMove(
     ),
   );
 
-  // Sequential operations (no interactive transactions in D1)
+  // Co-commit the four edge mutations + the per-follower followingCount
+  // decrements in ONE atomic batch. D1 has no interactive transactions, and the
+  // OLD sequential form was non-convergent: a crash between "delete old edges"
+  // and "decrement" left the old edges gone, so a re-dispatch (the row is still
+  // processed=0) re-read EMPTY follower/following rows, skipped the decrement,
+  // and left every migrated local follower's followingCount permanently +1 over.
+  // Batching makes delete+decrement all-or-nothing: a crash before commit changes
+  // nothing (retry re-runs cleanly from the still-present old edges); a crash
+  // after commit re-reads no old edges (the batch is then a no-op) → the
+  // decrement is applied exactly once.
+  const moveOps = [];
   if (followerRewrites.length > 0) {
-    await db.insert(follows).values(followerRewrites);
+    moveOps.push(db.insert(follows).values(followerRewrites));
   }
   if (followerRows.length > 0) {
-    await db.delete(follows).where(eq(follows.followerApId, oldActorApId));
+    moveOps.push(
+      db.delete(follows).where(eq(follows.followerApId, oldActorApId)),
+    );
   }
   if (followingRewrites.length > 0) {
-    await db.insert(follows).values(followingRewrites);
+    moveOps.push(db.insert(follows).values(followingRewrites));
   }
   if (followingRows.length > 0) {
-    await db.delete(follows).where(eq(follows.followingApId, oldActorApId));
+    moveOps.push(
+      db.delete(follows).where(eq(follows.followingApId, oldActorApId)),
+    );
   }
   for (const followerApId of localAcceptedFollowerApIds) {
-    await db
-      .update(actors)
-      .set({ followingCount: sql`${actors.followingCount} - 1` })
-      .where(and(eq(actors.apId, followerApId), gt(actors.followingCount, 0)));
+    moveOps.push(
+      db
+        .update(actors)
+        .set({ followingCount: sql`${actors.followingCount} - 1` })
+        .where(
+          and(eq(actors.apId, followerApId), gt(actors.followingCount, 0)),
+        ),
+    );
+  }
+  if (moveOps.length > 0) {
+    await runBatch(db, moveOps as unknown as Parameters<typeof runBatch>[1]);
   }
 
   // Record + deliver the outbound Follow activities for migrated local

@@ -14,6 +14,7 @@ import {
   objects,
 } from "../../../db/index.ts";
 import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import type { BatchItem } from "drizzle-orm/batch";
 import {
   activityApId,
@@ -209,7 +210,17 @@ posts.post("/:id/like", async (c) => {
     );
   }
 
-  await runBatch(db, likeStatements as [BatchStatement, ...BatchStatement[]]);
+  try {
+    await runBatch(db, likeStatements as [BatchStatement, ...BatchStatement[]]);
+  } catch (e) {
+    // Two concurrent likes (two tabs / a retried slow request) both pass the
+    // SELECT above; the loser's composite-PK insert hits a UNIQUE constraint.
+    // That is the idempotent "already liked" case, not a 500.
+    if (isUniqueConstraintError(e)) {
+      return c.json({ error: "Already liked" }, 400);
+    }
+    throw e;
+  }
 
   if (!isLocal(post.apId, baseUrl)) {
     await deliverToRemote(c.env, likeActivityId, post.attributedTo);
@@ -384,7 +395,18 @@ posts.post("/:id/repost", async (c) => {
     );
   }
 
-  await runBatch(db, repostStatements as [BatchStatement, ...BatchStatement[]]);
+  try {
+    await runBatch(
+      db,
+      repostStatements as [BatchStatement, ...BatchStatement[]],
+    );
+  } catch (e) {
+    // Concurrent duplicate repost → composite-PK UNIQUE → idempotent 400.
+    if (isUniqueConstraintError(e)) {
+      return c.json({ error: "Already reposted" }, 400);
+    }
+    throw e;
+  }
 
   // The Announce is cc'd to the booster's own followers collection, so fan it
   // out to them — otherwise a repost only ever reached the original author's
