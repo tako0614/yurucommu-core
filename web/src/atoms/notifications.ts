@@ -17,9 +17,3 @@ export const refreshNotificationUnreadAtom = atom(null, async (_get, set) => {
     console.error("Failed to fetch unread notification count:", e);
   }
 });
-
-// Locally clear the badge (e.g. after the notifications page marks everything
-// read) without waiting for the next poll.
-export const clearNotificationUnreadAtom = atom(null, (_get, set) => {
-  set(notificationUnreadAtom, 0);
-});

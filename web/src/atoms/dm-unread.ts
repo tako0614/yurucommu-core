@@ -21,9 +21,3 @@ export const refreshDmUnreadAtom = atom(null, async (_get, set) => {
     console.error("Failed to fetch unread DM count:", e);
   }
 });
-
-// Locally clear the badge (e.g. after a conversation is read) without waiting
-// for the next poll.
-export const clearDmUnreadAtom = atom(null, (_get, set) => {
-  set(dmUnreadCountAtom, 0);
-});
