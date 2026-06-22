@@ -272,6 +272,11 @@ export function NotificationPage() {
       : oldest.created_at;
     const currentFilter = filter();
     const archived = viewArchived();
+    // Capture the reload generation: a retryLoad()/filter reset mid-flight
+    // rebuilds the list from page 1, so an older page resolving afterwards must
+    // NOT be appended (it would graft a stale, non-contiguous page onto the
+    // fresh one).
+    const key = reloadKey();
     setLoadingOlder(true);
     try {
       const { notifications: older, hasMore } = await fetchNotifications({
@@ -279,7 +284,12 @@ export function NotificationPage() {
         before,
         archived,
       });
-      if (filter() !== currentFilter || viewArchived() !== archived) return; // changed mid-flight
+      if (
+        filter() !== currentFilter ||
+        viewArchived() !== archived ||
+        reloadKey() !== key
+      )
+        return; // changed mid-flight
       setNotifications((prev) => {
         const ids = new Set(prev.map((n) => n.id));
         const fresh = older.filter((n) => !ids.has(n.id));
@@ -307,7 +317,16 @@ export function NotificationPage() {
       });
       // Ignore late responses if the filter / view changed mid-flight.
       if (filter() !== currentFilter || viewArchived() !== archived) return;
-      setNotifications((prev) => mergeNotificationsById(prev, data));
+      // The in-place refresh fetches only the NEWEST page, but the list may hold
+      // older pages loaded via "load older". Merge the newest page in place, then
+      // re-append the still-present older items so a focus/visibility refresh
+      // doesn't snap a 60-item list back to 20 (losing history + scroll context).
+      setNotifications((prev) => {
+        const merged = mergeNotificationsById(prev, data);
+        const newIds = new Set(merged.map((n) => n.id));
+        const older = prev.filter((n) => !newIds.has(n.id));
+        return older.length > 0 ? [...merged, ...older] : merged;
+      });
 
       const unread = archived ? [] : data.filter((n) => !n.read);
       if (unread.length > 0) {
@@ -528,7 +547,16 @@ export function NotificationPage() {
         <div class="flex items-center justify-between gap-2 px-4 py-3">
           <h1 class="text-xl font-bold">{t("notifications.title")}</h1>
           <div class="flex items-center gap-1">
-            <Show when={!viewArchived() && notifications().length > 0}>
+            {/* Only on the unfiltered inbox: "archive all" archives EVERY type
+                (the backend has no type predicate), so showing it under a single
+                type filter would silently archive the hidden types too. */}
+            <Show
+              when={
+                !viewArchived() &&
+                filter() === "all" &&
+                notifications().length > 0
+              }
+            >
               <button
                 onClick={handleArchiveAll}
                 disabled={archivingAll()}
