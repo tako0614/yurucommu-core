@@ -439,17 +439,36 @@ async function resolveCommunityRead(
  * viewers — because for a PUBLIC community "community access" is granted to
  * everyone, so the old "members see every post" assumption leaks.
  */
+// Non-correlated subquery of the actors the viewer accepted-follows. Used as
+// `inArray(objects.attributedTo, acceptedFollowingSubquery(db, me))` so the
+// membership test compiles to `attributed_to IN (SELECT ...)`. This keeps the
+// home / following / community feeds LOSSLESS for any follow count AND avoids
+// splicing thousands of follow ids into the query as bound parameters (SQLite's
+// variable ceiling) — it replaces an earlier defensive row-cap that silently
+// dropped authors beyond ~1000 follows.
+function acceptedFollowingSubquery(db: Database, viewerApId: string) {
+  return db
+    .select({ id: follows.followingApId })
+    .from(follows)
+    .where(
+      and(eq(follows.followerApId, viewerApId), eq(follows.status, "accepted")),
+    );
+}
+
 function communityPostVisibilityGate(
+  db: Database,
   viewerApId: string,
-  followingApIds: string[],
 ): SQL | undefined {
   return or(
     inArray(objects.visibility, ["public", "unlisted"]),
     viewerApId ? eq(objects.attributedTo, viewerApId) : undefined,
-    followingApIds.length > 0
+    viewerApId
       ? and(
           eq(objects.visibility, "followers"),
-          inArray(objects.attributedTo, followingApIds),
+          inArray(
+            objects.attributedTo,
+            acceptedFollowingSubquery(db, viewerApId),
+          ),
         )
       : undefined,
   );
@@ -488,27 +507,13 @@ async function handleCommunityTimeline(
   // viewer's reach that belongs to this community — (1) posts deliberately
   // narrowed to it (communityApId), plus (2) the general public/unlisted posts
   // of its members (a community is a named slice of people, not a content silo).
-  const [memberRows, followRows] = await Promise.all([
-    db
-      .select({ actorApId: communityMembers.actorApId })
-      .from(communityMembers)
-      .where(eq(communityMembers.communityApId, gate.community.apId))
-      .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES),
-    viewerApId
-      ? db
-          .select({ followingApId: follows.followingApId })
-          .from(follows)
-          .where(
-            and(
-              eq(follows.followerApId, viewerApId),
-              eq(follows.status, "accepted"),
-            ),
-          )
-          .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES)
-      : Promise.resolve([]),
-  ]);
-  const memberApIds = [...new Set(memberRows.map((r) => r.actorApId))];
-  const followingApIds = followRows.map((f) => f.followingApId);
+  // Membership tests as subqueries (IN (SELECT ...)) so a community with many
+  // members — or a viewer with many follows — is matched losslessly without a
+  // row-cap or thousands of bound parameters.
+  const memberSubquery = db
+    .select({ id: communityMembers.actorApId })
+    .from(communityMembers)
+    .where(eq(communityMembers.communityApId, gate.community.apId));
 
   const conditions = [
     eq(objects.type, "Note"),
@@ -524,18 +529,15 @@ async function handleCommunityTimeline(
   }
   if (before) conditions.push(feedCursorPredicate(decodeFeedCursor(before)));
 
-  const memberFeed =
-    memberApIds.length > 0
-      ? and(
-          eq(objects.audienceJson, "[]"),
-          inArray(objects.attributedTo, memberApIds),
-          inArray(objects.visibility, ["public", "unlisted"]),
-        )
-      : undefined;
+  const memberFeed = and(
+    eq(objects.audienceJson, "[]"),
+    inArray(objects.attributedTo, memberSubquery),
+    inArray(objects.visibility, ["public", "unlisted"]),
+  );
   const source = or(
     and(
       eq(objects.communityApId, gate.community.apId),
-      communityPostVisibilityGate(viewerApId, followingApIds),
+      communityPostVisibilityGate(db, viewerApId),
     ),
     memberFeed,
   );
@@ -627,65 +629,53 @@ timeline.get(
       //   A2 co-members (authors who share a community with me) — their public/
       //      unlisted posts only (followers-only stays follow-gated, no leak),
       //   B  posts deliberately narrowed to a community I belong to.
-      // Cap the author fan-in arrays (matching the block/mute filter cap): these
-      // ID lists are spliced into multiple inArray() sites in one home query, so
-      // an uncapped follow/co-member set could approach SQLite's bound-parameter
-      // ceiling and hard-500 the primary feed. Defensive truncation (a JOIN-based
-      // rewrite is the larger lossless fix).
-      const [followRows, myCommunityRows] = await Promise.all([
-        db
-          .select({ followingApId: follows.followingApId })
-          .from(follows)
-          .where(
-            and(
-              eq(follows.followerApId, viewerApId),
-              eq(follows.status, "accepted"),
-            ),
-          )
-          .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES),
-        db
-          .select({ communityApId: communityMembers.communityApId })
-          .from(communityMembers)
-          .where(eq(communityMembers.actorApId, viewerApId)),
-      ]);
-      const followingApIds = followRows.map((f) => f.followingApId);
+      // Author fan-in is expressed as `attributed_to IN (SELECT ...)` subqueries
+      // (follows / co-members), so the feed stays lossless for any follow or
+      // community-member count without splicing thousands of ids into the query
+      // as bound parameters (SQLite's variable ceiling). Only the viewer's own
+      // community list is materialized — it is naturally small (the communities
+      // one has joined).
+      const myCommunityRows = await db
+        .select({ communityApId: communityMembers.communityApId })
+        .from(communityMembers)
+        .where(eq(communityMembers.actorApId, viewerApId));
       const myCommunityApIds = myCommunityRows.map((r) => r.communityApId);
-
-      let coMemberApIds: string[] = [];
-      if (myCommunityApIds.length > 0) {
-        const coMemberRows = await db
-          .select({ actorApId: communityMembers.actorApId })
-          .from(communityMembers)
-          .where(
-            and(
-              inArray(communityMembers.communityApId, myCommunityApIds),
-              ne(communityMembers.actorApId, viewerApId),
-            ),
-          )
-          .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES);
-        coMemberApIds = [...new Set(coMemberRows.map((r) => r.actorApId))];
-      }
 
       const branches = [
         and(
           eq(objects.audienceJson, "[]"),
-          inArray(objects.attributedTo, [viewerApId, ...followingApIds]),
+          or(
+            eq(objects.attributedTo, viewerApId),
+            inArray(
+              objects.attributedTo,
+              acceptedFollowingSubquery(db, viewerApId),
+            ),
+          ),
           or(
             eq(objects.attributedTo, viewerApId),
             inArray(objects.visibility, ["public", "unlisted", "followers"]),
           ),
         ),
       ];
-      if (coMemberApIds.length > 0) {
+      if (myCommunityApIds.length > 0) {
+        // Co-members = authors who share a community with me. A subquery against
+        // my community set (empty → matches nothing, harmless).
+        const coMemberSubquery = db
+          .select({ id: communityMembers.actorApId })
+          .from(communityMembers)
+          .where(
+            and(
+              inArray(communityMembers.communityApId, myCommunityApIds),
+              ne(communityMembers.actorApId, viewerApId),
+            ),
+          );
         branches.push(
           and(
             eq(objects.audienceJson, "[]"),
-            inArray(objects.attributedTo, coMemberApIds),
+            inArray(objects.attributedTo, coMemberSubquery),
             inArray(objects.visibility, ["public", "unlisted"]),
           ),
         );
-      }
-      if (myCommunityApIds.length > 0) {
         // Honor per-post visibility on community-narrowed posts too — a
         // followers-only post stays follow-gated even inside a community I'm in
         // (matches the canonical single-object gate; otherwise a co-member who
@@ -693,7 +683,7 @@ timeline.get(
         branches.push(
           and(
             inArray(objects.communityApId, myCommunityApIds),
-            communityPostVisibilityGate(viewerApId, followingApIds),
+            communityPostVisibilityGate(db, viewerApId),
           ),
         );
       }
@@ -734,31 +724,24 @@ timeline.get("/following", async (c) => {
   const before = c.req.query("before");
   const viewerApId = actor.ap_id;
 
-  const [{ blockedApIds, mutedApIds }, followRows] = await Promise.all([
-    getBlockedAndMutedUsers(db, viewerApId),
-    db
-      .select({ followingApId: follows.followingApId })
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerApId, viewerApId),
-          eq(follows.status, "accepted"),
-        ),
-      )
-      .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES),
-  ]);
+  const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(
+    db,
+    viewerApId,
+  );
 
   const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
-  const followingApIds = followRows.map((f) => f.followingApId);
-  const allowedAuthors = [viewerApId, ...followingApIds];
 
   // Own posts: all visibilities except direct
   // Followed users' posts: public, unlisted, or followers visibility
+  // Membership = me OR accepted-follow (subquery, lossless for any follow count).
   const conditions = [
     eq(objects.type, "Note"),
     isNull(objects.inReplyTo),
     eq(objects.audienceJson, "[]"),
-    inArray(objects.attributedTo, allowedAuthors),
+    or(
+      eq(objects.attributedTo, viewerApId),
+      inArray(objects.attributedTo, acceptedFollowingSubquery(db, viewerApId)),
+    ),
     isNull(objects.deletedAt),
     // Exclude directs: the own-author leg below is unconditional, so a DM the
     // viewer sent would otherwise appear in their own following feed.

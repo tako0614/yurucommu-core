@@ -357,12 +357,16 @@ export function DMChatPanel(props: DMChatPanelProps) {
       console.error("Failed to send message:", e);
       // A community whose post_policy is mods/owners lets ordinary members READ
       // + type but returns 403 with a meaningful body on send; surface it instead
-      // of a generic error so the user understands posting is restricted.
-      setErrorMessage(
-        e instanceof ApiError && e.status === 403
-          ? e.message
-          : t("common.error"),
-      );
+      // of a generic error so the user understands posting is restricted. Guard
+      // on the conversation too: if the user switched threads mid-send, this
+      // conversation-specific error must not surface under the new thread.
+      if (stillOnConversation()) {
+        setErrorMessage(
+          e instanceof ApiError && e.status === 403
+            ? e.message
+            : t("common.error"),
+        );
+      }
     } finally {
       setSending(false);
     }

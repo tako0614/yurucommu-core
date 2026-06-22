@@ -252,12 +252,14 @@ stories.post("/:id/like", async (c) => {
     ]);
   } catch (e) {
     // A concurrent like won the race (TOCTOU past the existing-check); treat as
-    // idempotent success instead of surfacing a 500 unique-constraint error.
+    // idempotent success instead of surfacing a 500 unique-constraint error. The
+    // like now provably exists (the winner committed +1), so echo the
+    // incremented count — matching the success path — not the pre-read value.
     if (isUniqueConstraintError(e)) {
       return c.json({
         success: true,
         liked: true,
-        like_count: story.likeCount,
+        like_count: story.likeCount + 1,
       });
     }
     throw e;
@@ -456,11 +458,13 @@ stories.post("/:id/share", async (c) => {
     ]);
   } catch (e) {
     // Concurrent share won the race past the existing-check; idempotent success.
+    // The share now provably exists, so echo the incremented count (matching the
+    // success path) rather than the pre-read value.
     if (isUniqueConstraintError(e)) {
       return c.json({
         success: true,
         shared: true,
-        share_count: story.shareCount || 0,
+        share_count: (story.shareCount || 0) + 1,
       });
     }
     throw e;

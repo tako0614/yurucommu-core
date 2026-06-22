@@ -24,6 +24,7 @@ import { Hono } from "hono";
 
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
+import { sql } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
@@ -505,4 +506,65 @@ test("direct + community: a direct post narrowed to a community leaks to no memb
     `?community=${encodeURIComponent(town)}`,
   );
   expect(filtered).not.toContain(`${APP_URL}/ap/objects/co-direct-community`);
+});
+
+// ---------------------------------------------------------------------------
+// Author fan-in is lossless for a high follow count. The membership test is a
+// subquery (attributed_to IN (SELECT ...)), NOT a materialized id array, so a
+// post from a follow beyond the old 1000-row cap still appears. The post is
+// authored by the LAST-inserted follow (highest rowid), which an arbitrary
+// `LIMIT 1000` with no ORDER BY would drop.
+// ---------------------------------------------------------------------------
+
+test("unified home + /following are lossless past 1000 follows (subquery, not capped array)", async () => {
+  const db = await freshDb();
+  const me = await insertLocalActor(db, "me");
+
+  const N = 1001;
+  // Bulk-insert N followed actors + N accepted follow edges via recursive CTEs
+  // (fast; one statement each). follow-N is inserted last → highest rowid.
+  await db.run(sql`
+    INSERT INTO actors
+      (ap_id, type, preferred_username, inbox, outbox, followers_url, following_url, public_key_pem, private_key_pem)
+    WITH RECURSIVE seq(n) AS (
+      SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < ${N}
+    )
+    SELECT
+      ${APP_URL} || '/ap/users/follow-' || n, 'Person', 'follow-' || n,
+      ${APP_URL} || '/ap/users/follow-' || n || '/inbox',
+      ${APP_URL} || '/ap/users/follow-' || n || '/outbox',
+      ${APP_URL} || '/ap/users/follow-' || n || '/followers',
+      ${APP_URL} || '/ap/users/follow-' || n || '/following',
+      'pub', 'priv'
+    FROM seq
+  `);
+  await db.run(sql`
+    INSERT INTO follows (follower_ap_id, following_ap_id, status, created_at)
+    WITH RECURSIVE seq(n) AS (
+      SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < ${N}
+    )
+    SELECT ${me}, ${APP_URL} || '/ap/users/follow-' || n, 'accepted', '2026-01-01T00:00:00.000Z'
+    FROM seq
+  `);
+
+  const farFollow = `${APP_URL}/ap/users/follow-${N}`;
+  await insertPersonalPost(db, {
+    apId: `${APP_URL}/ap/objects/far-follow`,
+    author: farFollow,
+    content: "post from the 1001st follow",
+    published: "2026-02-01T00:00:00.000Z",
+  });
+
+  const home = await getHome(db, fakeActor(me, "me"));
+  expect(home).toContain(`${APP_URL}/ap/objects/far-follow`);
+
+  const followingApp = appWith(db, fakeActor(me, "me"), timelineRoutes);
+  const res = await followingApp.fetch(
+    new Request(`${APP_URL}/following`, { method: "GET" }),
+    envFor(db),
+  );
+  expect(res.status).toEqual(200);
+  const body = (await res.json()) as TimelineBody;
+  const followingIds = body.posts?.map((p) => p.ap_id) ?? [];
+  expect(followingIds).toContain(`${APP_URL}/ap/objects/far-follow`);
 });
