@@ -138,6 +138,12 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
               <Show when={props.isOwner && member.ap_id !== props.actorApId}>
                 <select
                   value={member.role}
+                  aria-label={props
+                    .t("members.changeRole")
+                    .replace(
+                      "{name}",
+                      member.name || member.preferred_username,
+                    )}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();

@@ -135,6 +135,11 @@ export function StoryBar(props: StoryBarProps) {
                 <div class="relative">
                   {/* Avatar - click to view stories if any */}
                   <button
+                    aria-label={
+                      hasMyStories()
+                        ? t("story.viewYourStory")
+                        : t("story.addStory")
+                    }
                     onClick={() => {
                       const ms = myStories();
                       if (hasMyStories() && ms) {
@@ -182,6 +187,13 @@ export function StoryBar(props: StoryBarProps) {
                 {(as, idx) => (
                   <button
                     onClick={() => props.onStoryClick(as, idx())}
+                    aria-label={
+                      t("story.viewStoryFrom").replace(
+                        "{name}",
+                        as.actor.name || as.actor.preferred_username,
+                      ) +
+                      (as.has_unviewed ? ` · ${t("story.newStoryBadge")}` : "")
+                    }
                     class="flex flex-col items-center gap-1 flex-shrink-0 group"
                   >
                     <div

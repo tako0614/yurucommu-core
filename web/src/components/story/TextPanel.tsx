@@ -92,6 +92,10 @@ export function TextPanel(props: TextPanelProps) {
           type="range"
           min="24"
           max="200"
+          aria-label={t("story.fontSize").replace(
+            "{value}",
+            String(props.layer.fontSize),
+          )}
           value={props.layer.fontSize}
           onInput={(e) =>
             props.onUpdate({ fontSize: parseInt(e.currentTarget.value) })
@@ -248,6 +252,10 @@ export function TextPanel(props: TextPanelProps) {
                 type="range"
                 min="1"
                 max="20"
+                aria-label={t("story.thickness").replace(
+                  "{value}",
+                  String(props.layer.stroke!.width),
+                )}
                 value={props.layer.stroke!.width}
                 onInput={(e) =>
                   props.onUpdate({

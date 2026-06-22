@@ -594,9 +594,15 @@ export function DMPage() {
                 </div>
 
                 {/* Tab bar - LINE style with underline on active */}
-                <div class="relative flex overflow-x-auto scrollbar-hide border-b border-neutral-900">
+                <div
+                  class="relative flex overflow-x-auto scrollbar-hide border-b border-neutral-900"
+                  role="tablist"
+                  aria-label={t("nav.messages")}
+                >
                   <button
                     ref={(el) => (tabRefs[0] = el)}
+                    role="tab"
+                    aria-selected={activeTab() === "all"}
                     onClick={() => setActiveTab("all")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "all" ? "text-white" : "text-neutral-500"
@@ -606,6 +612,8 @@ export function DMPage() {
                   </button>
                   <button
                     ref={(el) => (tabRefs[1] = el)}
+                    role="tab"
+                    aria-selected={activeTab() === "friends"}
                     onClick={() => setActiveTab("friends")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "friends"
@@ -617,6 +625,8 @@ export function DMPage() {
                   </button>
                   <button
                     ref={(el) => (tabRefs[2] = el)}
+                    role="tab"
+                    aria-selected={activeTab() === "communities"}
                     onClick={() => setActiveTab("communities")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "communities"
@@ -628,6 +638,8 @@ export function DMPage() {
                   </button>
                   <button
                     ref={(el) => (tabRefs[3] = el)}
+                    role="tab"
+                    aria-selected={activeTab() === "requests"}
                     onClick={() => setActiveTab("requests")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors relative ${
                       activeTab() === "requests"
@@ -644,6 +656,8 @@ export function DMPage() {
                   </button>
                   <button
                     ref={(el) => (tabRefs[4] = el)}
+                    role="tab"
+                    aria-selected={activeTab() === "archived"}
                     onClick={() => setActiveTab("archived")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "archived"

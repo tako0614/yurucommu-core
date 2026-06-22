@@ -56,6 +56,10 @@ export function DrawingPanel(props: DrawingPanelProps) {
           type="range"
           min="2"
           max="50"
+          aria-label={t("story.thickness").replace(
+            "{value}",
+            String(props.width),
+          )}
           value={props.width}
           onInput={(e) => props.onWidthChange(parseInt(e.currentTarget.value))}
           class="w-full mt-1 accent-blue-500"
@@ -86,6 +90,10 @@ export function DrawingPanel(props: DrawingPanelProps) {
           type="range"
           min="10"
           max="100"
+          aria-label={t("story.opacity").replace(
+            "{value}",
+            String(Math.round(props.opacity * 100)),
+          )}
           value={props.opacity * 100}
           onInput={(e) =>
             props.onOpacityChange(parseInt(e.currentTarget.value) / 100)

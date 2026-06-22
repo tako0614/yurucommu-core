@@ -142,8 +142,14 @@ export function FriendsListPage() {
         </div>
 
         {/* Tabs */}
-        <div class="flex border-b border-neutral-900">
+        <div
+          class="flex border-b border-neutral-900"
+          role="tablist"
+          aria-label={t("friends.title")}
+        >
           <button
+            role="tab"
+            aria-selected={activeTab() === "following"}
             onClick={() => setActiveTab("following")}
             class={`flex-1 py-3 text-center font-medium relative transition-colors ${
               activeTab() === "following"
@@ -157,6 +163,8 @@ export function FriendsListPage() {
             </Show>
           </button>
           <button
+            role="tab"
+            aria-selected={activeTab() === "followers"}
             onClick={() => setActiveTab("followers")}
             class={`flex-1 py-3 text-center font-medium relative transition-colors ${
               activeTab() === "followers"

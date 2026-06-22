@@ -389,21 +389,27 @@ export function PostDetailPage() {
               >
                 <For each={post()!.attachments}>
                   {(m, idx) => (
-                    <img
-                      src={mediaAttachmentUrl(m)}
-                      alt={m.name || ""}
+                    <button
+                      type="button"
+                      aria-label={m.name || t("lightbox.zoomIn")}
                       onClick={(e) => {
                         e.stopPropagation();
                         lightbox.open(post()!.attachments, idx());
                       }}
-                      class={`w-full object-cover cursor-zoom-in ${
+                      class={`block w-full cursor-zoom-in ${
                         post()!.attachments.length === 1
                           ? "max-h-[500px]"
                           : post()!.attachments.length === 3 && idx() === 0
                             ? "row-span-2 h-full"
                             : "h-48"
                       }`}
-                    />
+                    >
+                      <img
+                        src={mediaAttachmentUrl(m)}
+                        alt={m.name || ""}
+                        class="w-full h-full object-cover pointer-events-none"
+                      />
+                    </button>
                   )}
                 </For>
               </div>

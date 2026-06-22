@@ -342,14 +342,20 @@ export function AttachmentGrid(props: AttachmentGridProps) {
           <Show
             when={isVideo(m)}
             fallback={
-              <img
-                src={mediaAttachmentUrl(m)}
-                alt={m.name || ""}
-                loading="lazy"
-                decoding="async"
+              <button
+                type="button"
                 onClick={(e) => props.onOpen(idx(), e)}
-                class="w-full object-cover max-h-96 cursor-zoom-in"
-              />
+                aria-label={m.name || altText("lightbox.zoomIn")}
+                class="block w-full cursor-zoom-in"
+              >
+                <img
+                  src={mediaAttachmentUrl(m)}
+                  alt={m.name || ""}
+                  loading="lazy"
+                  decoding="async"
+                  class="w-full object-cover max-h-96 pointer-events-none"
+                />
+              </button>
             }
           >
             <button

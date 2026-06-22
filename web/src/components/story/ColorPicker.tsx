@@ -75,6 +75,8 @@ export function ColorPicker(props: ColorPickerProps) {
           {(preset) => (
             <button
               onClick={() => handlePresetClick(preset)}
+              aria-label={t("story.selectColor").replace("{color}", preset)}
+              aria-pressed={props.color === preset}
               class={`w-8 h-8 rounded-lg border-2 transition-all ${
                 props.color === preset
                   ? "border-white scale-110 shadow-lg"
@@ -142,6 +144,10 @@ export function GradientPicker(props: GradientPickerProps) {
           {(preset) => (
             <button
               onClick={() => props.onChange(preset.colors, preset.angle)}
+              aria-label={t("story.selectGradient")}
+              aria-pressed={
+                JSON.stringify(props.colors) === JSON.stringify(preset.colors)
+              }
               class={`w-full aspect-square rounded-lg border-2 transition-all ${
                 JSON.stringify(props.colors) === JSON.stringify(preset.colors)
                   ? "border-white scale-105 shadow-lg"
@@ -163,6 +169,7 @@ export function GradientPicker(props: GradientPickerProps) {
           </label>
           <input
             type="color"
+            aria-label={t("story.startColor")}
             value={props.colors[0] || "#667eea"}
             onInput={(e) =>
               props.onChange(
@@ -177,6 +184,7 @@ export function GradientPicker(props: GradientPickerProps) {
           <label class="text-neutral-500 text-xs">{t("story.endColor")}</label>
           <input
             type="color"
+            aria-label={t("story.endColor")}
             value={props.colors[props.colors.length - 1] || "#764ba2"}
             onInput={(e) =>
               props.onChange(
@@ -198,6 +206,7 @@ export function GradientPicker(props: GradientPickerProps) {
           type="range"
           min="0"
           max="360"
+          aria-label={t("story.angle").replace("{value}", String(props.angle))}
           value={props.angle}
           onInput={(e) =>
             props.onChange(props.colors, parseInt(e.currentTarget.value))

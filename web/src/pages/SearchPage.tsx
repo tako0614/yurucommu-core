@@ -667,10 +667,16 @@ export function SearchPage() {
 
         {/* Search result tabs */}
         <Show when={searched()}>
-          <div class="flex border-t border-neutral-900">
+          <div
+            class="flex border-t border-neutral-900"
+            role="tablist"
+            aria-label={t("nav.search")}
+          >
             <For each={tabs()}>
               {({ key, label, count }) => (
                 <button
+                  role="tab"
+                  aria-selected={searchTab() === key}
                   onClick={() => setSearchTab(key)}
                   class={`flex-1 py-3 text-center text-sm font-medium relative ${
                     searchTab() === key ? "text-white" : "text-neutral-500"

@@ -88,6 +88,10 @@ export function MediaPanel(props: MediaPanelProps) {
             type="range"
             min="0"
             max="200"
+            aria-label={t("story.brightness").replace(
+              "{value}",
+              String(currentFilter().brightness),
+            )}
             value={currentFilter().brightness}
             onInput={(e) =>
               props.onUpdate({
@@ -111,6 +115,10 @@ export function MediaPanel(props: MediaPanelProps) {
             type="range"
             min="0"
             max="200"
+            aria-label={t("story.contrast").replace(
+              "{value}",
+              String(currentFilter().contrast),
+            )}
             value={currentFilter().contrast}
             onInput={(e) =>
               props.onUpdate({
@@ -134,6 +142,10 @@ export function MediaPanel(props: MediaPanelProps) {
             type="range"
             min="0"
             max="200"
+            aria-label={t("story.saturation").replace(
+              "{value}",
+              String(currentFilter().saturation),
+            )}
             value={currentFilter().saturation}
             onInput={(e) =>
               props.onUpdate({
@@ -160,6 +172,10 @@ export function MediaPanel(props: MediaPanelProps) {
           type="range"
           min="0"
           max="100"
+          aria-label={t("story.opacity").replace(
+            "{value}",
+            String(Math.round(props.layer.opacity * 100)),
+          )}
           value={props.layer.opacity * 100}
           onInput={(e) =>
             props.onUpdate({ opacity: parseInt(e.currentTarget.value) / 100 })
