@@ -20,7 +20,6 @@ import communitiesRoutes from "./routes/communities.ts";
 import dmRoutes from "./routes/dm.ts";
 import mediaRoutes from "./routes/media.ts";
 import activitypubRoutes from "./routes/activitypub.ts";
-import takosProxyRoutes from "./routes/takos-proxy.ts";
 import takosToolsRoutes from "./routes/takos-tools.ts";
 import recommendationsRoutes from "./routes/recommendations.ts";
 import { moderationRoutes } from "./routes/moderation.ts";
@@ -507,7 +506,6 @@ function mountCoreRoutes(app: YurucommuApp): void {
   app.route("/api/dm", dmRoutes);
   app.route("/api/media", mediaRoutes);
   app.route("/media", mediaRoutes);
-  app.route("/api/takos", takosProxyRoutes);
   app.route("/.takos/tools", takosToolsRoutes);
   app.route("/api/recommendations", recommendationsRoutes);
   app.route("/api/moderation", moderationRoutes);

@@ -1,4 +1,3 @@
-import type { TakosClient } from "./lib/takos-client.ts";
 import type { Database } from "../db/index.ts";
 import type {
   IKeyValueStore,
@@ -17,7 +16,6 @@ export interface EnvVars {
   APP_URL: string;
 
   // Takos-specific endpoints are opt-in (fail-close by default).
-  ENABLE_TAKOS_PROXY?: string;
   ENABLE_TAKOS_TOOLS?: string;
 
   // 認証設定（自由に組み合わせ可能）
@@ -101,7 +99,6 @@ export type Env = {
 
 export type Variables = {
   actor: Actor | null;
-  takosClient: TakosClient | null;
   db: Database;
   oauthToken?: { sub: string; scope: string; client_id: string };
 };
