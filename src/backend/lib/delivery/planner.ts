@@ -34,6 +34,10 @@ type ActorCacheRow = {
   lastFetchedAt: string;
 };
 
+// Max ids per IN(...) lookup, kept well under SQLite's bound-parameter ceiling
+// so a large recipient set is loaded in chunks rather than throwing.
+const PLANNER_IN_CHUNK = 500;
+
 function isActorCacheFresh(row: ActorCacheRow, nowMs: number): boolean {
   const lastFetched = safeParseIsoTimeMs(row.lastFetchedAt);
   if (lastFetched === null) return false;
@@ -109,16 +113,28 @@ export async function planEndpointsFromActorCache(
     };
   }
 
-  // Batch-load actor_cache for recipient set.
-  const rows = await db
-    .select({
-      apId: actorCache.apId,
-      inbox: actorCache.inbox,
-      sharedInbox: actorCache.sharedInbox,
-      lastFetchedAt: actorCache.lastFetchedAt,
-    })
-    .from(actorCache)
-    .where(inArray(actorCache.apId, allowedRecipients));
+  // Batch-load actor_cache for the recipient set, chunked so a large fan-out
+  // (a big community's whole remote audience) can't exceed SQLite's bound-
+  // parameter ceiling and throw — an un-acked throw here would poison the fanout
+  // queue message into an infinite retry loop.
+  const rows: ActorCacheRow[] = [];
+  for (let i = 0; i < allowedRecipients.length; i += PLANNER_IN_CHUNK) {
+    const chunkRows = await db
+      .select({
+        apId: actorCache.apId,
+        inbox: actorCache.inbox,
+        sharedInbox: actorCache.sharedInbox,
+        lastFetchedAt: actorCache.lastFetchedAt,
+      })
+      .from(actorCache)
+      .where(
+        inArray(
+          actorCache.apId,
+          allowedRecipients.slice(i, i + PLANNER_IN_CHUNK),
+        ),
+      );
+    rows.push(...(chunkRows as ActorCacheRow[]));
+  }
 
   const byApId = new Map(rows.map((r) => [r.apId, r as ActorCacheRow]));
   const unknownRecipients: string[] = [];

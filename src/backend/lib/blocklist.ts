@@ -20,6 +20,10 @@ import { logger } from "./logger.ts";
 
 const log = logger.child({ component: "blocklist" });
 
+// Max ids per IN(...) lookup, kept well under SQLite's bound-parameter ceiling
+// so a large recipient set is queried in chunks rather than throwing.
+const BLOCKLIST_IN_CHUNK = 500;
+
 /**
  * Normalise an actor AP-ID hostname for blocklist lookups: lowercase and
  * strip any trailing dot (DNS root form). Returns `null` when the input
@@ -112,11 +116,24 @@ export async function filterBlockedActorApIds(
   if (uniqueIds.length === 0) return blocked;
 
   try {
-    const blockedActorRows = await db
-      .select({ actorApId: blockedActors.actorApId })
-      .from(blockedActors)
-      .where(inArray(blockedActors.actorApId, uniqueIds));
-    const blockedActorSet = new Set(blockedActorRows.map((r) => r.actorApId));
+    // Chunk the IN(...) lookups so a very large recipient set (e.g. a big
+    // community fan-out, tens of thousands of unique actors/domains) cannot
+    // exceed SQLite's bound-parameter ceiling and throw — which, under the
+    // fail-open catch below, would silently DISABLE the operator blocklist for
+    // that whole fan-out (a defederation bypass).
+    const blockedActorSet = new Set<string>();
+    for (let i = 0; i < uniqueIds.length; i += BLOCKLIST_IN_CHUNK) {
+      const rows = await db
+        .select({ actorApId: blockedActors.actorApId })
+        .from(blockedActors)
+        .where(
+          inArray(
+            blockedActors.actorApId,
+            uniqueIds.slice(i, i + BLOCKLIST_IN_CHUNK),
+          ),
+        );
+      for (const r of rows) blockedActorSet.add(r.actorApId);
+    }
 
     const idToDomain = new Map<string, string | null>();
     const domains = new Set<string>();
@@ -127,11 +144,17 @@ export async function filterBlockedActorApIds(
     }
 
     const blockedDomainSet = new Set<string>();
-    if (domains.size > 0) {
+    const domainList = [...domains];
+    for (let i = 0; i < domainList.length; i += BLOCKLIST_IN_CHUNK) {
       const blockedDomainRows = await db
         .select({ domain: blockedDomains.domain })
         .from(blockedDomains)
-        .where(inArray(blockedDomains.domain, [...domains]));
+        .where(
+          inArray(
+            blockedDomains.domain,
+            domainList.slice(i, i + BLOCKLIST_IN_CHUNK),
+          ),
+        );
       for (const r of blockedDomainRows) blockedDomainSet.add(r.domain);
     }
 

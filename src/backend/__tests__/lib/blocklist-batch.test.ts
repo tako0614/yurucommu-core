@@ -50,3 +50,31 @@ test("filterBlockedActorApIds: empty input + all-allowed return an empty set", a
     (await filterBlockedActorApIds(db, ["https://ok.example/users/a"])).size,
   ).toBe(0);
 });
+
+test("filterBlockedActorApIds: a >chunk recipient set is filtered without throwing (no param-ceiling bypass)", async () => {
+  const db = await freshDb();
+  // A large fan-out (e.g. a big community's remote audience). The IN(...) lookups
+  // must be chunked: an un-chunked query would exceed SQLite's bound-parameter
+  // ceiling and throw, which the fail-open catch would turn into a SILENT
+  // disable of the blocklist for this whole batch (a defederation bypass).
+  const N = 1500; // > BLOCKLIST_IN_CHUNK (500), spanning multiple chunks
+  const recipients: string[] = [];
+  for (let i = 0; i < N; i++) {
+    recipients.push(`https://host${i}.example/users/u`);
+  }
+  // Block one actor in the FIRST chunk and one in the LAST chunk + a domain.
+  const blockedFirst = recipients[3];
+  const blockedLast = recipients[N - 2];
+  await blockActor(db, blockedFirst, "spam");
+  await blockActor(db, blockedLast, "spam");
+  await blockDomain(db, "host1000.example", "defederated");
+
+  const blocked = await filterBlockedActorApIds(db, recipients);
+
+  expect(blocked.has(blockedFirst)).toBe(true);
+  expect(blocked.has(blockedLast)).toBe(true);
+  expect(blocked.has("https://host1000.example/users/u")).toBe(true); // domain
+  expect(blocked.has(recipients[0])).toBe(false);
+  // The blocklist is enforced (NOT a silent empty fail-open): exactly 3 blocked.
+  expect(blocked.size).toBe(3);
+});
