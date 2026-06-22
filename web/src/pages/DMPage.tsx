@@ -465,6 +465,25 @@ export function DMPage() {
 
   const tabIndex = () => tabs.indexOf(activeTab());
 
+  // Measure-based tab underline: read the active tab button's real geometry so
+  // the indicator tracks it regardless of label widths (which differ per locale
+  // — hardcoded pixel offsets were wrong for both JA and EN). Recomputed when the
+  // active tab changes; the labels are static so no resize observer is needed.
+  const tabRefs: (HTMLButtonElement | undefined)[] = [];
+  const [indicatorStyle, setIndicatorStyle] = createSignal({
+    left: "0px",
+    width: "0px",
+  });
+  createEffect(() => {
+    const el = tabRefs[tabIndex()];
+    if (el) {
+      setIndicatorStyle({
+        left: `${el.offsetLeft}px`,
+        width: `${el.offsetWidth}px`,
+      });
+    }
+  });
+
   // Handle onRead
   const handleRead = () => {
     // Clear unread count locally for this contact (user or community).
@@ -577,6 +596,7 @@ export function DMPage() {
                 {/* Tab bar - LINE style with underline on active */}
                 <div class="relative flex overflow-x-auto scrollbar-hide border-b border-neutral-900">
                   <button
+                    ref={(el) => (tabRefs[0] = el)}
                     onClick={() => setActiveTab("all")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "all" ? "text-white" : "text-neutral-500"
@@ -585,6 +605,7 @@ export function DMPage() {
                     {t("timeline.all")}
                   </button>
                   <button
+                    ref={(el) => (tabRefs[1] = el)}
                     onClick={() => setActiveTab("friends")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "friends"
@@ -595,6 +616,7 @@ export function DMPage() {
                     {t("dm.filterFriends")}
                   </button>
                   <button
+                    ref={(el) => (tabRefs[2] = el)}
                     onClick={() => setActiveTab("communities")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "communities"
@@ -605,6 +627,7 @@ export function DMPage() {
                     {t("nav.groups")}
                   </button>
                   <button
+                    ref={(el) => (tabRefs[3] = el)}
                     onClick={() => setActiveTab("requests")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors relative ${
                       activeTab() === "requests"
@@ -620,6 +643,7 @@ export function DMPage() {
                     </Show>
                   </button>
                   <button
+                    ref={(el) => (tabRefs[4] = el)}
                     onClick={() => setActiveTab("archived")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "archived"
@@ -629,31 +653,11 @@ export function DMPage() {
                   >
                     {t("dm.archived")}
                   </button>
-                  {/* Tab indicator - underline style */}
+                  {/* Tab indicator - underline tracking the active tab's real
+                      geometry (measured, so it is correct for any locale). */}
                   <div
                     class="absolute bottom-0 h-0.5 bg-accent transition-all duration-200"
-                    style={{
-                      width:
-                        tabIndex() === 0
-                          ? "52px"
-                          : tabIndex() === 1
-                            ? "52px"
-                            : tabIndex() === 2
-                              ? "64px"
-                              : tabIndex() === 3
-                                ? "72px"
-                                : "84px",
-                      left:
-                        tabIndex() === 0
-                          ? "0px"
-                          : tabIndex() === 1
-                            ? "68px"
-                            : tabIndex() === 2
-                              ? "136px"
-                              : tabIndex() === 3
-                                ? "216px"
-                                : "300px",
-                    }}
+                    style={indicatorStyle()}
                   />
                 </div>
               </header>
