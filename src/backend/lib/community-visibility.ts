@@ -23,6 +23,7 @@ import type { Database } from "../../db/index.ts";
 import { communities, communityMembers } from "../../db/index.ts";
 import { objects } from "../../db/index.ts";
 import { safeJsonParse } from "../federation-helpers.ts";
+import { chunkForInClause } from "./chunk.ts";
 
 /**
  * Drizzle predicate that matches only objects with NO extra audience (i.e. not
@@ -118,4 +119,85 @@ export async function canViewerReadObject(
     .get();
 
   return Boolean(membership);
+}
+
+/**
+ * Batched equivalent of {@link canViewerReadObject} for a whole page of objects.
+ *
+ * Returns the set of `apId`s that PASS the community read-gate, in TWO queries
+ * total (private-community lookup + viewer-membership lookup) instead of the
+ * 1-2 queries PER object the per-row form costs. The per-object semantics are
+ * identical: an object passes unless it is addressed to a private community the
+ * viewer is not a member of (an anonymous viewer never satisfies a private
+ * community). Objects with no community audience always pass.
+ *
+ * Both IN(...) lookups are chunked to stay under D1's 100-bound-parameter cap,
+ * since a page can address up to ~90 distinct communities.
+ */
+export async function communityReadableApIds<
+  T extends CommunityGateObject & { apId: string },
+>(
+  db: Database,
+  objs: T[],
+  viewerApId: string | null | undefined,
+): Promise<Set<string>> {
+  const readable = new Set<string>();
+  const perObjectCommunityIds = new Map<string, string[]>();
+  const unionIds = new Set<string>();
+  for (const o of objs) {
+    const ids = communityApIdsFor(o);
+    perObjectCommunityIds.set(o.apId, ids);
+    for (const id of ids) unionIds.add(id);
+  }
+
+  // No object is community-addressed → every object passes the gate.
+  if (unionIds.size === 0) {
+    for (const o of objs) readable.add(o.apId);
+    return readable;
+  }
+
+  // Which addressed communities are private? (only private communities gate)
+  const privateSet = new Set<string>();
+  for (const chunk of chunkForInClause([...unionIds])) {
+    const rows = await db
+      .select({ apId: communities.apId })
+      .from(communities)
+      .where(
+        and(
+          inArray(communities.apId, chunk),
+          eq(communities.visibility, "private"),
+        ),
+      );
+    for (const r of rows) privateSet.add(r.apId);
+  }
+
+  // Which of those private communities is the viewer a member of?
+  const viewerMemberSet = new Set<string>();
+  if (viewerApId && privateSet.size > 0) {
+    for (const chunk of chunkForInClause([...privateSet])) {
+      const rows = await db
+        .select({ communityApId: communityMembers.communityApId })
+        .from(communityMembers)
+        .where(
+          and(
+            inArray(communityMembers.communityApId, chunk),
+            eq(communityMembers.actorApId, viewerApId),
+          ),
+        );
+      for (const r of rows) viewerMemberSet.add(r.communityApId);
+    }
+  }
+
+  for (const o of objs) {
+    const privateForObj = (perObjectCommunityIds.get(o.apId) ?? []).filter(
+      (id) => privateSet.has(id),
+    );
+    if (privateForObj.length === 0) {
+      readable.add(o.apId); // not addressed to any private community
+    } else if (privateForObj.some((id) => viewerMemberSet.has(id))) {
+      readable.add(o.apId); // member of at least one of its private communities
+    }
+    // else: addressed to a private community the viewer is not in → excluded.
+  }
+  return readable;
 }

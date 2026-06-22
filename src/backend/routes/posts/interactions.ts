@@ -30,7 +30,7 @@ import {
   enqueueDeliveryToActor,
   enqueueFanoutToFollowers,
 } from "../../lib/delivery/queue.ts";
-import { canViewerReadObject } from "../../lib/community-visibility.ts";
+import { communityReadableApIds } from "../../lib/community-visibility.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
 import { canViewerReadObjectFull } from "../../lib/post-visibility.ts";
 import { logger } from "../../lib/logger.ts";
@@ -650,20 +650,19 @@ posts.get("/bookmarks", async (c) => {
     return true; // public / unlisted
   };
 
-  const readable = await Promise.all(
-    allBookmarkRows.map(async (b) => {
-      if (!passesVisibilityGate(b.object)) return false;
-      return canViewerReadObject(
-        db,
-        {
-          audienceJson: b.object.audienceJson,
-          communityApId: b.object.communityApId,
-        },
-        actor.ap_id,
-      );
-    }),
+  // Sync visibility-gate first, then ONE batched community read-gate over the
+  // survivors (2 queries instead of 1-2 per bookmarked post).
+  const visibilityOk = allBookmarkRows.filter((b) =>
+    passesVisibilityGate(b.object),
   );
-  const bookmarkRows = allBookmarkRows.filter((_, i) => readable[i]);
+  const communityReadable = await communityReadableApIds(
+    db,
+    visibilityOk.map((b) => b.object),
+    actor.ap_id,
+  );
+  const bookmarkRows = visibilityOk.filter((b) =>
+    communityReadable.has(b.object.apId),
+  );
 
   // Batch-load author info to avoid N+1 queries
   const authorApIds = [

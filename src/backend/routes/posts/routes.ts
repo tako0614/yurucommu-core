@@ -50,7 +50,10 @@ import {
   validateSummaryEdit,
 } from "./post-helpers.ts";
 import { requireActor } from "../actors-helpers.ts";
-import { canViewerReadObject } from "../../lib/community-visibility.ts";
+import {
+  canViewerReadObject,
+  communityReadableApIds,
+} from "../../lib/community-visibility.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
 import { isExplicitRecipient } from "../../lib/post-visibility.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
@@ -68,6 +71,7 @@ const PUBLIC_COLLECTION = "https://www.w3.org/ns/activitystreams#Public";
 
 /** Reply row shape needed for the visibility gate (subset of the object row). */
 type ReplyVisibilityRow = {
+  apId: string;
   attributedTo: string;
   visibility: string;
   toJson?: string | null;
@@ -119,14 +123,18 @@ async function filterVisibleReplies<T extends ReplyVisibilityRow>(
   // reply is stored "public" but carries an audience, so the per-visibility
   // checks below would let it through. Resolving membership here (rather than
   // inside the synchronous .filter) lets the predicate stay synchronous.
-  const communityAllowed = await Promise.all(
-    replies.map((reply) => canViewerReadObject(db, reply, viewerApId)),
+  // Batched community read-gate for the whole page (2 queries, not 1-2 per
+  // reply). Same semantics as canViewerReadObject.
+  const communityReadable = await communityReadableApIds(
+    db,
+    replies,
+    viewerApId,
   );
 
-  return replies.filter((reply, i) => {
+  return replies.filter((reply) => {
     // A private-community reply is hidden from anyone who is not an accepted
     // member, regardless of the (stored "public") visibility.
-    if (!communityAllowed[i]) return false;
+    if (!communityReadable.has(reply.apId)) return false;
     if (reply.visibility === "followers") {
       if (!viewerApId) return false;
       if (reply.attributedTo === viewerApId) return true;

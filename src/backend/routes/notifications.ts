@@ -32,7 +32,7 @@ import {
 } from "../../db/index.ts";
 import { batchLoadActorInfo } from "./communities/membership-shared.ts";
 import { requireActor } from "./actors-helpers.ts";
-import { canViewerReadObject } from "../lib/community-visibility.ts";
+import { communityReadableApIds } from "../lib/community-visibility.ts";
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -394,21 +394,13 @@ notifications.get("/", async (c) => {
     );
   };
 
-  const readableObjectIds = new Set<string>(
-    (
-      await Promise.all(
-        objectRows.map(async (o) =>
-          followersGateAllows(o) &&
-          (await canViewerReadObject(
-            db,
-            { audienceJson: o.audienceJson, communityApId: o.communityApId },
-            actor.ap_id,
-          ))
-            ? o.apId
-            : null,
-        ),
-      )
-    ).filter((id): id is string => id !== null),
+  // Apply the synchronous followers-gate first, then resolve the community
+  // read-gate for all survivors in ONE batched call (2 queries) rather than
+  // 1-2 queries per row.
+  const readableObjectIds = await communityReadableApIds(
+    db,
+    objectRows.filter(followersGateAllows),
+    actor.ap_id,
   );
 
   const objectMap = new Map(
