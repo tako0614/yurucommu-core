@@ -57,6 +57,12 @@ function getStringArray(
   key: string,
 ): string[] | undefined {
   const value = record[key];
+  // AS2 permits an addressing field (`to`/`cc`) to be a SINGLE IRI string OR an
+  // array. Normalize a scalar to a one-element array so the array-shape
+  // consumers don't silently drop it: a scalar-addressed Note would otherwise
+  // fail isDirectNote (a DM mis-routed as a visible unlisted post) and a scalar
+  // `to: "…#Public"` would be classified unlisted instead of public.
+  if (typeof value === "string") return [value];
   if (!Array.isArray(value)) return undefined;
   const result: string[] = [];
   for (const item of value) {

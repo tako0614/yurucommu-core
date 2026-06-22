@@ -129,8 +129,13 @@ function isActorMismatch(
   if (!signingActorUrl) return true;
 
   try {
-    const signingDomain = new URL(signingActorUrl).hostname;
-    const actorDomain = new URL(actor).hostname;
+    // Use `host` (incl. port), matching getDomain() — the same-origin notion
+    // every downstream ownership/origin guard (resolveCollectionTarget,
+    // isObjectIdOriginMismatch, …) uses. `hostname` (port-insensitive) would let
+    // the key-delegation gate and the per-handler origin checks disagree about
+    // what "same origin" means on a multi-port host.
+    const signingDomain = new URL(signingActorUrl).host;
+    const actorDomain = new URL(actor).host;
     if (signingDomain === actorDomain) {
       log.info("Accepting key delegation for same-domain actor", {
         event: "ap.signature.key_delegation_accepted",

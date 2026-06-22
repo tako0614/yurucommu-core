@@ -216,6 +216,31 @@ test("parseActivity preserves object.cc (so a public reply isn't mis-read as a D
   ]);
 });
 
+test("parseActivity normalizes a SCALAR to/cc to a one-element array (AS2 single-IRI form)", () => {
+  // AS2 permits `to`/`cc` to be a single IRI string, not only an array. A
+  // hostile/quirky peer can send the scalar form; if it were dropped, a Note
+  // addressed only to the local user (a DM) would fail isDirectNote and surface
+  // as a visible unlisted post, and a scalar `to: "…#Public"` would downgrade to
+  // unlisted. Both consumers read object.to/.cc as arrays, so the scalar must
+  // normalize.
+  const create = {
+    type: "Create",
+    actor: "https://quirky.example/users/eve",
+    object: {
+      id: "https://quirky.example/objects/dm",
+      type: "Note",
+      content: "scalar-addressed",
+      to: "https://yurucommu.example/users/bob",
+      cc: "https://www.w3.org/ns/activitystreams#Public",
+    },
+  };
+  const activity = parseActivity(create);
+  const obj = activity.object;
+  if (typeof obj === "string" || !obj) throw new Error("nested object missing");
+  expect(obj.to).toEqual(["https://yurucommu.example/users/bob"]);
+  expect(obj.cc).toEqual(["https://www.w3.org/ns/activitystreams#Public"]);
+});
+
 test("parseActivity preserves an array object.type (so a federated Story isn't read as a plain Note)", () => {
   // yurucommu's own stories federate with type: ["Story", "Note"].
   const create = {
