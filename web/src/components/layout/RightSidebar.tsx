@@ -15,6 +15,10 @@ function RecommendedUserCard(props: {
   const [following, setFollowing] = createSignal(false);
   const [requested, setRequested] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
+  // Clear the post-follow dismissal timer if the card unmounts first, so the
+  // 600ms callback can't fire onFollowed on a torn-down parent.
+  let followTimeout: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(followTimeout));
 
   const handleFollow = async (e: MouseEvent) => {
     e.preventDefault();
@@ -31,7 +35,10 @@ function RecommendedUserCard(props: {
         setRequested(true);
       } else {
         setFollowing(true);
-        setTimeout(() => props.onFollowed(props.user.ap_id), 600);
+        followTimeout = setTimeout(
+          () => props.onFollowed(props.user.ap_id),
+          600,
+        );
       }
     } catch {
       // Silent fail for non-critical feature
@@ -99,6 +106,10 @@ export function RightSidebar() {
         fetchRecommendedUsers()
           .then((data) => {
             if (!cancelled) setUsers(data);
+          })
+          .catch((e) => {
+            // Non-critical feature: log instead of leaving an unhandled rejection.
+            if (!cancelled) console.error("Failed to load recommendations", e);
           })
           .finally(() => {
             if (!cancelled) setLoading(false);

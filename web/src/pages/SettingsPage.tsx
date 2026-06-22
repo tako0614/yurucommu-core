@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onMount, Show } from "solid-js";
+import { createEffect, createSignal, on, onMount, Show } from "solid-js";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import type { Actor } from "../types/index.ts";
 import { useI18n } from "../lib/i18n.tsx";
@@ -112,33 +112,40 @@ export function SettingsPage() {
     setActiveSection("main");
   });
 
-  createEffect(() => {
-    const section = activeSection();
-    if (section === "blocked") {
-      // Only show loading if no cached data
-      if (blockedUsers().length === 0) setLoading(true);
-      fetchBlockedUsers()
-        .then(setBlockedUsers)
-        .catch((err) => {
-          console.error("Failed to load blocked users:", err);
-          setError(t("common.error"));
-        })
-        .finally(() => setLoading(false));
-    } else if (section === "muted") {
-      // Only show loading if no cached data
-      if (mutedUsers().length === 0) setLoading(true);
-      fetchMutedUsers()
-        .then(setMutedUsers)
-        .catch((err) => {
-          console.error("Failed to load muted users:", err);
-          setError(t("common.error"));
-        })
-        .finally(() => setLoading(false));
-    } else if (section === "accounts") {
-      // Shared atom owns the fetch + loading/error state; this just triggers it.
-      doLoadAccounts();
-    }
-  });
+  // Track ONLY activeSection via on(): the body reads blockedUsers()/mutedUsers()
+  // for the loading decision AND writes them via setBlockedUsers/setMutedUsers, so
+  // a bare createEffect would re-run on its own writes → an unbounded refetch loop
+  // that hammers the API while the user sits on the Blocked/Muted section (the same
+  // write-read loop class that 429-stormed CommunityProfilePage). on() isolates the
+  // dependency to activeSection, so the in-body signal reads are untracked.
+  createEffect(
+    on(activeSection, (section) => {
+      if (section === "blocked") {
+        // Only show loading if no cached data
+        if (blockedUsers().length === 0) setLoading(true);
+        fetchBlockedUsers()
+          .then(setBlockedUsers)
+          .catch((err) => {
+            console.error("Failed to load blocked users:", err);
+            setError(t("common.error"));
+          })
+          .finally(() => setLoading(false));
+      } else if (section === "muted") {
+        // Only show loading if no cached data
+        if (mutedUsers().length === 0) setLoading(true);
+        fetchMutedUsers()
+          .then(setMutedUsers)
+          .catch((err) => {
+            console.error("Failed to load muted users:", err);
+            setError(t("common.error"));
+          })
+          .finally(() => setLoading(false));
+      } else if (section === "accounts") {
+        // Shared atom owns the fetch + loading/error state; this just triggers it.
+        doLoadAccounts();
+      }
+    }),
+  );
 
   const handleSwitchAccount = async (apId: string) => {
     if (apId === currentApId()) return;
@@ -154,7 +161,10 @@ export function SettingsPage() {
     }
   };
 
+  const [creatingAccount, setCreatingAccount] = createSignal(false);
   const handleCreateAccount = async () => {
+    // In-flight guard: a double-tap would otherwise create two accounts.
+    if (creatingAccount()) return;
     if (!normalizedUsername()) {
       setCreateError(t("settings.usernameRequired"));
       return;
@@ -164,6 +174,7 @@ export function SettingsPage() {
       return;
     }
     setCreateError(null);
+    setCreatingAccount(true);
     try {
       await doCreateAccount({
         username: normalizedUsername(),
@@ -174,6 +185,8 @@ export function SettingsPage() {
       setCreateError(
         e instanceof Error ? e.message : t("settings.createAccountFailed"),
       );
+    } finally {
+      setCreatingAccount(false);
     }
   };
 

@@ -229,6 +229,18 @@ export function PostDetailPage() {
       setPost((prev) =>
         prev ? { ...prev, reply_count: prev.reply_count + 1 } : null,
       );
+      // Keep the timeline's copy of this post in sync so navigating back doesn't
+      // show a stale reply count.
+      const parentApId = post()?.ap_id;
+      if (parentApId) {
+        setTimelinePosts((prev) =>
+          prev.map((p) =>
+            p.ap_id === parentApId
+              ? { ...p, reply_count: p.reply_count + 1 }
+              : p,
+          ),
+        );
+      }
     } catch (e) {
       console.error("Failed to reply:", e);
       setError(t("common.error"));

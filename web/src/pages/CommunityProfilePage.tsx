@@ -50,6 +50,9 @@ export function CommunityProfilePage() {
   } | null>(null);
   // Leave action staged so the shared ConfirmSheet can gate the destructive op.
   const [confirmLeave, setConfirmLeave] = createSignal(false);
+  // Owner-promotion staged behind a confirm (a privilege transfer).
+  const [pendingOwnerPromotion, setPendingOwnerPromotion] =
+    createSignal<CommunityMember | null>(null);
   const params = useParams();
   const navigate = useNavigate();
   const [community, setCommunity] = createSignal<CommunityDetail | null>(null);
@@ -314,7 +317,20 @@ export function CommunityProfilePage() {
     }
   };
 
-  const handleUpdateMemberRole = async (
+  const handleUpdateMemberRole = (
+    member: CommunityMember,
+    role: "owner" | "moderator" | "member",
+  ) => {
+    // Promoting to owner is a privilege transfer — stage it behind a confirm
+    // rather than acting on the first click.
+    if (role === "owner") {
+      setPendingOwnerPromotion(member);
+      return;
+    }
+    void doUpdateMemberRole(member, role);
+  };
+
+  const doUpdateMemberRole = async (
     member: CommunityMember,
     role: "owner" | "moderator" | "member",
   ) => {
@@ -621,6 +637,18 @@ export function CommunityProfilePage() {
         busy={joining()}
         onConfirm={handleLeave}
         onCancel={() => setConfirmLeave(false)}
+      />
+      <ConfirmSheet
+        open={pendingOwnerPromotion() !== null}
+        title={t("community.makeOwnerTitle")}
+        body={t("community.makeOwnerBody")}
+        destructive
+        onConfirm={() => {
+          const member = pendingOwnerPromotion();
+          setPendingOwnerPromotion(null);
+          if (member) void doUpdateMemberRole(member, "owner");
+        }}
+        onCancel={() => setPendingOwnerPromotion(null)}
       />
       <Show when={invitePromptOpen()}>
         <Portal>

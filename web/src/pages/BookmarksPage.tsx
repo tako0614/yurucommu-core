@@ -83,13 +83,19 @@ export function BookmarksPage() {
     }
   };
 
+  // Guard against a double-tap firing two DELETEs for the same post.
+  const unbookmarkInFlight = new Set<string>();
   const handleUnbookmark = async (postApId: string) => {
+    if (unbookmarkInFlight.has(postApId)) return;
+    unbookmarkInFlight.add(postApId);
     try {
       await unbookmarkPost(postApId);
       setPosts((prev) => prev.filter((p) => p.ap_id !== postApId));
     } catch (e) {
       console.error("Failed to unbookmark:", e);
       setError(t("common.error"));
+    } finally {
+      unbookmarkInFlight.delete(postApId);
     }
   };
 

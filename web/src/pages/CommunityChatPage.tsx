@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { fetchCommunity } from "../lib/api.ts";
 import { useI18n } from "../lib/i18n.tsx";
@@ -22,6 +22,12 @@ export function CommunityChatPage() {
     const name = params.name;
     if (!name) return;
     let cancelled = false;
+    // Invalidate the in-flight redirect when params.name changes (the route is
+    // reused across communities without an unmount) or on unmount, so a stale
+    // fetch can't navigate to the wrong community after a newer one started.
+    onCleanup(() => {
+      cancelled = true;
+    });
     setError(null);
 
     (async () => {

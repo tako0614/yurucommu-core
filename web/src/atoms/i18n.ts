@@ -205,6 +205,9 @@ const translations = {
     "community.tabAbout": "概要",
     "community.iconUploadFailed": "アイコンのアップロードに失敗しました",
     "community.notFound": "コミュニティが見つかりません",
+    "community.makeOwnerTitle": "オーナーに昇格しますか？",
+    "community.makeOwnerBody":
+      "このメンバーにコミュニティの完全な管理権限（オーナー権限）を付与します。",
     "messages.placeholder": "メッセージを入力...",
     "messages.send": "送信",
     "messages.noMessages": "メッセージがありません",
@@ -873,6 +876,9 @@ const translations = {
     "community.tabAbout": "Overview",
     "community.iconUploadFailed": "Failed to upload icon",
     "community.notFound": "Community not found",
+    "community.makeOwnerTitle": "Make this member an owner?",
+    "community.makeOwnerBody":
+      "This grants them full owner control of the community.",
     "messages.placeholder": "Type a message...",
     "messages.send": "Send",
     "messages.noMessages": "No messages",

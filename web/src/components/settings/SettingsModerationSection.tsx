@@ -168,6 +168,7 @@ export function SettingsModerationSection(
                 value={domainInput()}
                 onInput={(e) => setDomainInput(e.currentTarget.value)}
                 placeholder={props.t("settings.domainPlaceholder")}
+                aria-label={props.t("settings.blockedDomains")}
                 class={inputClass}
               />
               <button
@@ -206,6 +207,7 @@ export function SettingsModerationSection(
                 value={actorInput()}
                 onInput={(e) => setActorInput(e.currentTarget.value)}
                 placeholder={props.t("settings.actorPlaceholder")}
+                aria-label={props.t("settings.blockedActors")}
                 class={inputClass}
               />
               <button

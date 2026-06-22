@@ -1,5 +1,6 @@
 import { createSignal, Index, Show } from "solid-js";
 import { SettingsSectionHeader } from "./SettingsSectionHeader.tsx";
+import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { CloseIcon, PlusIcon } from "./SettingsIcons.tsx";
 import {
   downloadDataExport,
@@ -20,6 +21,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
   const [moveTarget, setMoveTarget] = createSignal("");
   const [moving, setMoving] = createSignal(false);
   const [moveDone, setMoveDone] = createSignal(false);
+  const [confirmingMove, setConfirmingMove] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
   const handleExport = async () => {
@@ -187,12 +189,27 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
             />
             <button
               type="button"
-              onClick={handleMove}
+              onClick={() => setConfirmingMove(true)}
               disabled={moving() || moveTarget().trim().length === 0}
               class="w-full py-2 bg-red-500/90 rounded-lg font-bold disabled:opacity-50"
             >
               {props.t("settings.moveConfirm")}
             </button>
+            {/* Account migration is irreversible (this account becomes "moved"
+                and followers are handed off), so require a deliberate confirm
+                rather than firing on the first click. */}
+            <ConfirmSheet
+              open={confirmingMove()}
+              title={props.t("settings.moveAccount")}
+              body={props.t("settings.moveConfirm")}
+              destructive
+              busy={moving()}
+              onConfirm={() => {
+                setConfirmingMove(false);
+                void handleMove();
+              }}
+              onCancel={() => setConfirmingMove(false)}
+            />
           </Show>
         </div>
       </div>

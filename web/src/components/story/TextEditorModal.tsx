@@ -168,6 +168,9 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 setShowColorPicker(!showColorPicker());
                 setShowFontPicker(false);
               }}
+              aria-label={t("story.textColor")}
+              aria-haspopup="true"
+              aria-expanded={showColorPicker()}
               class="w-8 h-8 rounded-full border-2 border-white"
               style={{ "background-color": text().color }}
             />
