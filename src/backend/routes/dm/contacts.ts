@@ -17,7 +17,6 @@ import {
   communities,
   communityMembers,
   dmArchivedConversations,
-  dmCommunityReadStatus,
   dmReadStatus,
   objectRecipients,
   objects,
@@ -266,23 +265,6 @@ contacts.get("/contacts", async (c) => {
     }
   }
 
-  // Per-community read position for the viewer. The unread baseline is the
-  // later of the viewer's last-read time and their join time, so a freshly
-  // joined member is not blasted with a badge for the whole backlog.
-  const communityReadStatuses =
-    communityApIds.length > 0
-      ? await db
-          .select({
-            communityApId: dmCommunityReadStatus.communityApId,
-            lastReadAt: dmCommunityReadStatus.lastReadAt,
-          })
-          .from(dmCommunityReadStatus)
-          .where(eq(dmCommunityReadStatus.actorApId, actor.ap_id))
-      : [];
-  const communityReadMap = new Map(
-    communityReadStatuses.map((r) => [r.communityApId, r.lastReadAt]),
-  );
-
   // Count unread community CHAT messages (published after the read baseline,
   // not authored by the viewer) per community via the object_recipients
   // audience link.
@@ -294,38 +276,36 @@ contacts.get("/contacts", async (c) => {
   // `communityApId` NULL. Restricting to `communityApId IS NULL` keeps feed
   // posts out of the chat unread count so reading the feed does not leave a
   // stuck chat badge (and posting to the feed does not bump it).
+  //
+  // ONE grouped query (mirrors GET /unread/count) instead of a COUNT per
+  // community: the per-community unread baseline — the later of the viewer's
+  // last-read time and their join time, so a freshly joined member is not
+  // blasted for the whole backlog — is resolved in SQL via
+  // COALESCE(r.last_read_at, cm.joined_at, epoch), then GROUP BY community.
   const communityUnreadCounts = new Map<string, number>();
   if (communityApIds.length > 0) {
-    await Promise.all(
-      communityMemberships.map(async (cm) => {
-        const communityApId = cm.community.apId;
-        const baseline =
-          communityReadMap.get(communityApId) ??
-          cm.joinedAt ??
-          "1970-01-01T00:00:00Z";
-        const result = await db
-          .select({ count: count() })
-          .from(objects)
-          .innerJoin(
-            objectRecipients,
-            eq(objectRecipients.objectApId, objects.apId),
-          )
-          .where(
-            and(
-              eq(objectRecipients.recipientApId, communityApId),
-              eq(objectRecipients.type, "audience"),
-              eq(objects.type, "Note"),
-              isNull(objects.communityApId),
-              ne(objects.attributedTo, actor.ap_id),
-              sql`${objects.published} > ${baseline}`,
-            ),
-          )
-          .get();
-        if (result?.count) {
-          communityUnreadCounts.set(communityApId, result.count);
-        }
-      }),
-    );
+    const me = actor.ap_id;
+    const unreadRows = await db.all<{ communityApId: string; c: number }>(sql`
+      SELECT cm.community_ap_id AS communityApId, COUNT(*) AS c
+      FROM community_members cm
+      JOIN object_recipients orp
+        ON orp.recipient_ap_id = cm.community_ap_id
+        AND orp.type = 'audience'
+      JOIN objects o
+        ON o.ap_id = orp.object_ap_id
+        AND o.type = 'Note'
+        AND o.community_ap_id IS NULL
+        AND o.attributed_to != ${me}
+      LEFT JOIN dm_community_read_status r
+        ON r.community_ap_id = cm.community_ap_id
+        AND r.actor_ap_id = ${me}
+      WHERE cm.actor_ap_id = ${me}
+        AND o.published > COALESCE(r.last_read_at, cm.joined_at, '1970-01-01T00:00:00Z')
+      GROUP BY cm.community_ap_id
+    `);
+    for (const row of unreadRows) {
+      if (row.c) communityUnreadCounts.set(row.communityApId, Number(row.c));
+    }
   }
 
   const communitiesResult = communityMemberships
