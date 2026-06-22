@@ -498,6 +498,27 @@ actorsRoute.post("/me/delete", async (c) => {
     // Phase 1: remove dependent records sequentially.
     await db.delete(sessions).where(eq(sessions.memberId, actorApIdVal));
 
+    // Reconcile the COUNTERPARTIES' counts before dropping the edges — this was
+    // the one edge-removal path that skipped it, leaving 3rd-party follower /
+    // following counts inflated after a delete. Each edge is unique per pair, so
+    // a single guarded -1 over the affected local actors is exact:
+    //  - everyone the deleted actor FOLLOWED loses a follower,
+    //  - everyone who FOLLOWED the deleted actor loses a following.
+    // inArray naturally scopes to LOCAL actors (remote actors have no `actors`
+    // row / locally-tracked count); gt(...,0) guards against underflow.
+    const followingTargets = (
+      await db
+        .select({ apId: follows.followingApId })
+        .from(follows)
+        .where(eq(follows.followerApId, actorApIdVal))
+    ).map((r) => r.apId);
+    const followerSources = (
+      await db
+        .select({ apId: follows.followerApId })
+        .from(follows)
+        .where(eq(follows.followingApId, actorApIdVal))
+    ).map((r) => r.apId);
+
     await db
       .delete(follows)
       .where(
@@ -506,6 +527,29 @@ actorsRoute.post("/me/delete", async (c) => {
           eq(follows.followingApId, actorApIdVal),
         ),
       );
+
+    if (followingTargets.length > 0) {
+      await db
+        .update(actors)
+        .set({ followerCount: sql`${actors.followerCount} - 1` })
+        .where(
+          and(
+            inArray(actors.apId, followingTargets),
+            gt(actors.followerCount, 0),
+          ),
+        );
+    }
+    if (followerSources.length > 0) {
+      await db
+        .update(actors)
+        .set({ followingCount: sql`${actors.followingCount} - 1` })
+        .where(
+          and(
+            inArray(actors.apId, followerSources),
+            gt(actors.followingCount, 0),
+          ),
+        );
+    }
 
     await db
       .delete(blocks)
