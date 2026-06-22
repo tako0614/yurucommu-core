@@ -8,6 +8,7 @@
 import { and, eq, gt } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, follows } from "../../../db/index.ts";
+import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import {
   errAuth,
   errNotFound,
@@ -85,7 +86,14 @@ export async function handleFollowUser(
           .where(eq(actors.apId, target.apId)),
       );
     }
-    await (db as unknown as Batchable).batch(ops);
+    try {
+      await (db as unknown as Batchable).batch(ops);
+    } catch (e) {
+      // A concurrent follow won the race past the existing-check: the unique
+      // (follower, following) edge now exists and its atomic batch already
+      // applied the +1s. Treat as idempotent success instead of a 500.
+      if (!isUniqueConstraintError(e)) throw e;
+    }
   }
 
   return c.json(

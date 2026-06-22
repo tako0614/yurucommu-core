@@ -193,6 +193,17 @@ export async function recordCircuitSuccess(
   });
 }
 
+// CONCURRENCY NOTE (accepted, bounded): the circuit state (counter + recent-
+// outcome window + state machine) is read here and written via a blind UPDATE in
+// updateCircuit, so two concurrent deliveries to the SAME endpoint can lose one
+// of their increments / window samples (last-writer-wins). This is deliberately
+// NOT made strongly consistent: it is a delivery THROTTLE heuristic, not a
+// correctness/security invariant — the only effect of a lost increment is the
+// breaker opening a couple of failures later than CONSECUTIVE_FAILURE_THRESHOLD,
+// costing a few extra attempts to an already-failing host. The per-host bulkhead
+// (BULKHEAD_PER_DOMAIN) bounds the concurrency. A strongly-consistent version
+// would need a Durable Object (single-threaded) or a CAS+retry loop on this hot
+// path — disproportionate for a throttle, so it is left best-effort by design.
 export async function recordCircuitFailure(
   db: Database,
   endpoint: string,

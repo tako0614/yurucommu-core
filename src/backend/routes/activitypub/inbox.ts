@@ -7,10 +7,10 @@ import { chunkForInClause } from "../../lib/chunk.ts";
 import {
   activityApId,
   actorApId,
-  generateId,
   isLocal,
   isSafeRemoteUrl,
 } from "../../federation-helpers.ts";
+import { sha256Hex } from "../../lib/delivery/transformers.ts";
 import { getInstanceActor, loadFederatedCommunity } from "./query-helpers.ts";
 import { communityApId } from "../../lib/ap-ids.ts";
 import type { Activity } from "./inbox-types.ts";
@@ -216,16 +216,27 @@ async function verifyAndParseInbox(
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const activityId =
-    typeof activity.id === "string"
-      ? activity.id
-      : activityApId(baseUrl, generateId());
   const actor = typeof activity.actor === "string" ? activity.actor : null;
   const activityType = typeof activity.type === "string" ? activity.type : null;
 
   if (!actor || !activityType) {
     return c.json({ error: "Invalid activity" }, 400);
   }
+
+  const activityId =
+    typeof activity.id === "string"
+      ? activity.id
+      : activityApId(
+          baseUrl,
+          // Deterministic synthetic id for an id-less activity: a redelivery of
+          // the SAME logical action then dedups via the activities table instead
+          // of minting a fresh RANDOM id each time (which re-processed it on
+          // every retry). Defense-in-depth — the side-effect handlers are also
+          // independently idempotent.
+          `synthetic-${await sha256Hex(
+            `${actor}|${activityType}|${getActivityObjectId(activity) ?? ""}`,
+          )}`,
+        );
 
   const signingActor = signingActorFromKeyId(signatureResult.keyId);
   if (isActorMismatch(signingActor, actor)) {

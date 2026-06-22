@@ -190,6 +190,15 @@ export async function recordFailedLoginAttempt(
     return toStatus(existing, now);
   }
 
+  // CONCURRENCY NOTE (accepted, bounded): this read-then-write of the KV record
+  // is not atomic — KV has no atomic increment and is eventually consistent — so
+  // many SIMULTANEOUS failed logins can lose increments (last-writer-wins),
+  // letting an attacker who fires concurrent attempts squeeze a few extra tries
+  // in before the lockout trips. The lockout still triggers; the race only
+  // slightly delays it within a narrow window. A strongly-atomic counter needs a
+  // Durable Object or the Workers Rate Limiting API; adopting one is the correct
+  // upgrade if brute-force pressure ever warrants it, but is out of scope for the
+  // current KV-backed control.
   const failedAttempts = (existing?.failedAttempts ?? 0) + 1;
   const firstFailedAt = existing?.firstFailedAt ?? now;
   const shouldLock = failedAttempts >= LOGIN_LOCKOUT_CONFIG.maxFailedAttempts;

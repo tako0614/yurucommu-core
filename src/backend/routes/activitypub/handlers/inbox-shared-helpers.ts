@@ -63,12 +63,18 @@ export async function upsertActivityAndNotify(
     })
     .onConflictDoNothing();
 
-  await db.insert(inboxTable).values({
-    actorApId: recipientApId,
-    activityApId: activityId,
-    read: 0,
-    createdAt: now,
-  });
+  // Idempotent like the activities insert above: a replayed delivery (remote
+  // retry) must not create a duplicate inbox/notification row or 500 on the
+  // (actor, activity) unique constraint.
+  await db
+    .insert(inboxTable)
+    .values({
+      actorApId: recipientApId,
+      activityApId: activityId,
+      read: 0,
+      createdAt: now,
+    })
+    .onConflictDoNothing();
 }
 
 /**
