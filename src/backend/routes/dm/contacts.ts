@@ -398,12 +398,30 @@ contacts.get("/contact/:encodedApId", async (c) => {
       name: communities.name,
       iconUrl: communities.iconUrl,
       memberCount: communities.memberCount,
+      visibility: communities.visibility,
     })
     .from(communities)
     .where(eq(communities.apId, apId))
     .get();
 
   if (community) {
+    // A private community's size is withheld from non-members, matching the
+    // canonical GET /api/communities/:identifier gate — don't disclose
+    // member_count to a non-member who resolves the contact by apId.
+    let memberCount = community.memberCount;
+    if (community.visibility !== "public") {
+      const membership = await db
+        .select({ actorApId: communityMembers.actorApId })
+        .from(communityMembers)
+        .where(
+          and(
+            eq(communityMembers.communityApId, community.apId),
+            eq(communityMembers.actorApId, actor.ap_id),
+          ),
+        )
+        .get();
+      if (!membership) memberCount = 0;
+    }
     return c.json({
       contact: {
         type: "community" as const,
@@ -412,7 +430,7 @@ contacts.get("/contact/:encodedApId", async (c) => {
         preferred_username: community.preferredUsername,
         name: community.name,
         icon_url: community.iconUrl,
-        member_count: community.memberCount,
+        member_count: memberCount,
         last_message: null,
         last_message_at: null,
         unread_count: 0,

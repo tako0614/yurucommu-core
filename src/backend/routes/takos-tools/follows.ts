@@ -171,7 +171,7 @@ export async function handleUnfollowUser(
 export async function handleGetFollowList(
   c: ToolContext,
   input: Input,
-  _actor: { ap_id: string } | null,
+  actor: { ap_id: string } | null,
   direction: "followers" | "following",
 ) {
   const db = c.get("db");
@@ -186,6 +186,16 @@ export async function handleGetFollowList(
     .where(eq(actors.preferredUsername, username))
     .get();
   if (!target) return c.json(errNotFound("User"), 404);
+
+  // A locked (private) account's follower/following list is withheld from
+  // everyone but the account owner — count only — matching the web route
+  // listFollowRelation. Without this the MCP surface would be a graph-
+  // enumeration bypass of the locked-account gate.
+  if (target.isPrivate && actor?.ap_id !== target.apId) {
+    const count =
+      direction === "followers" ? target.followerCount : target.followingCount;
+    return c.json(ok({ [direction]: [], count }));
+  }
 
   const actorList = await fetchFollowList(db, target.apId, direction, limit);
 
