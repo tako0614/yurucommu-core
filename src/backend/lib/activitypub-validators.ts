@@ -65,6 +65,23 @@ function getStringArray(
   return result;
 }
 
+// AS2 permits `type` to be a single string OR an array (e.g. yurucommu's own
+// stories emit `type: ["Story", "Note"]`). Preserve both shapes so the
+// array-aware downstream classifiers (isStoryType / isActorTypeUpdate /
+// typeIncludes) actually receive the array instead of a collapsed `undefined`.
+function getStringOrStringArray(
+  record: Record<string, unknown>,
+  key: string,
+): string | string[] | undefined {
+  const value = record[key];
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const result = value.filter((v): v is string => typeof v === "string");
+    return result.length > 0 ? result : undefined;
+  }
+  return undefined;
+}
+
 function requireRecord(value: unknown, path: string): Record<string, unknown> {
   if (!isJsonRecord(value)) {
     throw new ActivityPubContractError(
@@ -179,10 +196,12 @@ export function tryParseRemoteActor(
 
 export interface ActivityObjectDocument {
   id?: string;
-  type?: string;
+  type?: string | string[];
   object?: string;
   inReplyTo?: string;
   to?: string[];
+  cc?: string[];
+  conversation?: string;
   content?: string;
   summary?: string | null;
   attachment?: unknown;
@@ -208,10 +227,12 @@ function parseActivityObjectFields(
   const summaryRaw = record["summary"];
   return {
     id: getString(record, "id"),
-    type: getString(record, "type"),
+    type: getStringOrStringArray(record, "type"),
     object: getString(record, "object"),
     inReplyTo: getString(record, "inReplyTo"),
     to: getStringArray(record, "to"),
+    cc: getStringArray(record, "cc"),
+    conversation: getString(record, "conversation"),
     content: getString(record, "content"),
     summary:
       typeof summaryRaw === "string"

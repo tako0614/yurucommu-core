@@ -5,7 +5,7 @@ export type ActivityContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 export type ActivityObject = {
   id?: string;
-  type?: string;
+  type?: string | string[];
   object?: string;
   inReplyTo?: string;
   to?: string[];
@@ -50,6 +50,15 @@ export type StoryOverlay = {
     height?: number;
   };
 };
+
+// AS2 `type` may be a string or an array; this matches a name against either
+// shape so `=== "Note"` comparisons keep working once a remote sends an array.
+export function typeIncludes(
+  type: string | string[] | undefined,
+  name: string,
+): boolean {
+  return Array.isArray(type) ? type.includes(name) : type === name;
+}
 
 export function getActivityObject(activity: Activity): ActivityObject | null {
   if (!activity.object || typeof activity.object === "string") return null;

@@ -189,6 +189,67 @@ test("parseActivity parses Pleroma Create(Note) activity (nested object)", () =>
   }
 });
 
+test("parseActivity preserves object.cc (so a public reply isn't mis-read as a DM)", () => {
+  // Mastodon addresses a public reply as to:[mentioned] + cc:[Public].
+  const create = {
+    type: "Create",
+    actor: "https://mastodon.example/users/eve",
+    object: {
+      id: "https://mastodon.example/objects/r",
+      type: "Note",
+      content: "<p>@bob a public reply</p>",
+      to: ["https://yurucommu.example/users/bob"],
+      cc: [
+        "https://www.w3.org/ns/activitystreams#Public",
+        "https://mastodon.example/users/eve/followers",
+      ],
+    },
+  };
+  const activity = parseActivity(create);
+  const obj = activity.object;
+  if (typeof obj === "string" || !obj) throw new Error("nested object missing");
+  // cc must survive so isDirectNote can see the Public sentinel and NOT
+  // classify this public reply as a direct message.
+  expect(obj.cc).toEqual([
+    "https://www.w3.org/ns/activitystreams#Public",
+    "https://mastodon.example/users/eve/followers",
+  ]);
+});
+
+test("parseActivity preserves an array object.type (so a federated Story isn't read as a plain Note)", () => {
+  // yurucommu's own stories federate with type: ["Story", "Note"].
+  const create = {
+    type: "Create",
+    actor: "https://yuru.example/users/eve",
+    object: {
+      id: "https://yuru.example/objects/s",
+      type: ["Story", "Note"],
+      content: "a story",
+      endTime: "2026-05-15T00:00:00Z",
+    },
+  };
+  const activity = parseActivity(create);
+  const obj = activity.object;
+  if (typeof obj === "string" || !obj) throw new Error("nested object missing");
+  expect(obj.type).toEqual(["Story", "Note"]);
+});
+
+test("parseActivity preserves object.conversation", () => {
+  const create = {
+    type: "Create",
+    actor: "https://example/u/a",
+    object: {
+      type: "Note",
+      content: "text",
+      conversation: "https://example/contexts/123",
+    },
+  };
+  const activity = parseActivity(create);
+  const obj = activity.object;
+  if (typeof obj === "string" || !obj) throw new Error("nested object missing");
+  expect(obj.conversation).toEqual("https://example/contexts/123");
+});
+
 test("parseActivity parses Undo(Follow)", () => {
   const undo = {
     id: "https://mastodon.example/users/alice#undo/123",

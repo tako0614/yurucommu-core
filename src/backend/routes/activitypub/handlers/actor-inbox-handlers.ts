@@ -21,6 +21,7 @@ import {
   type ActivityContext,
   getActivityObject,
   getActivityObjectId,
+  typeIncludes,
 } from "../inbox-types.ts";
 
 const AS_CONTEXT = "https://www.w3.org/ns/activitystreams";
@@ -187,7 +188,7 @@ export async function handleGroupCreate(
 ) {
   const db = c.get("db");
   const object = getActivityObject(activity);
-  if (!object || object.type !== "Note") return;
+  if (!object || !typeIncludes(object.type, "Note")) return;
 
   if (object.id) {
     try {

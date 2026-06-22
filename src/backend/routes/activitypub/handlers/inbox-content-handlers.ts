@@ -36,6 +36,7 @@ import {
   getActivityObject,
   getActivityObjectId,
   type StoryOverlay,
+  typeIncludes,
 } from "../inbox-types.ts";
 
 const log = logger.child({ component: "activitypub.inbox.content" });
@@ -301,8 +302,8 @@ export async function handleCreate(
     return;
   }
 
-  // Handle Note type
-  if (object.type !== "Note") return;
+  // Handle Note type (a remote may send `type` as a string or an array)
+  if (!typeIncludes(object.type, "Note")) return;
 
   // Same-origin guard: a remote actor may only Create objects under its own
   // origin, never under another host or the local domain. This closes the
@@ -748,7 +749,7 @@ export async function handleUpdate(
   if (!existing || existing.attributedTo !== actor) return;
 
   // Update object content
-  if (object.type === "Note") {
+  if (typeIncludes(object.type, "Note")) {
     const attachments = object.attachment
       ? JSON.stringify(object.attachment)
       : undefined;
