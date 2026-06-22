@@ -156,9 +156,21 @@ const FTS_MIN_QUERY_LEN = 3;
  * The caller AND-s this with `publicSearchableWhere`, so visibility/audience
  * gating still applies on top of the match (no private-post leak).
  */
+// Escape SQLite LIKE metacharacters so a query containing `%` or `_` (or a
+// backslash) matches them literally instead of as wildcards. Mirrors the
+// escaping in media.ts / dm/conversations-helpers; the bare `like()` calls
+// honoured no ESCAPE, so a search for "%" or "_" used to over-match every row.
+function escapeLike(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+function likeContains(column: Parameters<typeof like>[0], value: string) {
+  return sql`${column} LIKE ${"%" + escapeLike(value) + "%"} ESCAPE '\\'`;
+}
+
 function postContentSearchPredicate(query: string) {
   if (query.length < FTS_MIN_QUERY_LEN) {
-    return like(objects.content, "%" + query + "%");
+    return likeContains(objects.content, query);
   }
   const phrase = '"' + query.replace(/"/g, '""') + '"';
   return sql`objects.rowid IN (SELECT rowid FROM objects_fts WHERE objects_fts MATCH ${phrase})`;
@@ -323,8 +335,8 @@ search.get("/actors", async (c) => {
         and(
           notDeleted(actors),
           or(
-            like(actors.preferredUsername, "%" + query + "%"),
-            like(actors.name, "%" + query + "%"),
+            likeContains(actors.preferredUsername, query),
+            likeContains(actors.name, query),
           ),
         ),
       )
@@ -345,8 +357,8 @@ search.get("/actors", async (c) => {
       .from(actorCache)
       .where(
         or(
-          like(actorCache.preferredUsername, "%" + query + "%"),
-          like(actorCache.name, "%" + query + "%"),
+          likeContains(actorCache.preferredUsername, query),
+          likeContains(actorCache.name, query),
         ),
       )
       .limit(20),
