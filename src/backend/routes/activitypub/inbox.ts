@@ -13,7 +13,8 @@ import {
 import { getInstanceActor, loadFederatedCommunity } from "./query-helpers.ts";
 import { communityApId } from "../../lib/ap-ids.ts";
 import type { Activity } from "./inbox-types.ts";
-import { getActivityObjectId } from "./inbox-types.ts";
+import { getActivityObject, getActivityObjectId } from "./inbox-types.ts";
+import { findFollowByActivityId } from "./handlers/inbox-shared-helpers.ts";
 import {
   ActivityPubContractError,
   parseActivity,
@@ -871,6 +872,78 @@ async function resolveLocalActorFromObject(
   return row ?? null;
 }
 
+async function findLocalActorByApId(
+  c: HonoContext,
+  apId: string,
+  baseUrl: string,
+): Promise<ActorRow | null> {
+  if (!isLocal(apId, baseUrl)) return null;
+  const row = await c.get("db").query.actors.findFirst({
+    where: eq(actors.apId, apId),
+  });
+  return row ?? null;
+}
+
+/**
+ * Classify a shared-inbox activity whose recipient is an ACTOR named by the
+ * activity (not the followers of the sender), and resolve that local target:
+ *  - `Follow` / `Block`: the target is `activity.object` (the followed/blocked
+ *    actor). handleFollow/handleBlock key off `recipient`, so it MUST be that
+ *    actor, never a follower of the sender.
+ *  - `Undo(Follow|Block)`: undoFollow decrements `recipient`'s followerCount, so
+ *    the recipient must be the followed actor. Resolve it from the wrapped
+ *    activity's object (typed inner) or by looking up the referenced follow edge
+ *    (bare-string inner). Undo(Like|Announce) is actor-keyed + idempotent, so it
+ *    is NOT actor-scoped and keeps the follower fan-out (`scoped: false`).
+ * `scoped: true` with `target: null` = an actor-scoped activity that names no
+ * known LOCAL actor → an honest no-op (do not fan out to the sender's followers).
+ */
+async function resolveObjectActorTarget(
+  c: HonoContext,
+  activityType: string,
+  activity: Activity,
+  baseUrl: string,
+): Promise<{ scoped: boolean; target: ActorRow | null }> {
+  if (activityType === "Follow" || activityType === "Block") {
+    return {
+      scoped: true,
+      target: await resolveLocalActorFromObject(c, activity, baseUrl),
+    };
+  }
+  if (activityType === "Undo") {
+    const inner = getActivityObject(activity) as {
+      type?: string;
+      object?: unknown;
+    } | null;
+    if (inner?.type === "Follow" || inner?.type === "Block") {
+      const targetId =
+        typeof inner.object === "string"
+          ? inner.object
+          : ((inner.object as { id?: string } | undefined)?.id ?? null);
+      if (!targetId) return { scoped: true, target: null };
+      return {
+        scoped: true,
+        target: await findLocalActorByApId(c, targetId, baseUrl),
+      };
+    }
+    // Bare-string inner: only an Undo(Follow) referencing a known local edge is
+    // actor-scoped; anything else (Undo of a like/announce by id, or unknown)
+    // falls through to the follower fan-out.
+    const innerId = getActivityObjectId(activity);
+    if (innerId) {
+      const follow = await findFollowByActivityId(c.get("db"), innerId);
+      if (follow && isLocal(follow.followingApId, baseUrl)) {
+        return {
+          scoped: true,
+          target: await findLocalActorByApId(c, follow.followingApId, baseUrl),
+        };
+      }
+    }
+    return { scoped: false, target: null };
+  }
+  return { scoped: false, target: null };
+}
+
 ap.post("/ap/inbox", async (c) => {
   const baseUrl = c.env.APP_URL;
 
@@ -906,35 +979,35 @@ ap.post("/ap/inbox", async (c) => {
       return c.body(null, 202);
     }
 
-    // `Follow` is addressed to the actor named in `activity.object` (the
-    // followed actor), NOT to followers of the sender. Routing it through the
-    // follower fan-out below would make handleFollow create a bogus edge against
-    // each local follower of the SENDER (followingApId = the wrong actor), send
-    // an Accept from the wrong actor + drift that actor's followerCount, or — if
-    // the sender has no local followers — silently DROP the follow request.
-    // Resolve the target from `object` and dispatch once to it (mirrors the
-    // per-user inbox). A correctly-addressed Follow normally hits
-    // /ap/users/:username/inbox; this guards peers that point Follows here.
-    if (activityType === "Follow") {
-      const targetActor = await resolveLocalActorFromObject(
-        c,
-        activity,
-        baseUrl,
-      );
-      if (!targetActor) {
-        await commitActivityDispatch(c, claim.activityId);
-        log.info("Shared-inbox Follow names no local target", {
-          event: "ap.shared_inbox.follow_no_target",
+    // Object-actor-scoped activities (Follow / Block / Undo(Follow|Block)) are
+    // addressed to the actor NAMED by the activity, NOT to followers of the
+    // sender. Routing them through the follower fan-out below would make the
+    // handler key off the wrong actor (bogus edge / Accept from the wrong actor
+    // / followerCount drift on the wrong actor) or — when the sender has no
+    // local followers — silently DROP the request entirely. Resolve the target
+    // and dispatch once (mirrors the per-user inbox). Correctly-addressed peers
+    // hit /ap/users/:username/inbox; this guards peers that point them here.
+    const objectScoped = await resolveObjectActorTarget(
+      c,
+      activityType,
+      activity,
+      baseUrl,
+    );
+    if (objectScoped.scoped) {
+      if (objectScoped.target) {
+        await dispatchUserActivity(c, activityType, activity, {
+          recipient: objectScoped.target,
+          actor,
+          baseUrl,
+        });
+      } else {
+        log.info("Shared-inbox object-actor activity names no local target", {
+          event: "ap.shared_inbox.object_actor_no_target",
+          activityType,
           actor,
           object: getActivityObjectId(activity),
         });
-        return c.body(null, 202);
       }
-      await dispatchUserActivity(c, activityType, activity, {
-        recipient: targetActor,
-        actor,
-        baseUrl,
-      });
       await commitActivityDispatch(c, claim.activityId);
       return c.body(null, 202);
     }

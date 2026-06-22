@@ -151,6 +151,118 @@ test("shared-inbox Follow resolves the target from object, NOT the sender's foll
   expect(bogus).toBeFalsy();
 });
 
+async function postSigned(
+  app: Hono,
+  env: Record<string, unknown>,
+  privateKeyPem: string,
+  body: Record<string, unknown>,
+) {
+  const json = JSON.stringify(body);
+  const url = `${APP_URL}/ap/inbox`;
+  const headers = await signRequest(
+    privateKeyPem,
+    `${ALICE}#main-key`,
+    "POST",
+    url,
+    json,
+  );
+  return app.fetch(
+    new Request(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/activity+json" },
+      body: json,
+    }),
+    env,
+  );
+}
+
+async function seedAlice(db: Database, publicKeyPem: string) {
+  await db.insert(actorCache).values({
+    apId: ALICE,
+    inbox: `${ALICE}/inbox`,
+    rawJson: "{}",
+    publicKeyPem,
+    lastFetchedAt: new Date().toISOString(),
+  });
+}
+
+test("shared-inbox Undo(Follow) targets the followed actor (unfollow not dropped, right count) even with no local followers of the sender", async () => {
+  const db = await freshDb();
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const bob = await seedLocalActor(db, "bob");
+  await db.update(actors).set({ followerCount: 1 }).where(eq(actors.apId, bob));
+  await seedAlice(db, publicKeyPem);
+  const followId = "https://remote.example/activities/follow-bob";
+  // alice already follows bob; alice has NO local followers (the drop case).
+  await db.insert(follows).values({
+    followerApId: ALICE,
+    followingApId: bob,
+    status: "accepted",
+    activityApId: followId,
+    acceptedAt: new Date().toISOString(),
+  });
+
+  const env = { APP_URL, DB_INSTANCE: db, KV: new MockKV() };
+  const res = await postSigned(appFor(db), env, privateKeyPem, {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: "https://remote.example/activities/undo-1",
+    type: "Undo",
+    actor: ALICE,
+    object: { id: followId, type: "Follow", actor: ALICE, object: bob },
+  });
+  expect(res.status).toBe(202);
+
+  // The R->bob edge is gone and bob's followerCount was decremented (not some
+  // follower of alice's, and not silently dropped).
+  const edge = await db.query.follows.findFirst({
+    where: and(eq(follows.followerApId, ALICE), eq(follows.followingApId, bob)),
+  });
+  expect(edge).toBeFalsy();
+  const bobRow = await db.query.actors.findFirst({
+    where: eq(actors.apId, bob),
+  });
+  expect(bobRow?.followerCount).toBe(0);
+});
+
+test("shared-inbox Block targets the blocked actor and severs both follow edges", async () => {
+  const db = await freshDb();
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const bob = await seedLocalActor(db, "bob");
+  await seedAlice(db, publicKeyPem);
+  // bob<->alice follow each other.
+  await db.insert(follows).values([
+    {
+      followerApId: ALICE,
+      followingApId: bob,
+      status: "accepted",
+      acceptedAt: new Date().toISOString(),
+    },
+    {
+      followerApId: bob,
+      followingApId: ALICE,
+      status: "accepted",
+      acceptedAt: new Date().toISOString(),
+    },
+  ]);
+
+  const env = { APP_URL, DB_INSTANCE: db, KV: new MockKV() };
+  const res = await postSigned(appFor(db), env, privateKeyPem, {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: "https://remote.example/activities/block-1",
+    type: "Block",
+    actor: ALICE,
+    object: bob,
+  });
+  expect(res.status).toBe(202);
+
+  // Both follow edges were severed (handleBlock ran with recipient = bob).
+  const remaining = await db
+    .select({ f: follows.followerApId })
+    .from(follows)
+    .all();
+  expect(remaining.length).toBe(0);
+});
+
 test("shared-inbox Follow naming a non-local / unknown object creates no edge (202 no-op)", async () => {
   const db = await freshDb();
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
