@@ -13,6 +13,7 @@ import {
   sendUserDMMessage,
   sendUserDMTyping,
 } from "../../lib/api.ts";
+import { ApiError } from "../../lib/api/fetch.ts";
 import { formatTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
@@ -169,18 +170,26 @@ export function DMChatPanel(props: DMChatPanelProps) {
     if (current.length === 0) return;
     const oldest = current[0]; // messages render oldest-first
     if (!oldest.created_at) return;
+    // Bind to the conversation we are loading for: the panel is NOT remounted on
+    // a thread switch (persistent <Show>), so a switch A→B mid-await would
+    // otherwise prepend A's older page into B's list.
+    const sentApId = props.contact.ap_id;
+    const sentType = props.contact.type;
     setLoadingOlder(true);
     const el = scrollContainerRef;
     const prevHeight = el?.scrollHeight ?? 0;
     try {
       const { messages: older, hasMore } =
-        props.contact.type === "community"
-          ? await fetchCommunityMessages(props.contact.ap_id, {
+        sentType === "community"
+          ? await fetchCommunityMessages(sentApId, {
               before: oldest.created_at,
             })
-          : await fetchUserDMMessages(props.contact.ap_id, {
+          : await fetchUserDMMessages(sentApId, {
               before: oldest.created_at,
             });
+      if (props.contact.ap_id !== sentApId || props.contact.type !== sentType) {
+        return; // switched conversations mid-flight
+      }
       setMessages((prev) => {
         const ids = new Set(prev.map((m) => m.id));
         const fresh = older.filter((m) => !ids.has(m.id));
@@ -320,29 +329,40 @@ export function DMChatPanel(props: DMChatPanelProps) {
 
     setSending(true);
     setErrorMessage(null);
+    // Bind to the target conversation: the panel isn't remounted on a thread
+    // switch, so an A→B switch mid-send must not inject A's bubble into B.
+    const sentApId = props.contact.ap_id;
+    const sentType = props.contact.type;
+    const stillOnConversation = () =>
+      props.contact.ap_id === sentApId && props.contact.type === sentType;
     try {
-      if (props.contact.type === "community") {
-        const newMsg = await sendCommunityMessage(
-          props.contact.ap_id,
-          input().trim(),
-        );
+      if (sentType === "community") {
+        const newMsg = await sendCommunityMessage(sentApId, input().trim());
         // Dedupe by id: a concurrent poll may have already merged this message.
-        setMessages((prev) =>
-          prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg],
-        );
+        if (stillOnConversation()) {
+          setMessages((prev) =>
+            prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg],
+          );
+        }
       } else {
-        const { message } = await sendUserDMMessage(
-          props.contact.ap_id,
-          input().trim(),
-        );
-        setMessages((prev) =>
-          prev.some((m) => m.id === message.id) ? prev : [...prev, message],
-        );
+        const { message } = await sendUserDMMessage(sentApId, input().trim());
+        if (stillOnConversation()) {
+          setMessages((prev) =>
+            prev.some((m) => m.id === message.id) ? prev : [...prev, message],
+          );
+        }
       }
       setInput("");
     } catch (e) {
       console.error("Failed to send message:", e);
-      setErrorMessage(t("common.error"));
+      // A community whose post_policy is mods/owners lets ordinary members READ
+      // + type but returns 403 with a meaningful body on send; surface it instead
+      // of a generic error so the user understands posting is restricted.
+      setErrorMessage(
+        e instanceof ApiError && e.status === 403
+          ? e.message
+          : t("common.error"),
+      );
     } finally {
       setSending(false);
     }

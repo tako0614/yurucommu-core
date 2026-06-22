@@ -20,6 +20,10 @@ const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 // Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts), used to
 // surface a specific message when the server rejects an over-length post.
 const MAX_POST_CONTENT_LENGTH = 5000;
+// Ceiling on the in-memory infinite-scroll feed (auto-loaded on scroll). Keeps
+// the live <For> DOM + memory bounded; older posts drop out of the window and
+// re-load on a fresh scroll/reload.
+const MAX_TIMELINE_POSTS = 300;
 
 export type PostVisibility = "public" | "unlisted" | "followers" | "direct";
 
@@ -191,7 +195,20 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
     // previous scope's next page; do not append them onto the new feed.
     if (gen !== timelineLoadGen) return;
     if (page.posts.length > 0) {
-      set(timelinePostsAtom, [...get(timelinePostsAtom), ...page.posts]);
+      // Cap the in-memory feed: the IntersectionObserver auto-fires load-more on
+      // scroll, so an unbounded append would grow the live <For> DOM, memory, and
+      // the per-interaction O(n) array realloc without limit. The feed is
+      // newest-first and load-more appends OLDER posts at the tail, so slice(-N)
+      // keeps the window the user is actively scrolling through (the oldest tail)
+      // and evicts the already-scrolled-past newest head (a scroll back to the
+      // very top then re-fetches). The staging buffer is likewise capped.
+      const merged = [...get(timelinePostsAtom), ...page.posts];
+      set(
+        timelinePostsAtom,
+        merged.length > MAX_TIMELINE_POSTS
+          ? merged.slice(-MAX_TIMELINE_POSTS)
+          : merged,
+      );
     }
     set(timelineCursorAtom, page.nextCursor);
     set(timelineHasMoreAtom, page.hasMore);
