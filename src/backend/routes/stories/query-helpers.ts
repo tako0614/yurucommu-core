@@ -12,6 +12,14 @@ import {
 import type { IObjectStorage } from "../../runtime/types.ts";
 import { objectApId, safeJsonParse } from "../../federation-helpers.ts";
 import { deleteObjectCascade } from "../posts/delete-cascade.ts";
+import { chunkForInClause } from "../../lib/chunk.ts";
+
+// Bound the per-run expired-story reap. The cleanup is opportunistic (fired,
+// unawaited, from the hot story-read path), so a hostile followed host that
+// accumulated thousands of now-expired stories must not make a single run load
+// and sequentially cascade the whole backlog. Each run drains up to this many;
+// the rest are reaped on subsequent runs.
+const STORY_CLEANUP_BATCH = 200;
 
 interface VoteResults {
   [optionIndex: number]: number;
@@ -272,7 +280,8 @@ export async function cleanupExpiredStories(
   const expiredStories = await db
     .select({ apId: objects.apId })
     .from(objects)
-    .where(and(eq(objects.type, "Story"), lt(objects.endTime, now)));
+    .where(and(eq(objects.type, "Story"), lt(objects.endTime, now)))
+    .limit(STORY_CLEANUP_BATCH);
 
   if (expiredStories.length === 0) return 0;
 
@@ -289,9 +298,12 @@ export async function cleanupExpiredStories(
     await deleteObjectCascade(db, apId, media);
   }
 
-  await db
-    .delete(objects)
-    .where(and(eq(objects.type, "Story"), lt(objects.endTime, now)));
+  // Delete EXACTLY the cascaded set (chunked for D1's 100-bound-param cap), not a
+  // broad `endTime < now` — with the per-run limit a broad delete could remove a
+  // story whose children weren't reaped this run, orphaning them.
+  for (const chunk of chunkForInClause(expiredApIds)) {
+    await db.delete(objects).where(inArray(objects.apId, chunk));
+  }
 
   return expiredApIds.length;
 }
