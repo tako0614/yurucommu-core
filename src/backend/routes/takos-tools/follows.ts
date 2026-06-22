@@ -5,7 +5,7 @@
  *          yurucommu_get_followers, yurucommu_get_following
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, follows } from "../../../db/index.ts";
 import {
@@ -20,6 +20,10 @@ import {
   type ToolResponse,
 } from "../takos-tools-response.ts";
 import type { Input, ToolContext } from "./types.ts";
+
+// `.batch` lives only on the concrete D1/libsql subclasses; reach it through a
+// narrow structural cast so the edge + counter updates commit atomically.
+type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
 export async function handleFollowUser(
   c: ToolContext,
@@ -60,22 +64,28 @@ export async function handleFollowUser(
   if (!existingFollow) {
     const status = target.isPrivate ? "pending" : "accepted";
 
-    await db.insert(follows).values({
-      followerApId: actor.ap_id,
-      followingApId: target.apId,
-      status,
-    });
-
+    // Co-commit the edge + counter bumps in one atomic batch so a mid-write
+    // failure can't leave the edge with un-incremented counts (permanent drift).
+    const ops: unknown[] = [
+      db.insert(follows).values({
+        followerApId: actor.ap_id,
+        followingApId: target.apId,
+        status,
+      }),
+    ];
     if (status === "accepted") {
-      await db
-        .update(actors)
-        .set({ followingCount: sql`${actors.followingCount} + 1` })
-        .where(eq(actors.apId, actor.ap_id));
-      await db
-        .update(actors)
-        .set({ followerCount: sql`${actors.followerCount} + 1` })
-        .where(eq(actors.apId, target.apId));
+      ops.push(
+        db
+          .update(actors)
+          .set({ followingCount: sql`${actors.followingCount} + 1` })
+          .where(eq(actors.apId, actor.ap_id)),
+        db
+          .update(actors)
+          .set({ followerCount: sql`${actors.followerCount} + 1` })
+          .where(eq(actors.apId, target.apId)),
+      );
     }
+    await (db as unknown as Batchable).batch(ops);
   }
 
   return c.json(
@@ -116,25 +126,35 @@ export async function handleUnfollowUser(
     .get();
 
   if (follow) {
-    await db
-      .delete(follows)
-      .where(
-        and(
-          eq(follows.followerApId, actor.ap_id),
-          eq(follows.followingApId, target.apId),
+    // Co-commit the edge delete + guarded counter decrements atomically; the
+    // gt(...,0) guards prevent underflow on a redelivered/retried unfollow.
+    const ops: unknown[] = [
+      db
+        .delete(follows)
+        .where(
+          and(
+            eq(follows.followerApId, actor.ap_id),
+            eq(follows.followingApId, target.apId),
+          ),
         ),
-      );
-
+    ];
     if (follow.status === "accepted") {
-      await db
-        .update(actors)
-        .set({ followingCount: sql`${actors.followingCount} - 1` })
-        .where(eq(actors.apId, actor.ap_id));
-      await db
-        .update(actors)
-        .set({ followerCount: sql`${actors.followerCount} - 1` })
-        .where(eq(actors.apId, target.apId));
+      ops.push(
+        db
+          .update(actors)
+          .set({ followingCount: sql`${actors.followingCount} - 1` })
+          .where(
+            and(eq(actors.apId, actor.ap_id), gt(actors.followingCount, 0)),
+          ),
+        db
+          .update(actors)
+          .set({ followerCount: sql`${actors.followerCount} - 1` })
+          .where(
+            and(eq(actors.apId, target.apId), gt(actors.followerCount, 0)),
+          ),
+      );
     }
+    await (db as unknown as Batchable).batch(ops);
   }
 
   return c.json(ok({ unfollowed: true }));

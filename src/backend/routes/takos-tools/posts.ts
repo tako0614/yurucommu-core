@@ -5,7 +5,7 @@
  *          yurucommu_like_post, yurucommu_bookmark_post
  */
 
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, gt } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, bookmarks, likes, objects } from "../../../db/index.ts";
 import {
@@ -19,6 +19,10 @@ import {
   type ToolResponse,
 } from "../takos-tools-response.ts";
 import type { Input, ToolContext } from "./types.ts";
+
+// `.batch` lives only on the concrete D1/libsql subclasses; reach it through a
+// narrow structural cast so the object write + postCount update commit together.
+type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
 export async function handleCreatePost(
   c: ToolContext,
@@ -38,27 +42,30 @@ export async function handleCreatePost(
   const now = new Date().toISOString();
   const apId = `${c.env.APP_URL}/ap/notes/${postId}`;
 
-  await db.insert(objects).values({
-    apId,
-    type: "Note",
-    attributedTo: actor.ap_id,
-    content,
-    summary: null,
-    attachmentsJson: "[]",
-    inReplyTo,
-    visibility,
-    likeCount: 0,
-    replyCount: 0,
-    announceCount: 0,
-    shareCount: 0,
-    published: now,
-    isLocal: 1,
-  });
-
-  await db
-    .update(actors)
-    .set({ postCount: sql`${actors.postCount} + 1` })
-    .where(eq(actors.apId, actor.ap_id));
+  // Co-commit the Note + author postCount bump atomically (no drift on a
+  // mid-write failure).
+  await (db as unknown as Batchable).batch([
+    db.insert(objects).values({
+      apId,
+      type: "Note",
+      attributedTo: actor.ap_id,
+      content,
+      summary: null,
+      attachmentsJson: "[]",
+      inReplyTo,
+      visibility,
+      likeCount: 0,
+      replyCount: 0,
+      announceCount: 0,
+      shareCount: 0,
+      published: now,
+      isLocal: 1,
+    }),
+    db
+      .update(actors)
+      .set({ postCount: sql`${actors.postCount} + 1` })
+      .where(eq(actors.apId, actor.ap_id)),
+  ]);
 
   return c.json(ok({ post_id: postId, ap_id: apId }));
 }
@@ -89,11 +96,14 @@ export async function handleDeletePost(
     );
   }
 
-  await db.delete(objects).where(eq(objects.apId, postId));
-  await db
-    .update(actors)
-    .set({ postCount: sql`${actors.postCount} - 1` })
-    .where(eq(actors.apId, actor.ap_id));
+  // Co-commit the delete + guarded postCount decrement atomically.
+  await (db as unknown as Batchable).batch([
+    db.delete(objects).where(eq(objects.apId, postId)),
+    db
+      .update(actors)
+      .set({ postCount: sql`${actors.postCount} - 1` })
+      .where(and(eq(actors.apId, actor.ap_id), gt(actors.postCount, 0))),
+  ]);
 
   return c.json(ok({ deleted: true }));
 }

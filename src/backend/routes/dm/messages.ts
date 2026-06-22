@@ -35,6 +35,10 @@ import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "dm.messages" });
 
+// `.batch` lives only on the concrete D1/libsql subclasses, not the Database
+// union; reach it through a narrow structural cast (matching the other routes).
+type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
+
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 type Attachment = {
@@ -307,7 +311,10 @@ async function findOwnedDmMessage(
 }
 
 /** Create the DM Note object row. */
-async function createDmNote(
+// Build (but do not execute) the insert for a DM Note. Returned as a statement
+// so the caller can co-commit it with the recipient/activity/inbox rows in one
+// atomic batch (D1 has no interactive transactions).
+function dmNoteInsert(
   db: Database,
   data: {
     apId: string;
@@ -317,8 +324,8 @@ async function createDmNote(
     conversationId: string;
     published: string;
   },
-): Promise<void> {
-  await db.insert(objects).values({
+) {
+  return db.insert(objects).values({
     apId: data.apId,
     type: "Note",
     attributedTo: data.actorApId,
@@ -454,50 +461,59 @@ dm.post("/user/:encodedApId/messages", async (c) => {
       }
     : null;
 
-  try {
-    // Sequential operations (D1 doesn't support interactive transactions)
-    await createDmNote(db, {
-      apId,
-      actorApId: actor.ap_id,
-      content,
-      toJson,
-      conversationId,
-      published: now,
-    });
-
-    if (isRecipientLocal) {
-      await db
-        .insert(objectRecipients)
-        .values({ objectApId: apId, recipientApId: otherApId, type: "to" })
-        .onConflictDoNothing();
-
-      await db.insert(activities).values({
-        apId: deliveryActivityId,
-        type: "Create",
-        actorApId: actor.ap_id,
-        objectApId: apId,
-        rawJson: JSON.stringify({
+  // Co-commit the message atomically. D1 has no interactive transactions; a
+  // sequence of separate inserts could commit the Note without its
+  // object_recipients row, and the recipient's DM reader resolves membership
+  // ONLY via object_recipients — so an orphan Note would be permanently
+  // invisible to the recipient. batch() is atomic (mirrors the community-chat
+  // send), so the Note + recipient + activity (+ inbox notification) land or
+  // fail together.
+  const noteStmt = dmNoteInsert(db, {
+    apId,
+    actorApId: actor.ap_id,
+    content,
+    toJson,
+    conversationId,
+    published: now,
+  });
+  const batchOps = isRecipientLocal
+    ? [
+        noteStmt,
+        db
+          .insert(objectRecipients)
+          .values({ objectApId: apId, recipientApId: otherApId, type: "to" })
+          .onConflictDoNothing(),
+        db.insert(activities).values({
+          apId: deliveryActivityId,
           type: "Create",
-          actor: actor.ap_id,
-          object: apId,
+          actorApId: actor.ap_id,
+          objectApId: apId,
+          rawJson: JSON.stringify({
+            type: "Create",
+            actor: actor.ap_id,
+            object: apId,
+          }),
+          direction: "inbound",
         }),
-        direction: "inbound",
-      });
+        db.insert(inboxTable).values({
+          actorApId: otherApId,
+          activityApId: deliveryActivityId,
+        }),
+      ]
+    : [
+        noteStmt,
+        db.insert(activities).values({
+          apId: deliveryActivityId,
+          type: "Create",
+          actorApId: actor.ap_id,
+          objectApId: apId,
+          rawJson: JSON.stringify(remoteCreateActivity),
+          direction: "outbound",
+        }),
+      ];
 
-      await db.insert(inboxTable).values({
-        actorApId: otherApId,
-        activityApId: deliveryActivityId,
-      });
-    } else {
-      await db.insert(activities).values({
-        apId: deliveryActivityId,
-        type: "Create",
-        actorApId: actor.ap_id,
-        objectApId: apId,
-        rawJson: JSON.stringify(remoteCreateActivity),
-        direction: "outbound",
-      });
-    }
+  try {
+    await (db as unknown as Batchable).batch(batchOps);
   } catch (e) {
     log.error("Failed to insert message", {
       event: "dm.message.insert_failed",

@@ -32,6 +32,11 @@ import {
 } from "../takos-tools-response.ts";
 import type { Input, ToolContext } from "./types.ts";
 
+// `.batch` lives only on the concrete D1/libsql subclasses; reach it through a
+// narrow structural cast so the Note + recipient + activity + inbox commit
+// atomically (no orphan-recipient DM on a partial write).
+type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
+
 export async function handleSendDm(
   c: ToolContext,
   input: Input,
@@ -78,45 +83,47 @@ export async function handleSendDm(
   const ccJson = JSON.stringify([]);
   const actId = activityApId(baseUrl, generateId());
 
-  // Sequential operations (D1 doesn't support interactive transactions)
-  await db.insert(objects).values({
-    apId,
-    type: "Note",
-    attributedTo: actor.ap_id,
-    content,
-    summary: null,
-    attachmentsJson: "[]",
-    inReplyTo: null,
-    conversation: conversationId,
-    visibility: "direct",
-    toJson,
-    ccJson,
-    published: now,
-    isLocal: 1,
-  });
-
-  await db
-    .insert(objectRecipients)
-    .values({ objectApId: apId, recipientApId: target.apId, type: "to" })
-    .onConflictDoNothing();
-
-  await db.insert(activities).values({
-    apId: actId,
-    type: "Create",
-    actorApId: actor.ap_id,
-    objectApId: apId,
-    rawJson: JSON.stringify({
-      type: "Create",
-      actor: actor.ap_id,
-      object: apId,
+  // Co-commit the Note + recipient row + activity + inbox notification in one
+  // atomic batch. D1 has no interactive transactions, and the recipient's DM
+  // reader resolves membership ONLY via object_recipients — so a partial write
+  // (Note without its recipient row) would be permanently invisible to them.
+  await (db as unknown as Batchable).batch([
+    db.insert(objects).values({
+      apId,
+      type: "Note",
+      attributedTo: actor.ap_id,
+      content,
+      summary: null,
+      attachmentsJson: "[]",
+      inReplyTo: null,
+      conversation: conversationId,
+      visibility: "direct",
+      toJson,
+      ccJson,
+      published: now,
+      isLocal: 1,
     }),
-    direction: "inbound",
-  });
-
-  await db.insert(inbox).values({
-    actorApId: target.apId,
-    activityApId: actId,
-  });
+    db
+      .insert(objectRecipients)
+      .values({ objectApId: apId, recipientApId: target.apId, type: "to" })
+      .onConflictDoNothing(),
+    db.insert(activities).values({
+      apId: actId,
+      type: "Create",
+      actorApId: actor.ap_id,
+      objectApId: apId,
+      rawJson: JSON.stringify({
+        type: "Create",
+        actor: actor.ap_id,
+        object: apId,
+      }),
+      direction: "inbound",
+    }),
+    db.insert(inbox).values({
+      actorApId: target.apId,
+      activityApId: actId,
+    }),
+  ]);
 
   return c.json(ok({ message_id: apId, conversation_id: conversationId }));
 }
