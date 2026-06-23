@@ -447,7 +447,14 @@ async function checkMediaAuthorization(
     if (!allowed) {
       return currentActorApId ? DENY_NOT_AUTHORIZED : DENY_AUTH_REQUIRED;
     }
-    return ALLOW_PRIVATE;
+    // Community membership is necessary but NOT sufficient: a community post
+    // created with visibility=followers/direct must ALSO pass that per-post gate
+    // so this blob matches the post-detail / outbox / feed gates (which all
+    // follower-gate such a post). Public / unlisted / Story community posts are
+    // member-readable; followers/direct fall through to the gates below.
+    if (obj.visibility !== "followers" && obj.visibility !== "direct") {
+      return ALLOW_PRIVATE;
+    }
   }
 
   // A personal Story is stored visibility="public" but its REACH is the author's

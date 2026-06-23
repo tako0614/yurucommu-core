@@ -536,3 +536,71 @@ test("PERSONAL story media (stored visibility=public, reach=followers) is follow
     200,
   );
 });
+
+test("followers-visibility media in a PUBLIC community is DENIED to a non-follower member", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const author = await insertLocalActor(db, "alice");
+  const member = await insertLocalActor(db, "bob"); // member, NOT a follower
+  const follower = await insertLocalActor(db, "carol"); // member AND follower
+  await seedUpload(db, env, author);
+
+  const communityApId = `${APP_URL}/ap/groups/town`;
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "town",
+    name: "Town",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    visibility: "public",
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: author,
+  });
+  await db.insert(communityMembers).values([
+    { communityApId, actorApId: author },
+    { communityApId, actorApId: member },
+    { communityApId, actorApId: follower },
+  ]);
+  await db.insert(follows).values({
+    followerApId: follower,
+    followingApId: author,
+    status: "accepted",
+    acceptedAt: new Date().toISOString(),
+  });
+
+  // A community post explicitly restricted to FOLLOWERS (visibility + community
+  // are an allowed combo). Its media must follow the followers gate, not just
+  // community membership.
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/fc1`,
+    type: "Note",
+    attributedTo: author,
+    content: "followers-only in a public community",
+    attachmentsJson: JSON.stringify([
+      { type: "Image", url: MEDIA_URL, r2_key: R2_KEY },
+    ]),
+    visibility: "followers",
+    communityApId,
+    toJson: JSON.stringify([communityApId, `${communityApId}/followers`]),
+    ccJson: "[]",
+    audienceJson: JSON.stringify([communityApId]),
+    isLocal: 1,
+  });
+
+  // A non-follower MEMBER must be DENIED (the leak this fixes) ...
+  expect((await getMedia(db, env, fakeActor(member, "bob"))).status).toEqual(
+    403,
+  );
+  // ... anonymous holder of the fanned-out URL too ...
+  expect((await getMedia(db, env, null)).status).toEqual(403);
+  // ... but a FOLLOWER member is served ...
+  expect(
+    (await getMedia(db, env, fakeActor(follower, "carol"))).status,
+  ).toEqual(200);
+  // ... and the author.
+  expect((await getMedia(db, env, fakeActor(author, "alice"))).status).toEqual(
+    200,
+  );
+});
