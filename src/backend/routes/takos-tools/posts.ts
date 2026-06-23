@@ -53,13 +53,33 @@ export async function handleCreatePost(
     );
   }
 
+  // Validate the reply parent exists (mirror the canonical post route, which
+  // throws REPLY_TARGET_NOT_FOUND) so the agent can't attach a reply to an
+  // arbitrary/non-existent apId, and prepare a parent replyCount recompute so the
+  // count stays in sync (the canonical path does this; this path used to skip it,
+  // leaving a divergent reply_count until some other reply touched the parent).
+  if (inReplyTo) {
+    const parent = await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, inReplyTo))
+      .get();
+    if (!parent) {
+      return c.json(
+        { success: false, error: "Reply target not found" } as ToolResponse,
+        404,
+      );
+    }
+  }
+
   const postId = crypto.randomUUID();
   const now = new Date().toISOString();
   const apId = `${c.env.APP_URL}/ap/notes/${postId}`;
 
-  // Co-commit the Note + author postCount bump atomically (no drift on a
-  // mid-write failure).
-  await (db as unknown as Batchable).batch([
+  // Co-commit the Note + author postCount bump (+ parent replyCount recompute for
+  // a reply) atomically (no drift on a mid-write failure). Direct posts do NOT
+  // count toward postCount (mirror the canonical create/delete + DM paths).
+  const stmts: unknown[] = [
     db.insert(objects).values({
       apId,
       type: "Note",
@@ -76,11 +96,26 @@ export async function handleCreatePost(
       published: now,
       isLocal: 1,
     }),
-    db
-      .update(actors)
-      .set({ postCount: sql`${actors.postCount} + 1` })
-      .where(eq(actors.apId, actor.ap_id)),
-  ]);
+  ];
+  if (visibility !== "direct") {
+    stmts.push(
+      db
+        .update(actors)
+        .set({ postCount: sql`${actors.postCount} + 1` })
+        .where(eq(actors.apId, actor.ap_id)),
+    );
+  }
+  if (inReplyTo) {
+    stmts.push(
+      db
+        .update(objects)
+        .set({
+          replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${inReplyTo})`,
+        })
+        .where(eq(objects.apId, inReplyTo)),
+    );
+  }
+  await (db as unknown as Batchable).batch(stmts);
 
   return c.json(ok({ post_id: postId, ap_id: apId }));
 }
