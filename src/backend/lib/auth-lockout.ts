@@ -17,8 +17,16 @@ interface LoginLockoutRecord {
 
 export const LOGIN_LOCKOUT_CONFIG = {
   maxFailedAttempts: 5,
+  // How long a tripped lock holds.
   lockoutMs: 15 * 60 * 1000,
-  trackingWindowMs: 15 * 60 * 1000,
+  // How long failed attempts accumulate toward the lock. This MUST be longer
+  // than lockoutMs: when it equalled lockoutMs (both 15m), a paced attacker who
+  // made <=4 failures then idled 15m got a fully-reset record (failedAttempts
+  // back to 0) and NEVER tripped the lock — repeatable forever, so the control
+  // contributed nothing against a low-and-slow brute force. A 60m window over a
+  // 5-attempt cap means idling no longer resets the counter, so the 5th failure
+  // within the hour actually engages the lock.
+  trackingWindowMs: 60 * 60 * 1000,
 } as const;
 
 const LOCKOUT_KEY_PREFIX = "auth-lockout:v1";

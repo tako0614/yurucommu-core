@@ -169,3 +169,41 @@ test("a subject in OIDC_ALLOWED_SUBS CAN auto-provision a member after the owner
   );
   expect(member?.role).toBe("member");
 });
+
+// Audit #16 #11: the OAuth/OIDC login path is the one write to actors.name /
+// iconUrl that escaped the profile caps every other path enforces. A malicious /
+// multi-tenant issuer must not push an unbounded display name or a
+// validator-bypassing icon URL into the local row (served + federated verbatim).
+test("OAuth profile: oversized name is capped to 50 and an invalid icon URL is dropped", async () => {
+  const db = await freshDb();
+  const actor = await createActorFromOAuth(
+    db,
+    envWith({}),
+    {
+      id: "sub-evil",
+      name: "X".repeat(500),
+      username: "operator",
+      picture: "javascript:alert(1)",
+    },
+    "sub-evil",
+  );
+  expect(actor).toBeTruthy();
+  expect(actor?.name?.length).toBe(50);
+  expect(actor?.iconUrl).toBeNull();
+});
+
+test("OAuth profile: a valid https picture is accepted", async () => {
+  const db = await freshDb();
+  const actor = await createActorFromOAuth(
+    db,
+    envWith({}),
+    {
+      id: "sub-ok",
+      name: "Operator",
+      username: "operator",
+      picture: "https://cdn.example/avatar.png",
+    },
+    "sub-ok",
+  );
+  expect(actor?.iconUrl).toBe("https://cdn.example/avatar.png");
+});

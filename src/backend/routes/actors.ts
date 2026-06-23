@@ -561,6 +561,32 @@ actorsRoute.post("/me/delete", async (c) => {
     // Phase 1: remove dependent records sequentially.
     await db.delete(sessions).where(eq(sessions.memberId, actorApIdVal));
 
+    // Tear down the owner's SUB-ACCOUNTS too. Previously the delete touched only
+    // the current actor, so a sub-account's session (minted via /switch, 30-day
+    // TTL) kept authenticating for up to 30 days after the owner "deleted their
+    // account", and — because the owner row keeps its deterministic apId — a
+    // re-registration of the freed handle re-inherited every sub-account
+    // (GET /api/auth/accounts and /switch resolve children by ownerActorApId).
+    // Drop the sub-accounts' sessions, then tombstone + unlink them so they can
+    // neither authenticate (extractActorFromSession fail-closes on deletedAt) nor
+    // be re-attached to a re-provisioned owner (ownerActorApId cleared to null).
+    const subAccountIds = (
+      await db
+        .select({ apId: actors.apId })
+        .from(actors)
+        .where(eq(actors.ownerActorApId, actorApIdVal))
+    ).map((r) => r.apId);
+    if (subAccountIds.length > 0) {
+      const nowIso = new Date().toISOString();
+      for (const ids of chunkForInClause(subAccountIds)) {
+        await db.delete(sessions).where(inArray(sessions.memberId, ids));
+        await db
+          .update(actors)
+          .set({ deletedAt: nowIso, ownerActorApId: null })
+          .where(inArray(actors.apId, ids));
+      }
+    }
+
     // Reconcile the COUNTERPARTIES' counts before dropping the edges — this was
     // the one edge-removal path that skipped it, leaving 3rd-party follower /
     // following counts inflated after a delete. Each edge is unique per pair, so

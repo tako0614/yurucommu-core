@@ -17,7 +17,41 @@ import {
   parseNonEmptyString,
 } from "../lib/parse-helpers.ts";
 import { cancelTombstoneDelete } from "./actors.ts";
+import {
+  isValidProfileImageUrl,
+  MAX_PROFILE_NAME_LENGTH,
+  MAX_PROFILE_URL_LENGTH,
+} from "./actors-helpers.ts";
 import { logger } from "../lib/logger.ts";
+
+/**
+ * Bound + validate an OAuth/OIDC provider's `name` / `picture` before they are
+ * written to the local `actors` row. The provider is the operator's trust anchor
+ * but is still attacker-influenceable (a malicious / compromised / multi-tenant
+ * issuer), and these values are served verbatim in the actor document and
+ * federated out in Update(Person). Every OTHER write path to actors.name/iconUrl
+ * is capped + validated (POST /accounts, PUT /me); this is the one path that
+ * escaped them. Mirror the PUT /me bounds: name slice 50, icon must pass
+ * isValidProfileImageUrl + the URL length cap.
+ */
+function sanitizeOAuthProfile(userInfo: { name?: string; picture?: string }): {
+  name: string;
+  iconUrl: string | null;
+} {
+  const name =
+    typeof userInfo.name === "string"
+      ? userInfo.name.trim().slice(0, MAX_PROFILE_NAME_LENGTH)
+      : "";
+  const picture =
+    typeof userInfo.picture === "string" ? userInfo.picture.trim() : "";
+  const iconUrl =
+    picture.length > 0 &&
+    picture.length <= MAX_PROFILE_URL_LENGTH &&
+    isValidProfileImageUrl(picture)
+      ? picture
+      : null;
+  return { name, iconUrl };
+}
 
 const log = logger.child({ component: "auth.helpers" });
 
@@ -366,10 +400,11 @@ export async function createActorFromOAuth(
     }
   }
 
+  const { name, iconUrl } = sanitizeOAuthProfile(userInfo);
   return await createActor(db, env, {
     username,
-    name: userInfo.name,
-    iconUrl: userInfo.picture,
+    name,
+    iconUrl: iconUrl ?? undefined,
     takosUserId: providerUserId,
     role: actorCount === 0 ? "owner" : "member",
   });
@@ -508,11 +543,12 @@ export async function findOrCreateOAuthActor(
         .get();
     }
   } else {
+    const { name, iconUrl } = sanitizeOAuthProfile(userInfo);
     await db
       .update(actors)
       .set({
-        name: userInfo.name,
-        ...(userInfo.picture ? { iconUrl: userInfo.picture } : {}),
+        name,
+        ...(iconUrl ? { iconUrl } : {}),
       })
       .where(eq(actors.apId, actorData.apId))
       .run();

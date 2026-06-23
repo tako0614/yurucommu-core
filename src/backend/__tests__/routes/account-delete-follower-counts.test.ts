@@ -19,6 +19,7 @@ import {
   likes,
   objectRecipients,
   objects,
+  sessions,
   storyShares,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -401,6 +402,76 @@ test("account deletion reaps story_shares (+reconciles shareCount) and DM-status
   ).toBe(0);
   // Both dm_typing rows (tako as actor AND tako as recipient) are gone.
   expect(await rowCount(db, db.select().from(dmTyping))).toBe(0);
+});
+
+// Audit #16 finding #4: owner account deletion must also tear down the owner's
+// SUB-ACCOUNTS — drop their sessions (which otherwise keep authenticating for up
+// to 30 days) and tombstone + unlink them so a re-registered owner (same
+// deterministic apId) cannot re-inherit them via GET /api/auth/accounts.
+test("deleting the owner tombstones + unlinks sub-accounts and kills their sessions", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako"); // owner being deleted
+  // A sub-account owned by tako (created via POST /accounts in production).
+  const altApId = localApId("tako-alt");
+  await db.insert(actors).values({
+    apId: altApId,
+    type: "Person",
+    preferredUsername: "tako-alt",
+    inbox: `${altApId}/inbox`,
+    outbox: `${altApId}/outbox`,
+    followersUrl: `${altApId}/followers`,
+    followingUrl: `${altApId}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    role: "member",
+    ownerActorApId: tako,
+    takosUserId: "local:tako-alt",
+  });
+  // Live sessions: one for the owner, one for the sub-account (minted on /switch).
+  await db.insert(sessions).values([
+    {
+      id: "sess-owner",
+      memberId: tako,
+      accessToken: "tok-owner",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    },
+    {
+      id: "sess-alt",
+      memberId: altApId,
+      accessToken: "tok-alt",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    },
+  ]);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(res.status).toBe(200);
+
+  // BOTH sessions are gone — no sub-account session survives the delete.
+  expect(await rowCount(db, db.select().from(sessions))).toBe(0);
+
+  // The sub-account is tombstoned (fail-closed for auth) and unlinked from the
+  // owner (so a re-registered owner cannot re-inherit it).
+  const alt = await db
+    .select({
+      deletedAt: actors.deletedAt,
+      ownerActorApId: actors.ownerActorApId,
+    })
+    .from(actors)
+    .where(eq(actors.apId, altApId))
+    .get();
+  expect(alt?.deletedAt).not.toBeNull();
+  expect(alt?.ownerActorApId).toBeNull();
 });
 
 // Audit #15 finding #1 (HIGH): a LOCAL block (POST /me/blocked) must sever BOTH
