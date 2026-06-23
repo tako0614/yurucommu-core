@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, gt, inArray, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, like, or, sql } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import {
   fetchWithTimeout,
@@ -105,6 +105,11 @@ function publicSearchableWhere(...extra: Parameters<typeof and>) {
     eq(objects.type, "Note"),
     eq(objects.visibility, "public"),
     eq(objects.audienceJson, "[]"),
+    // Exclude soft-deleted/tombstoned objects, matching the takos-tools search
+    // path (which already filters isNull(deletedAt)). Objects are hard-deleted
+    // today so this is currently a no-op, but it keeps the two search surfaces
+    // consistent and future-proofs against any object soft-delete.
+    isNull(objects.deletedAt),
     ...extra,
   );
 }
