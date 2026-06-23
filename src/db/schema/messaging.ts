@@ -117,6 +117,15 @@ export const inbox = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.actorApId, t.activityApId] }),
     index("inbox_actor_read_created_idx").on(t.actorApId, t.read, t.createdAt),
+    // The notification-list query (WHERE actor_ap_id = ? ORDER BY created_at,
+    // activity_ap_id — no `read` constraint) cannot use the index above (its
+    // `read` column sits between the equality prefix and the sort key), so it
+    // filesorted the whole inbox. This composite serves the seek + sort directly.
+    index("inbox_actor_created_idx").on(
+      t.actorApId,
+      t.createdAt,
+      t.activityApId,
+    ),
     index("inbox_activity_idx").on(t.activityApId),
   ],
 );
