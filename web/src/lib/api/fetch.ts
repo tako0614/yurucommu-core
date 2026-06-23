@@ -36,8 +36,15 @@ export async function extractErrorMessage(
   fallback: string,
 ): Promise<string> {
   try {
-    const data = (await res.json()) as { error?: string };
-    return data.error || fallback;
+    const data = (await res.json()) as {
+      error?: string | { message?: string };
+    };
+    // The server uses a flat `{ error: "message" }` envelope. Defensively also
+    // unwrap a nested `{ error: { message } }` so a stray non-flat error never
+    // renders as the "[object Object]" stringification.
+    const err = data.error;
+    const message = typeof err === "string" ? err : err?.message;
+    return message || fallback;
   } catch {
     return res.statusText || fallback;
   }

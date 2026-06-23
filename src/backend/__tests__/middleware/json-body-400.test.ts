@@ -55,3 +55,26 @@ test("valid JSON still works → 200", async () => {
   expect(res.status).toEqual(200);
   expect(await res.json()).toEqual({ ok: true, x: 5 });
 });
+
+// Audit #11 finding #4: the global handler emitted a NESTED `{ error: { code,
+// message } }` while every route handler + the web client parser
+// (extractErrorMessage reads `data.error` as a STRING) use a flat envelope — so
+// every 500 / malformed-body 400 rendered client-side as "[object Object]".
+test("error envelope is FLAT: `error` is a message string with code + correlation_id", async () => {
+  const res = await post(appWithJsonRoute(), "not json");
+  expect(res.status).toEqual(400);
+  const body = (await res.json()) as {
+    error: unknown;
+    code?: string;
+    correlation_id?: string;
+  };
+  expect(typeof body.error).toEqual("string");
+  expect(body.code).toBeDefined();
+  expect(body.correlation_id).toBeDefined();
+  // Replicate the web client's extractErrorMessage: it must NOT collapse to the
+  // "[object Object]" stringification of a nested error object.
+  const clientMessage = String(
+    (body as { error?: string }).error || "fallback",
+  );
+  expect(clientMessage).not.toEqual("[object Object]");
+});

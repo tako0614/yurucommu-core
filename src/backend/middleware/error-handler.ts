@@ -70,8 +70,7 @@ export function createErrorMiddleware(
     const appError = resolveAppError(err, c, correlationId, logger);
 
     const response = appError.toResponse();
-    const errorBody = response.error as Record<string, unknown>;
-    errorBody.correlation_id = correlationId;
+    response.correlation_id = correlationId;
 
     return c.json(response, appError.statusCode as ContentfulStatusCode);
   };

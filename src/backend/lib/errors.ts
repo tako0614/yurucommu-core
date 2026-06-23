@@ -15,12 +15,16 @@ const ErrorCodes = {
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 
+// FLAT error envelope: `error` is the human-readable message STRING, matching
+// the ~357 per-route handlers (which all return `{ error: "..." }`) and the web
+// client parser (extractErrorMessage reads `data.error` as a string). A nested
+// `{ error: { code, message } }` here would render as "[object Object]" client-
+// side on every 500 / malformed-body 400. `code`/`correlation_id` ride alongside.
 interface ErrorResponse {
-  error: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
+  error: string;
+  code: string;
+  correlation_id?: string;
+  details?: unknown;
 }
 
 export class AppError extends Error {
@@ -44,11 +48,9 @@ export class AppError extends Error {
 
   toResponse(): ErrorResponse {
     return {
-      error: {
-        code: this.code,
-        message: this.message,
-        ...(this.details !== undefined && { details: this.details }),
-      },
+      error: this.message,
+      code: this.code,
+      ...(this.details !== undefined && { details: this.details }),
     };
   }
 }
