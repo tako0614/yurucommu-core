@@ -2,11 +2,8 @@ import { A } from "@solidjs/router";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { useI18n } from "../lib/i18n.tsx";
 import { looksLikeHtml, sanitizeHtml } from "../lib/sanitize-html.ts";
-import {
-  makeTokenRe,
-  parsePostTokens,
-  tokenSearchHref,
-} from "../lib/post-tokens.ts";
+import { parsePostTokens, tokenSearchHref } from "../lib/post-tokens.ts";
+import { linkifyTokensInHtml } from "../lib/linkify-html.ts";
 
 interface PostContentProps {
   content: string;
@@ -20,38 +17,6 @@ interface PostContentProps {
   // local reveal state.
   revealed?: boolean;
   onToggleReveal?: () => void;
-}
-
-// Linkify bare @mentions and #hashtags in the text regions of an
-// already-sanitized HTML string, without touching anything inside `<...>` tags
-// (so existing href attributes and anchor text are left intact). Links are
-// emitted with the same rel policy the sanitizer enforces.
-function linkifyTokensInHtml(html: string): string {
-  let out = "";
-  let i = 0;
-  while (i < html.length) {
-    const lt = html.indexOf("<", i);
-    const segmentEnd = lt === -1 ? html.length : lt;
-    const text = html.slice(i, segmentEnd);
-    out += text.replace(makeTokenRe(), (full, mention, hashtag) => {
-      const query = mention !== undefined ? `@${mention}` : `#${hashtag}`;
-      const href = tokenSearchHref(query);
-      const attr =
-        mention !== undefined
-          ? `data-mention="${mention}"`
-          : `data-hashtag="${hashtag}"`;
-      return (
-        `<a href="${href}" rel="noopener noreferrer nofollow" ${attr}>` +
-        `${full}</a>`
-      );
-    });
-    if (lt === -1) break;
-    const gt = html.indexOf(">", lt + 1);
-    const tagEnd = gt === -1 ? html.length : gt + 1;
-    out += html.slice(lt, tagEnd);
-    i = tagEnd;
-  }
-  return out;
 }
 
 // Parse post content and render mentions as clickable links
