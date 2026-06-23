@@ -8,7 +8,10 @@
 import { and, count, eq, gt } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, bookmarks, likes, objects } from "../../../db/index.ts";
-import { canViewerReadObjectFull } from "../../lib/post-visibility.ts";
+import {
+  actorIsBlockedBy,
+  canViewerReadObjectFull,
+} from "../../lib/post-visibility.ts";
 import {
   MAX_POST_CONTENT_LENGTH,
   normalizeVisibility,
@@ -53,18 +56,30 @@ export async function handleCreatePost(
     );
   }
 
-  // Validate the reply parent exists (mirror the canonical post route, which
-  // throws REPLY_TARGET_NOT_FOUND) so the agent can't attach a reply to an
-  // arbitrary/non-existent apId, and prepare a parent replyCount recompute so the
-  // count stays in sync (the canonical path does this; this path used to skip it,
-  // leaving a divergent reply_count until some other reply touched the parent).
+  // Gate a reply on the SAME read-gate + block-check the canonical web reply
+  // route enforces (routes/posts/routes.ts) — not a mere existence check. Without
+  // it the agent could reply to a parent it cannot read (followers-only / direct /
+  // private-community), bumping that restricted parent's reply_count and exposing
+  // its existence via the stored in_reply_to (a privacy oracle), or reply to a
+  // parent whose author blocked the actor (block bypass + notification).
   if (inReplyTo) {
     const parent = await db
-      .select({ apId: objects.apId })
+      .select({
+        attributedTo: objects.attributedTo,
+        visibility: objects.visibility,
+        toJson: objects.toJson,
+        ccJson: objects.ccJson,
+        audienceJson: objects.audienceJson,
+        communityApId: objects.communityApId,
+      })
       .from(objects)
       .where(eq(objects.apId, inReplyTo))
       .get();
-    if (!parent) {
+    if (
+      !parent ||
+      !(await canViewerReadObjectFull(db, parent, actor.ap_id)) ||
+      (await actorIsBlockedBy(db, parent.attributedTo, actor.ap_id))
+    ) {
       return c.json(
         { success: false, error: "Reply target not found" } as ToolResponse,
         404,
@@ -199,11 +214,43 @@ export async function handleLikePost(
     .from(objects)
     .where(eq(objects.apId, postId))
     .get();
-  if (!post || !(await canViewerReadObjectFull(db, post, actor.ap_id))) {
+  // Block-gate too (the read-gate passes for any public post, so it alone does
+  // not stop a blocked actor): an actor the author blocked must not bump the
+  // author's like_count, mirroring the canonical like route (interactions.ts).
+  if (
+    !post ||
+    !(await canViewerReadObjectFull(db, post, actor.ap_id)) ||
+    (await actorIsBlockedBy(db, post.attributedTo, actor.ap_id))
+  ) {
     return c.json(errNotFound("Post"), 404);
   }
 
-  await togglePostRelation(db, likes, actor.ap_id, post.apId, likeActive);
+  // Co-commit the like-edge toggle AND the likeCount recompute in ONE atomic
+  // batch (the canonical route does the same): a mid-request failure between the
+  // toggle and the count UPDATE would otherwise leave likeCount diverged from the
+  // likes table. The recompute is a COUNT(*) subquery so it is idempotent.
+  const toggleStmt = likeActive
+    ? db
+        .insert(likes)
+        .values({ actorApId: actor.ap_id, objectApId: post.apId })
+        .onConflictDoNothing()
+    : db
+        .delete(likes)
+        .where(
+          and(
+            eq(likes.actorApId, actor.ap_id),
+            eq(likes.objectApId, post.apId),
+          ),
+        );
+  await (db as unknown as Batchable).batch([
+    toggleStmt,
+    db
+      .update(objects)
+      .set({
+        likeCount: sql`(SELECT COUNT(*) FROM ${likes} WHERE ${likes.objectApId} = ${post.apId})`,
+      })
+      .where(eq(objects.apId, post.apId)),
+  ]);
 
   const likeCountResult = await db
     .select({ count: count() })
@@ -211,7 +258,6 @@ export async function handleLikePost(
     .where(eq(likes.objectApId, post.apId))
     .get();
   const likeCount = likeCountResult?.count ?? 0;
-  await db.update(objects).set({ likeCount }).where(eq(objects.apId, postId));
 
   return c.json(ok({ liked: likeActive, like_count: likeCount }));
 }

@@ -21,8 +21,8 @@ import {
   safeJsonParse,
 } from "../../federation-helpers.ts";
 import {
-  getConversationId,
   MAX_DM_CONTENT_LENGTH,
+  resolveConversationId,
 } from "../dm/query-helpers.ts";
 import {
   errAuth,
@@ -89,7 +89,15 @@ export async function handleSendDm(
   const now = new Date().toISOString();
   const messageId = generateId();
   const apId = objectApId(baseUrl, messageId);
-  const conversationId = getConversationId(baseUrl, actor.ap_id, target.apId);
+  // Resolve to the STORED conversation id of an existing thread (incl. legacy-
+  // scheme) so a tool-sent DM joins the same thread the web/API client sees,
+  // instead of forking a new current-scheme conversation. Matches dm/messages.ts.
+  const conversationId = await resolveConversationId(
+    db,
+    baseUrl,
+    actor.ap_id,
+    target.apId,
+  );
   const toJson = JSON.stringify([target.apId]);
   const ccJson = JSON.stringify([]);
   const actId = activityApId(baseUrl, generateId());
@@ -200,7 +208,14 @@ export async function handleGetDmMessages(
   if (!threadId) return c.json(errRequired("Thread ID"), 400);
 
   const baseUrl = c.env.APP_URL;
-  const conversationId = getConversationId(baseUrl, actor.ap_id, threadId);
+  // Read from the STORED conversation id (incl. a legacy-scheme thread) so the
+  // agent sees the full history, not just messages under the current-scheme id.
+  const conversationId = await resolveConversationId(
+    db,
+    baseUrl,
+    actor.ap_id,
+    threadId,
+  );
 
   const messages = await db
     .select()

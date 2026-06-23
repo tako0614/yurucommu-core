@@ -8,6 +8,7 @@
 import { and, eq, gt } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, follows } from "../../../db/index.ts";
+import { actorIsBlockedBy } from "../../lib/post-visibility.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import {
   errAuth,
@@ -49,6 +50,14 @@ export async function handleFollowUser(
       { success: false, error: "Cannot follow yourself" } as ToolResponse,
       400,
     );
+  }
+
+  // A blocked actor must not (re-)establish a follow edge to the blocker — the
+  // block-sever invariant (block removes follows + gates inbound Follow) would be
+  // bypassed by this local edge insert. Mirrors the canonical follow route
+  // (follow-helpers.ts) and the DM tool's own block guard.
+  if (await actorIsBlockedBy(db, target.apId, actor.ap_id)) {
+    return c.json(errNotFound("User"), 404);
   }
 
   const existingFollow = await db

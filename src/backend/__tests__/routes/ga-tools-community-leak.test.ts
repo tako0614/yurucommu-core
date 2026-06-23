@@ -29,13 +29,17 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, follows, likes, objects } from "../../../db/index.ts";
+import { actors, blocks, follows, likes, objects } from "../../../db/index.ts";
 import {
   handleSearchPosts,
   handleGetTrending,
 } from "../../routes/takos-tools/search.ts";
 import { handleGetTimeline as getTimeline } from "../../routes/takos-tools/timeline.ts";
-import { handleLikePost } from "../../routes/takos-tools/posts.ts";
+import {
+  handleCreatePost,
+  handleLikePost,
+} from "../../routes/takos-tools/posts.ts";
+import { handleFollowUser } from "../../routes/takos-tools/follows.ts";
 
 const APP_URL = "https://yuru.test";
 const MIGRATIONS = [
@@ -107,6 +111,7 @@ function ctxFor(db: Database): any {
       if (key === "db") return db;
       return null;
     },
+    env: { APP_URL },
     json(value: unknown) {
       return { __body: value };
     },
@@ -321,5 +326,118 @@ test("agent like_post is read-gated like the web route (cannot like an unreadabl
         .where(eq(objects.apId, open))
         .get()
     )?.likeCount,
+  ).toBe(1);
+});
+
+// Audit #18: the agent tool paths must enforce the same per-user block + reply
+// read-gate the canonical routes do.
+test("agent like_post is BLOCK-gated (a blocked actor cannot like the blocker's public post)", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+  const open = `${APP_URL}/ap/objects/pub-block`;
+  await db.insert(objects).values({
+    apId: open,
+    type: "Note",
+    attributedTo: alice,
+    content: "public",
+    visibility: "public",
+    audienceJson: "[]",
+    published: isoMinutesAgo(1),
+  });
+  // alice blocks bob.
+  await db.insert(blocks).values({ blockerApId: alice, blockedApId: bob });
+
+  await handleLikePost(
+    ctxFor(db),
+    { post_id: open, like: true },
+    { ap_id: bob },
+  );
+
+  expect(
+    (await db.select().from(likes).where(eq(likes.objectApId, open)).all())
+      .length,
+  ).toBe(0);
+});
+
+test("agent follow_user is BLOCK-gated (a blocked actor cannot re-follow the blocker)", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+  // alice blocks bob; bob's agent tries to follow alice.
+  await db.insert(blocks).values({ blockerApId: alice, blockedApId: bob });
+
+  await handleFollowUser(ctxFor(db), { username: "alice" }, { ap_id: bob });
+
+  expect(
+    (
+      await db
+        .select()
+        .from(follows)
+        .where(
+          eq(follows.followerApId, bob) && eq(follows.followingApId, alice),
+        )
+        .all()
+    ).length,
+  ).toBe(0);
+});
+
+test("agent create_post reply is read-gated (cannot reply to an unreadable parent)", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+  // alice's followers-only parent; bob does NOT follow alice.
+  const parent = `${APP_URL}/ap/objects/foll-parent`;
+  await db.insert(objects).values({
+    apId: parent,
+    type: "Note",
+    attributedTo: alice,
+    content: "secret parent",
+    visibility: "followers",
+    toJson: "[]",
+    ccJson: "[]",
+    audienceJson: "[]",
+    replyCount: 0,
+    published: isoMinutesAgo(1),
+  });
+
+  const res = (await handleCreatePost(
+    ctxFor(db),
+    { content: "sneaky reply", in_reply_to: parent },
+    { ap_id: bob },
+  )) as unknown as { __body: { success: boolean } };
+  expect(res.__body.success).toBe(false);
+
+  // No reply object stored, parent replyCount untouched.
+  expect(
+    (await db.select().from(objects).where(eq(objects.inReplyTo, parent)).all())
+      .length,
+  ).toBe(0);
+  expect(
+    (
+      await db
+        .select({ replyCount: objects.replyCount })
+        .from(objects)
+        .where(eq(objects.apId, parent))
+        .get()
+    )?.replyCount,
+  ).toBe(0);
+
+  // Positive control: an accepted follower CAN reply.
+  await db.insert(follows).values({
+    followerApId: bob,
+    followingApId: alice,
+    status: "accepted",
+    acceptedAt: new Date().toISOString(),
+  });
+  const ok2 = (await handleCreatePost(
+    ctxFor(db),
+    { content: "allowed reply", in_reply_to: parent },
+    { ap_id: bob },
+  )) as unknown as { __body: { success: boolean } };
+  expect(ok2.__body.success).toBe(true);
+  expect(
+    (await db.select().from(objects).where(eq(objects.inReplyTo, parent)).all())
+      .length,
   ).toBe(1);
 });
