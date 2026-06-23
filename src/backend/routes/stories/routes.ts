@@ -871,10 +871,14 @@ stories.post("/delete", async (c) => {
 
   await deleteStoryAndRelatedData(db, apId, c.env.MEDIA);
 
+  // Guard the decrement against underflow (gt > 0), matching every other
+  // postCount-decrement site (posts/routes, inbox-content-handlers,
+  // takos-tools). The early 404 above means a duplicate delete can't reach here,
+  // so a double-decrement is not possible.
   await db
     .update(actors)
     .set({ postCount: sql`${actors.postCount} - 1` })
-    .where(eq(actors.apId, actor.ap_id));
+    .where(and(eq(actors.apId, actor.ap_id), gt(actors.postCount, 0)));
 
   return c.json({ success: true });
 });

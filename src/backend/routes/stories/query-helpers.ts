@@ -1,7 +1,8 @@
-import { and, count, eq, inArray, lt } from "drizzle-orm";
+import { and, count, eq, inArray, lt, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
+  actors,
   blocks,
   communityMembers,
   follows,
@@ -278,7 +279,7 @@ export async function cleanupExpiredStories(
   const now = new Date().toISOString();
 
   const expiredStories = await db
-    .select({ apId: objects.apId })
+    .select({ apId: objects.apId, attributedTo: objects.attributedTo })
     .from(objects)
     .where(and(eq(objects.type, "Story"), lt(objects.endTime, now)))
     .limit(STORY_CLEANUP_BATCH);
@@ -286,6 +287,25 @@ export async function cleanupExpiredStories(
   if (expiredStories.length === 0) return 0;
 
   const expiredApIds = expiredStories.map((s) => s.apId);
+
+  // Mirror story CREATION's postCount +1 (routes.ts) at expiry — the DOMINANT
+  // end-of-life path. Without this, every story a user posts permanently inflates
+  // their profile post_count by 1 once it expires (create bumps, explicit delete
+  // decrements, but expiry forgot to). Decrement each LOCAL author by the number
+  // of THEIR stories expiring this run; MAX(0, …) guards underflow; remote
+  // authors have no `actors` row so the update is a clean no-op for them.
+  const perAuthor = new Map<string, number>();
+  for (const s of expiredStories) {
+    if (s.attributedTo) {
+      perAuthor.set(s.attributedTo, (perAuthor.get(s.attributedTo) ?? 0) + 1);
+    }
+  }
+  for (const [author, n] of perAuthor) {
+    await db
+      .update(actors)
+      .set({ postCount: sql`MAX(0, ${actors.postCount} - ${n})` })
+      .where(eq(actors.apId, author));
+  }
 
   // Reap every child edge for each expired story through the shared object
   // cascade (likes / announces / bookmarks / object_recipients / story_views /

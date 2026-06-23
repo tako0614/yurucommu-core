@@ -251,3 +251,64 @@ test("cleanupExpiredStories reaps the FULL child set (announces, bookmarks, medi
   // partial cleanup list missed.
   expect(await countAllChildRows(db, story, storyKey)).toBe(0);
 });
+
+test("cleanupExpiredStories decrements each author's postCount by their expired count (mirrors create +1)", async () => {
+  const db = await freshDb();
+  const author = await insertActor(db, "storyauthor");
+  const other = await insertActor(db, "storyother");
+  // Creation had bumped postCount: author 3, other 1.
+  await db.update(actors).set({ postCount: 3 }).where(eq(actors.apId, author));
+  await db.update(actors).set({ postCount: 1 }).where(eq(actors.apId, other));
+
+  const past = "1970-01-01T00:00:00.000Z";
+  const mkStory = (id: string, who: string) =>
+    db.insert(objects).values({
+      apId: `${APP_URL}/ap/objects/${id}`,
+      type: "Story",
+      attributedTo: who,
+      content: "s",
+      published: new Date().toISOString(),
+      endTime: past,
+    });
+  await mkStory("exp-a1", author);
+  await mkStory("exp-a2", author);
+  await mkStory("exp-a3", author);
+  await mkStory("exp-o1", other);
+
+  await cleanupExpiredStories(db);
+
+  const a = await db
+    .select({ postCount: actors.postCount })
+    .from(actors)
+    .where(eq(actors.apId, author))
+    .get();
+  const o = await db
+    .select({ postCount: actors.postCount })
+    .from(actors)
+    .where(eq(actors.apId, other))
+    .get();
+  expect(a?.postCount).toBe(0); // 3 - 3
+  expect(o?.postCount).toBe(0); // 1 - 1
+});
+
+test("cleanupExpiredStories postCount decrement never underflows below 0", async () => {
+  const db = await freshDb();
+  const author = await insertActor(db, "zerocount"); // postCount defaults to 0
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/exp-u1`,
+    type: "Story",
+    attributedTo: author,
+    content: "s",
+    published: new Date().toISOString(),
+    endTime: "1970-01-01T00:00:00.000Z",
+  });
+
+  await cleanupExpiredStories(db);
+
+  const a = await db
+    .select({ postCount: actors.postCount })
+    .from(actors)
+    .where(eq(actors.apId, author))
+    .get();
+  expect(a?.postCount).toBe(0); // MAX(0, 0 - 1) = 0, not -1
+});
