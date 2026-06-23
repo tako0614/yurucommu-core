@@ -1,7 +1,8 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import {
   activities,
   communities,
+  communityMembers,
   follows,
   objectRecipients,
   objects,
@@ -182,7 +183,7 @@ export async function handleGroupUndo(
 export async function handleGroupCreate(
   c: ActivityContext,
   activity: Activity,
-  instanceActor: InstanceActorResult,
+  _instanceActor: InstanceActorResult,
   actorApIdStr: string,
   baseUrl: string,
 ) {
@@ -209,27 +210,59 @@ export async function handleGroupCreate(
   if (!match) return;
   const roomId = match[1];
 
-  const community = await db.query.communities.findFirst({
-    where: or(
-      eq(communities.preferredUsername, roomId),
-      eq(communities.apId, roomId),
-    ),
-    columns: { apId: true, preferredUsername: true },
-  });
+  // Resolve the TARGET community (filtered to a live, non-deleted row) and
+  // authorize the post against THAT community — not the instance actor. The old
+  // gate checked postPolicy + a follow of the single instance Group actor, which
+  // every open-policy instance-follower satisfied for EVERY community, letting a
+  // non-member inject chat messages into ANY community — including private and
+  // soft-deleted ones — that then surfaced to that community's members. Mirror
+  // checkCommunityPostPermission's semantics, but with the FEDERATION membership
+  // model: a remote member is an accepted Follow of the community Group actor
+  // (handleGroupFollow records follows.followingApId = community.apId); a local
+  // member additionally has a communityMembers row carrying a role.
+  const community = await db
+    .select({
+      apId: communities.apId,
+      postPolicy: communities.postPolicy,
+      visibility: communities.visibility,
+    })
+    .from(communities)
+    .where(
+      and(
+        or(
+          eq(communities.preferredUsername, roomId),
+          eq(communities.apId, roomId),
+        ),
+        isNull(communities.deletedAt),
+      ),
+    )
+    .get();
   if (!community) return;
 
-  const postingPolicy = instanceActor.postingPolicy || "members";
-  if (postingPolicy !== "anyone") {
-    const followRecord = await db.query.follows.findFirst({
-      where: and(
-        eq(follows.followerApId, actorApIdStr),
-        eq(follows.followingApId, instanceActor.apId),
-        eq(follows.status, "accepted"),
-      ),
-    });
-    if (!followRecord) return;
-    if (postingPolicy === "mods" || postingPolicy === "owners") return;
-  }
+  const memberFollow = await db.query.follows.findFirst({
+    where: and(
+      eq(follows.followerApId, actorApIdStr),
+      eq(follows.followingApId, community.apId),
+      eq(follows.status, "accepted"),
+    ),
+  });
+  const memberRow = await db.query.communityMembers.findFirst({
+    where: and(
+      eq(communityMembers.communityApId, community.apId),
+      eq(communityMembers.actorApId, actorApIdStr),
+    ),
+    columns: { role: true },
+  });
+  const isMember = Boolean(memberFollow) || Boolean(memberRow);
+  const role = memberRow?.role;
+  const isManager = role === "owner" || role === "moderator";
+  const policy = community.postPolicy || "members";
+
+  // A non-public community requires membership to post regardless of policy.
+  if ((community.visibility ?? "public") !== "public" && !isMember) return;
+  if (policy !== "anyone" && !isMember) return;
+  if (policy === "mods" && !isManager) return;
+  if (policy === "owners" && role !== "owner") return;
 
   const newObjectId = object.id || objectApId(baseUrl, generateId());
   const existingObj = await db.query.objects.findFirst({
