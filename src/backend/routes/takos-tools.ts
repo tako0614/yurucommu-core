@@ -139,11 +139,12 @@ takosTools.post("/:name", async (c) => {
       toolName,
       error,
     });
+    // Return a GENERIC message — never echo the raw Error.message to the client.
+    // A D1/Drizzle failure can carry SQL fragments / column names / constraint
+    // text; the detail is logged server-side above. Mirrors media.ts and the
+    // global onError handler (which both return fixed strings).
     return c.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Internal error",
-      } as ToolResponse,
+      { success: false, error: "Internal error" } as ToolResponse,
       500,
     );
   }

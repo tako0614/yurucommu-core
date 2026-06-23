@@ -559,7 +559,15 @@ notifications.post("/read", async (c) => {
   if (actor instanceof Response) return actor;
 
   const db = c.get("db");
-  const body = await c.req.json<{ ids?: string[]; read_all?: boolean }>();
+  // A literal `null`/primitive JSON body parses without throwing, then field
+  // access throws a TypeError that the global handler maps to 500 (not 400).
+  // Guard the body shape so a malformed request is a clean 400.
+  const body = await c.req
+    .json<{ ids?: string[]; read_all?: boolean }>()
+    .catch(() => null);
+  if (!body || typeof body !== "object") {
+    return c.json({ error: "Invalid request body" }, 400);
+  }
 
   if (body.read_all) {
     await db
@@ -601,7 +609,10 @@ notifications.post("/archive", async (c) => {
   if (actor instanceof Response) return actor;
 
   const db = c.get("db");
-  const body = await c.req.json<{ ids: string[] }>();
+  const body = await c.req.json<{ ids: string[] }>().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return c.json({ error: "Invalid request body" }, 400);
+  }
 
   if (
     !body.ids ||
@@ -657,7 +668,10 @@ notifications.delete("/archive", async (c) => {
   if (actor instanceof Response) return actor;
 
   const db = c.get("db");
-  const body = await c.req.json<{ ids: string[] }>();
+  const body = await c.req.json<{ ids: string[] }>().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return c.json({ error: "Invalid request body" }, 400);
+  }
   if (!body.ids || body.ids.length === 0) {
     return c.json({ error: "ids array is required" }, 400);
   }

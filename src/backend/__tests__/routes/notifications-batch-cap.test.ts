@@ -139,3 +139,21 @@ test("POST /read returns 401 Unauthorized when no actor is present", async () =>
   expect(body).toEqual({ error: "Unauthorized" });
   expect(tracker.updateCalls).toEqual(0);
 });
+
+// Audit #11 finding #6: a literal `null` (or primitive) JSON body parses without
+// throwing, then `body.read_all` threw a TypeError that became a 500. The body
+// guard now returns a clean 400 (no app crash; no DB access).
+test("POST /read with a literal `null` JSON body returns 400, not 500", async () => {
+  const { db, tracker } = createTrackingDb();
+  const app = createApp(db, actor);
+
+  for (const malformed of ["null", "123", '"a string"']) {
+    const { res } = await requestJson(app, "/api/notifications/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: malformed,
+    });
+    expect(res.status).toEqual(400);
+  }
+  expect(tracker.updateCalls).toEqual(0);
+});
