@@ -1,9 +1,10 @@
-import { createMemo, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useNavigate } from "@solidjs/router";
 import { useAtom, useAtomValue } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
+import { handleRovingKeydown } from "../../lib/tablistNav.ts";
 import { actorAtom } from "../../atoms/auth.ts";
 import {
   communityToScope,
@@ -117,6 +118,33 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
   // "すべて" = clear the filter (the unfiltered home / whole reach).
   const selectAll = () => selectScope({ kind: "personal" });
 
+  // Radiogroup roving-tabindex: option 0 = "すべて" (personal), then one per
+  // joined community. Arrow keys move FOCUS among the radios (the role's keyboard
+  // contract) WITHOUT committing — committing applies the filter + closes the
+  // sheet, so it stays on Enter/Space/click. The single tab stop follows the
+  // focused radio. Focus resets to the active filter each time the sheet opens.
+  const radioCount = () => 1 + joined().length;
+  const activeRadioIndex = () => {
+    if (scope().kind === "personal") return 0;
+    const i = joined().findIndex((c) => isActive(communityToScope(c)!));
+    return i < 0 ? 0 : i + 1;
+  };
+  const [focusedRadio, setFocusedRadio] = createSignal(0);
+  createEffect(() => {
+    if (props.open) setFocusedRadio(activeRadioIndex());
+  });
+  const onRadioKeydown = (
+    e: KeyboardEvent & { currentTarget: HTMLElement },
+  ) => {
+    handleRovingKeydown(
+      e,
+      radioCount(),
+      focusedRadio(),
+      setFocusedRadio,
+      "radio",
+    );
+  };
+
   const handleDiscover = () => {
     props.onClose();
     if (props.onDiscover) props.onDiscover();
@@ -155,12 +183,17 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
             {/* Home view filters (radiogroup): "すべて" + joined communities.
                 Each row exposes aria-checked so SR users hear which filter is
                 active, mirroring ScopeBar's aria-pressed pills. */}
-            <div role="radiogroup" aria-labelledby="scope-switcher-heading">
+            <div
+              role="radiogroup"
+              aria-labelledby="scope-switcher-heading"
+              onKeyDown={onRadioKeydown}
+            >
               {/* "すべて" — the unfiltered home (whole reach). Always first. */}
               <button
                 type="button"
                 role="radio"
                 aria-checked={isActive({ kind: "personal" })}
+                tabindex={focusedRadio() === 0 ? 0 : -1}
                 onClick={selectAll}
                 class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-neutral-800"
               >
@@ -182,7 +215,7 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
 
               {/* Joined communities. */}
               <For each={joined()}>
-                {(community) => {
+                {(community, index) => {
                   const next = communityToScope(community);
                   if (!next) return null;
                   return (
@@ -190,6 +223,7 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
                       type="button"
                       role="radio"
                       aria-checked={isActive(next)}
+                      tabindex={focusedRadio() === index() + 1 ? 0 : -1}
                       onClick={() => selectScope(next)}
                       class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-neutral-800"
                     >

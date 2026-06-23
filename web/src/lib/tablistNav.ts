@@ -1,16 +1,18 @@
-// WAI-ARIA tabs keyboard support. Our tablists declare role="tab"/aria-selected
-// but a `role="tablist"` widget also promises arrow-key navigation + a single
-// tab stop (roving tabindex); without it, screen-reader/keyboard users can't
-// move between tabs the way the role advertises. This centralizes that handler
-// so every tablist (search / DM / notifications / friends) behaves identically.
+// WAI-ARIA roving-tabindex keyboard support. A `role="tablist"`/`role="radiogroup"`
+// widget promises arrow-key navigation + a single tab stop (roving tabindex);
+// without it, screen-reader/keyboard users can't move between the items the way
+// the role advertises. This centralizes that handler so every such group
+// (tablists: search / DM / notifications / friends; the home-filter radiogroup)
+// behaves identically.
 //
-// Usage: spread roving tabindex onto each tab (`tabindex={active ? 0 : -1}`) and
-// wire the tablist container's onKeyDown to `handleTablistKeydown`.
-export function handleTablistKeydown(
+// Usage: spread roving tabindex onto each item (`tabindex={active ? 0 : -1}`) and
+// wire the container's onKeyDown to handleRovingKeydown (or the tablist alias).
+export function handleRovingKeydown(
   e: KeyboardEvent & { currentTarget: HTMLElement },
   count: number,
   current: number,
   select: (index: number) => void,
+  itemRole: "tab" | "radio" = "tab",
 ): void {
   if (count <= 0) return;
   let next = current;
@@ -34,7 +36,19 @@ export function handleTablistKeydown(
   }
   e.preventDefault();
   select(next);
-  // Move focus to the newly-selected tab so the roving tab stop follows.
-  const tabs = e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]');
-  tabs[next]?.focus();
+  // Move focus to the newly-selected item so the roving tab stop follows.
+  const items = e.currentTarget.querySelectorAll<HTMLElement>(
+    `[role="${itemRole}"]`,
+  );
+  items[next]?.focus();
+}
+
+/** Tablist alias (role="tab"); kept for the existing tablist call sites. */
+export function handleTablistKeydown(
+  e: KeyboardEvent & { currentTarget: HTMLElement },
+  count: number,
+  current: number,
+  select: (index: number) => void,
+): void {
+  handleRovingKeydown(e, count, current, select, "tab");
 }

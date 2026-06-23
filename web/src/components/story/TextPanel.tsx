@@ -54,10 +54,14 @@ export function TextPanel(props: TextPanelProps) {
 
       {/* Text content */}
       <div>
-        <label class="text-neutral-400 text-sm">{t("story.text")}</label>
+        <label for="story-text-content" class="text-neutral-400 text-sm">
+          {t("story.text")}
+        </label>
         <textarea
+          id="story-text-content"
           value={props.layer.content}
           onInput={(e) => props.onUpdate({ content: e.currentTarget.value })}
+          aria-label={t("story.text")}
           class="w-full mt-1 bg-neutral-800 text-white px-4 py-3 rounded-xl outline-none focus:ring-2 focus:ring-accent resize-none"
           rows={3}
         />

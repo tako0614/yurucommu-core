@@ -311,15 +311,24 @@ export const createPostAtom = atom(
             : undefined,
       });
       if (newPost) {
-        // Optimistically prepend when the post lands in the scope the timeline
-        // is currently observing: a personal post (no community) always belongs
-        // to the personal feed, and a community post belongs to the head only
-        // when that community is the inhabited scope. Posting never changes the
-        // inhabited scope, so the visible list is not reloaded out from under us.
-        if (
-          !options.community_ap_id ||
-          get(scopeQueryAtom)?.community === options.community_ap_id
-        ) {
+        // Optimistically prepend ONLY when the post would actually appear in the
+        // feed the timeline is currently observing, so it can't show then vanish
+        // on the next reload:
+        //  - unified/personal home (no active community filter): the author's own
+        //    post always belongs here.
+        //  - community-narrowed view (filter = C): a post narrowed to C belongs;
+        //    a PERSONAL post (no community) only surfaces in C's member feed when
+        //    it is public/unlisted — a followers-only/private personal post does
+        //    NOT (it lives in the unified home), so don't prepend it here.
+        const activeFilter = get(scopeQueryAtom)?.community;
+        const vis = options.visibility ?? "public";
+        const showsInActiveFeed = !activeFilter
+          ? true
+          : options.community_ap_id === activeFilter
+            ? true
+            : !options.community_ap_id &&
+              (vis === "public" || vis === "unlisted");
+        if (showsInActiveFeed) {
           set(timelinePostsAtom, (prev) => [newPost, ...prev]);
           // The own post is now the freshest head; advance the watermark so a
           // head-poll doesn't later re-stage it as "new" if it gets evicted.

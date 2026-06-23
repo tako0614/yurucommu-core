@@ -14,13 +14,17 @@ interface InlineErrorRetryProps {
  */
 export function InlineErrorRetry(props: InlineErrorRetryProps) {
   return (
-    <div class="flex flex-col items-center justify-center p-8 text-center min-h-[40vh]">
+    <div
+      role="alert"
+      class="flex flex-col items-center justify-center p-8 text-center min-h-[40vh]"
+    >
       <div class="w-16 h-16 mb-4 rounded-full bg-red-500/10 flex items-center justify-center text-red-400">
         <svg
           class="w-8 h-8"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
+          aria-hidden="true"
         >
           <path
             stroke-linecap="round"
