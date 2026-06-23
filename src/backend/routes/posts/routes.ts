@@ -56,6 +56,7 @@ import {
 } from "../../lib/community-visibility.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
 import {
+  actorIsBlockedBy,
   canViewerReadObjectFull,
   isExplicitRecipient,
 } from "../../lib/post-visibility.ts";
@@ -185,6 +186,34 @@ posts.post("/", async (c) => {
   }
   const communityId = communityCheck.communityId;
   const community = communityCheck.community;
+
+  // Reply read-gate: a reply may only target a parent the replier can actually
+  // READ. Without this, anyone who learns a followers-only / direct /
+  // private-community post's apId could reply to it — inflating the author's
+  // replyCount, sending them a reply notification, and publishing a public reply
+  // whose inReplyTo discloses the restricted parent's existence (and bypassing a
+  // block). Mirror the like/repost gates; 404 to avoid leaking existence.
+  if (body.in_reply_to) {
+    const parent = await db
+      .select({
+        visibility: objects.visibility,
+        attributedTo: objects.attributedTo,
+        toJson: objects.toJson,
+        ccJson: objects.ccJson,
+        audienceJson: objects.audienceJson,
+        communityApId: objects.communityApId,
+      })
+      .from(objects)
+      .where(eq(objects.apId, body.in_reply_to))
+      .get();
+    if (
+      !parent ||
+      !(await canViewerReadObjectFull(db, parent, actor.ap_id)) ||
+      (await actorIsBlockedBy(db, parent.attributedTo, actor.ap_id))
+    ) {
+      return c.json({ error: "Post not found" }, 404);
+    }
+  }
 
   const baseUrl = c.env.APP_URL;
   const postId = generateId();

@@ -12,6 +12,7 @@ import { readFile } from "node:fs/promises";
  */
 
 import { Hono } from "hono";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
@@ -385,4 +386,86 @@ test("replies composite cursor does not skip replies that share a published mill
   const seen = new Set([...page1.ids, ...page2.ids]);
   expect(seen.has(a)).toBe(true);
   expect(seen.has(b)).toBe(true);
+});
+
+// Audit #13 finding #1: the CREATE path (POST /posts with in_reply_to) had no
+// read-gate on the parent, so anyone who learned a restricted post's apId could
+// reply to it — inflating the author's replyCount, notifying them, and publishing
+// a public reply whose inReplyTo leaks the parent's existence. Mirror like/repost.
+async function insertParent(
+  db: Database,
+  opts: { id: string; author: string; visibility: string; to?: string[] },
+): Promise<string> {
+  const apId = `${APP_URL}/ap/objects/${opts.id}`;
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: opts.author,
+    content: "parent",
+    visibility: opts.visibility,
+    toJson: JSON.stringify(opts.to ?? []),
+    ccJson: "[]",
+    audienceJson: "[]",
+    replyCount: 0,
+    isLocal: 1,
+    published: "2026-01-01T00:00:00.000Z",
+  });
+  return apId;
+}
+
+async function createReply(
+  db: Database,
+  replier: Actor,
+  parentApId: string,
+): Promise<Response> {
+  const env = envFor(db);
+  const app = appWith(db, env, replier);
+  return app.fetch(
+    new Request(`${APP_URL}/`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "x", in_reply_to: parentApId }),
+    }),
+    env,
+  );
+}
+
+const replyCountOf = async (db: Database, apId: string): Promise<number> =>
+  (
+    await db
+      .select({ rc: objects.replyCount })
+      .from(objects)
+      .where(eq(objects.apId, apId))
+      .get()
+  )?.rc ?? -1;
+
+test("creating a reply to a FOLLOWERS-ONLY parent the replier cannot read 404s (no thread injection)", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author");
+  const stranger = await insertLocalActor(db, "stranger"); // does NOT follow author
+  const parent = await insertParent(db, {
+    id: "p-foll",
+    author,
+    visibility: "followers",
+    to: [`${author}/followers`],
+  });
+
+  const res = await createReply(db, fakeActor(stranger, "stranger"), parent);
+  expect(res.status).toEqual(404);
+  expect(await replyCountOf(db, parent)).toBe(0); // not inflated
+});
+
+test("creating a reply to a PUBLIC parent succeeds and bumps the parent replyCount", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author");
+  const stranger = await insertLocalActor(db, "stranger");
+  const parent = await insertParent(db, {
+    id: "p-pub",
+    author,
+    visibility: "public",
+  });
+
+  const res = await createReply(db, fakeActor(stranger, "stranger"), parent);
+  expect(res.status).toBeLessThan(400);
+  expect(await replyCountOf(db, parent)).toBe(1);
 });
