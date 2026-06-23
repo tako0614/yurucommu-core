@@ -36,7 +36,14 @@ export function SetupScreen(props: SetupScreenProps) {
     setSubmitting(true);
     try {
       const ok = await props.onComplete(value);
+      // `false` specifically means the handle was taken; a thrown error means
+      // provisioning failed (network/500) — distinguish them so the user isn't
+      // wrongly told "username taken" on an infra error (and no unhandled
+      // rejection leaks when completeSetup rejects).
       if (!ok) setError(t("setup.usernameTakenError"));
+    } catch (err) {
+      console.error("Setup failed:", err);
+      setError(t("common.error"));
     } finally {
       setSubmitting(false);
     }

@@ -1,17 +1,20 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { A } from "@solidjs/router";
+import { useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../../hooks/useRequiredActor.ts";
 import type { RecommendedUser } from "../../lib/api/recommendations.ts";
 import { fetchRecommendedUsers, follow } from "../../lib/api.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { PluginSlot } from "../PluginSlot.tsx";
 import { useI18n } from "../../lib/i18n.tsx";
+import { pushToast, toastsAtom } from "../../atoms/toast.ts";
 
 function RecommendedUserCard(props: {
   user: RecommendedUser;
   onFollowed: (apId: string) => void;
 }) {
   const { t } = useI18n();
+  const setToasts = useSetAtom(toastsAtom);
   const [following, setFollowing] = createSignal(false);
   const [requested, setRequested] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
@@ -40,8 +43,11 @@ function RecommendedUserCard(props: {
           600,
         );
       }
-    } catch {
-      // Silent fail for non-critical feature
+    } catch (e) {
+      // Surface the failure: the card reverts to "Follow", but without feedback
+      // the user can't tell a tap failed (network/4xx/rate-limit) vs did nothing.
+      console.error("Follow failed:", e);
+      pushToast(setToasts, t("feedback.followFailed"), { kind: "error" });
     } finally {
       setLoading(false);
     }

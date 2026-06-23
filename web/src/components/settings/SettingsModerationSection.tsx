@@ -33,6 +33,24 @@ export function SettingsModerationSection(
   const [domainInput, setDomainInput] = createSignal("");
   const [actorInput, setActorInput] = createSignal("");
   const [busy, setBusy] = createSignal(false);
+  // Per-item in-flight guard. Without it the unblock/resolve buttons stay live
+  // during their request and a double-tap fires duplicate DELETE/resolve calls.
+  // Keys are namespaced so a domain/apId/report-id can't collide.
+  const [pending, setPending] = createSignal<Set<string>>(new Set());
+  const isPending = (key: string) => pending().has(key);
+  const withPending = async (key: string, fn: () => Promise<void>) => {
+    if (isPending(key)) return;
+    setPending((prev) => new Set(prev).add(key));
+    try {
+      await fn();
+    } finally {
+      setPending((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
 
   const loadAll = async () => {
     setLoading(true);
@@ -78,15 +96,16 @@ export function SettingsModerationSection(
     }
   };
 
-  const handleUnblockDomain = async (domain: string) => {
-    try {
-      await unblockDomain(domain);
-      setDomains((prev) => prev.filter((d) => d.domain !== domain));
-    } catch (e) {
-      console.error("Failed to unblock domain:", e);
-      setError(props.t("common.error"));
-    }
-  };
+  const handleUnblockDomain = (domain: string) =>
+    withPending(`domain:${domain}`, async () => {
+      try {
+        await unblockDomain(domain);
+        setDomains((prev) => prev.filter((d) => d.domain !== domain));
+      } catch (e) {
+        console.error("Failed to unblock domain:", e);
+        setError(props.t("common.error"));
+      }
+    });
 
   const handleAddActor = async () => {
     const value = actorInput().trim();
@@ -104,29 +123,31 @@ export function SettingsModerationSection(
     }
   };
 
-  const handleUnblockActor = async (apId: string) => {
-    try {
-      await unblockActor(apId);
-      setActors((prev) => prev.filter((a) => a.actor_ap_id !== apId));
-    } catch (e) {
-      console.error("Failed to unblock actor:", e);
-      setError(props.t("common.error"));
-    }
-  };
+  const handleUnblockActor = (apId: string) =>
+    withPending(`actor:${apId}`, async () => {
+      try {
+        await unblockActor(apId);
+        setActors((prev) => prev.filter((a) => a.actor_ap_id !== apId));
+      } catch (e) {
+        console.error("Failed to unblock actor:", e);
+        setError(props.t("common.error"));
+      }
+    });
 
-  const handleResolve = async (id: string) => {
-    try {
-      await resolveReport(id);
-      setReports((prev) =>
-        prev.map((r) =>
-          r.id === id ? { ...r, resolved_at: new Date().toISOString() } : r,
-        ),
-      );
-    } catch (e) {
-      console.error("Failed to resolve report:", e);
-      setError(props.t("common.error"));
-    }
-  };
+  const handleResolve = (id: string) =>
+    withPending(`report:${id}`, async () => {
+      try {
+        await resolveReport(id);
+        setReports((prev) =>
+          prev.map((r) =>
+            r.id === id ? { ...r, resolved_at: new Date().toISOString() } : r,
+          ),
+        );
+      } catch (e) {
+        console.error("Failed to resolve report:", e);
+        setError(props.t("common.error"));
+      }
+    });
 
   const inputClass =
     "flex-1 min-w-0 bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent";
@@ -187,7 +208,8 @@ export function SettingsModerationSection(
                   <button
                     type="button"
                     onClick={() => handleUnblockDomain(d.domain)}
-                    class="text-sm text-accent hover:underline ml-3 shrink-0"
+                    disabled={isPending(`domain:${d.domain}`)}
+                    class="text-sm text-accent hover:underline ml-3 shrink-0 disabled:opacity-50"
                   >
                     {props.t("settings.unblock")}
                   </button>
@@ -226,7 +248,8 @@ export function SettingsModerationSection(
                   <button
                     type="button"
                     onClick={() => handleUnblockActor(a.actor_ap_id)}
-                    class="text-sm text-accent hover:underline ml-3 shrink-0"
+                    disabled={isPending(`actor:${a.actor_ap_id}`)}
+                    class="text-sm text-accent hover:underline ml-3 shrink-0 disabled:opacity-50"
                   >
                     {props.t("settings.unblock")}
                   </button>
@@ -267,7 +290,8 @@ export function SettingsModerationSection(
                         <button
                           type="button"
                           onClick={() => handleResolve(r.id)}
-                          class="text-sm text-accent hover:underline shrink-0"
+                          disabled={isPending(`report:${r.id}`)}
+                          class="text-sm text-accent hover:underline shrink-0 disabled:opacity-50"
                         >
                           {props.t("settings.resolveReport")}
                         </button>
