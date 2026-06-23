@@ -165,7 +165,7 @@ async function fetchAuthorizedMessages(
   // Composite (published, apId) cursor so two messages sharing a published
   // millisecond aren't skipped on a load-older that straddles that ms (see
   // lib/feed-cursor.ts). The client builds the cursor from the oldest shown
-  // message; a legacy published-only value is still accepted.
+  // message; a published-only value from an older client is still accepted.
   const cursor = feedCursorWhere(objects.published, objects.apId, before);
   const whereClause = cursor ? and(baseCondition!, cursor) : baseCondition;
 
@@ -356,9 +356,9 @@ dm.get("/user/:encodedApId/messages", async (c) => {
   const otherApId = decodeURIComponent(c.req.param("encodedApId"));
   const limit = parseLimit(c.req.query("limit"), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query("before");
-  // Resolve to the STORED conversation id (legacy- or current-scheme) of an
-  // existing thread rather than always recomputing the current-scheme id, so a
-  // pre-migration conversation's messages/read-status stay matched.
+  // Resolve to the STORED conversation id of an existing thread rather than
+  // always recomputing the current-scheme id, so messages/read-status stay
+  // matched for threads created before the current id scheme.
   const conversationId = await resolveConversationId(
     db,
     c.env.APP_URL,
@@ -439,9 +439,9 @@ dm.post("/user/:encodedApId/messages", async (c) => {
 
   const apId = objectApId(baseUrl, generateId());
   const now = new Date().toISOString();
-  // Reuse an existing thread's stored conversation id (incl. legacy-scheme) so a
-  // reply does not split a pre-migration conversation into a second id; a brand
-  // new conversation falls back to the current-scheme id.
+  // Reuse an existing thread's stored conversation id so a reply does not split
+  // a thread created before the current id scheme into a second id; a brand new
+  // conversation falls back to the current-scheme id.
   const conversationId = await resolveConversationId(
     db,
     baseUrl,
