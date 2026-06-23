@@ -15,9 +15,14 @@ export const allowedMimeTypes = [
 
 export type AllowedMimeType = (typeof allowedMimeTypes)[number];
 
-// Maximum file sizes match the backend media route.
+// Maximum file sizes MUST match the backend media route (MAX_IMAGE_SIZE /
+// MAX_VIDEO_SIZE in src/backend/routes/media.ts). When the client video cap was
+// 100MB but the server cap was 40MB (and the pre-route body limit 48 MiB), a
+// 48–100MB video passed client validation and was then rejected by the body
+// limit with an opaque "body_too_large" error instead of a friendly up-front
+// message. Keep these in lockstep with the backend.
 export const maxImageFileSize = 20 * 1024 * 1024;
-export const maxVideoFileSize = 100 * 1024 * 1024;
+export const maxVideoFileSize = 40 * 1024 * 1024;
 
 // Filename validation regex: alphanumeric, dots, hyphens, underscores
 const filenameRegex = /^[\w\-. ]+$/;

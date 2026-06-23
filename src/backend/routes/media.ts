@@ -11,6 +11,7 @@ import {
 } from "../../db/index.ts";
 import { generateId, safeJsonParse } from "../federation-helpers.ts";
 import { canViewerReadObject } from "../lib/community-visibility.ts";
+import { stripImageMetadata } from "../lib/strip-image-metadata.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "media" });
@@ -224,11 +225,30 @@ media.post("/upload", async (c) => {
     if (!media) {
       return c.json({ error: "Object storage unavailable" }, 503);
     }
-    // Stream the file body directly to R2 rather than materializing a full
-    // ArrayBuffer in memory, keeping the upload path memory-safe.
-    await media.put(r2Key, file.stream(), {
-      httpMetadata: { contentType },
-    });
+    // Images: buffer the (size-capped, <=20MB) bytes and STRIP privacy metadata
+    // (EXIF GPS / timestamp / camera serial, IPTC, XMP) before storing — these
+    // are served verbatim under a 1-year public cache, so an unstripped geotag
+    // would leak the poster's location. Pixels are untouched (byte-surgery, no
+    // re-encode). Videos stay STREAMED: metadata stripping there needs a
+    // transcode pipeline, and buffering a 40MB video would pressure the Worker
+    // memory budget.
+    if (isVideo) {
+      await media.put(r2Key, file.stream(), {
+        httpMetadata: { contentType },
+      });
+    } else {
+      const original = new Uint8Array(await file.arrayBuffer());
+      const cleaned = stripImageMetadata(original, contentType);
+      // Hand R2 a tightly-sized ArrayBuffer (the strip may return a view over a
+      // larger backing buffer, or the original `file` buffer on pass-through).
+      const cleanedBuffer = cleaned.buffer.slice(
+        cleaned.byteOffset,
+        cleaned.byteOffset + cleaned.byteLength,
+      ) as ArrayBuffer;
+      await media.put(r2Key, cleanedBuffer, {
+        httpMetadata: { contentType },
+      });
+    }
 
     // Record ownership AFTER the blob lands. If the DB write fails, delete the
     // now-unreferenced blob: the media GC reaps R2 by iterating media_uploads

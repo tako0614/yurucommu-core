@@ -265,7 +265,7 @@ function mountReadinessRoutes(app: YurucommuApp): void {
   });
 }
 
-// media.ts advertises MAX_VIDEO_SIZE = 100MB (and MAX_IMAGE_SIZE = 20MB) and
+// media.ts advertises MAX_VIDEO_SIZE = 40MB (and MAX_IMAGE_SIZE = 20MB) and
 // returns a friendly 413 citing those numbers. The pre-route body cap MUST sit
 // at or above the largest advertised media size, otherwise an upload between
 // the body cap and the advertised limit is rejected by the cap FIRST with a
@@ -313,7 +313,7 @@ function applyBodyLimits(app: YurucommuApp): void {
   // NOT harmless: a 30 MB upload that passes the 48 MiB media cap would then
   // be rejected by the 1 MiB default cap with a generic `body_too_large`,
   // making the friendly per-size 413 in routes/media.ts (which advertises
-  // MAX_VIDEO_SIZE = 100MB / MAX_IMAGE_SIZE = 20MB) unreachable. So the default
+  // MAX_VIDEO_SIZE = 40MB / MAX_IMAGE_SIZE = 20MB) unreachable. So the default
   // cap is registered with a path guard that SKIPS the media prefix, leaving
   // /api/media/* governed solely by its own 48 MiB cap.
   //
