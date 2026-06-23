@@ -183,7 +183,11 @@ export function LoginForm(props: LoginFormProps) {
               </div>
 
               <Show when={props.error}>
-                <div class="text-red-400 text-sm bg-red-900/30 border border-red-800 rounded-md px-3 py-2">
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  class="text-red-400 text-sm bg-red-900/30 border border-red-800 rounded-md px-3 py-2"
+                >
                   {props.error}
                 </div>
               </Show>

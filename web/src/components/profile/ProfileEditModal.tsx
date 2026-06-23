@@ -330,6 +330,9 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
               </div>
               <button
                 type="button"
+                role="switch"
+                aria-checked={props.editIsPrivate}
+                aria-label={props.t("profile.followApproval")}
                 onClick={props.onTogglePrivate}
                 class={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                   props.editIsPrivate ? "bg-accent" : "bg-neutral-600"

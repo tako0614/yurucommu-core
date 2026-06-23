@@ -25,6 +25,7 @@ import {
 import { useI18n } from "../lib/i18n.tsx";
 import { DMChatPanel } from "../components/dm/DMChatPanel.tsx";
 import { DMContactItem } from "../components/dm/DMContactItem.tsx";
+import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 
 /**
@@ -84,12 +85,12 @@ function RequestItem(props: RequestItemProps) {
   const { t } = useI18n();
   return (
     <div class="flex items-start gap-3 p-4 border-b border-neutral-800">
-      <img
-        src={props.request.sender.icon_url || "/default-avatar.png"}
-        alt={
+      <UserAvatar
+        avatarUrl={props.request.sender.icon_url ?? null}
+        name={
           props.request.sender.name || props.request.sender.preferred_username
         }
-        class="w-12 h-12 rounded-full object-cover"
+        size={48}
       />
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
@@ -302,6 +303,15 @@ export function DMPage() {
     // accepted state to persist (see the /api/dm/requests/accept route).
     // So "Accept" opens the conversation with the sender, where sending a
     // reply moves it out of the request list and creates the contact.
+    // Optimistically drop it from the Requests list + badge so the tab and the
+    // red count don't stay stale after acceptance (the badge is a separate signal
+    // that loadContacts/reject update, and nothing re-ran it on accept). On a
+    // reload before a reply the server still returns it as pending — replying
+    // clears it server-side.
+    setRequests((prev) =>
+      prev.filter((r) => r.sender.ap_id !== request.sender.ap_id),
+    );
+    setRequestCount((prev) => Math.max(0, prev - 1));
     handleSelectContact({
       type: "user",
       ap_id: request.sender.ap_id,
