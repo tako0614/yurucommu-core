@@ -137,6 +137,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
                     value={alias()}
                     onInput={(e) => updateAlias(index, e.currentTarget.value)}
                     placeholder="https://example.com/ap/users/me"
+                    aria-label={props.t("settings.alsoKnownAs")}
                     class={inputClass}
                   />
                   <button
@@ -177,10 +178,14 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
               </div>
             }
           >
-            <label class="block text-sm text-neutral-400 mb-1">
+            <label
+              for="settings-move-target"
+              class="block text-sm text-neutral-400 mb-1"
+            >
               {props.t("settings.moveAccount")}
             </label>
             <input
+              id="settings-move-target"
               type="text"
               value={moveTarget()}
               onInput={(e) => setMoveTarget(e.currentTarget.value)}

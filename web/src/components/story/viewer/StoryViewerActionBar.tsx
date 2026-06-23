@@ -38,6 +38,7 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
             type="text"
             value={reply()}
             placeholder={props.placeholder}
+            aria-label={props.placeholder}
             disabled={sending()}
             class="flex-1 bg-transparent text-white placeholder-white/50 text-sm outline-none disabled:opacity-50"
             onInput={(e) => setReply(e.currentTarget.value)}

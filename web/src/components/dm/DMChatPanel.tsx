@@ -575,6 +575,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
             value={input()}
             onInput={handleInputChange}
             placeholder={t("dm.placeholder")}
+            aria-label={t("dm.placeholder")}
             class="flex-1 px-4 py-2 bg-neutral-900 border border-neutral-800 rounded-full text-white placeholder-neutral-500 focus:outline-none focus:border-accent"
           />
           <button

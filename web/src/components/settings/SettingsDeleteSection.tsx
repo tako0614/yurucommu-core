@@ -28,12 +28,16 @@ export function SettingsDeleteSection(props: SettingsDeleteSectionProps) {
           </p>
         </div>
         <div>
-          <label class="block text-sm text-neutral-400 mb-2">
+          <label
+            for="delete-account-confirm"
+            class="block text-sm text-neutral-400 mb-2"
+          >
             {props
               .t("settings.deleteAccountConfirmLabel")
               .replace("{username}", props.actor.preferred_username)}
           </label>
           <input
+            id="delete-account-confirm"
             type="text"
             value={props.deleteConfirm}
             onInput={(e) => props.onChangeConfirm(e.currentTarget.value)}

@@ -67,10 +67,14 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
 
       {/* Display Name */}
       <div>
-        <label class="block text-sm font-semibold text-neutral-300 mb-2">
+        <label
+          for="community-display-name"
+          class="block text-sm font-semibold text-neutral-300 mb-2"
+        >
           {t("settings.displayName")}
         </label>
         <input
+          id="community-display-name"
           type="text"
           value={props.settingsForm.display_name || ""}
           onInput={(e) =>
@@ -86,10 +90,14 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
 
       {/* Summary */}
       <div>
-        <label class="block text-sm font-semibold text-neutral-300 mb-2">
+        <label
+          for="community-summary"
+          class="block text-sm font-semibold text-neutral-300 mb-2"
+        >
           {t("groups.description")}
         </label>
         <textarea
+          id="community-summary"
           value={props.settingsForm.summary || ""}
           onInput={(e) =>
             props.onChangeSettings((prev) => ({

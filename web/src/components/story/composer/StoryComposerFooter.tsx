@@ -51,6 +51,7 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
           value={props.caption}
           onInput={(e) => props.onCaptionChange(e.currentTarget.value)}
           placeholder={t("story.captionPlaceholder")}
+          aria-label={t("story.captionPlaceholder")}
           class="w-full bg-transparent text-white placeholder-white/50 text-base py-2 outline-none"
         />
       </div>

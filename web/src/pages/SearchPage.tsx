@@ -651,6 +651,7 @@ export function SearchPage() {
               value={searchQuery()}
               onInput={(e) => setSearchQuery(e.currentTarget.value)}
               placeholder={t("nav.search")}
+              aria-label={t("common.search")}
               class="flex-1 bg-transparent outline-none text-white placeholder-neutral-500 text-sm"
             />
             <Show when={searchQuery()}>

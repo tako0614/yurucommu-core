@@ -120,10 +120,14 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
               </Show>
               <div class="space-y-3">
                 <div>
-                  <label class="block text-sm text-neutral-400 mb-1">
+                  <label
+                    for="new-account-username"
+                    class="block text-sm text-neutral-400 mb-1"
+                  >
                     {props.t("settings.usernameLabel")}
                   </label>
                   <input
+                    id="new-account-username"
                     type="text"
                     value={props.newUsername}
                     onInput={(e) =>
@@ -139,10 +143,14 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                   </p>
                 </div>
                 <div>
-                  <label class="block text-sm text-neutral-400 mb-1">
+                  <label
+                    for="new-account-display-name"
+                    class="block text-sm text-neutral-400 mb-1"
+                  >
                     {props.t("settings.displayName")}
                   </label>
                   <input
+                    id="new-account-display-name"
                     type="text"
                     value={props.newDisplayName}
                     onInput={(e) =>

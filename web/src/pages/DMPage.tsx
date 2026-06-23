@@ -603,6 +603,7 @@ export function DMPage() {
                       value={searchQuery()}
                       onInput={(e) => setSearchQuery(e.currentTarget.value)}
                       placeholder={t("nav.search")}
+                      aria-label={t("common.search")}
                       class="w-full pl-10 pr-4 py-2 bg-neutral-900 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-700"
                     />
                   </div>
