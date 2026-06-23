@@ -120,6 +120,12 @@ export function ProfilePage() {
   const loadProfile = async () => {
     const id = targetActorId();
     const gen = ++profileLoadGen;
+    // Reset transient UI for every (re)load. The state-clearing effect only
+    // runs when targetActorId() changes, so a manual Retry (same id) would
+    // otherwise leave the dismissible top error banner stuck above the
+    // freshly-loaded profile and skip the loading state.
+    setError(null);
+    setLoading(true);
     try {
       const profileData = await fetchActor(id);
       if (gen !== profileLoadGen) return;

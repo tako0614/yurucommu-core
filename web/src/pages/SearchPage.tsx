@@ -409,16 +409,81 @@ export function SearchPage() {
     }
   };
 
-  // Change the sort for a tab and re-run the search from the top.
+  // Re-sort a SINGLE tab from the top, leaving the OTHER tab's loaded pages and
+  // pagination cursor intact. performSearch re-fetches BOTH tabs from offset 0,
+  // so routing a sort change through it silently collapsed the untouched tab
+  // back to its first page (losing the user's loaded history on a tab they
+  // didn't touch). These re-query only the affected tab.
+  const resortUsers = async (query: string) => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return;
+    const gen = ++searchGen;
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const res = await searchActors(trimmedQuery, {
+        sort: usersSort(),
+        offset: 0,
+        limit: SEARCH_PAGE_SIZE,
+      });
+      if (gen !== searchGen) return;
+      setSearchUsersResult(res.items);
+      setUsersOffset(res.items.length);
+      setUsersHasMore(res.hasMore);
+      if (includeRemote() && REMOTE_ACTOR_QUERY_PATTERN.test(trimmedQuery)) {
+        await runRemoteSearch(trimmedQuery);
+      }
+    } catch (e) {
+      if (gen !== searchGen) return;
+      console.error("Re-sort users failed:", e);
+      setSearchError(t("common.loadFailed"));
+    } finally {
+      if (gen === searchGen) setSearching(false);
+    }
+  };
+
+  const resortPosts = async (query: string) => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return;
+    const gen = ++searchGen;
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const isHashtagQuery = trimmedQuery.startsWith("#");
+      const res = isHashtagQuery
+        ? await searchHashtag(trimmedQuery.slice(1), {
+            sort: postsSort(),
+            offset: 0,
+            limit: SEARCH_PAGE_SIZE,
+          })
+        : await searchPosts(trimmedQuery, {
+            sort: postsSort(),
+            offset: 0,
+            limit: SEARCH_PAGE_SIZE,
+          });
+      if (gen !== searchGen) return;
+      setSearchPostsResult(res.items);
+      setPostsOffset(res.items.length);
+      setPostsHasMore(res.hasMore);
+    } catch (e) {
+      if (gen !== searchGen) return;
+      console.error("Re-sort posts failed:", e);
+      setSearchError(t("common.loadFailed"));
+    } finally {
+      if (gen === searchGen) setSearching(false);
+    }
+  };
+
+  // Change the sort for a tab and re-run ONLY that tab's search from the top.
   const changeUsersSort = (sort: string) => {
     if (sort === usersSort()) return;
     setUsersSort(sort);
-    if (lastQuery()) void performSearch(lastQuery(), true);
+    if (lastQuery()) void resortUsers(lastQuery());
   };
   const changePostsSort = (sort: string) => {
     if (sort === postsSort()) return;
     setPostsSort(sort);
-    if (lastQuery()) void performSearch(lastQuery(), true);
+    if (lastQuery()) void resortPosts(lastQuery());
   };
 
   const sortLabel = (s: string): string => {
