@@ -11,6 +11,8 @@ import {
   actors,
   announces,
   blocks,
+  communities,
+  communityMembers,
   dmArchivedConversations,
   dmCommunityReadStatus,
   dmReadStatus,
@@ -525,4 +527,132 @@ test("POST /me/blocked severs both follow edges and decrements both counters", a
   expect((await countOf(db, tako))?.followingCount).toBe(0);
   expect((await countOf(db, mallory))?.followerCount).toBe(0);
   expect((await countOf(db, mallory))?.followingCount).toBe(0);
+});
+
+// Audit #24 finding C (HIGH): owner account-deletion must FULLY tear down each
+// sub-account (not merely tombstone it). Otherwise the sub-account's posts stay
+// live in feeds, its edges keep counterparty counters inflated, its community
+// membership keeps rosters/counts wrong (and a sole-owned community becomes
+// permanently unmanageable), and no federated Delete is sent.
+test("deleting the owner FULLY tears down its sub-accounts (content/edges/counters/membership)", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako"); // owner, being deleted
+  const carol = await insertActor(db, "carol", { followerCount: 1 }); // sub -> carol
+  const dave = await insertActor(db, "dave", { followingCount: 1 }); // dave -> sub
+  const heir = await insertActor(db, "heir"); // remaining member of the sub's community
+
+  // A first-class sub-account owned by tako.
+  const sub = localApId("tako2");
+  await db.insert(actors).values({
+    apId: sub,
+    type: "Person",
+    preferredUsername: "tako2",
+    inbox: `${sub}/inbox`,
+    outbox: `${sub}/outbox`,
+    followersUrl: `${sub}/followers`,
+    followingUrl: `${sub}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    ownerActorApId: tako,
+  });
+
+  // Sub-account content + edges.
+  const subPost = `${APP_URL}/ap/objects/sub-post-1`;
+  await db.insert(objects).values({
+    apId: subPost,
+    type: "Note",
+    attributedTo: sub,
+    content: "from the sub-account",
+    visibility: "public",
+    isLocal: 1,
+  });
+  await follow(db, sub, carol); // carol gains the sub as a follower
+  await follow(db, dave, sub); // dave follows the sub
+
+  // The sub solely owns community X; heir is the only other member.
+  const communityX = `${APP_URL}/ap/groups/x`;
+  await db.insert(communities).values({
+    apId: communityX,
+    preferredUsername: "x",
+    name: "X",
+    inbox: `${communityX}/inbox`,
+    outbox: `${communityX}/outbox`,
+    followersUrl: `${communityX}/followers`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: sub,
+    memberCount: 2,
+  });
+  await db.insert(communityMembers).values([
+    { communityApId: communityX, actorApId: sub, role: "owner" },
+    { communityApId: communityX, actorApId: heir, role: "member" },
+  ]);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(res.status).toBe(200);
+
+  // The sub-account's post is hard-deleted (not left live in feeds).
+  const post = await db
+    .select({ apId: objects.apId })
+    .from(objects)
+    .where(eq(objects.apId, subPost))
+    .get();
+  expect(post).toBeUndefined();
+
+  // Its follow edges are gone, and counterparty counters are reconciled.
+  const subEdges = await db
+    .select({ f: follows.followerApId })
+    .from(follows)
+    .where(eq(follows.followerApId, sub));
+  expect(subEdges.length).toBe(0);
+  expect((await countOf(db, carol))?.followerCount).toBe(0);
+  expect((await countOf(db, dave))?.followingCount).toBe(0);
+
+  // Its community membership is gone, memberCount decremented, and sole
+  // ownership handed to the heir (community stays manageable).
+  const subMembership = await db
+    .select({ a: communityMembers.actorApId })
+    .from(communityMembers)
+    .where(eq(communityMembers.actorApId, sub))
+    .get();
+  expect(subMembership).toBeUndefined();
+  const comm = await db
+    .select({ memberCount: communities.memberCount })
+    .from(communities)
+    .where(eq(communities.apId, communityX))
+    .get();
+  expect(comm?.memberCount).toBe(1);
+  const heirRow = await db
+    .select({ role: communityMembers.role })
+    .from(communityMembers)
+    .where(eq(communityMembers.actorApId, heir))
+    .get();
+  expect(heirRow?.role).toBe("owner");
+
+  // The sub-account row is tombstoned + scrubbed (unlinked, identity cleared).
+  const subRow = await db
+    .select({
+      deletedAt: actors.deletedAt,
+      ownerActorApId: actors.ownerActorApId,
+      name: actors.name,
+      preferredUsername: actors.preferredUsername,
+    })
+    .from(actors)
+    .where(eq(actors.apId, sub))
+    .get();
+  expect(subRow?.deletedAt).toBeTruthy();
+  expect(subRow?.ownerActorApId).toBeNull();
+  expect(subRow?.name).toBeNull();
+  expect(subRow?.preferredUsername).not.toBe("tako2");
 });
