@@ -2,6 +2,36 @@ import { formatUsername, safeJsonParse } from "../../federation-helpers.ts";
 
 export const MAX_POST_CONTENT_LENGTH = 5000;
 export const MAX_POST_SUMMARY_LENGTH = 500;
+// Bound the attachments payload. PostAttachment is an open-ended record, so cap
+// both the COUNT and the serialized SIZE — the size cap bounds row/federated-doc
+// bloat regardless of internal shape (key count / field length). 16 KiB is ample
+// for MAX_ATTACHMENTS media descriptors with alt text + blurhash.
+export const MAX_ATTACHMENTS = 8;
+export const MAX_ATTACHMENTS_JSON_LENGTH = 16 * 1024;
+
+/** Truncate a string to `max` characters (no-op when already within bounds). */
+export function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+// Remote inbound Note fields are attacker-controlled and were stored verbatim
+// (capped only by the 512 KiB inbox body limit), vs the ~5 KB local ceiling.
+// Truncate to the same local bounds at ingest. These never reject (a 5xx would
+// just make the peer retry); they store a bounded version.
+export function boundInboundContent(content: unknown): string {
+  return typeof content === "string"
+    ? truncate(content, MAX_POST_CONTENT_LENGTH)
+    : "";
+}
+export function boundInboundSummary(summary: unknown): string | null {
+  return typeof summary === "string" && summary.length > 0
+    ? truncate(summary, MAX_POST_SUMMARY_LENGTH)
+    : null;
+}
+/** Drop an oversized inbound attachments blob to "[]" rather than store it. */
+export function boundAttachmentsJson(json: string): string {
+  return json.length > MAX_ATTACHMENTS_JSON_LENGTH ? "[]" : json;
+}
 // Capped at 90 (not 100): a page's object ids are re-queried via
 // `inArray(col, objectApIds)` for like/bookmark enrichment, and Cloudflare D1
 // allows at most 100 bound parameters per query. 90 leaves headroom for the

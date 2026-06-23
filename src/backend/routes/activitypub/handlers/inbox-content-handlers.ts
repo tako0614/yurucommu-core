@@ -14,6 +14,14 @@ import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import { deleteObjectCascade } from "../../posts/delete-cascade.ts";
 import {
+  boundAttachmentsJson,
+  boundInboundContent,
+  boundInboundSummary,
+  MAX_POST_CONTENT_LENGTH,
+  MAX_POST_SUMMARY_LENGTH,
+  truncate,
+} from "../../posts/transformers.ts";
+import {
   activityApId,
   generateId,
   getDomain,
@@ -246,9 +254,9 @@ async function insertDirectNote(
         apId: objectId,
         type: "Note",
         attributedTo: actor,
-        content: object.content || "",
-        summary: object.summary || null,
-        attachmentsJson: attachments,
+        content: boundInboundContent(object.content),
+        summary: boundInboundSummary(object.summary),
+        attachmentsJson: boundAttachmentsJson(attachments),
         inReplyTo: object.inReplyTo || null,
         visibility: "direct",
         toJson,
@@ -397,9 +405,9 @@ export async function handleCreate(
       apId: objectId,
       type: "Note",
       attributedTo: actor,
-      content: object.content || "",
-      summary: object.summary || null,
-      attachmentsJson: attachments,
+      content: boundInboundContent(object.content),
+      summary: boundInboundSummary(object.summary),
+      attachmentsJson: boundAttachmentsJson(attachments),
       inReplyTo: object.inReplyTo || null,
       visibility: object.to?.includes(
         "https://www.w3.org/ns/activitystreams#Public",
@@ -756,9 +764,17 @@ export async function handleUpdate(
     await db
       .update(objects)
       .set({
-        content: object.content || undefined,
-        summary: object.summary || undefined,
-        attachmentsJson: attachments || undefined,
+        content:
+          typeof object.content === "string" && object.content
+            ? truncate(object.content, MAX_POST_CONTENT_LENGTH)
+            : undefined,
+        summary:
+          typeof object.summary === "string" && object.summary
+            ? truncate(object.summary, MAX_POST_SUMMARY_LENGTH)
+            : undefined,
+        attachmentsJson: attachments
+          ? boundAttachmentsJson(attachments)
+          : undefined,
         updated: new Date().toISOString(),
       })
       .where(eq(objects.apId, objectId));

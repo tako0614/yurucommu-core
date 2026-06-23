@@ -15,6 +15,11 @@ import {
   objectApId,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import {
+  boundAttachmentsJson,
+  boundInboundContent,
+  boundInboundSummary,
+} from "../../posts/transformers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import type { InstanceActorResult } from "../query-helpers.ts";
 import {
@@ -295,9 +300,9 @@ export async function handleGroupCreate(
     apId: newObjectId,
     type: "Note",
     attributedTo: actorApIdStr,
-    content: object.content || "",
-    summary: object.summary || null,
-    attachmentsJson: attachments,
+    content: boundInboundContent(object.content),
+    summary: boundInboundSummary(object.summary),
+    attachmentsJson: boundAttachmentsJson(attachments),
     visibility: "group",
     communityApId: null,
     published: now,

@@ -504,10 +504,13 @@ auth.post("/accounts", async (c) => {
   if (!username) {
     return c.json({ error: "username required", code: "BAD_REQUEST" }, 400);
   }
-  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+  if (!/^[a-zA-Z0-9_]{1,30}$/.test(username)) {
+    // Length-bound the identifier (1-30): it becomes the actor apId primary key
+    // and preferredUsername, so the unanchored character class let an
+    // arbitrarily long string into a PK column.
     return c.json(
       {
-        error: "Invalid username. Use only letters, numbers, and underscores.",
+        error: "Invalid username. Use 1-30 letters, numbers, and underscores.",
       },
       400,
     );
@@ -515,6 +518,14 @@ auth.post("/accounts", async (c) => {
 
   if (body.name !== undefined && typeof body.name !== "string") {
     return c.json({ error: "name must be a string", code: "BAD_REQUEST" }, 400);
+  }
+  if (typeof body.name === "string" && body.name.length > 50) {
+    // Mirror the profile-update cap (MAX_PROFILE_NAME_LENGTH) so the display name
+    // can't be an unbounded string.
+    return c.json(
+      { error: "name too long (max 50)", code: "BAD_REQUEST" },
+      400,
+    );
   }
   const name: string | undefined =
     typeof body.name === "string" ? body.name : undefined;

@@ -318,12 +318,24 @@ function isOverlayRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// Bound the overlays payload (count + serialized size). The caption is
+// length-capped at the caller; without this an overlays blob could carry up to
+// the global 1 MiB body cap into the stored + federated story.
+const MAX_OVERLAYS = 20;
+const MAX_OVERLAYS_JSON_LENGTH = 16 * 1024;
+
 export function validateOverlays(overlays: unknown[]): {
   valid: boolean;
   error?: string;
 } {
   if (!Array.isArray(overlays)) {
     return { valid: false, error: "overlays must be an array" };
+  }
+  if (overlays.length > MAX_OVERLAYS) {
+    return { valid: false, error: `Too many overlays (max ${MAX_OVERLAYS})` };
+  }
+  if (JSON.stringify(overlays).length > MAX_OVERLAYS_JSON_LENGTH) {
+    return { valid: false, error: "overlays payload too large" };
   }
 
   for (const [i, raw] of overlays.entries()) {

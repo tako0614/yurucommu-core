@@ -29,6 +29,8 @@ import {
 import {
   extractHashtags,
   extractMentions,
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENTS_JSON_LENGTH,
   MAX_POST_CONTENT_LENGTH,
   MAX_POST_SUMMARY_LENGTH,
 } from "./transformers.ts";
@@ -109,6 +111,27 @@ export async function validateCreatePostBody(c: {
       error: "attachments must be objects",
       code: "BAD_REQUEST",
     };
+  }
+  // Bound the attachments payload (count + serialized size). content/summary are
+  // length-capped above; without this an attachments blob could carry up to the
+  // global 1 MiB body cap into the stored row and every federated delivery.
+  if (Array.isArray(rawBody.attachments)) {
+    if (rawBody.attachments.length > MAX_ATTACHMENTS) {
+      return {
+        ok: false,
+        error: `Too many attachments (max ${MAX_ATTACHMENTS})`,
+        code: "BAD_REQUEST",
+      };
+    }
+    if (
+      JSON.stringify(rawBody.attachments).length > MAX_ATTACHMENTS_JSON_LENGTH
+    ) {
+      return {
+        ok: false,
+        error: "attachments payload too large",
+        code: "BAD_REQUEST",
+      };
+    }
   }
 
   const body: CreatePostBody = {
