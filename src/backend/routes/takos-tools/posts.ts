@@ -8,6 +8,7 @@
 import { and, count, eq, gt } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, bookmarks, likes, objects } from "../../../db/index.ts";
+import { canViewerReadObjectFull } from "../../lib/post-visibility.ts";
 import {
   MAX_POST_CONTENT_LENGTH,
   normalizeVisibility,
@@ -135,12 +136,26 @@ export async function handleLikePost(
 
   if (!postId) return c.json(errRequired("Post ID"), 400);
 
+  // Read-gate the like exactly as the web route does (interactions.ts): an
+  // unentitled actor who merely learns a followers-only / direct / private-
+  // community post's apId must not be able to like it (which would bump
+  // like_count and leak the post's existence). 404 when not readable.
   const post = await db
-    .select({ apId: objects.apId })
+    .select({
+      apId: objects.apId,
+      visibility: objects.visibility,
+      attributedTo: objects.attributedTo,
+      toJson: objects.toJson,
+      ccJson: objects.ccJson,
+      audienceJson: objects.audienceJson,
+      communityApId: objects.communityApId,
+    })
     .from(objects)
     .where(eq(objects.apId, postId))
     .get();
-  if (!post) return c.json(errNotFound("Post"), 404);
+  if (!post || !(await canViewerReadObjectFull(db, post, actor.ap_id))) {
+    return c.json(errNotFound("Post"), 404);
+  }
 
   await togglePostRelation(db, likes, actor.ap_id, post.apId, likeActive);
 

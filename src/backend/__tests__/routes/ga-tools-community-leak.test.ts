@@ -25,15 +25,17 @@ import { readFile } from "node:fs/promises";
 
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
+import { eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, objects } from "../../../db/index.ts";
+import { actors, follows, likes, objects } from "../../../db/index.ts";
 import {
   handleSearchPosts,
   handleGetTrending,
 } from "../../routes/takos-tools/search.ts";
 import { handleGetTimeline as getTimeline } from "../../routes/takos-tools/timeline.ts";
+import { handleLikePost } from "../../routes/takos-tools/posts.ts";
 
 const APP_URL = "https://yuru.test";
 const MIGRATIONS = [
@@ -243,4 +245,81 @@ test("agent get_trending omits community-scoped post hashtags", async () => {
   expect(tags).toContain("plaza");
   expect(tags).not.toContain("backroom");
   expect(tags).not.toContain("ghosttag");
+});
+
+test("agent like_post is read-gated like the web route (cannot like an unreadable post)", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+
+  // alice's followers-only post; bob does NOT follow alice → cannot read it.
+  const hidden = `${APP_URL}/ap/objects/foll-1`;
+  await db.insert(objects).values({
+    apId: hidden,
+    type: "Note",
+    attributedTo: alice,
+    content: "secret",
+    visibility: "followers",
+    audienceJson: "[]",
+    published: isoMinutesAgo(1),
+  });
+
+  await handleLikePost(
+    ctxFor(db),
+    { post_id: hidden, like: true },
+    { ap_id: bob },
+  );
+
+  // The gate must have refused: no like edge, no like_count bump.
+  expect(
+    (await db.select().from(likes).where(eq(likes.objectApId, hidden)).all())
+      .length,
+  ).toBe(0);
+  expect(
+    (
+      await db
+        .select({ likeCount: objects.likeCount })
+        .from(objects)
+        .where(eq(objects.apId, hidden))
+        .get()
+    )?.likeCount,
+  ).toBe(0);
+
+  // Positive control: bob CAN like a public post (gate allows, edge + count).
+  const open = `${APP_URL}/ap/objects/pub-1`;
+  await db.insert(objects).values({
+    apId: open,
+    type: "Note",
+    attributedTo: alice,
+    content: "hello",
+    visibility: "public",
+    audienceJson: "[]",
+    published: isoMinutesAgo(1),
+  });
+  // bob now follows alice too (irrelevant to a public post, but realistic).
+  await db.insert(follows).values({
+    followerApId: bob,
+    followingApId: alice,
+    status: "accepted",
+    acceptedAt: new Date().toISOString(),
+  });
+
+  await handleLikePost(
+    ctxFor(db),
+    { post_id: open, like: true },
+    { ap_id: bob },
+  );
+  expect(
+    (await db.select().from(likes).where(eq(likes.objectApId, open)).all())
+      .length,
+  ).toBe(1);
+  expect(
+    (
+      await db
+        .select({ likeCount: objects.likeCount })
+        .from(objects)
+        .where(eq(objects.apId, open))
+        .get()
+    )?.likeCount,
+  ).toBe(1);
 });
