@@ -392,7 +392,10 @@ actorsRoute.get("/me/blocked", async (c) => {
         })
         .from(blocks)
         .where(eq(blocks.blockerApId, actorId))
-        .orderBy(desc(blocks.createdAt))
+        // createdAt is non-unique millisecond text; add the PK discriminator
+        // (blockedApId) so OFFSET paging is deterministic and same-ms ties are
+        // never skipped/duplicated across a page boundary.
+        .orderBy(desc(blocks.createdAt), desc(blocks.blockedApId))
         .limit(limit)
         .offset(offset),
     "blockedApId",
@@ -444,7 +447,9 @@ actorsRoute.get("/me/muted", async (c) => {
         })
         .from(mutes)
         .where(eq(mutes.muterApId, actorId))
-        .orderBy(desc(mutes.createdAt))
+        // Deterministic tiebreaker on the PK discriminator (mutedApId); see the
+        // blocked list above.
+        .orderBy(desc(mutes.createdAt), desc(mutes.mutedApId))
         .limit(limit)
         .offset(offset),
     "mutedApId",

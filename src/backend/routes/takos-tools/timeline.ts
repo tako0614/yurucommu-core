@@ -36,12 +36,18 @@ export async function handleGetTimeline(
   const toolCursor = feedCursorWhere(objects.published, objects.apId, before);
   if (toolCursor) whereConditions.push(toolCursor);
 
-  const posts = await db
+  // Fetch one extra row as a has-more probe so the final/full page does NOT
+  // advertise a next_cursor (the bare `.limit(limit)` returned a cursor on every
+  // non-empty page, forcing the agent into one extra empty fetch and never a
+  // clean end-of-feed). Mirrors the client feed/notifications limit+1 pattern.
+  const scanned = await db
     .select()
     .from(objects)
     .where(and(...whereConditions))
     .orderBy(desc(objects.published), desc(objects.apId))
-    .limit(limit);
+    .limit(limit + 1);
+  const hasMore = scanned.length > limit;
+  const posts = hasMore ? scanned.slice(0, limit) : scanned;
 
   const authorIds = [...new Set(posts.map((p) => p.attributedTo))];
   const authorRows =
@@ -66,8 +72,9 @@ export async function handleGetTimeline(
           author: author ? formatActorSummary(author) : null,
         };
       }),
+      has_more: hasMore,
       next_cursor:
-        posts.length > 0
+        hasMore && posts.length > 0
           ? encodeFeedCursor(
               posts[posts.length - 1].published,
               posts[posts.length - 1].apId,

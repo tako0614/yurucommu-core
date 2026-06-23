@@ -527,7 +527,9 @@ follow.get("/requests", async (c) => {
         eq(follows.status, "pending"),
       ),
     )
-    .orderBy(desc(follows.createdAt))
+    // followerApId is the PK discriminator (followingApId is fixed = me); add it
+    // as a tiebreaker so same-millisecond pending requests page deterministically.
+    .orderBy(desc(follows.createdAt), desc(follows.followerApId))
     .limit(limit)
     .offset(offset);
 

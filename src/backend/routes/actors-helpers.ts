@@ -450,7 +450,16 @@ export async function listFollowRelation(
       .select()
       .from(follows)
       .where(whereCondition)
-      .orderBy(desc(follows.createdAt))
+      // createdAt (nowIso millisecond text) is NOT unique, so OFFSET paging over
+      // it alone has undefined order among same-millisecond ties — a tied row can
+      // shift across a page boundary and be skipped or duplicated. Append the
+      // composite-PK columns as a unique tiebreaker for a deterministic order
+      // (mirrors the federated /ap/.../followers keyset paging).
+      .orderBy(
+        desc(follows.createdAt),
+        desc(follows.followerApId),
+        desc(follows.followingApId),
+      )
       .offset(offset)
       .limit(limit),
     db.select({ count: count() }).from(follows).where(whereCondition).get(),

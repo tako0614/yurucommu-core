@@ -164,6 +164,46 @@ test("#8 OrderedCollectionPage id is unique per page (derived from cursor)", asy
   expect(secondId).toContain("cursor=");
 });
 
+test("outbox emits NO `next` link on an exact-multiple final page (limit+1 probe)", async () => {
+  const db = await freshDb();
+  const actorApId = await insertLocalActor(db, "alice");
+  // Exactly `limit` items: the page is full but there is nothing after it.
+  await seedPublicCreates(db, actorApId, 2);
+
+  const { status, body } = await fetchJson(
+    db,
+    "/ap/users/alice/outbox?page=1&limit=2",
+  );
+  expect(status).toEqual(200);
+  expect((body.orderedItems as unknown[]).length).toEqual(2);
+  // Pre-fix, rows.length === limit advertised a `next` cursor pointing at an
+  // empty terminal page; the limit+1 probe suppresses it.
+  expect(body.next).toBeUndefined();
+});
+
+test("followers collection emits NO `next` link on an exact-multiple final page", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  // Two accepted followers of alice; request a page of exactly 2.
+  for (const u of ["bob", "carol"]) {
+    const follower = await insertLocalActor(db, u);
+    await db.insert(schema.follows).values({
+      followerApId: follower,
+      followingApId: alice,
+      status: "accepted",
+      acceptedAt: `2026-01-01T00:00:0${u === "bob" ? 1 : 2}.000Z`,
+    });
+  }
+
+  const { status, body } = await fetchJson(
+    db,
+    "/ap/users/alice/followers?page=1&limit=2",
+  );
+  expect(status).toEqual(200);
+  expect((body.orderedItems as unknown[]).length).toEqual(2);
+  expect(body.next).toBeUndefined();
+});
+
 test("#15 public Announce of a REMOTE (absent) object is emitted; followers/direct excluded", async () => {
   const db = await freshDb();
   const actorApId = await insertLocalActor(db, "alice");
