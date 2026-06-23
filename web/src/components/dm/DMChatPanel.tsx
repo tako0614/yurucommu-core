@@ -577,7 +577,9 @@ export function DMChatPanel(props: DMChatPanelProps) {
                             : "bg-neutral-800 text-white rounded-bl-sm"
                         }`}
                       >
-                        <p class="text-sm">{msg.content}</p>
+                        <p class="text-sm whitespace-pre-wrap break-words">
+                          {msg.content}
+                        </p>
                       </div>
                       <div class="text-xs text-neutral-500 mt-1">
                         {formatTime(msg.created_at)}

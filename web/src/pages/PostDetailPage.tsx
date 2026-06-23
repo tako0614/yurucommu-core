@@ -37,6 +37,12 @@ import {
   useMediaLightbox,
 } from "../components/MediaLightbox.tsx";
 
+// Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts). The
+// server stays the authority (it rejects an over-length reply with 400); this
+// only powers the counter + a local submit gate so the user sees the limit
+// before the round-trip instead of an opaque error.
+const MAX_REPLY_LENGTH = 5000;
+
 const BackIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path
@@ -216,8 +222,11 @@ export function PostDetailPage() {
     }
   };
 
+  const replyOverLimit = () => replyContent().length > MAX_REPLY_LENGTH;
+
   const handleReply = async () => {
-    if (!replyContent().trim() || replying() || !post()) return;
+    if (!replyContent().trim() || replying() || !post() || replyOverLimit())
+      return;
     setReplying(true);
     try {
       const newReply = await createPost({
@@ -243,7 +252,11 @@ export function PostDetailPage() {
       }
     } catch (e) {
       console.error("Failed to reply:", e);
-      setError(t("common.error"));
+      if (e instanceof ApiError && /too long/i.test(e.message)) {
+        setError(t("posts.tooLong").replace("{max}", String(MAX_REPLY_LENGTH)));
+      } else {
+        setError(t("common.error"));
+      }
     } finally {
       setReplying(false);
     }
@@ -543,10 +556,23 @@ export function PostDetailPage() {
                   class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none"
                   rows={2}
                 />
-                <div class="flex justify-end">
+                <div class="flex items-center justify-end gap-3">
+                  <Show when={replyContent().length > 0}>
+                    <span
+                      class={`text-xs tabular-nums ${
+                        replyOverLimit() ? "text-red-500" : "text-neutral-500"
+                      }`}
+                    >
+                      {t("posts.charCount")
+                        .replace("{count}", String(replyContent().length))
+                        .replace("{max}", String(MAX_REPLY_LENGTH))}
+                    </span>
+                  </Show>
                   <button
                     onClick={handleReply}
-                    disabled={!replyContent().trim() || replying()}
+                    disabled={
+                      !replyContent().trim() || replying() || replyOverLimit()
+                    }
                     class="px-4 py-1.5 bg-accent disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full text-sm font-bold transition-colors"
                   >
                     {t("posts.reply")}

@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import type { CommunityJoinRequest } from "../../lib/api.ts";
 import type {
@@ -38,6 +38,21 @@ interface CommunityMembersPanelProps {
 }
 
 export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
+  // Brief "Copied" feedback after copying the freshly-created invite code, so the
+  // owner doesn't have to hand-select the code text to share it.
+  const [inviteCopied, setInviteCopied] = createSignal(false);
+  const copyInvite = async () => {
+    const code = props.inviteCode;
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 1800);
+    } catch {
+      // Clipboard denied (insecure context / permissions) — leave the code
+      // visible for manual selection.
+    }
+  };
   return (
     <div>
       <Show when={props.canManage}>
@@ -226,9 +241,18 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                 : props.t("members.createInvite")}
             </button>
             <Show when={props.inviteCode}>
-              <span class="px-2 py-1 text-xs bg-neutral-800 text-neutral-200 rounded">
+              <span class="px-2 py-1 text-xs bg-neutral-800 text-neutral-200 rounded font-mono">
                 {props.inviteCode}
               </span>
+              <button
+                onClick={copyInvite}
+                aria-label={props.t("members.copyInvite")}
+                class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors"
+              >
+                {inviteCopied()
+                  ? props.t("members.inviteCopied")
+                  : props.t("members.copyInvite")}
+              </button>
             </Show>
           </div>
 

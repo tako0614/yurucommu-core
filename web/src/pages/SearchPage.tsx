@@ -30,6 +30,7 @@ import {
   scopeCommunitiesAtom,
 } from "../atoms/scope.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
+import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
@@ -746,12 +747,20 @@ export function SearchPage() {
             class="flex border-t border-neutral-900"
             role="tablist"
             aria-label={t("nav.search")}
+            onKeyDown={(e) => {
+              const list = tabs();
+              const cur = list.findIndex((tb) => tb.key === searchTab());
+              handleTablistKeydown(e, list.length, cur < 0 ? 0 : cur, (i) =>
+                setSearchTab(list[i].key),
+              );
+            }}
           >
             <For each={tabs()}>
               {({ key, label, count }) => (
                 <button
                   role="tab"
                   aria-selected={searchTab() === key}
+                  tabindex={searchTab() === key ? 0 : -1}
                   onClick={() => setSearchTab(key)}
                   class={`flex-1 py-3 text-center text-sm font-medium relative ${
                     searchTab() === key ? "text-white" : "text-neutral-500"

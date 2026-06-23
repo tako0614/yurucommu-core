@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
+import { useDialog } from "../../../lib/useDialog.ts";
 
 interface StoryViewerDeleteDialogProps {
   open: boolean;
@@ -9,15 +10,26 @@ interface StoryViewerDeleteDialogProps {
 
 export function StoryViewerDeleteDialog(props: StoryViewerDeleteDialogProps) {
   const { t } = useI18n();
+  let dialogRef: HTMLDivElement | undefined;
+  let cancelRef: HTMLButtonElement | undefined;
+  // Trap Tab within the prompt + handle Escape + restore focus on close. The
+  // hook's capture-phase Escape supersedes the viewer's own window keydown, so
+  // Escape closes only this prompt (not the whole viewer) without double-firing.
+  useDialog({
+    isOpen: () => props.open,
+    onClose: () => props.onCancel(),
+    container: () => dialogRef,
+    initialFocus: () => cancelRef,
+  });
   return (
     <Show when={props.open}>
-      {/* Backdrop click cancels (Escape is handled by the viewer's gated
-          keydown, which routes Escape here while this prompt is open). */}
+      {/* Backdrop click cancels. */}
       <div
         class="absolute inset-0 z-30 bg-black/80 flex items-center justify-center"
         onClick={props.onCancel}
       >
         <div
+          ref={dialogRef}
           role="alertdialog"
           aria-modal="true"
           aria-labelledby="story-delete-title"
@@ -36,8 +48,7 @@ export function StoryViewerDeleteDialog(props: StoryViewerDeleteDialogProps) {
           </p>
           <div class="flex gap-3">
             <button
-              // Focus the non-destructive Cancel action when the prompt opens.
-              ref={(el) => queueMicrotask(() => el.focus())}
+              ref={cancelRef}
               onClick={props.onCancel}
               class="flex-1 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white transition-colors"
             >

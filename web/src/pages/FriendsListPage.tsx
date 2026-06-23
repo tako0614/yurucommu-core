@@ -3,6 +3,7 @@ import { A, useNavigate, useSearchParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor } from "../types/index.ts";
 import { fetchFollowers, fetchFollowing } from "../lib/api.ts";
+import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
@@ -80,6 +81,10 @@ export function FriendsListPage() {
   const [followers, setFollowers] = createSignal<Actor[]>([]);
   const [followingHasMore, setFollowingHasMore] = createSignal(false);
   const [followersHasMore, setFollowersHasMore] = createSignal(false);
+  // True follow totals from the API (the list itself is paginated, so the loaded
+  // array length understates the count until every page is fetched).
+  const [followingTotal, setFollowingTotal] = createSignal(0);
+  const [followersTotal, setFollowersTotal] = createSignal(0);
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
   const [searchQuery, setSearchQuery] = createSignal("");
@@ -102,6 +107,8 @@ export function FriendsListPage() {
       setFollowers(followersData.actors);
       setFollowingHasMore(followingData.hasMore);
       setFollowersHasMore(followersData.hasMore);
+      setFollowingTotal(followingData.total);
+      setFollowersTotal(followersData.total);
     } catch (e) {
       console.error("Failed to load friends:", e);
       setLoadError(t("common.loadFailed"));
@@ -187,10 +194,19 @@ export function FriendsListPage() {
           class="flex border-b border-neutral-900"
           role="tablist"
           aria-label={t("friends.title")}
+          onKeyDown={(e) =>
+            handleTablistKeydown(
+              e,
+              2,
+              activeTab() === "following" ? 0 : 1,
+              (i) => setActiveTab(i === 0 ? "following" : "followers"),
+            )
+          }
         >
           <button
             role="tab"
             aria-selected={activeTab() === "following"}
+            tabindex={activeTab() === "following" ? 0 : -1}
             onClick={() => setActiveTab("following")}
             class={`flex-1 py-3 text-center font-medium relative transition-colors ${
               activeTab() === "following"
@@ -198,7 +214,7 @@ export function FriendsListPage() {
                 : "text-neutral-500 hover:bg-neutral-900/50"
             }`}
           >
-            {t("profile.following")} ({following().length})
+            {t("profile.following")} ({followingTotal()})
             <Show when={activeTab() === "following"}>
               <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-accent rounded-full" />
             </Show>
@@ -206,6 +222,7 @@ export function FriendsListPage() {
           <button
             role="tab"
             aria-selected={activeTab() === "followers"}
+            tabindex={activeTab() === "followers" ? 0 : -1}
             onClick={() => setActiveTab("followers")}
             class={`flex-1 py-3 text-center font-medium relative transition-colors ${
               activeTab() === "followers"
@@ -213,7 +230,7 @@ export function FriendsListPage() {
                 : "text-neutral-500 hover:bg-neutral-900/50"
             }`}
           >
-            {t("profile.followers")} ({followers().length})
+            {t("profile.followers")} ({followersTotal()})
             <Show when={activeTab() === "followers"}>
               <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-accent rounded-full" />
             </Show>

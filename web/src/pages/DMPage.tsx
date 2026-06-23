@@ -22,6 +22,7 @@ import {
   rejectDMRequest,
   unarchiveDMConversation,
 } from "../lib/api.ts";
+import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { DMChatPanel } from "../components/dm/DMChatPanel.tsx";
 import { DMContactItem } from "../components/dm/DMContactItem.tsx";
@@ -624,11 +625,20 @@ export function DMPage() {
                   class="relative flex overflow-x-auto scrollbar-hide border-b border-neutral-900"
                   role="tablist"
                   aria-label={t("nav.messages")}
+                  onKeyDown={(e) =>
+                    handleTablistKeydown(
+                      e,
+                      tabs.length,
+                      Math.max(0, tabs.indexOf(activeTab())),
+                      (i) => setActiveTab(tabs[i]),
+                    )
+                  }
                 >
                   <button
                     ref={(el) => (tabRefs[0] = el)}
                     role="tab"
                     aria-selected={activeTab() === "all"}
+                    tabindex={activeTab() === "all" ? 0 : -1}
                     onClick={() => setActiveTab("all")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "all" ? "text-white" : "text-neutral-500"
@@ -640,6 +650,7 @@ export function DMPage() {
                     ref={(el) => (tabRefs[1] = el)}
                     role="tab"
                     aria-selected={activeTab() === "friends"}
+                    tabindex={activeTab() === "friends" ? 0 : -1}
                     onClick={() => setActiveTab("friends")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "friends"
@@ -653,6 +664,7 @@ export function DMPage() {
                     ref={(el) => (tabRefs[2] = el)}
                     role="tab"
                     aria-selected={activeTab() === "communities"}
+                    tabindex={activeTab() === "communities" ? 0 : -1}
                     onClick={() => setActiveTab("communities")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "communities"
@@ -666,6 +678,7 @@ export function DMPage() {
                     ref={(el) => (tabRefs[3] = el)}
                     role="tab"
                     aria-selected={activeTab() === "requests"}
+                    tabindex={activeTab() === "requests" ? 0 : -1}
                     onClick={() => setActiveTab("requests")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors relative ${
                       activeTab() === "requests"
@@ -684,6 +697,7 @@ export function DMPage() {
                     ref={(el) => (tabRefs[4] = el)}
                     role="tab"
                     aria-selected={activeTab() === "archived"}
+                    tabindex={activeTab() === "archived" ? 0 : -1}
                     onClick={() => setActiveTab("archived")}
                     class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       activeTab() === "archived"

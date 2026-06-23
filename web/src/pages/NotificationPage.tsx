@@ -13,6 +13,7 @@ import {
   rejectFollowRequest,
   unarchiveNotifications,
 } from "../lib/api.ts";
+import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
@@ -614,12 +615,19 @@ export function NotificationPage() {
           role="tablist"
           aria-label={t("notifications.title")}
           class="flex overflow-x-auto scrollbar-hide border-t border-neutral-900"
+          onKeyDown={(e) => {
+            const cur = filterTabs.findIndex((tb) => tb.key === filter());
+            handleTablistKeydown(e, filterTabs.length, cur < 0 ? 0 : cur, (i) =>
+              setFilter(filterTabs[i].key),
+            );
+          }}
         >
           <For each={filterTabs}>
             {(tab) => (
               <button
                 role="tab"
                 aria-selected={filter() === tab.key}
+                tabindex={filter() === tab.key ? 0 : -1}
                 onClick={() => setFilter(tab.key)}
                 class={`flex items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 ${
                   filter() === tab.key

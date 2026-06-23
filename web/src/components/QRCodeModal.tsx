@@ -48,6 +48,10 @@ export function QRCodeModal(props: QRCodeModalProps) {
   const [scanError, setScanError] = createSignal<string | null>(null);
   const [following, setFollowing] = createSignal(false);
   const [followSuccess, setFollowSuccess] = createSignal(false);
+  // A follow of a PRIVATE local account or ANY remote account lands as a pending
+  // REQUEST (awaiting approval), not an established follow — show that honestly
+  // instead of a green "Followed!", matching ProfilePage/SearchPage.
+  const [followPending, setFollowPending] = createSignal(false);
   let scannerRef: Html5Qrcode | null = null;
   let scannerContainerRef!: HTMLDivElement;
   let dialogRef: HTMLDivElement | undefined;
@@ -189,8 +193,9 @@ export function QRCodeModal(props: QRCodeModalProps) {
 
     setFollowing(true);
     try {
-      await follow(result.ap_id);
-      setFollowSuccess(true);
+      const { status } = await follow(result.ap_id);
+      if (status === "pending") setFollowPending(true);
+      else setFollowSuccess(true);
     } catch (err) {
       console.error("Failed to follow:", err);
       setScanError(t("qr.followFailed"));
@@ -327,10 +332,18 @@ export function QRCodeModal(props: QRCodeModalProps) {
                     </div>
 
                     <Show
-                      when={!followSuccess()}
+                      when={!followSuccess() && !followPending()}
                       fallback={
-                        <div class="px-6 py-2 bg-green-600 text-white rounded-full font-medium">
-                          {t("qr.followed")}
+                        <div
+                          class={`px-6 py-2 rounded-full font-medium ${
+                            followPending()
+                              ? "bg-neutral-700 text-neutral-200"
+                              : "bg-green-600 text-white"
+                          }`}
+                        >
+                          {followPending()
+                            ? t("profile.followRequested")
+                            : t("qr.followed")}
                         </div>
                       }
                     >

@@ -178,6 +178,7 @@ export function AppMenu() {
             <div
               ref={drawerRef}
               role="dialog"
+              aria-modal="true"
               aria-label={t("menu.title")}
               class="absolute left-0 top-0 bottom-0 w-72 bg-neutral-900 border-r border-neutral-800 animate-slide-in overflow-y-auto pt-[env(safe-area-inset-top)] md:bottom-4 md:left-4 md:top-auto md:w-80 md:max-h-[calc(100vh-2rem)] md:rounded-2xl md:border md:border-neutral-800 md:shadow-2xl md:pt-0"
             >

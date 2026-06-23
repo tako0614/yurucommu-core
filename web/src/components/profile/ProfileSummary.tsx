@@ -116,18 +116,12 @@ export function ProfileSummary(props: ProfileSummaryProps) {
               </button>
               <Show when={props.showMenu}>
                 <div
-                  role="menu"
                   ref={(el) =>
-                    queueMicrotask(() =>
-                      el
-                        .querySelector<HTMLElement>('[role="menuitem"]')
-                        ?.focus(),
-                    )
+                    queueMicrotask(() => el.querySelector("button")?.focus())
                   }
                   class="absolute right-0 top-full mt-1 bg-neutral-900 rounded-xl shadow-lg py-1 min-w-[180px] z-20 border border-neutral-800"
                 >
                   <button
-                    role="menuitem"
                     onClick={() => {
                       props.onCloseMenu();
                       props.onMute();
@@ -137,7 +131,6 @@ export function ProfileSummary(props: ProfileSummaryProps) {
                     {props.t("profile.mute")}
                   </button>
                   <button
-                    role="menuitem"
                     onClick={() => {
                       props.onCloseMenu();
                       props.onBlock();

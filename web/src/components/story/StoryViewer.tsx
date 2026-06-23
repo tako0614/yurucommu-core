@@ -688,7 +688,11 @@ export function StoryViewer(props: StoryViewerProps) {
         </div>
 
         <Show when={toastMessage()}>
-          <div class="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-white shadow-lg">
+          <div
+            role="status"
+            aria-live="polite"
+            class="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-white shadow-lg"
+          >
             {toastMessage()}
           </div>
         </Show>

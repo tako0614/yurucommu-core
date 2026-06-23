@@ -26,7 +26,7 @@ const translations = {
     "scope.compose": "投稿する",
     "scope.createTitle": "コミュニティを作成",
     "scope.createDesc":
-      "あなたが立てる新しい輪。ホームの表示を絞り込むフィルターとして使えます。",
+      "あなたが立てる新しいコミュニティ。ホームの表示を絞り込むフィルターとして使えます。",
     "scope.createName": "コミュニティ名",
     "scope.createNamePlaceholder": "my_community",
     "scope.createNameHint":
@@ -196,6 +196,8 @@ const translations = {
     "members.joinRequests": "参加リクエスト",
     "members.noPendingRequests": "保留中のリクエストはありません",
     "members.inviteCode": "招待コード",
+    "members.copyInvite": "招待コードをコピー",
+    "members.inviteCopied": "コピーしました",
     "members.createInvite": "作成",
     "members.creatingInvite": "作成中...",
     "members.noInvites": "有効な招待はありません",
@@ -652,7 +654,7 @@ const translations = {
     "scope.compose": "Compose",
     "scope.createTitle": "Create a community",
     "scope.createDesc":
-      "A new circle you start. Use it as a filter to narrow your home to that group.",
+      "A new community you start. Use it as a filter to narrow your home to that group.",
     "scope.createName": "Community name",
     "scope.createNamePlaceholder": "my_community",
     "scope.createNameHint":
@@ -822,6 +824,8 @@ const translations = {
     "members.joinRequests": "Join requests",
     "members.noPendingRequests": "No pending requests",
     "members.inviteCode": "Invite code",
+    "members.copyInvite": "Copy invite code",
+    "members.inviteCopied": "Copied",
     "members.createInvite": "Create",
     "members.creatingInvite": "Creating...",
     "members.noInvites": "No active invites",

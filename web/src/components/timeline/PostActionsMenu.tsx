@@ -117,22 +117,18 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
 
       <Show when={open()}>
         <div
-          role="menu"
           ref={(el) =>
-            queueMicrotask(() =>
-              el.querySelector<HTMLElement>('[role="menuitem"]')?.focus(),
-            )
+            queueMicrotask(() => el.querySelector("button")?.focus())
           }
           onClick={stop}
           class="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-neutral-800 bg-neutral-900 shadow-xl overflow-hidden"
         >
-          <button role="menuitem" class={itemClass} onClick={copyLink}>
+          <button class={itemClass} onClick={copyLink}>
             {t("posts.copyLink")}
           </button>
 
           <Show when={props.isOwn && props.onEdit}>
             <button
-              role="menuitem"
               class={itemClass}
               onClick={() => {
                 props.onEdit!(props.post);
@@ -145,7 +141,6 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
 
           <Show when={props.isOwn}>
             <button
-              role="menuitem"
               class={`${itemClass} text-red-400`}
               onClick={() => {
                 setConfirmingDelete(true);
@@ -158,7 +153,6 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
 
           <Show when={!props.isOwn}>
             <button
-              role="menuitem"
               class={itemClass}
               onClick={() => {
                 props.onMute(props.post);
@@ -168,7 +162,6 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
               {t("posts.mute")}
             </button>
             <button
-              role="menuitem"
               class={`${itemClass} text-red-400`}
               onClick={() => {
                 props.onBlock(props.post);
@@ -179,7 +172,6 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
             </button>
             <Show when={props.onReport && isRemote()}>
               <button
-                role="menuitem"
                 class={itemClass}
                 onClick={() => {
                   props.onReport!(props.post);

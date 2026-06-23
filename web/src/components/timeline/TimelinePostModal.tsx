@@ -449,7 +449,9 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
               </span>
             </Show>
             <Show when={props.uploadError}>
-              <span class="text-sm text-red-500">{props.uploadError}</span>
+              <span role="alert" class="text-sm text-red-500">
+                {props.uploadError}
+              </span>
             </Show>
           </div>
         </div>
