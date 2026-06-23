@@ -1,6 +1,6 @@
 import type { Context, Hono } from "hono";
 import { and, asc, count, desc, eq, inArray, or } from "drizzle-orm";
-import { communities, communityMembers } from "../../../db/index.ts";
+import { communities, communityMembers, follows } from "../../../db/index.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
 import type { Env, Variables } from "../../types.ts";
 import {
@@ -75,7 +75,38 @@ export function registerMembershipMemberRoutes(
         .where(memberWhere(community.apId, targetApId))
         .get();
       if (!targetMembership) {
-        return c.json({ error: "User is not a member" }, 404);
+        // A REMOTE member has no communityMembers row — their membership is the
+        // accepted follows edge to the Group actor, which BOTH the Announce-relay
+        // fan-out and the members-only post gate (handleGroupCreate) key on.
+        // Deleting that edge is the moderation lever over a remote member: it
+        // immediately drops them from the relay and makes their inbound posts
+        // fail the members-only gate (no outbound Reject is required for the
+        // removal to take effect locally). Pending join follows are cleared too.
+        // NOTE: a per-community ban list (to auto-Reject a re-Follow into an
+        // open community) requires a new table + migration and is a documented
+        // follow-up; this closes the "no removal tool at all" gap.
+        const remoteFollow = await db
+          .select({ followerApId: follows.followerApId })
+          .from(follows)
+          .where(
+            and(
+              eq(follows.followerApId, targetApId),
+              eq(follows.followingApId, community.apId),
+            ),
+          )
+          .get();
+        if (!remoteFollow) {
+          return c.json({ error: "User is not a member" }, 404);
+        }
+        await db
+          .delete(follows)
+          .where(
+            and(
+              eq(follows.followerApId, targetApId),
+              eq(follows.followingApId, community.apId),
+            ),
+          );
+        return c.json({ success: true });
       }
 
       if (
