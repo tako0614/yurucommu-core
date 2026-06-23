@@ -47,6 +47,10 @@ import {
 } from "../../../lib/activitypub-actor-cache.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { destinationDeclaresAlias } from "../../../lib/account-migration.ts";
+import {
+  actorIsBlockedBy,
+  canViewerReadObjectFull,
+} from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
 import {
   type Activity,
@@ -497,11 +501,39 @@ export async function handleCreate(
   );
   const parentObj = object.inReplyTo
     ? await db
-        .select({ attributedTo: objects.attributedTo })
+        .select({
+          attributedTo: objects.attributedTo,
+          visibility: objects.visibility,
+          toJson: objects.toJson,
+          ccJson: objects.ccJson,
+          audienceJson: objects.audienceJson,
+          communityApId: objects.communityApId,
+        })
         .from(objects)
         .where(eq(objects.apId, object.inReplyTo))
         .get()
     : null;
+
+  // Inbound reply to a LOCAL parent the sending actor cannot read (or that has
+  // blocked them) is REFUSED — mirroring the local reply 404 gate
+  // (routes/posts/routes.ts). Without this, a remote who merely learns a
+  // followers-only / direct(DM) / private-community post's apId could inflate its
+  // replyCount, deliver a reply notification to the owner (bypassing a personal
+  // block), and — because the stored reply's in_reply_to discloses the parent —
+  // build an existence oracle for the restricted post. A legitimate follower /
+  // addressed recipient still passes canViewerReadObjectFull, so their reply is
+  // ingested normally. (Only gated for LOCAL parents: a remote parent's audience
+  // is the remote instance's concern, and we hold no counter/notification for it.)
+  if (
+    object.inReplyTo &&
+    parentObj &&
+    isLocal(parentObj.attributedTo, baseUrl) &&
+    (!(await canViewerReadObjectFull(db, parentObj, actor)) ||
+      (await actorIsBlockedBy(db, parentObj.attributedTo, actor)))
+  ) {
+    return;
+  }
+
   const shouldNotifyParent = !!(
     parentObj && isLocal(parentObj.attributedTo, baseUrl)
   );

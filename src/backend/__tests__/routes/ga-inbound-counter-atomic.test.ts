@@ -6,7 +6,14 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, announces, likes, objects } from "../../../db/index.ts";
+import {
+  actors,
+  announces,
+  blocks,
+  follows,
+  likes,
+  objects,
+} from "../../../db/index.ts";
 import {
   handleAnnounce,
   handleLike,
@@ -146,6 +153,87 @@ const announceActivity = (id: string, actor: string): Activity =>
     actor,
     object: OBJECT_AP_ID,
   }) as unknown as Activity;
+
+// Audit #17: inbound Like/Announce must honor the per-user block + the object's
+// read-gate, mirroring the local interaction paths.
+test("audit#17 inbound Like from a personally-blocked actor is dropped (no edge, no count)", async () => {
+  const db = await setup();
+  // bob (the object owner) blocks the remote liker.
+  await db.insert(blocks).values({
+    blockerApId: `${APP_URL}/ap/users/bob`,
+    blockedApId: REMOTE_ACTOR,
+  });
+
+  await handleLike(
+    ctxFor(db),
+    likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+
+  expect(await likeEdgeCount(db)).toBe(0);
+  expect(await likeCount(db)).toBe(0);
+});
+
+test("audit#17 inbound Announce from a personally-blocked actor is dropped", async () => {
+  const db = await setup();
+  await db.insert(blocks).values({
+    blockerApId: `${APP_URL}/ap/users/bob`,
+    blockedApId: REMOTE_ACTOR,
+  });
+
+  await handleAnnounce(
+    ctxFor(db),
+    announceActivity(ANNOUNCE_ACTIVITY, REMOTE_ACTOR),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+
+  const edges = await db
+    .select({ a: announces.actorApId })
+    .from(announces)
+    .where(eq(announces.objectApId, OBJECT_AP_ID));
+  expect(edges.length).toBe(0);
+  expect(await announceCount(db)).toBe(0);
+});
+
+test("audit#17 inbound Like of a followers-only post by a non-follower is dropped", async () => {
+  const db = await setup();
+  // Make bob's post followers-only; the remote liker does NOT follow bob.
+  await db
+    .update(objects)
+    .set({ visibility: "followers", toJson: "[]", ccJson: "[]" })
+    .where(eq(objects.apId, OBJECT_AP_ID));
+
+  await handleLike(
+    ctxFor(db),
+    likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  expect(await likeEdgeCount(db)).toBe(0);
+  expect(await likeCount(db)).toBe(0);
+
+  // An ACCEPTED follower CAN like it (the gate allows readable interactions).
+  await db.insert(follows).values({
+    followerApId: REMOTE_ACTOR_2,
+    followingApId: `${APP_URL}/ap/users/bob`,
+    status: "accepted",
+    acceptedAt: new Date().toISOString(),
+  });
+  await handleLike(
+    ctxFor(db),
+    likeActivity("https://remote.example/activities/like-2", REMOTE_ACTOR_2),
+    recipientRow(),
+    REMOTE_ACTOR_2,
+    APP_URL,
+  );
+  expect(await likeEdgeCount(db)).toBe(1);
+  expect(await likeCount(db)).toBe(1);
+});
 
 test("#7 inbound Like applies the edge + count atomically, exactly once", async () => {
   const db = await setup();

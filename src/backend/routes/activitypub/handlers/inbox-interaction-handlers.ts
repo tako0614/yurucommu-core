@@ -20,6 +20,11 @@ import {
   getActivityObjectId,
 } from "../inbox-types.ts";
 import { notifyLocalObjectOwner } from "./inbox-shared-helpers.ts";
+import { isLocal } from "../../../lib/ap-ids.ts";
+import {
+  actorIsBlockedBy,
+  canViewerReadObjectFull,
+} from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
 
 type ActorRow = typeof actors.$inferSelect;
@@ -83,6 +88,30 @@ async function handleInteraction(
   const db = c.get("db");
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
+
+  // Block + read gate for a LOCAL target. Every LOCAL interaction path (like /
+  // repost / reply / story like-vote-share) refuses an actor the owner has
+  // blocked or who cannot read the object; the inbound federated Like/Announce
+  // path did neither, so a personally-blocked remote could still bump the
+  // owner's like/boost counter AND deliver a "X liked your post" notification
+  // (defeating the block as a harassment remedy), and a remote that cannot read a
+  // restricted post could still interact with it. Mirror the local guards.
+  const target = await db
+    .select({
+      attributedTo: objects.attributedTo,
+      visibility: objects.visibility,
+      toJson: objects.toJson,
+      ccJson: objects.ccJson,
+      audienceJson: objects.audienceJson,
+      communityApId: objects.communityApId,
+    })
+    .from(objects)
+    .where(eq(objects.apId, objectId))
+    .get();
+  if (target && isLocal(target.attributedTo, baseUrl)) {
+    if (await actorIsBlockedBy(db, target.attributedTo, actor)) return;
+    if (!(await canViewerReadObjectFull(db, target, actor))) return;
+  }
 
   const { table, countField, activityType } = INTERACTION_CONFIG[kind];
   const activityId = activity.id || activityApId(baseUrl, generateId());

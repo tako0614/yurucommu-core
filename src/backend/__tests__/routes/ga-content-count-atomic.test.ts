@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, objects } from "../../../db/index.ts";
+import { actors, blocks, follows, objects } from "../../../db/index.ts";
 import {
   handleCreate,
   handleDelete,
@@ -158,6 +158,75 @@ const deleteNote = (id: string, actor: string): Activity =>
 // ---------------------------------------------------------------------------
 // Create
 // ---------------------------------------------------------------------------
+
+// Audit #17 (HIGH): an inbound federated reply to a LOCAL restricted parent the
+// sender cannot read (or that blocked them) must be REFUSED — mirroring the
+// local reply 404 gate. Otherwise it inflates the parent replyCount, notifies the
+// owner (block bypass), and the stored reply's in_reply_to becomes an existence
+// oracle for the restricted post.
+test("audit#17 inbound reply to a followers-only parent by a non-follower is dropped (no store, no replyCount bump)", async () => {
+  const db = await setup();
+  await db
+    .update(objects)
+    .set({ visibility: "followers", toJson: "[]", ccJson: "[]" })
+    .where(eq(objects.apId, PARENT_AP_ID));
+
+  await handleCreate(
+    ctxFor(db),
+    createNote(REPLY_AP_ID, REMOTE_ACTOR, PARENT_AP_ID),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+
+  // The reply was not ingested and the parent's replyCount was not inflated.
+  expect(await objectCount(db, REPLY_AP_ID)).toBe(0);
+  expect(await replyCountOf(db, PARENT_AP_ID)).toBe(0);
+});
+
+test("audit#17 inbound reply to a PUBLIC parent by a personally-blocked actor is dropped", async () => {
+  const db = await setup();
+  // Parent stays public; bob blocks the remote replier.
+  await db.insert(blocks).values({
+    blockerApId: LOCAL_BOB,
+    blockedApId: REMOTE_ACTOR,
+  });
+
+  await handleCreate(
+    ctxFor(db),
+    createNote(REPLY_AP_ID, REMOTE_ACTOR, PARENT_AP_ID),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  expect(await objectCount(db, REPLY_AP_ID)).toBe(0);
+  expect(await replyCountOf(db, PARENT_AP_ID)).toBe(0);
+});
+
+test("audit#17 inbound reply to a followers-only parent by an ACCEPTED follower is ingested", async () => {
+  const db = await setup();
+  await db
+    .update(objects)
+    .set({ visibility: "followers", toJson: "[]", ccJson: "[]" })
+    .where(eq(objects.apId, PARENT_AP_ID));
+  // The remote replier is an accepted follower → can read the parent → allowed.
+  await db.insert(follows).values({
+    followerApId: REMOTE_ACTOR,
+    followingApId: LOCAL_BOB,
+    status: "accepted",
+    acceptedAt: new Date().toISOString(),
+  });
+
+  await handleCreate(
+    ctxFor(db),
+    createNote(REPLY_AP_ID, REMOTE_ACTOR, PARENT_AP_ID),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  expect(await objectCount(db, REPLY_AP_ID)).toBe(1);
+  expect(await replyCountOf(db, PARENT_AP_ID)).toBe(1);
+});
 
 test("[R6#3] inbound Create applies the object + postCount atomically, exactly once", async () => {
   const db = await setup();

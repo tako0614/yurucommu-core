@@ -130,7 +130,21 @@ test("userInboxHandlers hardening - handleLike writes like/count/inbox in a sing
   const objectApId = "https://example.com/ap/objects/note-1";
 
   const { db, callTracker } = createMockDb({
-    selectResults: [{ attributedTo: targetApId }],
+    // [0] = the audit#17 block/read-gate target lookup (a PUBLIC local post, so
+    // the gate passes), [1] = the actorIsBlockedBy lookup (not blocked), [2] =
+    // the pre-dispatch existing-edge lookup (truthy → no second notify select).
+    selectResults: [
+      {
+        attributedTo: targetApId,
+        visibility: "public",
+        toJson: "[]",
+        ccJson: "[]",
+        audienceJson: "[]",
+        communityApId: null,
+      },
+      undefined,
+      { actorApId },
+    ],
     insertReturningResult: { actorApId, objectApId, activityApId: "like-1" },
   });
 
@@ -151,9 +165,10 @@ test("userInboxHandlers hardening - handleLike writes like/count/inbox in a sing
     "https://example.com",
   );
 
-  // Verify select was called once (pre-dispatch existing-edge lookup that gates
-  // the one-shot owner notification).
-  assertSpyCalls(db.select, 1);
+  // Three selects: the audit#17 gate's target lookup + actorIsBlockedBy lookup
+  // (canViewerReadObjectFull short-circuits on a public, non-community object
+  // with no select), then the pre-dispatch existing-edge lookup.
+  assertSpyCalls(db.select, 3);
   // Verify the edge insert statement was built.
   assert_called(db.insert);
   // Verify the COUNT(*)-derived counter update statement was built.
@@ -167,7 +182,19 @@ test("userInboxHandlers hardening - handleLike treats unique conflicts as idempo
   // An existing edge is returned by the pre-dispatch lookup, modelling a
   // re-delivered/duplicate Like.
   const { db } = createMockDb({
+    // [0] = audit#17 gate target (public local post → gate passes), [1] =
+    // actorIsBlockedBy (not blocked), [2] = the existing-edge lookup returning a
+    // row (modelling the duplicate/re-delivered Like).
     selectResults: [
+      {
+        attributedTo: "https://example.com/ap/users/bob",
+        visibility: "public",
+        toJson: "[]",
+        ccJson: "[]",
+        audienceJson: "[]",
+        communityApId: null,
+      },
+      undefined,
       {
         actorApId: "https://example.com/ap/users/alice",
       },
@@ -200,8 +227,9 @@ test("userInboxHandlers hardening - handleLike treats unique conflicts as idempo
   assertSpyCalls(db.update, 1);
   assertSpyCalls(db.batch, 1);
   // A duplicate (existing edge) must NOT re-notify the owner; handleInteraction
-  // returns before the notify path, so no further selects happen.
-  assertSpyCalls(db.select, 1);
+  // returns before the notify path. Three selects: the audit#17 gate (target +
+  // block check) then the existing-edge lookup.
+  assertSpyCalls(db.select, 3);
 });
 
 test("userInboxHandlers hardening - handleDelete performs dependent deletes and counter update", async () => {
