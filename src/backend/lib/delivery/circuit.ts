@@ -94,35 +94,45 @@ async function getOrCreateCircuit(
   db: Database,
   endpoint: string,
 ): Promise<CircuitRow> {
+  const columns = {
+    endpoint: deliveryCircuit.endpoint,
+    state: deliveryCircuit.state,
+    consecutiveFailures: deliveryCircuit.consecutiveFailures,
+    recentOutcomesJson: deliveryCircuit.recentOutcomesJson,
+    openUntil: deliveryCircuit.openUntil,
+    halfOpenProbeAttempts: deliveryCircuit.halfOpenProbeAttempts,
+    halfOpenProbeSuccesses: deliveryCircuit.halfOpenProbeSuccesses,
+  };
+
   const existing = await db
-    .select({
-      endpoint: deliveryCircuit.endpoint,
-      state: deliveryCircuit.state,
-      consecutiveFailures: deliveryCircuit.consecutiveFailures,
-      recentOutcomesJson: deliveryCircuit.recentOutcomesJson,
-      openUntil: deliveryCircuit.openUntil,
-      halfOpenProbeAttempts: deliveryCircuit.halfOpenProbeAttempts,
-      halfOpenProbeSuccesses: deliveryCircuit.halfOpenProbeSuccesses,
-    })
+    .select(columns)
     .from(deliveryCircuit)
     .where(eq(deliveryCircuit.endpoint, endpoint))
     .get();
   if (existing) return existing as CircuitRow;
 
+  // Race-safe create. checkCircuit() calls this BEFORE the per-host bulkhead is
+  // acquired, and deliver_endpoint messages run concurrently (Cloudflare Queues
+  // is at-least-once), so two deliveries to the SAME never-seen endpoint can both
+  // pass the SELECT and reach this INSERT. `endpoint` is the PRIMARY KEY, so the
+  // second bare INSERT would throw a UNIQUE/PK violation and force a 60s message
+  // redelivery. onConflictDoNothing makes it race-safe; if the conflict swallowed
+  // our row (returning() empty), re-select the row the winner created. (Mirrors
+  // the actor_cache cold-insert discipline.)
   const created = await db
     .insert(deliveryCircuit)
     .values({ endpoint, ...INITIAL_CIRCUIT_DATA })
-    .returning({
-      endpoint: deliveryCircuit.endpoint,
-      state: deliveryCircuit.state,
-      consecutiveFailures: deliveryCircuit.consecutiveFailures,
-      recentOutcomesJson: deliveryCircuit.recentOutcomesJson,
-      openUntil: deliveryCircuit.openUntil,
-      halfOpenProbeAttempts: deliveryCircuit.halfOpenProbeAttempts,
-      halfOpenProbeSuccesses: deliveryCircuit.halfOpenProbeSuccesses,
-    })
+    .onConflictDoNothing()
+    .returning(columns)
     .get();
-  return created as CircuitRow;
+  if (created) return created as CircuitRow;
+
+  const winner = await db
+    .select(columns)
+    .from(deliveryCircuit)
+    .where(eq(deliveryCircuit.endpoint, endpoint))
+    .get();
+  return winner as CircuitRow;
 }
 
 export async function checkCircuit(

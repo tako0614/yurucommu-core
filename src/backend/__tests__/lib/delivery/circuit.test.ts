@@ -47,23 +47,34 @@ function createMockCircuitDb(): MockCircuitDb {
     }),
 
     insert: (_table: unknown) => ({
-      values: (data: Partial<CircuitRow> & { endpoint: string }) => ({
-        returning: (_fields?: unknown) => ({
-          get: async () => {
-            const row: CircuitRow = {
-              endpoint: data.endpoint,
-              state: data.state ?? "closed",
-              consecutiveFailures: data.consecutiveFailures ?? 0,
-              recentOutcomesJson: data.recentOutcomesJson ?? "[]",
-              openUntil: data.openUntil ?? null,
-              halfOpenProbeAttempts: data.halfOpenProbeAttempts ?? 0,
-              halfOpenProbeSuccesses: data.halfOpenProbeSuccesses ?? 0,
-            };
-            store.set(row.endpoint, row);
-            return row;
-          },
-        }),
-      }),
+      values: (data: Partial<CircuitRow> & { endpoint: string }) => {
+        const buildRow = (): CircuitRow => ({
+          endpoint: data.endpoint,
+          state: data.state ?? "closed",
+          consecutiveFailures: data.consecutiveFailures ?? 0,
+          recentOutcomesJson: data.recentOutcomesJson ?? "[]",
+          openUntil: data.openUntil ?? null,
+          halfOpenProbeAttempts: data.halfOpenProbeAttempts ?? 0,
+          halfOpenProbeSuccesses: data.halfOpenProbeSuccesses ?? 0,
+        });
+        const plainInsert = async () => {
+          const row = buildRow();
+          store.set(row.endpoint, row);
+          return row;
+        };
+        return {
+          returning: (_fields?: unknown) => ({ get: plainInsert }),
+          // onConflictDoNothing: when the endpoint already exists the INSERT is a
+          // no-op and returning() yields nothing (modelling the PK conflict the
+          // real getOrCreateCircuit recovers from with a re-SELECT).
+          onConflictDoNothing: () => ({
+            returning: (_fields?: unknown) => ({
+              get: async () =>
+                store.has(data.endpoint) ? undefined : plainInsert(),
+            }),
+          }),
+        };
+      },
     }),
 
     update: (_table: unknown) => ({
@@ -112,6 +123,28 @@ function extractValueFromEq(condition: unknown): string | null {
 
   return null;
 }
+
+test("delivery/circuit - concurrent first-ever creation of a cold endpoint is race-safe (no PK throw)", async () => {
+  // Audit #17: checkCircuit -> getOrCreateCircuit runs BEFORE the per-host
+  // bulkhead, and deliver_endpoint messages run concurrently, so two deliveries
+  // to the SAME never-seen endpoint can both pass the SELECT and reach the
+  // INSERT. The bare INSERT used to throw a PK violation (forcing a 60s
+  // redelivery). With onConflictDoNothing + re-SELECT, both calls resolve and
+  // the endpoint is created exactly once.
+  const endpoint = "https://cold.example/inbox";
+  const db = createMockCircuitDb();
+
+  const results = await Promise.all([
+    checkCircuit(db, endpoint),
+    checkCircuit(db, endpoint),
+  ]);
+
+  // Neither call threw, both allow delivery, and exactly one circuit row exists.
+  expect(results[0].allow).toBe(true);
+  expect(results[1].allow).toBe(true);
+  expect(db.__store.size).toBe(1);
+  expect(db.__store.has(endpoint)).toBe(true);
+});
 
 test("delivery/circuit - opens after 5 consecutive failures, then transitions to half-open", async () => {
   const endpoint = "https://remote.example/inbox";

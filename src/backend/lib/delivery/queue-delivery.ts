@@ -54,6 +54,38 @@ const DELIVERY_HTTP_TIMEOUT_MS = 8000;
 const STALE_PROCESSING_MS = 2 * 60 * 1000;
 const EPOCH_ISO = "1970-01-01T00:00:00.000Z";
 
+// 4xx statuses that are RETRYABLE rather than permanent (see isPermanentDeliveryFailure):
+//   429 Too Many Requests, 408 Request Timeout, 425 Too Early.
+//   401 Unauthorized: in secure-mode / authorized-fetch this is the remote FAILING
+//     to verify our HTTP signature, which is frequently TRANSIENT — it recovers
+//     once the remote (re-)fetches our actor #main-key (our origin was briefly
+//     down, mid key-rotation, the remote's key cache raced) or a brief Date/clock
+//     skew passes. A job is keyed by the SHARED INBOX endpoint, so treating this
+//     as permanent black-holed the activity for EVERY co-tenant recipient.
+//   404 Not Found: a shared inbox returning 404 is usually a transient blip
+//     (deploy/restart/misroute). It also triggers endpoint re-resolution, and
+//     failing permanently here left the re-resolved job colliding on the same
+//     terminal jobId (silently dropped). Retrying lets the endpoint recover.
+// 410 Gone (endpoint genuinely removed) and 400/403/422 (a remote per-activity /
+// deliberate-relationship verdict, not endpoint health) stay PERMANENT.
+export const TRANSIENT_DELIVERY_4XX: ReadonlySet<number> = new Set([
+  401, 404, 408, 425, 429,
+]);
+
+/**
+ * A delivery response status that should be PERMANENTLY failed (no retry): a 4xx
+ * that is not in the transient set. 5xx and transient 4xx are retried; a null
+ * status (network error) is not classified here.
+ */
+export function isPermanentDeliveryFailure(status: number | null): boolean {
+  return (
+    status !== null &&
+    status >= 400 &&
+    status < 500 &&
+    !TRANSIENT_DELIVERY_4XX.has(status)
+  );
+}
+
 type TimedFetchResult = {
   response: Response | null;
   error: unknown;
@@ -515,14 +547,9 @@ export async function processDeliverEndpoint(
       }
     }
 
-    // Non-retryable 4xx => permanent failure, EXCEPT transient statuses:
-    // 429 Too Many Requests, 408 Request Timeout, 425 Too Early.
-    const TRANSIENT_4XX = new Set([408, 425, 429]);
-    const nonRetryable =
-      status !== null &&
-      status >= 400 &&
-      status < 500 &&
-      !TRANSIENT_4XX.has(status);
+    // Permanent 4xx => fail; transient 4xx (TRANSIENT_DELIVERY_4XX) and 5xx are
+    // retried. See isPermanentDeliveryFailure for the classification rationale.
+    const nonRetryable = isPermanentDeliveryFailure(status);
     if (nonRetryable) {
       await failJob(db, job.id, errorMessage, message);
       emitMetric("delivery_success", 0, {
