@@ -379,6 +379,43 @@ test("PUBLIC-community story media stays viewable (served, not gated)", async ()
   expect((await getMedia(db, env, null)).status).toEqual(200);
 });
 
+test("an EXPIRED personal Story's media is DENIED to a follower but still served to the author", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const author = await insertLocalActor(db, "alice");
+  const followerApId = await insertLocalActor(db, "bob");
+  await seedUpload(db, env, author);
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/story-expired`,
+    type: "Story",
+    attributedTo: author,
+    content: "",
+    attachmentsJson: JSON.stringify({
+      attachment: { url: MEDIA_URL, r2_key: R2_KEY },
+    }),
+    visibility: "public",
+    endTime: "2020-01-01T00:00:00.000Z", // past
+    audienceJson: "[]",
+    isLocal: 1,
+  });
+  await db.insert(follows).values({
+    followerApId,
+    followingApId: author,
+    status: "accepted",
+  });
+
+  // An accepted follower would normally get a live story's media (200); once the
+  // 24h window elapsed the blob is denied — the media lifetime now matches the
+  // content lifetime instead of lingering until the best-effort reap.
+  expect(
+    (await getMedia(db, env, fakeActor(followerApId, "bob"))).status,
+  ).toEqual(403);
+  // The author can still access their own blob.
+  expect((await getMedia(db, env, fakeActor(author, "alice"))).status).toEqual(
+    200,
+  );
+});
+
 test("direct media is served only to addressed recipients", async () => {
   const db = await freshDb();
   const env = envFor(db);

@@ -283,6 +283,7 @@ type ReferencingObject = {
   visibility: string;
   toJson: string;
   communityApId: string | null;
+  endTime: string | null;
 };
 
 // Locate the object that attached this media using ONLY indexed lookups.
@@ -334,6 +335,7 @@ async function findReferencingObject(
       visibility: objects.visibility,
       toJson: objects.toJson,
       communityApId: objects.communityApId,
+      endTime: objects.endTime,
       attachmentsJson: objects.attachmentsJson,
     })
     .from(objects)
@@ -357,6 +359,7 @@ async function findReferencingObject(
         visibility: row.visibility,
         toJson: row.toJson,
         communityApId: row.communityApId,
+        endTime: row.endTime,
       };
     }
   }
@@ -429,6 +432,18 @@ async function checkMediaAuthorization(
   // Author can always access their own media (even after leaving a community).
   if (currentActorApId && obj.attributedTo === currentActorApId) {
     return ALLOW_PRIVATE;
+  }
+
+  // Stories are ephemeral (24h endTime). Once expired, the blob must not be
+  // served to anyone but the author (handled just above) — mirror the feed /
+  // single-object gates (gt(endTime, now)) so the media lifetime matches the
+  // content lifetime instead of lingering until the best-effort reap fires.
+  if (
+    obj.type === "Story" &&
+    obj.endTime &&
+    obj.endTime <= new Date().toISOString()
+  ) {
+    return currentActorApId ? DENY_NOT_AUTHORIZED : DENY_AUTH_REQUIRED;
   }
 
   // Community-scoped media (a Story / community post is stored

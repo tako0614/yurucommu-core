@@ -258,6 +258,43 @@ test("#15 public Announce of a REMOTE (absent) object is emitted; followers/dire
   expect(collection.body.totalItems).toEqual(1);
 });
 
+test("GET /ap/objects/:id 404s an EXPIRED Story (ephemerality past 24h endTime)", async () => {
+  const db = await freshDb();
+  const actorApId = await insertLocalActor(db, "alice");
+
+  // An expired personal story: type=Story, default visibility=public,
+  // audienceJson="[]", endTime in the past.
+  const expiredId = `${APP_URL}/ap/objects/story-expired`;
+  await db.insert(objects).values({
+    apId: expiredId,
+    type: "Story",
+    attributedTo: actorApId,
+    content: "ephemeral secret",
+    visibility: "public",
+    endTime: "2020-01-01T00:00:00.000Z",
+    published: "2020-01-01T00:00:00.000Z",
+    isLocal: 1,
+  });
+  const expired = await fetchJson(db, "/ap/objects/story-expired");
+  expect(expired.status).toEqual(404);
+
+  // A still-live story (endTime in the future) is still served.
+  const liveId = `${APP_URL}/ap/objects/story-live`;
+  await db.insert(objects).values({
+    apId: liveId,
+    type: "Story",
+    attributedTo: actorApId,
+    content: "still here",
+    visibility: "public",
+    endTime: "2999-01-01T00:00:00.000Z",
+    published: "2026-01-01T00:00:00.000Z",
+    isLocal: 1,
+  });
+  const live = await fetchJson(db, "/ap/objects/story-live");
+  expect(live.status).toEqual(200);
+  expect(live.body.id).toEqual(liveId);
+});
+
 test("#16 GET /ap/objects/:id serves an unlisted object publicly (no signature)", async () => {
   const db = await freshDb();
   const actorApId = await insertLocalActor(db, "alice");
