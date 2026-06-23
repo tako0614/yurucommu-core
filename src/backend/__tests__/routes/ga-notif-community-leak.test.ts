@@ -26,10 +26,12 @@ import type { Database } from "../../../db/index.ts";
 import {
   actors,
   activities,
+  blocks,
   communities,
   communityMembers,
   follows,
   inbox as inboxTable,
+  mutes,
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -441,4 +443,61 @@ test("a direct (DM) Create is excluded from notifications + the unread count; a 
   const countRes = await app.request(`${APP_URL}/unread/count`);
   const countBody = (await countRes.json()) as { count: number };
   expect(countBody.count).toBe(1);
+});
+
+test("notifications from a blocked or muted actor are suppressed (list + unread count)", async () => {
+  const db = await freshDb();
+  const me = await insertLocalActor(db, "me");
+  const blocked = await insertLocalActor(db, "spammer"); // I block them
+  const muted = await insertLocalActor(db, "noisy"); // I mute them
+  const friend = await insertLocalActor(db, "friend"); // neither
+
+  const post = `${APP_URL}/ap/objects/mypost`;
+  await db.insert(objects).values({
+    apId: post,
+    type: "Note",
+    attributedTo: me,
+    content: "hi",
+    visibility: "public",
+    audienceJson: "[]",
+    published: "2026-01-01T00:00:00.000Z",
+    isLocal: 1,
+  });
+
+  // Each of the three likes my public post -> a Like notification in my inbox.
+  const seedLike = async (id: string, who: string) => {
+    const act = `${APP_URL}/ap/activities/${id}`;
+    await db.insert(activities).values({
+      apId: act,
+      type: "Like",
+      actorApId: who,
+      objectApId: post,
+      rawJson: "{}",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await db.insert(inboxTable).values({
+      actorApId: me,
+      activityApId: act,
+      read: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+  };
+  await seedLike("like-blocked", blocked);
+  await seedLike("like-muted", muted);
+  await seedLike("like-friend", friend);
+
+  await db.insert(blocks).values({ blockerApId: me, blockedApId: blocked });
+  await db.insert(mutes).values({ muterApId: me, mutedApId: muted });
+
+  // List: only the non-blocked/non-muted like survives.
+  const notifs = await fetchNotifications(db, fakeActor(me, "me"));
+  expect(notifs.length).toBe(1);
+  expect(notifs[0].type).toBe("like");
+
+  // Unread count mirrors the list (blocked/muted excluded).
+  const countRes = await appWith(db, fakeActor(me, "me")).request(
+    `${APP_URL}/unread/count`,
+  );
+  expect(countRes.status).toBe(200);
+  expect(((await countRes.json()) as { count: number }).count).toBe(1);
 });

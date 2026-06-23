@@ -34,6 +34,7 @@ import { batchLoadActorInfo } from "./communities/membership-shared.ts";
 import { requireActor } from "./actors-helpers.ts";
 import { communityReadableApIds } from "../lib/community-visibility.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
+import { excludeBlockedMutedAuthors } from "../lib/feed-exclude.ts";
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -309,6 +310,17 @@ notifications.get("/", async (c) => {
   if (before) {
     conditions.push(notifCursorPredicate(decodeNotifCursor(before)));
   }
+  // Suppress notifications whose actor the recipient has blocked or muted. This
+  // is the read-time choke point: mutes are read-only everywhere, and not every
+  // notify WRITE path block-checks, so gating here covers like/repost/follow/
+  // reply/mention (local AND federated) for both blocks and mutes. Keyed on the
+  // activity actor (subquery-scoped → D1-param-safe).
+  const listBlockMute = excludeBlockedMutedAuthors(
+    db,
+    actor.ap_id,
+    activities.actorApId,
+  );
+  if (listBlockMute) conditions.push(listBlockMute);
 
   const inboxEntries = await db
     .select({
@@ -531,6 +543,9 @@ notifications.get("/unread/count", async (c) => {
         ne(activities.actorApId, actor.ap_id),
         inArray(activities.type, NOTIFICATION_ACTIVITY_TYPES),
         or(isNull(objects.visibility), ne(objects.visibility, "direct"))!,
+        // Mirror the list query: don't count notifications from blocked/muted
+        // actors toward the unread badge.
+        excludeBlockedMutedAuthors(db, actor.ap_id, activities.actorApId),
       ),
     )
     .get();

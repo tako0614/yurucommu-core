@@ -1,4 +1,4 @@
-import { and, eq, notInArray, type SQL } from "drizzle-orm";
+import { and, type AnyColumn, eq, notInArray, type SQL } from "drizzle-orm";
 import type { Database } from "../../db/index.ts";
 import { blocks, mutes, objects } from "../../db/index.ts";
 
@@ -18,22 +18,27 @@ import { blocks, mutes, objects } from "../../db/index.ts";
  * Returns `undefined` for an empty viewer (anonymous) so callers can skip it.
  * Applying it unconditionally for a logged-in viewer is correct even with zero
  * blocks/mutes: `NOT IN (empty set)` is true for every row.
+ *
+ * `column` defaults to the post author (`objects.attributedTo`) for feeds, but
+ * can be any actor-id column — e.g. `activities.actorApId` so the notifications
+ * list/count can suppress activity from blocked/muted accounts the same way.
  */
 export function excludeBlockedMutedAuthors(
   db: Database,
   viewerApId: string,
+  column: AnyColumn = objects.attributedTo,
 ): SQL | undefined {
   if (!viewerApId) return undefined;
   return and(
     notInArray(
-      objects.attributedTo,
+      column,
       db
         .select({ id: blocks.blockedApId })
         .from(blocks)
         .where(eq(blocks.blockerApId, viewerApId)),
     ),
     notInArray(
-      objects.attributedTo,
+      column,
       db
         .select({ id: mutes.mutedApId })
         .from(mutes)
