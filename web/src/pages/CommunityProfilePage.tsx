@@ -8,16 +8,19 @@ import { enterCommunityScopeAtom } from "../atoms/scope.ts";
 import {
   acceptCommunityJoinRequest,
   CommunityDetail,
+  CommunityInvite,
   CommunityJoinRequest,
   CommunitySettings,
   createCommunityInvite,
   fetchCommunity,
+  fetchCommunityInvites,
   fetchCommunityJoinRequests,
   fetchCommunityMembers,
   joinCommunity,
   leaveCommunity,
   rejectCommunityJoinRequest,
   removeCommunityMember,
+  revokeCommunityInvite,
   updateCommunityMemberRole,
   updateCommunitySettings,
   uploadMedia,
@@ -69,6 +72,11 @@ export function CommunityProfilePage() {
   const [loadingRequests, setLoadingRequests] = createSignal(false);
   const [inviteCode, setInviteCode] = createSignal<string | null>(null);
   const [creatingInvite, setCreatingInvite] = createSignal(false);
+  const [invites, setInvites] = createSignal<CommunityInvite[]>([]);
+  const [loadingInvites, setLoadingInvites] = createSignal(false);
+  const [revokingInvite, setRevokingInvite] = createSignal<
+    Record<string, boolean>
+  >({});
   const [requestAction, setRequestAction] = createSignal<
     Record<string, boolean>
   >({});
@@ -157,8 +165,14 @@ export function CommunityProfilePage() {
         } finally {
           setLoadingRequests(false);
         }
+        if (data.join_policy === "invite") {
+          await loadInvites(name);
+        } else {
+          setInvites([]);
+        }
       } else {
         setJoinRequests([]);
+        setInvites([]);
       }
     } catch (e) {
       if (gen !== communityLoadGen) return;
@@ -309,6 +323,17 @@ export function CommunityProfilePage() {
     }
   };
 
+  const loadInvites = async (name: string) => {
+    setLoadingInvites(true);
+    try {
+      setInvites(await fetchCommunityInvites(name));
+    } catch (e) {
+      console.error("Failed to load invites:", e);
+    } finally {
+      setLoadingInvites(false);
+    }
+  };
+
   const handleCreateInvite = async () => {
     const comm = community();
     if (!comm || creatingInvite()) return;
@@ -316,11 +341,29 @@ export function CommunityProfilePage() {
     try {
       const result = await createCommunityInvite(comm.name);
       setInviteCode(result.invite_id);
+      // Refresh the list so the freshly-minted invite shows in the management
+      // panel (and can be revoked).
+      await loadInvites(comm.name);
     } catch (e) {
       console.error("Failed to create invite:", e);
       setError(t("common.error"));
     } finally {
       setCreatingInvite(false);
+    }
+  };
+
+  const handleRevokeInvite = async (invite: CommunityInvite) => {
+    const comm = community();
+    if (!comm || revokingInvite()[invite.id]) return;
+    setRevokingInvite((prev) => ({ ...prev, [invite.id]: true }));
+    try {
+      await revokeCommunityInvite(comm.name, invite.id);
+      setInvites((prev) => prev.filter((i) => i.id !== invite.id));
+    } catch (e) {
+      console.error("Failed to revoke invite:", e);
+      setError(t("members.revokeFailed"));
+    } finally {
+      setRevokingInvite((prev) => ({ ...prev, [invite.id]: false }));
     }
   };
 
@@ -623,6 +666,9 @@ export function CommunityProfilePage() {
               removingMember={removingMember()}
               inviteCode={inviteCode()}
               creatingInvite={creatingInvite()}
+              invites={invites()}
+              loadingInvites={loadingInvites()}
+              revokingInvite={revokingInvite()}
               joinPolicy={community()!.join_policy}
               actorApId={actor.ap_id}
               onAcceptRequest={handleAcceptRequest}
@@ -630,6 +676,7 @@ export function CommunityProfilePage() {
               onUpdateMemberRole={handleUpdateMemberRole}
               onRemoveMember={handleRemoveMember}
               onCreateInvite={handleCreateInvite}
+              onRevokeInvite={handleRevokeInvite}
               t={t}
             />
           </Show>

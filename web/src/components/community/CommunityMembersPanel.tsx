@@ -1,7 +1,10 @@
 import { For, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import type { CommunityJoinRequest } from "../../lib/api.ts";
-import type { CommunityMember } from "../../lib/api/communities.ts";
+import type {
+  CommunityInvite,
+  CommunityMember,
+} from "../../lib/api/communities.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import type { Translate } from "../../lib/i18n.tsx";
 
@@ -16,6 +19,9 @@ interface CommunityMembersPanelProps {
   updatingMemberRole: Record<string, boolean>;
   inviteCode: string | null;
   creatingInvite: boolean;
+  invites: CommunityInvite[];
+  loadingInvites: boolean;
+  revokingInvite: Record<string, boolean>;
   joinPolicy: string | undefined;
   actorApId: string;
   removingMember: Record<string, boolean>;
@@ -27,6 +33,7 @@ interface CommunityMembersPanelProps {
   ) => void;
   onRemoveMember: (member: CommunityMember) => void;
   onCreateInvite: () => void;
+  onRevokeInvite: (invite: CommunityInvite) => void;
   t: Translate;
 }
 
@@ -224,6 +231,63 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
               </span>
             </Show>
           </div>
+
+          {/* Outstanding invites with their state + a revoke control, so a
+              leaked/over-shared code can actually be invalidated from the app. */}
+          <Show when={!props.loadingInvites} fallback={null}>
+            <Show
+              when={props.invites.length > 0}
+              fallback={
+                <div class="mt-3 text-xs text-neutral-500">
+                  {props.t("members.noInvites")}
+                </div>
+              }
+            >
+              <div class="mt-3 space-y-2">
+                <For each={props.invites}>
+                  {(invite) => {
+                    const used = () => invite.used_at !== null;
+                    const expired = () =>
+                      !used() &&
+                      invite.expires_at !== null &&
+                      invite.expires_at <= new Date().toISOString();
+                    return (
+                      <div class="flex items-center gap-2 text-xs">
+                        <span class="font-mono text-neutral-300 truncate">
+                          {invite.id}
+                        </span>
+                        <span
+                          class="px-1.5 py-0.5 rounded"
+                          classList={{
+                            "bg-neutral-800 text-neutral-400":
+                              used() || expired(),
+                            "bg-green-500/15 text-green-400":
+                              !used() && !expired(),
+                          }}
+                        >
+                          {used()
+                            ? props.t("members.inviteUsed")
+                            : expired()
+                              ? props.t("members.inviteExpired")
+                              : props.t("members.inviteActive")}
+                        </span>
+                        <Show when={!used()}>
+                          <button
+                            type="button"
+                            onClick={() => props.onRevokeInvite(invite)}
+                            disabled={props.revokingInvite[invite.id]}
+                            class="ml-auto text-rose-400 hover:text-rose-300 disabled:opacity-50 shrink-0"
+                          >
+                            {props.t("members.revokeInvite")}
+                          </button>
+                        </Show>
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
+            </Show>
+          </Show>
         </div>
       </Show>
     </div>
