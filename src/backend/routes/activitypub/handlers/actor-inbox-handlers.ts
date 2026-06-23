@@ -304,6 +304,15 @@ export async function handleGroupCreate(
     summary: boundInboundSummary(object.summary),
     attachmentsJson: boundAttachmentsJson(attachments),
     visibility: "group",
+    // Record the community in audienceJson too (not just the object_recipients
+    // row): the canonical single-object read-gate (canViewerReadObject) keys on
+    // audienceJson/communityApId and does NOT consult object_recipients, so
+    // without this a federated chat message in a PRIVATE community was served to
+    // ANY (even anonymous) caller via GET /api/posts/:id. The local chat POST sets
+    // this for the same reason. Safe for the chat reader (joins on
+    // object_recipients + communityApId IS NULL, not audienceJson) and the feed
+    // (audienceJson != "[]" already excludes it).
+    audienceJson: JSON.stringify([community.apId]),
     communityApId: null,
     published: now,
     isLocal: 0,

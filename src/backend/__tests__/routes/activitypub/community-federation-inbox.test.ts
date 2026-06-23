@@ -9,6 +9,7 @@ import type { Database } from "../../../../db/index.ts";
 import {
   activities,
   communities,
+  communityMembers,
   follows,
   objectRecipients,
   objects,
@@ -18,6 +19,7 @@ import {
   handleGroupFollow,
   handleGroupUndo,
 } from "../../../routes/activitypub/handlers/actor-inbox-handlers.ts";
+import { canViewerReadObject } from "../../../lib/community-visibility.ts";
 import type { InstanceActorResult } from "../../../routes/activitypub/query-helpers.ts";
 import type {
   ActivityContext,
@@ -378,6 +380,62 @@ test("an ACCEPTED member's group Create IS inserted + audience-linked to the com
   const audience = await chatMessages(db, apId);
   expect(audience.length).toBe(1);
   expect(audience[0]?.objectApId).toBe("https://remote.example/notes/1");
+});
+
+test("a federated group-chat message in a PRIVATE community is read-gated (anon + non-member denied, local member allowed)", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "vault", "open", {
+    visibility: "private",
+  });
+  await acceptMember(db, apId); // REMOTE is an accepted (remote) member
+  await handleGroupCreate(
+    ctx(db),
+    groupCreate(apId, "secret member chat"),
+    INSTANCE_ACTOR,
+    REMOTE,
+    APP_URL,
+  );
+
+  const obj = await db
+    .select({
+      visibility: objects.visibility,
+      communityApId: objects.communityApId,
+      audienceJson: objects.audienceJson,
+    })
+    .from(objects)
+    .where(eq(objects.apId, "https://remote.example/notes/1"))
+    .get();
+  expect(obj).toBeTruthy();
+  // The fix records the community in audienceJson, so the canonical read-gate
+  // fires. /api/posts/:id serves LOCAL actors, so the gate keys on local
+  // communityMembers: an anonymous caller and a local non-member are DENIED.
+  expect(await canViewerReadObject(db, obj!, null)).toBe(false);
+  expect(
+    await canViewerReadObject(db, obj!, `${APP_URL}/ap/users/nobody`),
+  ).toBe(false);
+
+  // A LOCAL accepted member can read it. (Seed the actor row first — the
+  // community_members FK to actors is enforced by the in-memory DB.)
+  const insider = `${APP_URL}/ap/users/insider`;
+  await db.insert(schema.actors).values({
+    apId: insider,
+    type: "Person",
+    preferredUsername: "insider",
+    inbox: `${insider}/inbox`,
+    outbox: `${insider}/outbox`,
+    followersUrl: `${insider}/followers`,
+    followingUrl: `${insider}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db.insert(communityMembers).values({
+    communityApId: apId,
+    actorApId: insider,
+    role: "member",
+  });
+  expect(
+    await canViewerReadObject(db, obj!, `${APP_URL}/ap/users/insider`),
+  ).toBe(true);
 });
 
 test("a group Create into a SOFT-DELETED community is REJECTED even from a member", async () => {
