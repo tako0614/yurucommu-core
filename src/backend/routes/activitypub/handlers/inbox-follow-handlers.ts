@@ -13,6 +13,7 @@ import {
   isLocal,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import { actorIsBlockedBy } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
 import {
   type Activity,
@@ -45,6 +46,18 @@ export async function handleFollow(
   baseUrl: string,
 ) {
   const db = c.get("db");
+
+  // A Follow from an actor the recipient has personally BLOCKED must be dropped —
+  // mirror the local follow guard (handleLocalFollow's actorIsBlockedBy 404).
+  // Without this, a blocked remote could re-follow (auto-accepting on a public
+  // recipient → followerCount++ + a follow notification + an Accept, so the
+  // blocked actor resumes receiving fan-out), or surface in the owner's
+  // follow-request list. `actor` is the HTTP-signature-verified signer. The inbox
+  // already ACKs, so dropping here causes no retry storm and does not leak the
+  // block to the sender.
+  if (await actorIsBlockedBy(db, recipient.apId, actor)) {
+    return;
+  }
 
   const activityId = activity.id || activityApId(baseUrl, generateId());
 

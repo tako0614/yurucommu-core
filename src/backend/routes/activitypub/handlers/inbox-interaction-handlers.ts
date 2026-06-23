@@ -317,7 +317,7 @@ export async function handleBlock(
  * Block, a never-existing edge, or a crash-then-retry is a clean no-op rather
  * than permanently over-counting.
  */
-async function severFollowEdge(
+export async function severFollowEdge(
   db: Database,
   followerApId: string,
   followingApId: string,

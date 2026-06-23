@@ -24,6 +24,7 @@ import {
   inbox,
   likes,
   objects,
+  storyShares,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import dmRoutes from "../../routes/dm/messages.ts";
@@ -287,6 +288,68 @@ test("story like is rejected when author has blocked the liker", async () => {
     .where(eq(objects.apId, storyApId))
     .get();
   expect(story?.likeCount).toEqual(0);
+});
+
+test("story view/vote/share are rejected when author has blocked the actor", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "bauthor");
+  const actorApId = await insertLocalActor(db, "bactor");
+
+  const storyApId = `${APP_URL}/ap/objects/story-block`;
+  await db.insert(objects).values({
+    apId: storyApId,
+    type: "Story",
+    attributedTo: authorApId,
+    // public so canViewerReadStory would PASS — only the block gate rejects.
+    visibility: "public",
+    likeCount: 0,
+    shareCount: 0,
+  });
+  await db.insert(blocks).values({
+    blockerApId: authorApId,
+    blockedApId: actorApId,
+  });
+
+  const app = appWith(db, fakeActor(actorApId, "bactor"), storyRoutes);
+
+  const view = await app.fetch(
+    new Request(`${APP_URL}/view`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ap_id: storyApId }),
+    }),
+    envFor(db),
+  );
+  expect(view.status).toEqual(404);
+
+  const vote = await app.fetch(
+    new Request(`${APP_URL}/vote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ap_id: storyApId, option_index: 0 }),
+    }),
+    envFor(db),
+  );
+  expect(vote.status).toEqual(404);
+
+  const share = await app.fetch(
+    new Request(`${APP_URL}/story-block/share`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(share.status).toEqual(404);
+
+  // No share row and no count change.
+  const shareRows = await db
+    .select()
+    .from(storyShares)
+    .where(eq(storyShares.storyApId, storyApId));
+  expect(shareRows.length).toEqual(0);
+  const story = await db
+    .select({ shareCount: objects.shareCount })
+    .from(objects)
+    .where(eq(objects.apId, storyApId))
+    .get();
+  expect(story?.shareCount).toEqual(0);
 });
 
 test("story interactions (view/like/share) require an accepted follow for a personal story", async () => {

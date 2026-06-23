@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, follows } from "../../../db/index.ts";
+import { actors, blocks, follows } from "../../../db/index.ts";
 import { handleFollow } from "../../routes/activitypub/handlers/inbox-follow-handlers.ts";
 import type {
   Activity,
@@ -125,6 +125,31 @@ async function edgeCount(db: Database, target: string): Promise<number> {
     .where(eq(follows.followingApId, target));
   return rows.length;
 }
+
+// Audit #15 finding #2 (HIGH): an inbound Follow from an actor the recipient has
+// LOCALLY blocked must be dropped — no edge, no count, no Accept/notify. Pre-fix
+// handleFollow ignored the per-user `blocks` table entirely, so a blocked actor
+// could (re)establish a follow edge and resume receiving the recipient's
+// followers-only content.
+test("[audit#15 #2] an inbound Follow from a blocked actor is dropped (no edge, no count)", async () => {
+  const db = await setup();
+  // bob (recipient) has blocked alice (the incoming follower).
+  await db
+    .insert(blocks)
+    .values({ blockerApId: RECIPIENT, blockedApId: LOCAL_FOLLOWER });
+
+  await handleFollow(
+    ctxFor(db),
+    followActivity(FOLLOW_ACTIVITY, LOCAL_FOLLOWER, RECIPIENT),
+    recipientRow(RECIPIENT, false),
+    LOCAL_FOLLOWER,
+    APP_URL,
+  );
+
+  // No edge created, recipient's follower count unchanged.
+  expect(await edgeCount(db, RECIPIENT)).toBe(0);
+  expect(await followerCount(db, RECIPIENT)).toBe(0);
+});
 
 test("[R6 #2] auto-accepted Follow applies the edge + followerCount atomically, once", async () => {
   const db = await setup();

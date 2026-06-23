@@ -25,6 +25,7 @@ import {
   sumVotes,
 } from "./query-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import { actorIsBlockedBy } from "../../lib/post-visibility.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import { logger } from "../../lib/logger.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
@@ -79,6 +80,12 @@ stories.post("/view", async (c) => {
   if (!(await canViewerReadStory(db, story, actor.ap_id))) {
     return c.json({ error: "Story not found" }, 404);
   }
+  // The author has blocked this actor: refuse (404, not leaking the block) so a
+  // blocked actor can't register a view (or, on vote/share below, manipulate the
+  // tally / share count) — parity with the like handler.
+  if (await actorIsBlockedBy(db, story.attributedTo, actor.ap_id)) {
+    return c.json({ error: "Story not found" }, 404);
+  }
 
   try {
     // Upsert: check existence then insert if not found
@@ -131,6 +138,12 @@ stories.post("/vote", async (c) => {
   const now = new Date().toISOString();
   if (story.endTime && story.endTime < now) {
     return c.json({ error: "Story has expired" }, 410);
+  }
+  // A blocked actor must not be able to vote (skewing the author's poll tally)
+  // — a local block does NOT sever follow/community membership, so canViewerRead
+  // below still passes for a still-following/co-member blocked actor.
+  if (await actorIsBlockedBy(db, story.attributedTo, actor.ap_id)) {
+    return c.json({ error: "Story not found" }, 404);
   }
   // A non-follower / non-member must not be able to vote on a story they cannot
   // see (the author would otherwise receive poll votes from unentitled actors).
@@ -414,6 +427,11 @@ stories.post("/:id/share", async (c) => {
   const nowIso = new Date().toISOString();
   if (story.endTime && story.endTime < nowIso) {
     return c.json({ error: "Story has expired" }, 410);
+  }
+  // A blocked actor must not be able to share (inflating the author's shareCount)
+  // — parity with the like/vote/view gates.
+  if (await actorIsBlockedBy(db, story.attributedTo, actor.ap_id)) {
+    return c.json({ error: "Story not found" }, 404);
   }
   // Re-sharing is only for a story the actor can see — never a followers-only /
   // community story they were not shown.

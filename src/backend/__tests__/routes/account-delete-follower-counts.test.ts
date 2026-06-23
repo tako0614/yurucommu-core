@@ -10,6 +10,7 @@ import type { Database } from "../../../db/index.ts";
 import {
   actors,
   announces,
+  blocks,
   dmArchivedConversations,
   dmCommunityReadStatus,
   dmReadStatus,
@@ -400,4 +401,57 @@ test("account deletion reaps story_shares (+reconciles shareCount) and DM-status
   ).toBe(0);
   // Both dm_typing rows (tako as actor AND tako as recipient) are gone.
   expect(await rowCount(db, db.select().from(dmTyping))).toBe(0);
+});
+
+// Audit #15 finding #1 (HIGH): a LOCAL block (POST /me/blocked) must sever BOTH
+// follow edges between the two actors and reconcile both counters — mirroring the
+// federated handleBlock. Previously it only inserted the block row, leaving the
+// blocked actor still following (and still counted), so they kept receiving the
+// blocker's followers-only posts and inflated the follower/following totals.
+test("POST /me/blocked severs both follow edges and decrements both counters", async () => {
+  const db = await freshDb();
+  // tako and mallory mutually follow (both accepted, both counted).
+  const tako = await insertActor(db, "tako", {
+    followerCount: 1,
+    followingCount: 1,
+  });
+  const mallory = await insertActor(db, "mallory", {
+    followerCount: 1,
+    followingCount: 1,
+  });
+  await follow(db, mallory, tako); // mallory -> tako (tako.followerCount=1)
+  await follow(db, tako, mallory); // tako -> mallory (tako.followingCount=1)
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me/blocked`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ap_id: mallory }),
+    }),
+    envFor(db),
+  );
+  expect(res.status).toBe(200);
+
+  // The block row exists.
+  expect(
+    await rowCount(
+      db,
+      db.select().from(blocks).where(eq(blocks.blockerApId, tako)),
+    ),
+  ).toBe(1);
+  // BOTH follow edges are gone (no lingering "blocked actor still follows me").
+  expect(await rowCount(db, db.select().from(follows))).toBe(0);
+  // Both sides' counters were reconciled down to 0 (not left inflated).
+  expect((await countOf(db, tako))?.followerCount).toBe(0);
+  expect((await countOf(db, tako))?.followingCount).toBe(0);
+  expect((await countOf(db, mallory))?.followerCount).toBe(0);
+  expect((await countOf(db, mallory))?.followingCount).toBe(0);
 });
