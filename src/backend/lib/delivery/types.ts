@@ -44,6 +44,11 @@ export type DeliveryDeliverEndpointMessageV1 = {
   version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
   type: "deliver_endpoint";
   jobId: string;
+  // How many reconcile cycles this job has already been through. Carried in-band
+  // (deliver_endpoint -> dlq -> reconcile_job -> deliver_endpoint) so the
+  // reconcile loop has a DURABLE-across-attempts terminal condition without a DB
+  // column. Absent on the initial delivery (treated as 0).
+  reconcileAttempt?: number;
   scheduledAt: string; // ISO8601 UTC
 };
 
@@ -70,6 +75,9 @@ export type DeliveryDlqMessageV1 = {
   endpoint: string;
   attempts: number;
   lastError: string | null;
+  // The reconcile-cycle count carried from the deliver_endpoint that
+  // dead-lettered, so the DLQ consumer can stop reconciling once it hits the cap.
+  reconcileAttempt?: number;
   deadLetteredAt: string; // ISO8601 UTC
 };
 

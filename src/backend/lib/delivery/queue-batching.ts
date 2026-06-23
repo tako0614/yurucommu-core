@@ -38,6 +38,7 @@ import {
 import {
   buildDeliverEndpointMessage,
   buildResolveActorMessage,
+  MAX_RECONCILE_ATTEMPTS,
   nowIso,
   type QueueEnv,
   requireQueue,
@@ -47,7 +48,6 @@ import {
 import { logger } from "../logger.ts";
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
-const MAX_RECONCILE_ATTEMPTS = 5;
 // Cap on resolve_actor self-requeues (each ~60s apart) before giving up on a
 // permanently-unresolvable recipient — otherwise a dead host churns one queue
 // message every 60s forever.
@@ -592,7 +592,13 @@ export async function processReconcileJob(
     })
     .where(eq(deliveryQueue.id, msg.jobId));
 
-  await sendQueueMessage(env, buildDeliverEndpointMessage(msg.jobId));
+  // Carry the reconcile-cycle count forward on the revived delivery so that, if
+  // it dead-letters again, the next DLQ message advances the budget (and the
+  // loop terminates after MAX_RECONCILE_ATTEMPTS) instead of resetting to 1.
+  await sendQueueMessage(
+    env,
+    buildDeliverEndpointMessage(msg.jobId, msg.reconcileAttempt),
+  );
   message.ack();
 }
 

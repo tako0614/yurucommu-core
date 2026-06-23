@@ -41,7 +41,6 @@ import {
 } from "./transformers.ts";
 import {
   buildDeliverEndpointMessage,
-  buildReconcileJobMessage,
   type Bulkhead,
   enqueueResolveForEndpointActors,
   nowIso,
@@ -566,6 +565,9 @@ export async function processDeliverEndpoint(
         endpoint,
         attempts: nextAttempts,
         lastError: errorMessage,
+        // Carry the job's reconcile-cycle count so the DLQ consumer can advance
+        // (and ultimately terminate) the reconciliation budget.
+        reconcileAttempt: msg.reconcileAttempt ?? 0,
         deadLetteredAt: now,
       });
 

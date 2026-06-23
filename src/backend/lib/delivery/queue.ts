@@ -168,13 +168,24 @@ export async function sendDlqMessage(
   await env.DELIVERY_DLQ.send(payload);
 }
 
+// Maximum reconcile cycles before a dead-lettered job is left terminally
+// dead_letter. Each cycle revives the job (6h apart) for one more full retry
+// series, so this bounds a permanently-dead endpoint instead of churning the
+// queue forever. Exported so the DLQ consumer (handleDeliveryDlqBatch) and the
+// reconcile worker (processReconcileJob) share one source of truth.
+export const MAX_RECONCILE_ATTEMPTS = 5;
+
 export function buildDeliverEndpointMessage(
   jobId: string,
+  reconcileAttempt = 0,
 ): DeliveryQueueMessageV1 {
   return {
     version: DELIVERY_QUEUE_MESSAGE_VERSION,
     type: "deliver_endpoint",
     jobId,
+    // Only stamp the field once a reconcile cycle has begun, so the initial
+    // delivery message stays byte-identical to before (treated as 0 on read).
+    ...(reconcileAttempt > 0 ? { reconcileAttempt } : {}),
     scheduledAt: nowIso(),
   };
 }
@@ -529,11 +540,27 @@ export async function handleDeliveryDlqBatch(
       deadLetteredAt: body.deadLetteredAt,
     });
 
-    // Phase 3: periodic reconciliation (best-effort).
+    // Phase 3: periodic reconciliation (best-effort), BOUNDED. The job's
+    // reconcile-cycle count is carried in-band on the dead-lettered
+    // deliver_endpoint message (default 0 for the first dead-letter). Once it
+    // reaches the cap, stop reconciling and leave the job terminally dead_letter
+    // — otherwise a permanently-dead endpoint loops dead_letter -> reconcile ->
+    // dead_letter forever. The next cycle carries count+1.
+    const reconcileAttempt = body.reconcileAttempt ?? 0;
+    if (reconcileAttempt >= MAX_RECONCILE_ATTEMPTS) {
+      log.warn("Delivery job exhausted reconciliation budget; giving up", {
+        event: "delivery.dlq.reconciliation_exhausted",
+        jobId: body.jobId,
+        endpoint: body.endpoint,
+        reconcileAttempt,
+      });
+      message.ack();
+      continue;
+    }
     try {
       await sendQueueMessage(
         env,
-        buildReconcileJobMessage(body.jobId, 1),
+        buildReconcileJobMessage(body.jobId, reconcileAttempt + 1),
         6 * 60 * 60,
       );
     } catch (e) {
