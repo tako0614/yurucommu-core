@@ -35,6 +35,7 @@ const CommunityProfilePage = lazy(
   () => import("./pages/CommunityProfilePage.tsx"),
 );
 const SearchPage = lazy(() => import("./pages/SearchPage.tsx"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage.tsx"));
 
 function AppShell() {
   return (
@@ -61,6 +62,10 @@ function AppShell() {
         <Route path="/post/*postId" component={PostDetailPage} />
         <Route path="/bookmarks" component={BookmarksPage} />
         <Route path="/settings" component={SettingsPage} />
+        {/* Catch-all: an unknown in-app path otherwise renders a blank
+            dead-end. Keep it INSIDE AppLayout so the not-found state shows
+            within the normal chrome with a link home. */}
+        <Route path="*" component={NotFoundPage} />
       </Route>
     </Router>
   );

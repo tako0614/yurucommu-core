@@ -560,6 +560,7 @@ const translations = {
     "settings.alsoKnownAs": "別名 (alsoKnownAs)",
     "settings.alsoKnownAsHint":
       "他のアカウントから引っ越してくる前に、その別名をここに登録します。",
+    "settings.aliasesSaved": "別名を保存しました",
     "settings.moveAccount": "フォロワーを別のアカウントへ移行",
     "settings.moveTargetPlaceholder": "@user@domain",
     "settings.moveConfirm":
@@ -629,6 +630,9 @@ const translations = {
     "app.errorTitle": "問題が発生しました",
     "app.errorBody": "予期しないエラーが発生しました。もう一度お試しください。",
     "app.reloadButton": "ページを再読み込み",
+    "notFound.title": "ページが見つかりません",
+    "notFound.body": "お探しのページは存在しないか、移動した可能性があります。",
+    "notFound.home": "ホームに戻る",
     "app.offline": "オフラインです",
     "app.offlineHint": "再接続するまで一部の操作は利用できません。",
   },
@@ -1185,6 +1189,7 @@ const translations = {
     "settings.alsoKnownAs": "Aliases (alsoKnownAs)",
     "settings.alsoKnownAsHint":
       "Add an alias here before moving in from another account.",
+    "settings.aliasesSaved": "Aliases saved",
     "settings.moveAccount": "Move followers to another account",
     "settings.moveTargetPlaceholder": "@user@domain",
     "settings.moveConfirm":
@@ -1252,6 +1257,10 @@ const translations = {
     "app.errorTitle": "Something went wrong",
     "app.errorBody": "An unexpected error occurred. Please try again.",
     "app.reloadButton": "Reload page",
+    "notFound.title": "Page not found",
+    "notFound.body":
+      "The page you're looking for doesn't exist or may have moved.",
+    "notFound.home": "Back to home",
     "app.offline": "You're offline",
     "app.offlineHint": "Some actions are unavailable until you reconnect.",
   },

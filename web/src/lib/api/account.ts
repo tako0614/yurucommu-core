@@ -40,6 +40,21 @@ function parseFilename(disposition: string | null): string {
 }
 
 /**
+ * Read the account's currently-declared aliases (alsoKnownAs) from the full
+ * actor projection. `normalizeActor` drops this field, so we read the raw JSON
+ * here. Needed so the alias editor can HYDRATE existing values — setAlsoKnownAs
+ * is a full REPLACE, so editing without first loading them would wipe them.
+ */
+export async function fetchAlsoKnownAs(identifier: string): Promise<string[]> {
+  const res = await apiFetch(`/api/actors/${encodeURIComponent(identifier)}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { also_known_as?: unknown };
+  return Array.isArray(data.also_known_as)
+    ? data.also_known_as.filter((a): a is string => typeof a === "string")
+    : [];
+}
+
+/**
  * Replace the account's declared aliases (alsoKnownAs). A destination account
  * must list this account here before it can be the target of a Move.
  */

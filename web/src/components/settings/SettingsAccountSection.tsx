@@ -1,12 +1,15 @@
-import { createSignal, Index, Show } from "solid-js";
+import { createSignal, Index, onMount, Show } from "solid-js";
+import { useAtomValue } from "solid-jotai";
 import { SettingsSectionHeader } from "./SettingsSectionHeader.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { CloseIcon, PlusIcon } from "./SettingsIcons.tsx";
 import {
   downloadDataExport,
+  fetchAlsoKnownAs,
   moveAccount,
   setAlsoKnownAs,
 } from "../../lib/api/account.ts";
+import { actorAtom } from "../../atoms/auth.ts";
 import type { Translate } from "../../lib/i18n.tsx";
 
 interface SettingsAccountSectionProps {
@@ -18,11 +21,28 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
   const [exporting, setExporting] = createSignal(false);
   const [aliases, setAliases] = createSignal<string[]>([""]);
   const [savingAliases, setSavingAliases] = createSignal(false);
+  const [aliasesSaved, setAliasesSaved] = createSignal(false);
   const [moveTarget, setMoveTarget] = createSignal("");
   const [moving, setMoving] = createSignal(false);
   const [moveDone, setMoveDone] = createSignal(false);
   const [confirmingMove, setConfirmingMove] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+
+  const actor = useAtomValue(actorAtom);
+
+  // Hydrate the editor with the account's EXISTING aliases. setAlsoKnownAs is a
+  // full REPLACE, so without seeding the current values, a user returning to add
+  // one alias to an empty field would silently overwrite (wipe) the others.
+  onMount(async () => {
+    const me = actor();
+    if (!me) return;
+    try {
+      const existing = await fetchAlsoKnownAs(me.ap_id);
+      if (existing.length > 0) setAliases(existing);
+    } catch (e) {
+      console.error("Failed to load existing aliases:", e);
+    }
+  });
 
   const handleExport = async () => {
     if (exporting()) return;
@@ -38,23 +58,34 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
     }
   };
 
-  const updateAlias = (index: number, value: string) =>
+  const updateAlias = (index: number, value: string) => {
+    setAliasesSaved(false);
     setAliases((prev) => prev.map((a, i) => (i === index ? value : a)));
-  const addAlias = () => setAliases((prev) => [...prev, ""]);
-  const removeAlias = (index: number) =>
+  };
+  const addAlias = () => {
+    setAliasesSaved(false);
+    setAliases((prev) => [...prev, ""]);
+  };
+  const removeAlias = (index: number) => {
+    setAliasesSaved(false);
     setAliases((prev) =>
       prev.length === 1 ? [""] : prev.filter((_, i) => i !== index),
     );
+  };
 
   const handleSaveAliases = async () => {
     if (savingAliases()) return;
     setSavingAliases(true);
     setError(null);
+    setAliasesSaved(false);
     try {
       const cleaned = aliases()
         .map((a) => a.trim())
         .filter((a) => a.length > 0);
       await setAlsoKnownAs(cleaned);
+      // Reflect the saved server state (a full replace) and confirm success.
+      setAliases(cleaned.length > 0 ? cleaned : [""]);
+      setAliasesSaved(true);
     } catch (e) {
       console.error("Failed to save aliases:", e);
       setError(e instanceof Error ? e.message : props.t("common.error"));
@@ -164,10 +195,23 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
             type="button"
             onClick={handleSaveAliases}
             disabled={savingAliases()}
-            class="w-full py-2 bg-neutral-800 rounded-lg font-bold disabled:opacity-50 mb-6"
+            class="w-full py-2 bg-neutral-800 rounded-lg font-bold disabled:opacity-50 mb-2"
           >
-            {props.t("common.add")}
+            {savingAliases()
+              ? props.t("common.saving")
+              : props.t("common.save")}
           </button>
+          <Show when={aliasesSaved()}>
+            <div
+              role="status"
+              class="mb-6 p-2 bg-green-500/10 border border-green-500/30 rounded-lg text-green-400 text-sm"
+            >
+              {props.t("settings.aliasesSaved")}
+            </div>
+          </Show>
+          <Show when={!aliasesSaved()}>
+            <div class="mb-6" />
+          </Show>
 
           {/* Move target */}
           <Show
