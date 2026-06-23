@@ -1,5 +1,5 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
@@ -606,6 +606,33 @@ export async function handleCreateStory(
     .where(eq(objects.apId, objectId))
     .get();
   if (existing) return;
+
+  // Per-author flood cap. A hostile remote could Create() an unbounded number of
+  // Stories to bloat our feed/storage (each carries an attachment blob + caption).
+  // The local create path is naturally bounded by the owner; inbound has no such
+  // bound, so cap the concurrent LIVE (non-expired) remote stories per author.
+  // Expired stories are reaped, so this limits the live set, not lifetime volume.
+  const MAX_INBOUND_STORIES_PER_ACTOR = 50;
+  const nowIso = new Date().toISOString();
+  const liveStories = await db
+    .select({ n: count() })
+    .from(objects)
+    .where(
+      and(
+        eq(objects.attributedTo, actor),
+        eq(objects.type, "Story"),
+        eq(objects.isLocal, 0),
+        gt(objects.endTime, nowIso),
+      ),
+    )
+    .get();
+  if ((liveStories?.n ?? 0) >= MAX_INBOUND_STORIES_PER_ACTOR) {
+    log.warn("Create(Story) rejected: author live-story cap reached", {
+      event: "ap.story.author_cap",
+      actor,
+    });
+    return;
+  }
 
   // attachment validation (required)
   if (!object.attachment) {

@@ -87,6 +87,43 @@ test("buildActorCacheFields populates sharedInbox / outbox / followers from a fu
   expect(fields.sharedInbox).toBe("https://mastodon.example/inbox");
 });
 
+test("buildActorCacheFields truncates oversized remote name / summary / preferredUsername", () => {
+  // Remote display fields are attacker-controlled and bounded only by the fetch
+  // size — an actor doc with megabyte-long fields would bloat every feed row /
+  // search result that renders the cached actor. The cache chokepoint truncates
+  // to the local profile caps (name 50, summary 500, username 100).
+  const actor = parseRemoteActor({
+    id: "https://remote.example/users/whale",
+    type: "Person",
+    preferredUsername: "u".repeat(5000),
+    name: "N".repeat(5000),
+    summary: "S".repeat(50000),
+    inbox: "https://remote.example/users/whale/inbox",
+    publicKey: {
+      id: "https://remote.example/users/whale#main-key",
+      publicKeyPem: "PEM",
+    },
+  });
+
+  const fields = buildActorCacheFields(actor);
+
+  expect(fields.name?.length).toBe(50);
+  expect(fields.summary?.length).toBe(500);
+  expect(fields.preferredUsername?.length).toBe(100);
+  // An empty string still normalizes to null (not a 0-length string).
+  const blank = buildActorCacheFields(
+    parseRemoteActor({
+      id: "https://remote.example/users/blank",
+      type: "Person",
+      name: "",
+      summary: "",
+      inbox: "https://remote.example/users/blank/inbox",
+    }),
+  );
+  expect(blank.name).toBeNull();
+  expect(blank.summary).toBeNull();
+});
+
 test("canonical cache fields round-trip to the actor_cache table including shared_inbox", async () => {
   const db = await freshDb();
   const apId = "https://mastodon.example/users/alice";

@@ -58,6 +58,24 @@ export async function getInstanceFetchSignerByDb(
 
 const DEFAULT_FETCH_TIMEOUT_MS = 15000;
 
+/**
+ * Remote actor display fields are attacker-controlled — bounded only by the
+ * fetched document size, which can run to megabytes. The cached `name` /
+ * `summary` / `preferredUsername` columns are rendered verbatim in every feed
+ * row and search result, so an unbounded value bloats those payloads (and the
+ * handle the client builds). Truncate at the single cache chokepoint, mirroring
+ * the local profile caps (display name 50, summary 500). `rawJson` keeps the
+ * full document for re-parsing; only the indexed/rendered columns are bounded.
+ */
+const MAX_REMOTE_NAME_LENGTH = 50;
+const MAX_REMOTE_SUMMARY_LENGTH = 500;
+const MAX_REMOTE_USERNAME_LENGTH = 100;
+
+function boundField(s: string | null | undefined, max: number): string | null {
+  if (typeof s !== "string" || s.length === 0) return null;
+  return s.length > max ? s.slice(0, max) : s;
+}
+
 /** Drizzle insert-values shape for the `actor_cache` table. */
 type ActorCacheInsert = typeof actorCache.$inferInsert;
 
@@ -71,9 +89,12 @@ export function buildActorCacheFields(
 ): Omit<ActorCacheInsert, "apId" | "createdAt"> {
   return {
     type: data.type || "Person",
-    preferredUsername: data.preferredUsername || null,
-    name: data.name || null,
-    summary: data.summary || null,
+    preferredUsername: boundField(
+      data.preferredUsername,
+      MAX_REMOTE_USERNAME_LENGTH,
+    ),
+    name: boundField(data.name, MAX_REMOTE_NAME_LENGTH),
+    summary: boundField(data.summary, MAX_REMOTE_SUMMARY_LENGTH),
     iconUrl: data.icon?.url || null,
     inbox: data.inbox!,
     outbox: data.outbox || null,

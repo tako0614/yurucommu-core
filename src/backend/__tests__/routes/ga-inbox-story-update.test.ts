@@ -128,6 +128,80 @@ test("handleCreateStory dedups a redelivered remote story (onConflictDoNothing)"
 });
 
 // ---------------------------------------------------------------------------
+// Audit #15 #5 — a hostile remote must not Create() an unbounded number of
+// Stories: once an author already holds MAX_INBOUND_STORIES_PER_ACTOR (50) live
+// (non-expired) remote stories, a further inbound story is dropped.
+// ---------------------------------------------------------------------------
+
+test("handleCreateStory drops a new story once the author hits the live-story cap", async () => {
+  const db = await freshDb();
+  await db.insert(actors).values({
+    apId: ALICE,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${ALICE}/inbox`,
+    outbox: `${ALICE}/outbox`,
+    followersUrl: `${ALICE}/followers`,
+    followingUrl: `${ALICE}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+
+  // Seed exactly 50 LIVE (future endTime) remote stories for ALICE.
+  const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  for (let i = 0; i < 50; i++) {
+    await db.insert(objects).values({
+      apId: `${ALICE}/stories/live-${i}`,
+      type: "Story",
+      attributedTo: ALICE,
+      content: "",
+      attachmentsJson: "{}",
+      endTime: future,
+      published: new Date().toISOString(),
+      isLocal: 0,
+    });
+  }
+
+  // A fresh inbound story (distinct id) is rejected — the cap is hit.
+  const capped = {
+    id: "https://remote.example/activities/create-story-capped",
+    type: "Create",
+    actor: ALICE,
+    object: {
+      id: "https://remote.example/stories/s-capped",
+      type: "Story",
+      content: "one too many",
+      attachment: {
+        url: "https://remote.example/media/capped.jpg",
+        mediaType: "image/jpeg",
+        width: 1080,
+        height: 1920,
+      },
+    },
+  } as unknown as Activity;
+  await handleCreateStory(ctx(db), capped, ALICE, "https://yuru.test");
+
+  const cappedRow = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, "https://remote.example/stories/s-capped"));
+  expect(cappedRow.length).toBe(0);
+
+  // An EXPIRED story does not count toward the live cap: after one of the 50
+  // expires, a new inbound story is accepted again.
+  await db
+    .update(objects)
+    .set({ endTime: new Date(Date.now() - 60 * 60 * 1000).toISOString() })
+    .where(eq(objects.apId, `${ALICE}/stories/live-0`));
+  await handleCreateStory(ctx(db), capped, ALICE, "https://yuru.test");
+  const acceptedRow = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, "https://remote.example/stories/s-capped"));
+  expect(acceptedRow.length).toBe(1);
+});
+
+// ---------------------------------------------------------------------------
 // #13 — inbound Update(actor) re-fetch is rate-limited: a recently-fetched
 // cache row suppresses the outbound re-fetch (amplification guard), while a
 // stale row still triggers it.
