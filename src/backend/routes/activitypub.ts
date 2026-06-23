@@ -31,7 +31,7 @@ const AP_CONTENT_TYPE = "application/activity+json";
 // does not inject `YURUCOMMU_SOFTWARE_VERSION`. Keep this in sync with
 // package.json; the env override lets the build report the real build version
 // without editing source.
-const YURUCOMMU_VERSION = "1.0.0";
+const YURUCOMMU_VERSION = "2.0.0";
 
 const AP_CONTEXT = [
   "https://www.w3.org/ns/activitystreams",

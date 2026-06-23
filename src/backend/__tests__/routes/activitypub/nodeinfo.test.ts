@@ -71,7 +71,7 @@ test("nodeinfo 2.0 returns required schema fields and omits repository", async (
   expect(res.status).toEqual(200);
   expect(body.version).toEqual("2.0");
   expect(body.software.name).toEqual("yurucommu");
-  expect(body.software.version).toEqual("1.0.0");
+  expect(body.software.version).toEqual("2.0.0");
   // `repository` is a 2.1-only field — it must NOT appear in the 2.0 document.
   expect(body.software.repository).toEqual(undefined);
   expect(body.protocols).toEqual(["activitypub"]);
@@ -109,7 +109,7 @@ test("nodeinfo 2.1 returns required schema fields", async () => {
   expect(body.version).toEqual("2.1");
   expect(body.software.name).toEqual("yurucommu");
   // Falls back to the in-sync default constant when no build version env set.
-  expect(body.software.version).toEqual("1.0.0");
+  expect(body.software.version).toEqual("2.0.0");
   expect(body.protocols).toEqual(["activitypub"]);
   expect(body.services).toEqual({ inbound: [], outbound: [] });
   expect(body.usage.users.total).toEqual(1);
