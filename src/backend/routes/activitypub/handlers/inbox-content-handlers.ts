@@ -738,7 +738,18 @@ export async function handleCreateStory(
           typeof o.position.y === "number",
       )
       .slice(0, MAX_INBOUND_OVERLAYS);
-    if (filtered.length > 0) overlays = filtered;
+    // Keep at most ONE Question (poll) overlay — votes are keyed only by
+    // (storyApId, actorApId) and tallied by optionIndex with no question
+    // dimension, so a second poll would conflate tallies. Mirror validateOverlays.
+    let seenQuestion = false;
+    const capped = filtered.filter((o: StoryOverlay) => {
+      if (o.type === "Question") {
+        if (seenQuestion) return false;
+        seenQuestion = true;
+      }
+      return true;
+    });
+    if (capped.length > 0) overlays = capped;
   }
 
   // Build attachments_json

@@ -67,6 +67,18 @@ test("validateOverlays rejects an oversized overlays payload", () => {
   expect(res.error).toContain("too large");
 });
 
+test("validateOverlays allows one Question but rejects two (the vote system supports a single poll)", () => {
+  const question = () => ({
+    type: "Question",
+    position: { x: 0.5, y: 0.5, width: 0.4, height: 0.2 },
+    oneOf: ["a", "b"],
+  });
+  expect(validateOverlays([question()]).valid).toBe(true);
+  const res = validateOverlays([question(), question()]);
+  expect(res.valid).toBe(false);
+  expect(res.error).toContain("at most one Question");
+});
+
 test("boundInboundContent truncates remote content to the local ceiling", () => {
   const long = "a".repeat(MAX_POST_CONTENT_LENGTH + 500);
   expect(boundInboundContent(long).length).toBe(MAX_POST_CONTENT_LENGTH);

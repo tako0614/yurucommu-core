@@ -43,6 +43,7 @@ export type RemoteActor = {
 };
 
 export type StoryOverlay = {
+  type?: string;
   position?: {
     x?: number;
     y?: number;

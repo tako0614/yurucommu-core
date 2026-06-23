@@ -365,6 +365,7 @@ export function validateOverlays(overlays: unknown[]): {
     return { valid: false, error: "overlays payload too large" };
   }
 
+  let questionCount = 0;
   for (const [i, raw] of overlays.entries()) {
     if (!isOverlayRecord(raw)) {
       return { valid: false, error: `overlay[${i}] must be an object` };
@@ -391,6 +392,17 @@ export function validateOverlays(overlays: unknown[]): {
     }
 
     if (overlay.type === "Question") {
+      // At most ONE Question (poll) per story: votes are keyed only by
+      // (storyApId, actorApId) and the tally aggregates purely by optionIndex
+      // with no question dimension, so a second Question would conflate tallies
+      // and be unvoteable. Reject multi-poll stories at creation.
+      questionCount += 1;
+      if (questionCount > 1) {
+        return {
+          valid: false,
+          error: "A story may have at most one Question (poll) overlay",
+        };
+      }
       const oneOf = overlay.oneOf;
       if (!Array.isArray(oneOf) || oneOf.length < 2 || oneOf.length > 4) {
         return {
