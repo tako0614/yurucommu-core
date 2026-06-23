@@ -226,6 +226,9 @@ test("a Follow to an APPROVAL community is held pending (no Accept emitted)", as
       eq(follows.followingApId, apId),
     ),
   });
+  // The pending follows edge IS the remote join request (audit #18): it is what
+  // the manager approval surface reads + accepts (a remote follower has no
+  // `actors` row, so it cannot be mirrored into community_join_requests).
   expect(follow?.status).toEqual("pending");
 
   const accept = await db.query.activities.findFirst({

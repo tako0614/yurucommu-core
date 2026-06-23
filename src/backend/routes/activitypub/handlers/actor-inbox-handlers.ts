@@ -83,6 +83,12 @@ export async function handleGroupFollow(
       activityApId: activityId,
       acceptedAt: status === "accepted" ? now : null,
     });
+    // An approval-policy community holds the follow PENDING. The pending follows
+    // edge IS the remote join request (it cannot be mirrored into
+    // community_join_requests, whose actor_ap_id FKs to the local `actors` table a
+    // remote follower has no row in). The manager approval surface
+    // (GET /requests + POST /requests/accept) therefore also reads pending
+    // follows edges to the community.
   }
 
   if (isLocal(actorApIdStr, baseUrl)) return;
