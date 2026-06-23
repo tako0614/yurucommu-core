@@ -17,3 +17,8 @@
 /ns/story/examples.jsonl
   Content-Type: application/x-ndjson
   Access-Control-Allow-Origin: *
+# Shared stylesheet: keep a short revalidation so a CSS change (e.g. a removed
+# element) shows up on a normal refresh rather than sitting in a multi-hour
+# browser cache. Combined with the `?v=` cache-bust on the <link> tags.
+/styles.css
+  Cache-Control: public, max-age=600, must-revalidate
