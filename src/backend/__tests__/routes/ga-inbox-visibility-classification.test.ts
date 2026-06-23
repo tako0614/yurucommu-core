@@ -206,6 +206,25 @@ test("a DM addressed to a DIFFERENT actor is NOT stored as a generic note for a 
   expect(await countOf(db, id)).toBe(0);
 });
 
+test("an inbound DM from a BLOCKED actor is dropped (no object row created)", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/dm-blocked";
+  // bob has personally blocked the remote sender (e.g. via reject+block).
+  await db
+    .insert(schema.blocks)
+    .values({ blockerApId: LOCAL_BOB, blockedApId: REMOTE });
+
+  await handleCreate(
+    ctxFor(db),
+    note(id, [LOCAL_BOB]),
+    recipient(LOCAL_BOB),
+    REMOTE,
+    APP_URL,
+  );
+  // The DM must NOT be stored — federated blocking now mirrors the local guard.
+  expect(await countOf(db, id)).toBe(0);
+});
+
 test("a DM addressed to the inbox owner is stored as visibility=direct (DM path), never unlisted", async () => {
   const db = await setup();
   const id = "https://remote.example/objects/dm-2";

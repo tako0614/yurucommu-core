@@ -6,6 +6,7 @@ import {
   actorCache,
   actors,
   announces,
+  blocks,
   bookmarks,
   follows,
   inbox as inboxTable,
@@ -402,6 +403,30 @@ export async function handleCreate(
   // is neither public nor follower-only belongs in the recipient's DM inbox /
   // message-request flow rather than the generic public Note insert.
   if (object.id && isDirectNote(object, recipient)) {
+    // A DM from an actor the recipient has personally BLOCKED must be dropped —
+    // mirror the local DM send guard (dm/messages.ts) so the reject+block remedy
+    // actually stops federated DM harassment (the operator-scoped federation
+    // blocklist checked in verifyAndParseInbox is a SEPARATE mechanism). `actor`
+    // is the HTTP-signature-verified signer, so blockedApId=actor is not
+    // spoofable. The inbox already ACKs, so dropping here causes no retry storm.
+    const blockedBySigner = await db
+      .select({ b: blocks.blockerApId })
+      .from(blocks)
+      .where(
+        and(
+          eq(blocks.blockerApId, recipient.apId),
+          eq(blocks.blockedApId, actor),
+        ),
+      )
+      .get();
+    if (blockedBySigner) {
+      log.info("Dropped inbound DM from a blocked actor", {
+        event: "ap.create.direct_note_blocked",
+        actor,
+        recipient: recipient.apId,
+      });
+      return;
+    }
     const existing = await db
       .select({ apId: objects.apId })
       .from(objects)
