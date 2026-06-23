@@ -189,6 +189,15 @@ export function parseSignatureHeader(signatureHeader: string): {
   };
 }
 
+// Algorithm tokens we accept for an RSA actor key. The actual primitive is fixed
+// by the imported SPKI key + SHA-256 (RSASSA-PKCS1-v1_5), NOT by this string, so
+// `hs2019` (the cavage-draft-12 / RFC-9421-era token many implementations emit
+// while still signing with an RSA-2048 key over SHA-256) is equivalent here.
+// Rejecting it would drop cryptographically-valid inbound activity from those
+// peers. Genuinely different key families (e.g. ed25519) still fall through to a
+// verify failure since the RSA import/verify won't match.
+const ACCEPTED_RSA_SHA256_ALGS = new Set(["rsa-sha256", "hs2019"]);
+
 export async function fetchActorPublicKey(
   keyId: string,
   db: Database,
@@ -408,7 +417,7 @@ export async function verifyGetHttpSignature(
   if (!parsed.headers.includes("host")) {
     return { valid: false, error: "host header must be included in signature" };
   }
-  if (parsed.algorithm !== "rsa-sha256") {
+  if (!ACCEPTED_RSA_SHA256_ALGS.has(parsed.algorithm)) {
     return {
       valid: false,
       error: `Unsupported algorithm: ${parsed.algorithm}`,
@@ -538,7 +547,7 @@ export async function verifyHttpSignature(
     };
   }
 
-  if (parsed.algorithm !== "rsa-sha256") {
+  if (!ACCEPTED_RSA_SHA256_ALGS.has(parsed.algorithm)) {
     return {
       valid: false,
       error: `Unsupported algorithm: ${parsed.algorithm}`,

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { actors, follows, objects } from "../../../db/index.ts";
 import type { Database } from "../../../db/index.ts";
+import { OBJECT_CONTEXT } from "../../lib/ap-context.ts";
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { Actor, Env, Variables } from "../../types.ts";
 import {
@@ -334,7 +335,7 @@ posts.post("/", async (c) => {
     const tag = replyTags.length > 0 ? replyTags : undefined;
 
     const createActivity = {
-      "@context": "https://www.w3.org/ns/activitystreams",
+      "@context": OBJECT_CONTEXT,
       id: activityApId(baseUrl, generateId()),
       type: "Create",
       actor: actor.ap_id,
@@ -344,7 +345,7 @@ posts.post("/", async (c) => {
       ...(audience ? { audience } : {}),
       ...(tag ? { tag } : {}),
       object: {
-        "@context": "https://www.w3.org/ns/activitystreams",
+        "@context": OBJECT_CONTEXT,
         id: apId,
         type: "Note",
         attributedTo: actor.ap_id,
