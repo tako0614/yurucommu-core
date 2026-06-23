@@ -109,11 +109,19 @@ export function registerMembershipMemberRoutes(
         return c.json({ success: true });
       }
 
+      // A moderator may only remove plain MEMBERS; removing a moderator or an
+      // owner requires owner role (mirrors role-change + governance being
+      // owner-only). Without this a single moderator could kick the entire
+      // peer-moderator team — a remove is a strictly stronger action than the
+      // demote a moderator is already forbidden from doing.
       if (
-        targetMembership.role === "owner" &&
-        actorMembership.role !== "owner"
+        actorMembership.role !== "owner" &&
+        targetMembership.role !== "member"
       ) {
-        return c.json({ error: "Only owners can remove other owners" }, 403);
+        return c.json(
+          { error: "Owner role required to remove a manager" },
+          403,
+        );
       }
 
       // Removing an owner must never orphan the community: two owners who kick
@@ -368,15 +376,39 @@ export function registerMembershipMemberRoutes(
             continue;
           }
 
+          // A moderator may only remove plain members (same as the single
+          // DELETE path); removing a manager requires owner.
           if (
             actorMembership.role !== "owner" &&
-            targetMembership.role === "owner"
+            targetMembership.role !== "member"
           ) {
             results.push({
               ap_id: targetApId,
               success: false,
-              error: "Cannot remove owner",
+              error: "Owner role required to remove a manager",
             });
+            continue;
+          }
+
+          // An owner removal must not orphan the community: this path used the
+          // unguarded removeMemberAtomic, so two owners batch-removing each other
+          // concurrently both succeeded → ZERO owners. Gate owner removals on
+          // another owner still existing, exactly like the single DELETE path.
+          if (targetMembership.role === "owner") {
+            const removed = await removeOwnerIfAnotherExists(
+              db,
+              community.apId,
+              targetApId,
+            );
+            results.push(
+              removed
+                ? { ap_id: targetApId, success: true }
+                : {
+                    ap_id: targetApId,
+                    success: false,
+                    error: "Cannot remove the last owner",
+                  },
+            );
             continue;
           }
 

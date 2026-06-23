@@ -355,6 +355,26 @@ messagesRouter.patch("/:identifier/messages/:messageId", async (c) => {
     return c.json({ error: "Message not found" }, 404);
   }
 
+  // Membership / read gate: a kicked or never-member actor must NOT mutate chat
+  // content. The author check below is not sufficient — a removed author keeps
+  // their message id + authorship and could otherwise keep rewriting a private
+  // community's history. Mirrors the GET reader (checkReadAccess) + POST gate.
+  const communityRow = await db
+    .select({ visibility: communities.visibility })
+    .from(communities)
+    .where(eq(communities.apId, community.apId))
+    .get();
+  const membership = await db
+    .select({ role: communityMembers.role })
+    .from(communityMembers)
+    .where(memberWhere(community.apId, actor.ap_id))
+    .get();
+  const readError = checkReadAccess(
+    communityRow?.visibility || "public",
+    membership ?? null,
+  );
+  if (readError) return c.json({ error: readError }, 403);
+
   if (message.attributedTo !== actor.ap_id) {
     return c.json({ error: "Only the author can edit this message" }, 403);
   }
@@ -410,6 +430,19 @@ messagesRouter.delete("/:identifier/messages/:messageId", async (c) => {
     .where(memberWhere(community.apId, actor.ap_id))
     .get();
 
+  // Membership / read gate first: a kicked or never-member author must not keep
+  // deleting a private community's history. (A manager is always a member.)
+  const communityRow = await db
+    .select({ visibility: communities.visibility })
+    .from(communities)
+    .where(eq(communities.apId, community.apId))
+    .get();
+  const readError = checkReadAccess(
+    communityRow?.visibility || "public",
+    membership ?? null,
+  );
+  if (readError) return c.json({ error: readError }, 403);
+
   const isAuthor = message.attributedTo === actor.ap_id;
   const isManager = membership && managerRoles.has(membership.role);
 
@@ -417,10 +450,18 @@ messagesRouter.delete("/:identifier/messages/:messageId", async (c) => {
     return c.json({ error: "Permission denied" }, 403);
   }
 
-  await db.run(
-    sql`DELETE FROM object_recipients WHERE object_ap_id = ${messageId}`,
-  );
-  await db.delete(objects).where(eq(objects.apId, messageId));
+  // Atomic removal: the object_recipients (audience) row and the objects row must
+  // drop together. As two independent autocommits a failure between them left an
+  // orphan Note with no recipient link that the chat reader (inner-joins
+  // object_recipients) no longer shows but which lingers with no GC. Mirrors the
+  // POST insert path's batch (recipient_ap_id has no FK to actors since 0010, so
+  // a plain Drizzle delete works).
+  await (db as unknown as Batchable).batch([
+    db
+      .delete(objectRecipients)
+      .where(eq(objectRecipients.objectApId, messageId)),
+    db.delete(objects).where(eq(objects.apId, messageId)),
+  ]);
 
   return c.json({ success: true });
 });

@@ -138,3 +138,132 @@ test("kicking an actor who is neither a local member nor a remote follower 404s"
   );
   expect(res.status).toBe(404);
 });
+
+// Audit #18: a moderator may remove only plain MEMBERS — removing a peer
+// moderator (or an owner) requires owner role. Without this a single moderator
+// could kick the entire peer-moderator team.
+test("a moderator CANNOT remove a peer moderator (single DELETE) but CAN remove a member", async () => {
+  const db = await freshDb();
+  await seed(db);
+  const mod = `${APP_URL}/ap/users/mod`;
+  const mod2 = `${APP_URL}/ap/users/mod2`;
+  const member = `${APP_URL}/ap/users/member`;
+  for (const [apId, role] of [
+    [mod, "moderator"],
+    [mod2, "moderator"],
+    [member, "member"],
+  ] as const) {
+    await db.insert(actors).values({
+      apId,
+      type: "Person",
+      preferredUsername: apId.split("/").pop()!,
+      inbox: `${apId}/inbox`,
+      outbox: `${apId}/outbox`,
+      followersUrl: `${apId}/followers`,
+      followingUrl: `${apId}/following`,
+      publicKeyPem: "pub",
+      privateKeyPem: "priv",
+    });
+    await db
+      .insert(communityMembers)
+      .values({ communityApId: GROUP, actorApId: apId, role });
+  }
+
+  const router = new Hono<{ Bindings: Env; Variables: Variables }>();
+  registerMembershipMemberRoutes(router);
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", { ap_id: mod, role: "member" } as unknown as Actor);
+    await next();
+  });
+  app.route("/api/communities", router);
+
+  // mod removing mod2 (a peer moderator) → 403.
+  const denied = await app.fetch(
+    new Request(
+      `${APP_URL}/api/communities/town/members/${encodeURIComponent(mod2)}`,
+      { method: "DELETE" },
+    ),
+    env,
+  );
+  expect(denied.status).toBe(403);
+  expect(
+    (
+      await db
+        .select()
+        .from(communityMembers)
+        .where(eq(communityMembers.actorApId, mod2))
+        .get()
+    )?.role,
+  ).toBe("moderator"); // still a member
+
+  // mod removing a plain member → allowed.
+  const ok = await app.fetch(
+    new Request(
+      `${APP_URL}/api/communities/town/members/${encodeURIComponent(member)}`,
+      { method: "DELETE" },
+    ),
+    env,
+  );
+  expect(ok.status).toBe(200);
+  expect(
+    await db
+      .select()
+      .from(communityMembers)
+      .where(eq(communityMembers.actorApId, member))
+      .get(),
+  ).toBeUndefined();
+});
+
+test("batch-remove routes an owner target through the last-owner guard (co-owner removable, count preserved)", async () => {
+  const db = await freshDb();
+  await seed(db);
+  const owner2 = `${APP_URL}/ap/users/owner2`;
+  await db.insert(actors).values({
+    apId: owner2,
+    type: "Person",
+    preferredUsername: "owner2",
+    inbox: `${owner2}/inbox`,
+    outbox: `${owner2}/outbox`,
+    followersUrl: `${owner2}/followers`,
+    followingUrl: `${owner2}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db
+    .insert(communityMembers)
+    .values({ communityApId: GROUP, actorApId: owner2, role: "owner" });
+
+  // OWNER (the actor) batch-removes co-owner owner2; another owner (the actor)
+  // remains, so removeOwnerIfAnotherExists permits it.
+  const app = appFor(db);
+  const res = await app.fetch(
+    new Request(`${APP_URL}/api/communities/town/members/batch/remove`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor_ap_ids: [owner2] }),
+    }),
+    env,
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { results: { success: boolean }[] };
+  expect(body.results[0].success).toBe(true);
+  expect(
+    await db
+      .select()
+      .from(communityMembers)
+      .where(eq(communityMembers.actorApId, owner2))
+      .get(),
+  ).toBeUndefined();
+  // The original owner is still an owner — community not orphaned.
+  expect(
+    (
+      await db
+        .select()
+        .from(communityMembers)
+        .where(eq(communityMembers.actorApId, OWNER))
+        .get()
+    )?.role,
+  ).toBe("owner");
+});
