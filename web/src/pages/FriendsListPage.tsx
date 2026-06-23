@@ -75,8 +75,12 @@ export function FriendsListPage() {
   const initialTab: TabType =
     searchParams.tab === "followers" ? "followers" : "following";
   const [activeTab, setActiveTab] = createSignal<TabType>(initialTab);
+  const FRIENDS_PAGE = 50;
   const [following, setFollowing] = createSignal<Actor[]>([]);
   const [followers, setFollowers] = createSignal<Actor[]>([]);
+  const [followingHasMore, setFollowingHasMore] = createSignal(false);
+  const [followersHasMore, setFollowersHasMore] = createSignal(false);
+  const [loadingMore, setLoadingMore] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
   const [searchQuery, setSearchQuery] = createSignal("");
 
@@ -91,16 +95,53 @@ export function FriendsListPage() {
     setLoadError(null);
     try {
       const [followingData, followersData] = await Promise.all([
-        fetchFollowing(actor.ap_id),
-        fetchFollowers(actor.ap_id),
+        fetchFollowing(actor.ap_id, { limit: FRIENDS_PAGE, offset: 0 }),
+        fetchFollowers(actor.ap_id, { limit: FRIENDS_PAGE, offset: 0 }),
       ]);
-      setFollowing(followingData);
-      setFollowers(followersData);
+      setFollowing(followingData.actors);
+      setFollowers(followersData.actors);
+      setFollowingHasMore(followingData.hasMore);
+      setFollowersHasMore(followersData.hasMore);
     } catch (e) {
       console.error("Failed to load friends:", e);
       setLoadError(t("common.loadFailed"));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const activeHasMore = () =>
+    activeTab() === "following" ? followingHasMore() : followersHasMore();
+
+  // Append the next page of the active tab (offset = current length), deduping
+  // by ap_id so a concurrent change at the page boundary can't double-insert.
+  const loadMore = async () => {
+    if (loadingMore() || !activeHasMore()) return;
+    const tab = activeTab();
+    setLoadingMore(true);
+    try {
+      const offset = (tab === "following" ? following() : followers()).length;
+      const fetcher = tab === "following" ? fetchFollowing : fetchFollowers;
+      const page = await fetcher(actor.ap_id, {
+        limit: FRIENDS_PAGE,
+        offset,
+      });
+      const append = (prev: Actor[]) => {
+        const seen = new Set(prev.map((a) => a.ap_id));
+        return [...prev, ...page.actors.filter((a) => !seen.has(a.ap_id))];
+      };
+      if (tab === "following") {
+        setFollowing(append);
+        setFollowingHasMore(page.hasMore);
+      } else {
+        setFollowers(append);
+        setFollowersHasMore(page.hasMore);
+      }
+    } catch (e) {
+      console.error("Failed to load more friends:", e);
+      setError(t("common.loadFailed"));
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -265,6 +306,18 @@ export function FriendsListPage() {
                   </div>
                 )}
               </For>
+              {/* Load-more only when not searching (search filters the loaded
+                  set; loading more pages lets the user reach entries past the
+                  first page so they become searchable too). */}
+              <Show when={activeHasMore() && !searchQuery()}>
+                <button
+                  onClick={() => void loadMore()}
+                  disabled={loadingMore()}
+                  class="w-full py-3 text-sm text-accent hover:bg-neutral-900/30 disabled:opacity-50"
+                >
+                  {loadingMore() ? t("common.loading") : t("common.loadMore")}
+                </button>
+              </Show>
             </Show>
           </Show>
         </Show>

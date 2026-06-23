@@ -16,6 +16,9 @@ interface ProfileFollowModalProps {
   // A load failure — shown as a retry affordance instead of a false "no
   // followers yet" empty state.
   error?: string | null;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
   onRetry?: () => void;
   onClose: () => void;
   t: Translate;
@@ -115,6 +118,17 @@ export function ProfileFollowModal(props: ProfileFollowModalProps) {
                       </A>
                     )}
                   </For>
+                  <Show when={props.hasMore}>
+                    <button
+                      onClick={() => props.onLoadMore?.()}
+                      disabled={props.loadingMore}
+                      class="w-full py-3 text-sm text-accent hover:bg-neutral-800 disabled:opacity-50"
+                    >
+                      {props.loadingMore
+                        ? props.t("common.loading")
+                        : props.t("common.loadMore")}
+                    </button>
+                  </Show>
                 </Show>
               </Show>
             </Show>

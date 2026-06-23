@@ -176,7 +176,7 @@ export function SearchPage() {
       .then(setTrendingHashtags);
     refreshDiscoverCommunities();
     fetchFollowing(actor.ap_id)
-      .then(setFollowing)
+      .then((data) => setFollowing(data.actors))
       .catch((e) => console.error("Failed to fetch following", e));
 
     // Re-fetch when the tab regains focus so a join/leave that happened on

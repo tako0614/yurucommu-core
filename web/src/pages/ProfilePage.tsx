@@ -82,9 +82,13 @@ export function ProfilePage() {
   const [editIsPrivate, setEditIsPrivate] = createSignal(false);
   const [followModalActors, setFollowModalActors] = createSignal<Actor[]>([]);
   const [followModalLoading, setFollowModalLoading] = createSignal(false);
+  const [followModalHasMore, setFollowModalHasMore] = createSignal(false);
+  const [followModalLoadingMore, setFollowModalLoadingMore] =
+    createSignal(false);
   const [followModalError, setFollowModalError] = createSignal<string | null>(
     null,
   );
+  const FOLLOW_MODAL_PAGE = 50;
   const [showQr, setShowQr] = createSignal(false);
   // Pending block/mute confirmation for the viewed (other) user.
   const [pendingModeration, setPendingModeration] = createSignal<
@@ -308,13 +312,16 @@ export function ProfilePage() {
     setShowFollowModal(type);
     setFollowModalLoading(true);
     setFollowModalActors([]);
+    setFollowModalHasMore(false);
     setFollowModalError(null);
     try {
-      const data =
-        type === "followers"
-          ? await fetchFollowers(targetActorId())
-          : await fetchFollowing(targetActorId());
-      setFollowModalActors(data);
+      const fetcher = type === "followers" ? fetchFollowers : fetchFollowing;
+      const data = await fetcher(targetActorId(), {
+        limit: FOLLOW_MODAL_PAGE,
+        offset: 0,
+      });
+      setFollowModalActors(data.actors);
+      setFollowModalHasMore(data.hasMore);
     } catch (e) {
       console.error(`Failed to load ${type}:`, e);
       // Surface the failure instead of letting the modal show a false
@@ -322,6 +329,31 @@ export function ProfilePage() {
       setFollowModalError(t("common.loadFailed"));
     } finally {
       setFollowModalLoading(false);
+    }
+  };
+
+  // Append the next page in the open follow modal (offset = current length),
+  // deduping by ap_id so the >50 entries are reachable, not just the first page.
+  const loadMoreFollowModal = async () => {
+    const type = showFollowModal();
+    if (!type || followModalLoadingMore() || !followModalHasMore()) return;
+    setFollowModalLoadingMore(true);
+    try {
+      const fetcher = type === "followers" ? fetchFollowers : fetchFollowing;
+      const data = await fetcher(targetActorId(), {
+        limit: FOLLOW_MODAL_PAGE,
+        offset: followModalActors().length,
+      });
+      setFollowModalActors((prev) => {
+        const seen = new Set(prev.map((a) => a.ap_id));
+        return [...prev, ...data.actors.filter((a) => !seen.has(a.ap_id))];
+      });
+      setFollowModalHasMore(data.hasMore);
+    } catch (e) {
+      console.error(`Failed to load more ${type}:`, e);
+      setFollowModalError(t("common.loadFailed"));
+    } finally {
+      setFollowModalLoadingMore(false);
     }
   };
 
@@ -443,6 +475,9 @@ export function ProfilePage() {
           actors={followModalActors()}
           loading={followModalLoading()}
           error={followModalError()}
+          hasMore={followModalHasMore()}
+          loadingMore={followModalLoadingMore()}
+          onLoadMore={() => void loadMoreFollowModal()}
           onRetry={() => {
             const tp = showFollowModal();
             if (tp) void openFollowModal(tp);

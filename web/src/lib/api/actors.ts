@@ -59,22 +59,60 @@ export async function fetchActorPosts(
   };
 }
 
-export async function fetchFollowers(identifier: string): Promise<Actor[]> {
-  const res = await apiFetch(
-    `/api/actors/${encodeURIComponent(identifier)}/followers`,
-  );
-  await assertOk(res, "Failed to fetch followers");
-  const data = (await res.json()) as { followers?: Actor[] };
-  return (data.followers || []).map(normalizeActor);
+export interface FollowListPage {
+  actors: Actor[];
+  hasMore: boolean;
+  total: number;
 }
 
-export async function fetchFollowing(identifier: string): Promise<Actor[]> {
+function followListQuery(options?: {
+  limit?: number;
+  offset?: number;
+}): string {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
+  return params.toString() ? `?${params}` : "";
+}
+
+export async function fetchFollowers(
+  identifier: string,
+  options?: { limit?: number; offset?: number },
+): Promise<FollowListPage> {
   const res = await apiFetch(
-    `/api/actors/${encodeURIComponent(identifier)}/following`,
+    `/api/actors/${encodeURIComponent(identifier)}/followers${followListQuery(options)}`,
+  );
+  await assertOk(res, "Failed to fetch followers");
+  const data = (await res.json()) as {
+    followers?: Actor[];
+    has_more?: boolean;
+    total?: number;
+  };
+  return {
+    actors: (data.followers || []).map(normalizeActor),
+    hasMore: data.has_more ?? false,
+    total: data.total ?? 0,
+  };
+}
+
+export async function fetchFollowing(
+  identifier: string,
+  options?: { limit?: number; offset?: number },
+): Promise<FollowListPage> {
+  const res = await apiFetch(
+    `/api/actors/${encodeURIComponent(identifier)}/following${followListQuery(options)}`,
   );
   await assertOk(res, "Failed to fetch following");
-  const data = (await res.json()) as { following?: Actor[] };
-  return (data.following || []).map(normalizeActor);
+  const data = (await res.json()) as {
+    following?: Actor[];
+    has_more?: boolean;
+    total?: number;
+  };
+  return {
+    actors: (data.following || []).map(normalizeActor),
+    hasMore: data.has_more ?? false,
+    total: data.total ?? 0,
+  };
 }
 
 export async function fetchBlockedUsers(): Promise<Actor[]> {
