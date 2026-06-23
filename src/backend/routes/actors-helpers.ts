@@ -335,6 +335,12 @@ export async function listRelation<
   });
 }
 
+// Per-actor cap on block / mute rows. The target ap_id is an arbitrary string
+// (no FK, no existence check — a remote actor need not be resolvable), so
+// without a cap one account could loop POST with distinct synthetic ids and grow
+// the blocks/mutes table without bound. 5000 is far above any real user's set.
+export const MAX_RELATIONS_PER_ACTOR = 5000;
+
 /**
  * Generic create handler for relation upserts (block, mute).
  */
@@ -346,6 +352,7 @@ export async function createRelation(
     actorApIdVal: string,
     targetApId: string,
   ) => Promise<unknown>,
+  countExisting: (db: Database, actorApIdVal: string) => Promise<number>,
 ): Promise<Response> {
   const result = requireActor(c);
   if (result instanceof Response) return result;
@@ -358,6 +365,12 @@ export async function createRelation(
   }
 
   const db = c.get("db");
+  // Bound the per-actor relation set (soft cap; a small concurrent overshoot is
+  // harmless). onConflictDoNothing means re-blocking an existing target is a
+  // no-op, so this only rejects genuinely-new rows past the limit.
+  if ((await countExisting(db, actor.ap_id)) >= MAX_RELATIONS_PER_ACTOR) {
+    return c.json({ error: `${verb} limit reached` }, 429);
+  }
   await upsert(db, actor.ap_id, body.ap_id);
 
   return c.json({ success: true });

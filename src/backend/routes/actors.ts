@@ -3,6 +3,7 @@ import { deleteCookie } from "hono/cookie";
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   gt,
@@ -396,11 +397,22 @@ actorsRoute.get("/me/blocked", async (c) => {
 
 // Block a user
 actorsRoute.post("/me/blocked", async (c) => {
-  return createRelation(c, "block", (db, actorId, targetId) =>
-    db
-      .insert(blocks)
-      .values({ blockerApId: actorId, blockedApId: targetId })
-      .onConflictDoNothing(),
+  return createRelation(
+    c,
+    "block",
+    (db, actorId, targetId) =>
+      db
+        .insert(blocks)
+        .values({ blockerApId: actorId, blockedApId: targetId })
+        .onConflictDoNothing(),
+    async (db, actorId) =>
+      (
+        await db
+          .select({ n: count() })
+          .from(blocks)
+          .where(eq(blocks.blockerApId, actorId))
+          .get()
+      )?.n ?? 0,
   );
 });
 
@@ -437,11 +449,22 @@ actorsRoute.get("/me/muted", async (c) => {
 
 // Mute a user
 actorsRoute.post("/me/muted", async (c) => {
-  return createRelation(c, "mute", (db, actorId, targetId) =>
-    db
-      .insert(mutes)
-      .values({ muterApId: actorId, mutedApId: targetId })
-      .onConflictDoNothing(),
+  return createRelation(
+    c,
+    "mute",
+    (db, actorId, targetId) =>
+      db
+        .insert(mutes)
+        .values({ muterApId: actorId, mutedApId: targetId })
+        .onConflictDoNothing(),
+    async (db, actorId) =>
+      (
+        await db
+          .select({ n: count() })
+          .from(mutes)
+          .where(eq(mutes.muterApId, actorId))
+          .get()
+      )?.n ?? 0,
   );
 });
 
