@@ -7,7 +7,13 @@ import { Hono } from "hono";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, follows } from "../../../db/index.ts";
+import {
+  actors,
+  announces,
+  follows,
+  likes,
+  objects,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import actorsRoute from "../../routes/actors.ts";
 
@@ -143,4 +149,86 @@ test("deleting an account decrements counterparties' follower/following counts (
   expect((await countOf(db, bob))?.followingCount).toBe(0);
   // carol's count was already 0 — the gt(...,0) guard keeps it at 0, not -1.
   expect((await countOf(db, carol))?.followerCount).toBe(0);
+});
+
+async function insertPost(
+  db: Database,
+  apId: string,
+  author: string,
+  counts: { like?: number; announce?: number; reply?: number } = {},
+  inReplyTo?: string,
+) {
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: author,
+    content: "x",
+    visibility: "public",
+    published: new Date().toISOString(),
+    isLocal: 1,
+    inReplyTo: inReplyTo ?? null,
+    likeCount: counts.like ?? 0,
+    announceCount: counts.announce ?? 0,
+    replyCount: counts.reply ?? 0,
+  });
+}
+
+const objCounts = async (db: Database, apId: string) =>
+  db
+    .select({
+      likeCount: objects.likeCount,
+      announceCount: objects.announceCount,
+      replyCount: objects.replyCount,
+    })
+    .from(objects)
+    .where(eq(objects.apId, apId))
+    .get();
+
+test("deleting an account reconciles like/announce/reply counters on OTHER actors' posts", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako"); // being deleted
+  await insertActor(db, "alice");
+  const bob = await insertActor(db, "bob");
+
+  // alice's post: 1 like + 1 announce (both by tako), 3 replies (2 by tako, 1 by bob).
+  const alicePost = `${APP_URL}/ap/objects/alice-1`;
+  await insertPost(db, alicePost, localApId("alice"), {
+    like: 1,
+    announce: 1,
+    reply: 3,
+  });
+  await db.insert(likes).values({
+    actorApId: tako,
+    objectApId: alicePost,
+    activityApId: `${APP_URL}/ap/activities/like-1`,
+  });
+  await db.insert(announces).values({
+    actorApId: tako,
+    objectApId: alicePost,
+    activityApId: `${APP_URL}/ap/activities/ann-1`,
+  });
+  await insertPost(db, `${APP_URL}/ap/objects/tako-r1`, tako, {}, alicePost);
+  await insertPost(db, `${APP_URL}/ap/objects/tako-r2`, tako, {}, alicePost);
+  await insertPost(db, `${APP_URL}/ap/objects/bob-r1`, bob, {}, alicePost);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(res.status).toBe(200);
+
+  const after = await objCounts(db, alicePost);
+  expect(after?.likeCount).toBe(0); // 1 - 1 (tako's like removed)
+  expect(after?.announceCount).toBe(0); // 1 - 1
+  // 3 -> 1: recompute counts only the surviving reply (bob's); tako's 2 replies
+  // are deleted. A flat -1 would have wrongly left 2.
+  expect(after?.replyCount).toBe(1);
 });

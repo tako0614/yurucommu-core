@@ -585,6 +585,45 @@ actorsRoute.post("/me/delete", async (c) => {
         ),
       );
 
+    // Reconcile the denormalized like/announce counters on OTHER actors' objects
+    // BEFORE deleting this actor's edges — otherwise those posts keep a
+    // permanently inflated like_count/announce_count (griefable: throwaway
+    // accounts could ratchet a victim post's counts then self-delete). Each edge
+    // is unique per (actor, object) pair, so a single guarded -1 over the objects
+    // the actor interacted with is exact — same shape as the follower reconcile
+    // above; the subquery scopes to exactly those objects and never splices ids
+    // as bound params (D1's variable ceiling). (bookmarks have no counter.)
+    await db
+      .update(objects)
+      .set({ likeCount: sql`${objects.likeCount} - 1` })
+      .where(
+        and(
+          inArray(
+            objects.apId,
+            db
+              .select({ id: likes.objectApId })
+              .from(likes)
+              .where(eq(likes.actorApId, actorApIdVal)),
+          ),
+          gt(objects.likeCount, 0),
+        ),
+      );
+    await db
+      .update(objects)
+      .set({ announceCount: sql`${objects.announceCount} - 1` })
+      .where(
+        and(
+          inArray(
+            objects.apId,
+            db
+              .select({ id: announces.objectApId })
+              .from(announces)
+              .where(eq(announces.actorApId, actorApIdVal)),
+          ),
+          gt(objects.announceCount, 0),
+        ),
+      );
+
     await db.delete(likes).where(eq(likes.actorApId, actorApIdVal));
     await db.delete(bookmarks).where(eq(bookmarks.actorApId, actorApIdVal));
     await db.delete(announces).where(eq(announces.actorApId, actorApIdVal));
@@ -770,6 +809,34 @@ actorsRoute.post("/me/delete", async (c) => {
     await db
       .delete(storyViews)
       .where(inArray(storyViews.storyApId, authoredObjectIds()));
+
+    // Reconcile parent posts' replyCount BEFORE bulk-deleting this actor's
+    // objects (which include replies to OTHER actors' posts). A flat -1 per
+    // parent would under-decrement when the actor replied N times to one parent,
+    // so recompute each affected parent's replyCount as COUNT(*) of replies that
+    // will REMAIN (i.e. not authored by the deleting actor). Single statement,
+    // subquery-scoped (no spliced ids → D1-param-safe); the `child` alias keeps
+    // the correlated inner objects distinct from the UPDATE target. A parent that
+    // is itself one of this actor's objects gets deleted next — harmless.
+    await db
+      .update(objects)
+      .set({
+        replyCount: sql`(SELECT COUNT(*) FROM objects AS child WHERE child.in_reply_to = ${objects.apId} AND child.attributed_to <> ${actorApIdVal})`,
+      })
+      .where(
+        inArray(
+          objects.apId,
+          db
+            .select({ id: objects.inReplyTo })
+            .from(objects)
+            .where(
+              and(
+                eq(objects.attributedTo, actorApIdVal),
+                isNotNull(objects.inReplyTo),
+              ),
+            ),
+        ),
+      );
 
     // Phase 2: explicit ordered hard-delete to satisfy trigger expectations.
     await db.delete(objects).where(eq(objects.attributedTo, actorApIdVal));
