@@ -24,6 +24,12 @@ import {
 } from "../federation-helpers.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import { excludeBlockedMutedAuthors } from "../lib/feed-exclude.ts";
+import { chunkForInClause } from "../lib/chunk.ts";
+
+// Match every other feed's page cap. Clamping to 90 (not 100) leaves headroom
+// under D1's 100-bound-parameter ceiling for the `+1 eq` in the interaction
+// batch below (see lib/chunk.ts); the batch is also chunked defensively.
+const MAX_FEED_LIMIT = 90;
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -137,41 +143,54 @@ async function batchGetInteractionStatus(
     };
   }
 
-  const [likeRows, bookmarkRows, announceRows] = await Promise.all([
-    db
-      .select({ objectApId: likes.objectApId })
-      .from(likes)
-      .where(
-        and(
-          eq(likes.actorApId, viewerApId),
-          inArray(likes.objectApId, objectApIds),
+  // Chunk the IN() lists: `eq(actorApId) + inArray(objectApIds)` is 1 + N bound
+  // params, and a full page of N=100 ids would exceed D1's 100-param ceiling
+  // (libsql tests don't enforce it, so this only 500'd in prod). Chunking by 90
+  // makes the batch robust to any page size, independent of the caller's clamp.
+  const collect = async (
+    sel: (ids: string[]) => Promise<{ objectApId: string }[]>,
+  ): Promise<Set<string>> => {
+    const out = new Set<string>();
+    for (const chunk of chunkForInClause(objectApIds)) {
+      for (const r of await sel(chunk)) out.add(r.objectApId);
+    }
+    return out;
+  };
+
+  const [likedSet, bookmarkedSet, repostedSet] = await Promise.all([
+    collect((ids) =>
+      db
+        .select({ objectApId: likes.objectApId })
+        .from(likes)
+        .where(
+          and(eq(likes.actorApId, viewerApId), inArray(likes.objectApId, ids)),
         ),
-      ),
-    db
-      .select({ objectApId: bookmarks.objectApId })
-      .from(bookmarks)
-      .where(
-        and(
-          eq(bookmarks.actorApId, viewerApId),
-          inArray(bookmarks.objectApId, objectApIds),
+    ),
+    collect((ids) =>
+      db
+        .select({ objectApId: bookmarks.objectApId })
+        .from(bookmarks)
+        .where(
+          and(
+            eq(bookmarks.actorApId, viewerApId),
+            inArray(bookmarks.objectApId, ids),
+          ),
         ),
-      ),
-    db
-      .select({ objectApId: announces.objectApId })
-      .from(announces)
-      .where(
-        and(
-          eq(announces.actorApId, viewerApId),
-          inArray(announces.objectApId, objectApIds),
+    ),
+    collect((ids) =>
+      db
+        .select({ objectApId: announces.objectApId })
+        .from(announces)
+        .where(
+          and(
+            eq(announces.actorApId, viewerApId),
+            inArray(announces.objectApId, ids),
+          ),
         ),
-      ),
+    ),
   ]);
 
-  return {
-    likedSet: new Set(likeRows.map((l) => l.objectApId)),
-    bookmarkedSet: new Set(bookmarkRows.map((b) => b.objectApId)),
-    repostedSet: new Set(announceRows.map((a) => a.objectApId)),
-  };
+  return { likedSet, bookmarkedSet, repostedSet };
 }
 
 // Paginate a fetched-with-extra-1 result set and determine has_more
@@ -436,7 +455,7 @@ async function handleCommunityTimeline(
 ): Promise<Response> {
   const actor = c.get("actor");
   const db = c.get("db");
-  const limit = parseLimit(c.req.query("limit"), 20, 100);
+  const limit = parseLimit(c.req.query("limit"), 20, MAX_FEED_LIMIT);
   const offset = parseOffset(c.req.query("offset"), 0, 10000);
   const before = c.req.query("before");
   const viewerApId = actor?.ap_id || "";
@@ -534,7 +553,7 @@ timeline.get(
 
     const actor = c.get("actor");
     const db = c.get("db");
-    const limit = parseLimit(c.req.query("limit"), 20, 100);
+    const limit = parseLimit(c.req.query("limit"), 20, MAX_FEED_LIMIT);
     const offset = parseOffset(c.req.query("offset"), 0, 10000);
     const before = c.req.query("before");
     const viewerApId = actor?.ap_id || "";
@@ -671,7 +690,7 @@ timeline.get("/following", async (c) => {
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
   const db = c.get("db");
-  const limit = parseLimit(c.req.query("limit"), 20, 100);
+  const limit = parseLimit(c.req.query("limit"), 20, MAX_FEED_LIMIT);
   const offset = parseOffset(c.req.query("offset"), 0, 10000);
   const before = c.req.query("before");
   const viewerApId = actor.ap_id;
