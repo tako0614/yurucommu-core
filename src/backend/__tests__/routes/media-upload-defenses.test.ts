@@ -158,6 +158,52 @@ test("rejects an oversize image (413)", async () => {
   expect(res.status).toBe(413);
 });
 
+test("deletes the R2 blob when the DB ownership insert fails (no orphan)", async () => {
+  // Run migrations, then DROP media_uploads so the handler's ownership insert
+  // throws AFTER the R2 put has already succeeded — exactly the partial-failure
+  // that used to orphan the blob (the GC reaps R2 by iterating media_uploads, so
+  // a blob with no row could never be reaped).
+  const client = createClient({ url: ":memory:" });
+  const root = new URL("../../../../migrations/", import.meta.url);
+  for (const file of MIGRATIONS) {
+    await client.executeMultiple(await readFile(new URL(file, root), "utf8"));
+  }
+  const db = drizzle(client, { schema }) as unknown as Database;
+  await client.execute("DROP TABLE media_uploads");
+
+  const put: string[] = [];
+  const deleted: string[] = [];
+  const recordingMedia = {
+    async put(key: string) {
+      put.push(key);
+    },
+    async get() {
+      return null;
+    },
+    async delete(key: string) {
+      deleted.push(key);
+    },
+  };
+  const env = {
+    APP_URL,
+    DB_INSTANCE: db,
+    MEDIA: recordingMedia,
+  } as unknown as Env;
+
+  const form = new FormData();
+  form.set("file", new File([PNG_MAGIC], "x.png", { type: "image/png" }));
+  const res = await appWith(db, fakeActor()).fetch(
+    new Request(`${APP_URL}/media/upload`, { method: "POST", body: form }),
+    env,
+  );
+
+  // The insert failed → 500, and the now-unreferenced blob was cleaned up:
+  // exactly the key that was put is the key that was deleted.
+  expect(res.status).toBe(500);
+  expect(put.length).toBe(1);
+  expect(deleted).toEqual(put);
+});
+
 test("accepts a valid PNG and records it (200)", async () => {
   const db = await freshDb();
   const res = await upload(
