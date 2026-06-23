@@ -329,7 +329,18 @@ auth.get("/callback/:provider", async (c) => {
   // endpoint omits. Verify it (ES256 against the issuer JWKS + iss/aud/exp) and
   // let its claims fill/override the userinfo; an ID Token that is present but
   // invalid fails the login (fail closed — never trust an unverified subject).
-  if (provider.issuer && provider.jwksUrl && tokens.id_token) {
+  // `issuer`+`jwksUrl` is the "this is an OIDC provider" discriminator. For such
+  // a provider the id_token MUST be present and valid — a token response that
+  // simply omits it must NOT fall through to unverified userinfo (that would skip
+  // the aud + nonce binding the rest of this flow enforces). Fail closed.
+  if (provider.issuer && provider.jwksUrl) {
+    if (!tokens.id_token) {
+      log.error("OIDC provider returned no id_token", {
+        event: "auth.oauth.id_token_missing",
+        provider: providerId,
+      });
+      return c.redirect("/?error=id_token_missing");
+    }
     try {
       const { clientId } = getClientCredentials(c.env, providerId);
       const claims = await verifyOidcIdToken(tokens.id_token, {

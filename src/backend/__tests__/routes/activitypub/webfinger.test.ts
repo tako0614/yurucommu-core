@@ -76,6 +76,25 @@ test("webfinger subject echoes the CANONICAL username casing", async () => {
   expect(body.subject).toEqual("acct:tako@example.test");
 });
 
+test("webfinger resolves a MIXED-CASE host authority (RFC 4343 host case-insensitivity)", async () => {
+  // Audit #12 finding #4: the acct: host was compared case-sensitively against
+  // the (always-lowercased) currentDomain, so `acct:tako@EXAMPLE.TEST` 404'd even
+  // though it is this instance. The host is now lowercased before comparison.
+  const tako = {
+    apId: "https://example.test/ap/users/tako",
+    preferredUsername: "tako",
+  };
+  const app = createApp(createActorDb([tako]));
+
+  const res = await app.fetch(
+    new Request(
+      "https://example.test/.well-known/webfinger?resource=acct:tako@EXAMPLE.TEST",
+    ),
+    { APP_URL: "https://example.test" },
+  );
+  expect(res.status).toEqual(200);
+});
+
 test("webfinger keeps exact local actor resolution when username exists", async () => {
   const alice = {
     apId: "https://example.test/ap/users/alice",

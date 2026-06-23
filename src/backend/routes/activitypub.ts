@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import { actors, objects as objectsTable } from "../../db/index.ts";
 import { notDeleted } from "../../db/index.ts";
@@ -51,6 +51,10 @@ const ACTOR_CONTEXT_EXTENSION = {
   alsoKnownAs: { "@id": "as:alsoKnownAs", "@type": "@id" },
   movedTo: { "@id": "as:movedTo", "@type": "@id" },
   manuallyApprovesFollowers: "as:manuallyApprovesFollowers",
+  // The actor docs emit `discoverable` (Mastodon's search-indexing opt-out
+  // signal); declare its term so a strict JSON-LD processor doesn't drop it on
+  // expansion. Mirrors Mastodon's own context.
+  discoverable: "toot:discoverable",
 } as const;
 
 // Full @context for the served Person actor doc: AS2 + security + the
@@ -258,7 +262,11 @@ ap.get(
       const acctPart = resource.slice(5);
       const [user, host] = acctPart.split("@");
       username = user;
-      domain = host;
+      // DNS host names are case-insensitive (RFC 4343). Lowercase the host so a
+      // mixed-case authority (`acct:alice@Example.Test`) matches currentDomain
+      // (always lowercased by the URL parser) — the `http` branch below gets this
+      // for free from `new URL(...).host`.
+      domain = host ? host.toLowerCase() : null;
     } else if (resource.startsWith("http")) {
       try {
         const url = new URL(resource);
@@ -290,7 +298,7 @@ ap.get(
       return c.json({ error: "Actor not found" }, 404);
     }
 
-    if (username === INSTANCE_ACTOR_USERNAME) {
+    if (username.toLowerCase() === INSTANCE_ACTOR_USERNAME.toLowerCase()) {
       const instanceActor = await getInstanceActor(c);
       return jrdJson(
         c,
@@ -304,7 +312,14 @@ ap.get(
     }
 
     const resolvedActor = await db.query.actors.findFirst({
-      where: and(eq(actors.preferredUsername, username), notDeleted(actors)),
+      // Case-insensitive handle resolution: a remote may WebFinger a local handle
+      // with different casing than stored (RFC 7033 local-parts are technically
+      // case-sensitive but most fediverse software preserves typed casing), and a
+      // case-sensitive `eq` would 404 it and break inbound discovery.
+      where: and(
+        sql`lower(${actors.preferredUsername}) = ${username.toLowerCase()}`,
+        notDeleted(actors),
+      ),
       columns: { apId: true, preferredUsername: true },
     });
 

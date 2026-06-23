@@ -105,6 +105,10 @@ test("served actor doc @context includes Mastodon extension terms", async () => 
     "as:manuallyApprovesFollowers",
   );
 
+  // Audit #12 finding #6: the actor doc emits `discoverable`, so its term must be
+  // declared (toot:discoverable) or a strict JSON-LD processor drops it.
+  expect(ext?.discoverable).toEqual("toot:discoverable");
+
   // Sanity: the actor doc actually emits the terms the context now declares.
   expect(Array.isArray(body.attachment)).toBe(true);
   expect(Array.isArray(body.alsoKnownAs)).toBe(true);
