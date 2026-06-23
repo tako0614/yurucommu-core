@@ -4,7 +4,10 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { ApiError } from "../lib/api/fetch.ts";
 import { useDialog } from "../lib/useDialog.ts";
-import { enterCommunityScopeAtom } from "../atoms/scope.ts";
+import {
+  enterCommunityScopeAtom,
+  leaveCommunityScopeAtom,
+} from "../atoms/scope.ts";
 import {
   acceptCommunityJoinRequest,
   CommunityDetail,
@@ -42,6 +45,7 @@ export function CommunityProfilePage() {
   const { t } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
   const enterCommunityScope = useSetAtom(enterCommunityScopeAtom);
+  const leaveCommunityScope = useSetAtom(leaveCommunityScopeAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   // Styled invite-code prompt (replaces window.prompt for invite-only joins).
@@ -253,6 +257,10 @@ export function CommunityProfilePage() {
           ? { ...prev, is_member: false, member_count: prev.member_count - 1 }
           : null,
       );
+      // Parity with the join path: refresh the scope picker so this community
+      // drops out of the switcher, and clear the home filter if it was narrowed
+      // to it — otherwise both stay stale until a full reload.
+      await leaveCommunityScope(comm.ap_id);
     } catch (e) {
       console.error("Failed to leave:", e);
       setError(t("common.error"));

@@ -181,6 +181,23 @@ export const enterCommunityScopeAtom = atom(
   },
 );
 
+// Action: after LEAVING a community, mirror the join path so the picker and the
+// active filter stay coherent without a reload. Refetches the picker source (so
+// the left community drops out of the switcher) and, if the home view was
+// narrowed to that community, resets it to personal — otherwise the home stays
+// filtered to a community the user is no longer a member of. Symmetric with
+// enterCommunityScopeAtom.
+export const leaveCommunityScopeAtom = atom(
+  null,
+  async (get, set, communityApId: string): Promise<void> => {
+    await set(refreshScopesAtom);
+    const active = get(inhabitedScopeAtom);
+    if (active.kind === "community" && active.ap_id === communityApId) {
+      set(inhabitedScopeAtom, PERSONAL_SCOPE);
+    }
+  },
+);
+
 // Action: reset scope to personal (wired into logout so a switched account
 // never inherits the previous owner's community lens).
 export const resetScopeAtom = atom(null, (_get, set) => {

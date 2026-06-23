@@ -156,12 +156,19 @@ export function ProfilePage() {
   const loadMorePosts = async () => {
     const before = postsCursor();
     if (loadingMorePosts() || !postsHasMore() || !before) return;
+    // Same generation guard as loadProfile: if the user navigates to another
+    // profile while this page-back is in flight, the targetActorId capture +
+    // post ap_ids would NOT collide (disjoint per profile), so without this the
+    // resolved older posts of the previous profile would be appended onto the
+    // new profile and its cursor would clobber the new one.
+    const gen = profileLoadGen;
     setLoadingMorePosts(true);
     try {
       const more = await fetchActorPosts(targetActorId(), {
         limit: PROFILE_POSTS_PAGE,
         before,
       });
+      if (gen !== profileLoadGen) return;
       setPosts((prev) => {
         const seen = new Set(prev.map((p) => p.ap_id));
         return [...prev, ...more.posts.filter((p) => !seen.has(p.ap_id))];
@@ -169,10 +176,11 @@ export function ProfilePage() {
       setPostsCursor(more.nextCursor);
       setPostsHasMore(more.hasMore);
     } catch (e) {
+      if (gen !== profileLoadGen) return;
       console.error("Failed to load more posts:", e);
       pushToast(setToasts, t("common.loadFailed"), { kind: "error" });
     } finally {
-      setLoadingMorePosts(false);
+      if (gen === profileLoadGen) setLoadingMorePosts(false);
     }
   };
 

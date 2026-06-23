@@ -1,10 +1,13 @@
 import { assertEquals } from "#test/assert";
 import { test } from "bun:test";
+import { createStore } from "jotai";
 import type { CommunityDetail } from "../lib/api/communities.ts";
 import {
   communityToScope,
   deriveMyScopes,
   type InhabitedScope,
+  inhabitedScopeAtom,
+  leaveCommunityScopeAtom,
   PERSONAL_SCOPE,
   reconcileScope,
   scopeToQuery,
@@ -175,4 +178,38 @@ test("deriveMyScopes excludes non-member communities", () => {
     makeCommunity({ is_member: false, member_role: null }),
   ]);
   assertEquals(scopes, [PERSONAL_SCOPE]);
+});
+
+const communityScope = (apId: string): InhabitedScope => ({
+  kind: "community",
+  ap_id: apId,
+  name: "x",
+  display_name: "X",
+  member_role: "member",
+});
+
+// Audit #9 finding #1: leaving a community must clear the home filter if it was
+// narrowed to that community (otherwise home stays filtered to a community the
+// user is no longer in, until reload). The picker refetch fails harmlessly in
+// this test environment (no server) and is caught; the reset decision below is
+// what we assert.
+test("leaveCommunityScopeAtom resets the home filter when it was the left community", async () => {
+  const store = createStore();
+  store.set(inhabitedScopeAtom, communityScope("X"));
+  await store.set(leaveCommunityScopeAtom, "X");
+  assertEquals(store.get(inhabitedScopeAtom), PERSONAL_SCOPE);
+});
+
+test("leaveCommunityScopeAtom leaves the home filter alone when a DIFFERENT community is active", async () => {
+  const store = createStore();
+  const other = communityScope("Y");
+  store.set(inhabitedScopeAtom, other);
+  await store.set(leaveCommunityScopeAtom, "X");
+  assertEquals(store.get(inhabitedScopeAtom), other);
+});
+
+test("leaveCommunityScopeAtom is a no-op for the personal (unfiltered) home", async () => {
+  const store = createStore();
+  await store.set(leaveCommunityScopeAtom, "X");
+  assertEquals(store.get(inhabitedScopeAtom), PERSONAL_SCOPE);
 });
