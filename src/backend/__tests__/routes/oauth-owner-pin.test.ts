@@ -112,7 +112,45 @@ test("TAKOSUMI_ACCOUNTS_OWNER_SUB is honored as the pin too", async () => {
   expect(refused).toBeNull();
 });
 
-test("pin only guards the owner slot: a second login is a normal member regardless", async () => {
+// Audit #12 finding #2: member auto-provisioning is CLOSED by default on a
+// single-user instance. Once the owner exists, a brand-new external subject must
+// NOT be able to self-provision a member account just by completing the issuer's
+// OAuth flow (on a shared issuer that would let the whole population register).
+test("member auto-provisioning is CLOSED by default: a second (non-allowlisted) login is REFUSED", async () => {
+  const db = await freshDb();
+  await createActorFromOAuth(
+    db,
+    envWith({ OIDC_OWNER_SUB: "sub-operator" }),
+    userInfo("sub-operator"),
+    "sub-operator",
+  );
+  const refused = await createActorFromOAuth(
+    db,
+    envWith({ OIDC_OWNER_SUB: "sub-operator" }),
+    { id: "sub-guest", name: "Guest", username: "guest" },
+    "sub-guest",
+  );
+  expect(refused).toBeNull();
+});
+
+test("a second login with NO owner pin set is also refused (registration closed by default)", async () => {
+  const db = await freshDb();
+  await createActorFromOAuth(
+    db,
+    envWith({}),
+    userInfo("sub-owner"),
+    "sub-owner",
+  );
+  const refused = await createActorFromOAuth(
+    db,
+    envWith({}),
+    { id: "sub-guest", name: "Guest", username: "guest" },
+    "sub-guest",
+  );
+  expect(refused).toBeNull();
+});
+
+test("a subject in OIDC_ALLOWED_SUBS CAN auto-provision a member after the owner exists", async () => {
   const db = await freshDb();
   await createActorFromOAuth(
     db,
@@ -122,7 +160,10 @@ test("pin only guards the owner slot: a second login is a normal member regardle
   );
   const member = await createActorFromOAuth(
     db,
-    envWith({ OIDC_OWNER_SUB: "sub-operator" }),
+    envWith({
+      OIDC_OWNER_SUB: "sub-operator",
+      OIDC_ALLOWED_SUBS: "sub-other, sub-guest",
+    }),
     { id: "sub-guest", name: "Guest", username: "guest" },
     "sub-guest",
   );

@@ -336,6 +336,36 @@ export async function createActorFromOAuth(
     }
   }
 
+  // Member auto-provisioning is CLOSED by default on this single-user instance
+  // (nodeinfo advertises openRegistrations:false / singleUser:true). Once the
+  // owner exists, a brand-new external subject must NOT be able to self-provision
+  // a member account + session just by completing the issuer's OAuth flow — on a
+  // shared issuer (Google / X / a multi-tenant Takosumi Accounts) that would let
+  // the entire issuer population log into someone else's private instance and
+  // post/DM/federate under the operator's domain. Allow a non-first create ONLY
+  // for the pinned owner subject (defensive re-bind) or an explicitly allowlisted
+  // subject. Owner re-login never reaches here (resolved by takosUserId first),
+  // and out-of-band sub-accounts use POST /accounts (takosUserId "local:<name>").
+  if (actorCount > 0) {
+    const ownerSub =
+      parseNonEmptyString(env.OIDC_OWNER_SUB) ??
+      parseNonEmptyString(env.TAKOSUMI_ACCOUNTS_OWNER_SUB);
+    const allowed = new Set(
+      (parseNonEmptyString(env.OIDC_ALLOWED_SUBS) ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+    if (ownerSub) allowed.add(ownerSub);
+    if (!allowed.has(providerUserId)) {
+      log.warn(
+        "refused OAuth member auto-provisioning: registration is closed " +
+          "(subject not the owner pin and not in OIDC_ALLOWED_SUBS)",
+      );
+      return null;
+    }
+  }
+
   return await createActor(db, env, {
     username,
     name: userInfo.name,

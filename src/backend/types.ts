@@ -36,6 +36,11 @@ export interface EnvVars {
   // first-login is refused. Prevents an owner-slot race on an OIDC-seeded Capsule.
   OIDC_OWNER_SUB?: string;
   TAKOSUMI_ACCOUNTS_OWNER_SUB?: string;
+  // Comma-separated allowlist of OAuth/OIDC subjects permitted to auto-provision
+  // a NON-owner (member) account. Empty/unset = member auto-provisioning is
+  // CLOSED (single-user default): once the owner exists, no new external subject
+  // can self-register a member just by completing the issuer's OAuth flow.
+  OIDC_ALLOWED_SUBS?: string;
   TAKOS_URL?: string; // Optional Takos API base URL; not the OIDC issuer.
   AUTH_MODE?: string;
   ENCRYPTION_KEY?: string; // 32-byte hex key for encrypting sensitive data
