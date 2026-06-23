@@ -18,12 +18,14 @@ interface CommunityMembersPanelProps {
   creatingInvite: boolean;
   joinPolicy: string | undefined;
   actorApId: string;
+  removingMember: Record<string, boolean>;
   onAcceptRequest: (request: CommunityJoinRequest) => void;
   onRejectRequest: (request: CommunityJoinRequest) => void;
   onUpdateMemberRole: (
     member: CommunityMember,
     role: "owner" | "moderator" | "member",
   ) => void;
+  onRemoveMember: (member: CommunityMember) => void;
   onCreateInvite: () => void;
   t: Translate;
 }
@@ -167,6 +169,35 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                   </option>
                   <option value="owner">{props.t("members.owner")}</option>
                 </select>
+              </Show>
+              {/* Remove (kick): a manager may remove non-owners; only an owner
+                  may remove another owner — mirrors the backend requireManager +
+                  owner-vs-owner guard. Never shown for self (use leave). */}
+              <Show
+                when={
+                  props.canManage &&
+                  member.ap_id !== props.actorApId &&
+                  (member.role !== "owner" || props.isOwner)
+                }
+              >
+                <button
+                  type="button"
+                  aria-label={props
+                    .t("members.removeConfirm")
+                    .replace(
+                      "{name}",
+                      member.name || member.preferred_username,
+                    )}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    props.onRemoveMember(member);
+                  }}
+                  disabled={props.removingMember[member.ap_id]}
+                  class="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-50 shrink-0"
+                >
+                  {props.t("members.remove")}
+                </button>
               </Show>
             </A>
           )}

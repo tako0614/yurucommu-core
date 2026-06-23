@@ -17,6 +17,7 @@ import {
   joinCommunity,
   leaveCommunity,
   rejectCommunityJoinRequest,
+  removeCommunityMember,
   updateCommunityMemberRole,
   updateCommunitySettings,
   uploadMedia,
@@ -77,6 +78,12 @@ export function CommunityProfilePage() {
   const [updatingMemberRole, setUpdatingMemberRole] = createSignal<
     Record<string, boolean>
   >({});
+  const [removingMember, setRemovingMember] = createSignal<
+    Record<string, boolean>
+  >({});
+  // Member removal (kick) staged behind the shared ConfirmSheet.
+  const [pendingMemberRemoval, setPendingMemberRemoval] =
+    createSignal<CommunityMember | null>(null);
   // Settings state
   const [settingsForm, setSettingsForm] = createSignal<CommunitySettings>({});
   const [savingSettings, setSavingSettings] = createSignal(false);
@@ -355,6 +362,35 @@ export function CommunityProfilePage() {
     }
   };
 
+  // Kick: stage behind the shared ConfirmSheet (destructive), then call the
+  // backend DELETE /members/:id, drop the member locally, and decrement the
+  // member count on success.
+  const handleRemoveMember = (member: CommunityMember) => {
+    setPendingMemberRemoval(member);
+  };
+
+  const doRemoveMember = async (member: CommunityMember) => {
+    const comm = community();
+    if (!comm) return;
+    if (removingMember()[member.ap_id]) return;
+    setMemberActionError(null);
+    setRemovingMember((prev) => ({ ...prev, [member.ap_id]: true }));
+    try {
+      await removeCommunityMember(comm.name, member.ap_id);
+      setMembers((prev) => prev.filter((m) => m.ap_id !== member.ap_id));
+      setCommunity((prev) =>
+        prev
+          ? { ...prev, member_count: Math.max(0, prev.member_count - 1) }
+          : prev,
+      );
+    } catch (e) {
+      console.error("Failed to remove member:", e);
+      setMemberActionError(t("members.removeFailed"));
+    } finally {
+      setRemovingMember((prev) => ({ ...prev, [member.ap_id]: false }));
+    }
+  };
+
   // Seed the settings form when the community IDENTITY changes (first load or
   // navigating to a different community) — NOT on every `community()` object
   // identity change. The latter re-ran on any sibling mutation that produces a
@@ -584,6 +620,7 @@ export function CommunityProfilePage() {
               requestAction={requestAction()}
               memberActionError={memberActionError()}
               updatingMemberRole={updatingMemberRole()}
+              removingMember={removingMember()}
               inviteCode={inviteCode()}
               creatingInvite={creatingInvite()}
               joinPolicy={community()!.join_policy}
@@ -591,6 +628,7 @@ export function CommunityProfilePage() {
               onAcceptRequest={handleAcceptRequest}
               onRejectRequest={handleRejectRequest}
               onUpdateMemberRole={handleUpdateMemberRole}
+              onRemoveMember={handleRemoveMember}
               onCreateInvite={handleCreateInvite}
               t={t}
             />
@@ -649,6 +687,23 @@ export function CommunityProfilePage() {
           if (member) void doUpdateMemberRole(member, "owner");
         }}
         onCancel={() => setPendingOwnerPromotion(null)}
+      />
+      <ConfirmSheet
+        open={pendingMemberRemoval() !== null}
+        title={t("members.removeConfirm").replace(
+          "{name}",
+          pendingMemberRemoval()?.name ||
+            pendingMemberRemoval()?.preferred_username ||
+            "",
+        )}
+        confirmLabel={t("members.remove")}
+        destructive
+        onConfirm={() => {
+          const member = pendingMemberRemoval();
+          setPendingMemberRemoval(null);
+          if (member) void doRemoveMember(member);
+        }}
+        onCancel={() => setPendingMemberRemoval(null)}
       />
       <Show when={invitePromptOpen()}>
         <Portal>
