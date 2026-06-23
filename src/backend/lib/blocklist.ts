@@ -47,8 +47,27 @@ export function normalizeDomain(input: string): string | null {
 }
 
 /**
- * Returns `true` when the operator has blocked the given hostname. Accepts
- * both bare hostnames (`example.org`) and full actor URLs.
+ * The hostname plus each of its parent suffixes that has ≥2 labels, e.g.
+ * `a.b.attacker.net` → [`a.b.attacker.net`, `b.attacker.net`, `attacker.net`].
+ * A domain block must cover subdomains (the near-universal fediverse
+ * convention) — otherwise blocking `attacker.net` is trivially evaded by
+ * federating from `node1.attacker.net`. Bounded by the label count (index-
+ * friendly inArray), and excludes the bare TLD so a TLD is never an implied
+ * match. A single-label host (e.g. `localhost`) yields just itself.
+ */
+export function domainSuffixCandidates(domain: string): string[] {
+  const labels = domain.split(".");
+  const out: string[] = [];
+  for (let i = 0; i <= labels.length - 2; i++) {
+    out.push(labels.slice(i).join("."));
+  }
+  if (out.length === 0) out.push(domain);
+  return out;
+}
+
+/**
+ * Returns `true` when the operator has blocked the given hostname OR any parent
+ * domain of it. Accepts both bare hostnames (`example.org`) and full actor URLs.
  */
 export async function isDomainBlocked(
   db: Database,
@@ -59,7 +78,7 @@ export async function isDomainBlocked(
 
   try {
     const row = await db.query.blockedDomains.findFirst({
-      where: eq(blockedDomains.domain, domain),
+      where: inArray(blockedDomains.domain, domainSuffixCandidates(domain)),
       columns: { domain: true },
     });
     return !!row;
@@ -141,16 +160,21 @@ export async function filterBlockedActorApIds(
       for (const r of rows) blockedActorSet.add(r.actorApId);
     }
 
-    const idToDomain = new Map<string, string | null>();
-    const domains = new Set<string>();
+    // Expand each actor's hostname to its parent-domain candidates so a domain
+    // block covers subdomains (see domainSuffixCandidates) — querying the union
+    // of all candidates and matching an actor if ANY of its candidates is
+    // blocked.
+    const idToCandidates = new Map<string, string[]>();
+    const candidateUnion = new Set<string>();
     for (const id of uniqueIds) {
       const d = normalizeDomain(id);
-      idToDomain.set(id, d);
-      if (d) domains.add(d);
+      const candidates = d ? domainSuffixCandidates(d) : [];
+      idToCandidates.set(id, candidates);
+      for (const c of candidates) candidateUnion.add(c);
     }
 
     const blockedDomainSet = new Set<string>();
-    const domainList = [...domains];
+    const domainList = [...candidateUnion];
     for (let i = 0; i < domainList.length; i += BLOCKLIST_IN_CHUNK) {
       const blockedDomainRows = await db
         .select({ domain: blockedDomains.domain })
@@ -165,8 +189,11 @@ export async function filterBlockedActorApIds(
     }
 
     for (const id of uniqueIds) {
-      const d = idToDomain.get(id);
-      if (blockedActorSet.has(id) || (d && blockedDomainSet.has(d))) {
+      const candidates = idToCandidates.get(id) ?? [];
+      if (
+        blockedActorSet.has(id) ||
+        candidates.some((c) => blockedDomainSet.has(c))
+      ) {
         blocked.add(id);
       }
     }

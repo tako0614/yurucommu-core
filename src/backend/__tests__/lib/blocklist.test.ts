@@ -36,7 +36,9 @@ function createBlocklistDb(state: MockBlocklistDb): Database {
             // the simpler path is to ship a serialised marker through
             // the spy call below.
             return Promise.resolve(
-              state.domains.has(extractEqValue(where)) ? { domain: "x" } : null,
+              extractValues(where).some((v) => state.domains.has(v))
+                ? { domain: "x" }
+                : null,
             );
           },
         ),
@@ -52,7 +54,7 @@ function createBlocklistDb(state: MockBlocklistDb): Database {
             };
           }) => {
             return Promise.resolve(
-              state.actors.has(extractEqValue(where))
+              extractValues(where).some((v) => state.actors.has(v))
                 ? { actorApId: "x" }
                 : null,
             );
@@ -64,22 +66,39 @@ function createBlocklistDb(state: MockBlocklistDb): Database {
   return db as unknown as Database;
 }
 
-// drizzle `eq(col, value)` produces an SQL fragment whose `queryChunks`
-// array holds the literal as a Param. We dig it out for the mock so we can
-// branch on the lookup value without standing up a real SQLite database.
-function extractEqValue(where: unknown): string {
-  if (where && typeof where === "object") {
-    const w = where as { queryChunks?: unknown[] };
-    if (Array.isArray(w.queryChunks)) {
-      for (const chunk of w.queryChunks) {
-        if (chunk && typeof chunk === "object") {
-          const c = chunk as { value?: unknown };
-          if (typeof c.value === "string") return c.value;
-        }
+// drizzle `eq(col, value)` / `inArray(col, values)` produce an SQL fragment
+// whose `queryChunks` array holds the literal(s) as Param(s). We dig them out
+// for the mock so we can branch on the lookup value(s) without standing up a
+// real SQLite database. `eq` yields a single string value; `inArray` (used by
+// isDomainBlocked's subdomain candidate lookup) yields an array value — collect
+// both shapes so any-match works.
+function extractValues(where: unknown): string[] {
+  // Walk the drizzle SQL fragment recursively, collecting every string literal
+  // carried by a Param. `eq` keeps its value at the top level; `inArray` nests
+  // the per-element Params inside a sub-SQL chunk, so a recursive walk handles
+  // both without depending on the exact nesting depth.
+  const out: string[] = [];
+  const seen = new Set<unknown>();
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object" || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const el of node) {
+        if (typeof el === "string") out.push(el);
+        else visit(el);
       }
+      return;
     }
-  }
-  return "";
+    const n = node as { value?: unknown; queryChunks?: unknown[] };
+    if (typeof n.value === "string") out.push(n.value);
+    else if (Array.isArray(n.value)) {
+      for (const v of n.value) if (typeof v === "string") out.push(v);
+    }
+    // `inArray` nests its element Params inside a raw JS-array queryChunk.
+    if (Array.isArray(n.queryChunks)) for (const c of n.queryChunks) visit(c);
+  };
+  visit(where);
+  return out;
 }
 
 test("normalizeDomain accepts bare hostnames and URLs", () => {

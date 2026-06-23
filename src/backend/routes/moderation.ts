@@ -32,6 +32,10 @@ import {
   unblockDomain,
 } from "../lib/blocklist.ts";
 import {
+  purgeActorContent,
+  purgeDomainContent,
+} from "../lib/blocklist-purge.ts";
+import {
   activities,
   blockedActors,
   blockedDomains,
@@ -132,6 +136,9 @@ moderationRoutes.post("/domains", async (c) => {
   } catch {
     return c.json({ error: "Invalid domain" }, 400);
   }
+  // Defederation also purges the domain's already-ingested content so it stops
+  // being served (the blocklist is otherwise ingest/delivery-only).
+  await purgeDomainContent(c.get("db"), parsed.value, c.env.MEDIA);
   return c.json({ success: true });
 });
 
@@ -197,6 +204,8 @@ moderationRoutes.post("/actors", async (c) => {
   } catch {
     return c.json({ error: "Invalid actor" }, 400);
   }
+  // Purge the blocked actor's already-ingested content so it stops being served.
+  await purgeActorContent(c.get("db"), parsed.value, c.env.MEDIA);
   return c.json({ success: true });
 });
 
