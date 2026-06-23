@@ -47,7 +47,14 @@ recommendations.get(
           SELECT muted_ap_id FROM mutes WHERE muter_ap_id = ${myApId}
         )
         AND f2.following_ap_id NOT IN (
-          SELECT ap_id FROM actors WHERE deleted_at IS NOT NULL
+          -- Hide deleted AND private/locked (is_private = 1) accounts. A locked
+          -- account opted out of discovery (discoverable:false), and every other
+          -- actor-discovery surface (search.actors, takos-tools searchUsers /
+          -- getUserProfile) excludes is_private = 1 — this friends-of-friends
+          -- panel must match or it leaks the locked account's handle/name/icon.
+          -- is_private lives only on the LOCAL actors table; remote candidates
+          -- (actorCache) are unaffected, same scope as the other surfaces.
+          SELECT ap_id FROM actors WHERE deleted_at IS NOT NULL OR is_private = 1
         )
       GROUP BY f2.following_ap_id
       ORDER BY mutual_count DESC

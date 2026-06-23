@@ -1,14 +1,20 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
   actorCache,
   actors,
+  announces,
+  bookmarks,
   follows,
   inbox as inboxTable,
+  likes,
   objectRecipients,
   objects,
+  storyShares,
+  storyViews,
+  storyVotes,
 } from "../../../../db/index.ts";
 import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
@@ -701,6 +707,121 @@ export async function handleCreateStory(
 // Delete handler
 // ---------------------------------------------------------------------------
 
+/**
+ * Tombstone a remote actor locally in response to a verified inbound
+ * Delete(Actor). Mirrors the local /me/delete teardown for the federation-facing
+ * state we hold about a remote: reconcile LOCAL counterparts' follower/following
+ * counts, drop the follow edges in both directions, purge the actor cache, and
+ * cascade-delete the remote's cached content. All deletes are subquery-scoped
+ * (no spliced ids → D1-param-safe) and remote objects carry no R2 blobs (their
+ * media are remote URLs, not local uploads), so no media purge is needed.
+ */
+async function handleRemoteActorDelete(
+  c: ActivityContext,
+  actorId: string,
+): Promise<void> {
+  const db = c.get("db");
+
+  // Counterpart count reconcile BEFORE dropping edges (mirrors actors.ts):
+  // everyone the deleted remote followed loses a follower; everyone who followed
+  // it loses a following. The subquery naturally scopes to LOCAL actors (remote
+  // actors have no `actors` row); gt(...,0) guards underflow.
+  await db
+    .update(actors)
+    .set({ followerCount: sql`${actors.followerCount} - 1` })
+    .where(
+      and(
+        inArray(
+          actors.apId,
+          db
+            .select({ id: follows.followingApId })
+            .from(follows)
+            .where(eq(follows.followerApId, actorId)),
+        ),
+        gt(actors.followerCount, 0),
+      ),
+    );
+  await db
+    .update(actors)
+    .set({ followingCount: sql`${actors.followingCount} - 1` })
+    .where(
+      and(
+        inArray(
+          actors.apId,
+          db
+            .select({ id: follows.followerApId })
+            .from(follows)
+            .where(eq(follows.followingApId, actorId)),
+        ),
+        gt(actors.followingCount, 0),
+      ),
+    );
+  await db
+    .delete(follows)
+    .where(
+      or(eq(follows.followerApId, actorId), eq(follows.followingApId, actorId)),
+    );
+
+  // Recompute the replyCount of any LOCAL parent the remote's cached objects
+  // replied to, counting only the replies that will REMAIN (not authored by the
+  // deleted remote), BEFORE the cascade removes them (mirrors actors.ts).
+  await db
+    .update(objects)
+    .set({
+      replyCount: sql`(SELECT COUNT(*) FROM objects AS child WHERE child.in_reply_to = ${objects.apId} AND child.attributed_to <> ${actorId})`,
+    })
+    .where(
+      inArray(
+        objects.apId,
+        db
+          .select({ id: objects.inReplyTo })
+          .from(objects)
+          .where(
+            and(
+              eq(objects.attributedTo, actorId),
+              isNotNull(objects.inReplyTo),
+            ),
+          ),
+      ),
+    );
+
+  // Cascade child rows keyed by the remote's authored objects (no FK cascade on
+  // prod D1), then the objects themselves. A fresh subquery per statement avoids
+  // shared-AST reuse.
+  const remoteObjectIds = () =>
+    db
+      .select({ id: objects.apId })
+      .from(objects)
+      .where(eq(objects.attributedTo, actorId));
+  await db.delete(likes).where(inArray(likes.objectApId, remoteObjectIds()));
+  await db
+    .delete(announces)
+    .where(inArray(announces.objectApId, remoteObjectIds()));
+  await db
+    .delete(bookmarks)
+    .where(inArray(bookmarks.objectApId, remoteObjectIds()));
+  await db
+    .delete(objectRecipients)
+    .where(inArray(objectRecipients.objectApId, remoteObjectIds()));
+  await db
+    .delete(storyVotes)
+    .where(inArray(storyVotes.storyApId, remoteObjectIds()));
+  await db
+    .delete(storyViews)
+    .where(inArray(storyViews.storyApId, remoteObjectIds()));
+  await db
+    .delete(storyShares)
+    .where(inArray(storyShares.storyApId, remoteObjectIds()));
+  await db.delete(objects).where(eq(objects.attributedTo, actorId));
+
+  await db.delete(actorCache).where(eq(actorCache.apId, actorId));
+
+  log.info("Processed inbound Delete(actor)", {
+    event: "ap.delete.actor",
+    actor: actorId,
+  });
+}
+
 export async function handleDelete(c: ActivityContext, activity: Activity) {
   const db = c.get("db");
   const objectId = getActivityObjectId(activity);
@@ -725,7 +846,19 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
-  if (!delObj) return;
+  if (!delObj) {
+    // Delete(Actor): a remote announcing its OWN account deletion addresses the
+    // actor as the object (object === actor). Remote actors are never stored in
+    // `objects` (they live in actorCache), so the per-object path above finds no
+    // row. verifyAndParseInbox has already bound the signer to activity.actor
+    // (same origin), so an object that equals the verified actor is owned by the
+    // signer. Tombstone the remote locally so a stale profile + dangling follow
+    // edge + cached content do not survive indefinitely.
+    if (objectId === actorId) {
+      await handleRemoteActorDelete(c, actorId);
+    }
+    return;
+  }
 
   // Verify actor owns the object before deleting
   if (delObj.attributedTo !== actorId) {
