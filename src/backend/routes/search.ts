@@ -360,6 +360,11 @@ search.get("/actors", async (c) => {
       .where(
         and(
           notDeleted(actors),
+          // A private/locked account is discoverable:false + manuallyApproves
+          // followers; it must not surface in anonymous-reachable actor search
+          // (its existence/name/bio/follower-count would leak). Matches the
+          // takos-tools searchUsers + getUserProfile gates.
+          eq(actors.isPrivate, 0),
           or(
             likeContains(actors.preferredUsername, query),
             likeContains(actors.name, query),

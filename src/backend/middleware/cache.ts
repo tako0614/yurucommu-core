@@ -257,6 +257,13 @@ function applyCacheHeaders(
   headers.set("Last-Modified", lastModified);
   headers.set("X-Cache", cacheStatus);
   if (config.cacheTag) {
+    // Emits a Cache-Tag header for OPTIONAL operator-side purging (Cloudflare
+    // Enterprise Cache-Tag purge API). NOTE: there is NO in-app, mutation-
+    // triggered invalidation — cached reads expire by TTL ONLY, so a deleted/
+    // edited/now-private object can be served stale until its TTL lapses (worst
+    // case ~1h for webfinger, 2-5min for feeds/actor). TTLs are deliberately
+    // short and varyByActor/authed-bypass prevent cross-audience leaks, so the
+    // staleness window is the accepted tradeoff rather than a correctness bug.
     headers.set("Cache-Tag", config.cacheTag);
   }
   return headers;

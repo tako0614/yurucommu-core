@@ -359,10 +359,14 @@ ap.get(
 
 ap.get(
   "/ap/users/:username",
+  // NOTE: no varyByActor — the session actor is never extracted on /ap/* (that
+  // middleware is mounted only on /api, /media, /.takos/tools), so this is an
+  // anonymous public AP document. The owner-only showCollections branch is
+  // therefore unreachable here by design (AP identity is the HTTP signature, not
+  // a session); a per-viewer flag would be dead + a latent footgun.
   withCache({
     ttl: CacheTTL.ACTIVITYPUB_ACTOR,
     cacheTag: CacheTags.ACTOR,
-    varyByActor: true,
   }),
   async (c) => {
     const db = c.get("db");

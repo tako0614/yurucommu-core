@@ -95,3 +95,31 @@ test("actor search resolves a leading @ to the bare handle", async () => {
   // A bare "@" (or "@" only after trim) yields nothing, not an error/everyone.
   expect(await searchActors(app, "@")).toEqual([]);
 });
+
+test("actor search excludes private/locked (isPrivate) accounts", async () => {
+  const db = await freshDb();
+  await insertLocalActor(db, "publicuser", "Findable Person");
+  // A private/locked account (discoverable:false) with a matching name.
+  const priv = `${APP_URL}/ap/users/privateuser`;
+  await db.insert(actors).values({
+    apId: priv,
+    type: "Person",
+    preferredUsername: "privateuser",
+    name: "Findable Secret",
+    inbox: `${priv}/inbox`,
+    outbox: `${priv}/outbox`,
+    followersUrl: `${priv}/followers`,
+    followingUrl: `${priv}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    isPrivate: 1,
+  });
+  const app = appFor(db);
+
+  // The shared "Findable" name term returns ONLY the public account.
+  const byName = await searchActors(app, "Findable");
+  expect(byName).toContain("publicuser");
+  expect(byName).not.toContain("privateuser");
+  // Even searching the private handle directly must not surface it.
+  expect(await searchActors(app, "privateuser")).not.toContain("privateuser");
+});
