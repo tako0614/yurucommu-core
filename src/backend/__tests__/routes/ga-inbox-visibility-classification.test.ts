@@ -2,11 +2,16 @@ import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, follows, objects } from "../../../db/index.ts";
+import {
+  actors,
+  follows,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
 import { handleCreate } from "../../routes/activitypub/handlers/inbox-content-handlers.ts";
 import { canViewerReadObjectFull } from "../../lib/post-visibility.ts";
 import type {
@@ -239,4 +244,21 @@ test("a DM addressed to the inbox owner is stored as visibility=direct (DM path)
   expect(row?.visibility).toBe("direct");
   // A third party cannot read a direct note.
   expect(await canViewerReadObjectFull(db, row!, LOCAL_CAROL)).toBe(false);
+
+  // Audit #16 #3: the recipient link MUST co-commit with the object — inbound-DM
+  // recipient membership is resolved EXCLUSIVELY through object_recipients
+  // (contacts / requests / unread-count), so an object stored without it is a DM
+  // permanently invisible to the recipient. It now lives inside the same atomic
+  // batch as the object insert; assert it is present after a fresh inbound DM.
+  const recipientLink = await db
+    .select()
+    .from(objectRecipients)
+    .where(
+      and(
+        eq(objectRecipients.objectApId, id),
+        eq(objectRecipients.recipientApId, LOCAL_BOB),
+      ),
+    )
+    .get();
+  expect(recipientLink?.type).toBe("to");
 });

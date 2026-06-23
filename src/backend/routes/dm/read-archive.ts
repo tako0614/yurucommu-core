@@ -10,7 +10,7 @@ import {
   dmReadStatus,
   objects,
 } from "../../../db/index.ts";
-import { getConversationId, resolveConversationId } from "./query-helpers.ts";
+import { resolveConversationId } from "./query-helpers.ts";
 import {
   buildActorInfoMap,
   byTimeDesc,
@@ -121,7 +121,15 @@ readArchive.post("/user/:encodedApId/archive", async (c) => {
   if (!otherApId) return c.json({ error: "ap_id required" }, 400);
 
   const baseUrl = c.env.APP_URL;
-  const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
+  // Match the STORED conversation id (legacy- or current-scheme) so archiving a
+  // pre-migration conversation actually hides it (the contacts/unread paths key
+  // on the same stored id) instead of writing a never-matching current-scheme row.
+  const conversationId = await resolveConversationId(
+    db,
+    baseUrl,
+    actor.ap_id,
+    otherApId,
+  );
   const now = new Date().toISOString();
 
   await db
@@ -146,7 +154,12 @@ readArchive.delete("/user/:encodedApId/archive", async (c) => {
   if (!otherApId) return c.json({ error: "ap_id required" }, 400);
 
   const baseUrl = c.env.APP_URL;
-  const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
+  const conversationId = await resolveConversationId(
+    db,
+    baseUrl,
+    actor.ap_id,
+    otherApId,
+  );
 
   await db
     .delete(dmArchivedConversations)

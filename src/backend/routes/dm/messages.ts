@@ -29,9 +29,9 @@ import {
   safeJsonParse,
 } from "../../federation-helpers.ts";
 import {
-  getConversationId,
   MAX_DM_CONTENT_LENGTH,
   MAX_DM_PAGE_LIMIT,
+  resolveConversationId,
 } from "./query-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
 import { feedCursorWhere } from "../../lib/feed-cursor.ts";
@@ -356,7 +356,11 @@ dm.get("/user/:encodedApId/messages", async (c) => {
   const otherApId = decodeURIComponent(c.req.param("encodedApId"));
   const limit = parseLimit(c.req.query("limit"), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query("before");
-  const conversationId = getConversationId(
+  // Resolve to the STORED conversation id (legacy- or current-scheme) of an
+  // existing thread rather than always recomputing the current-scheme id, so a
+  // pre-migration conversation's messages/read-status stay matched.
+  const conversationId = await resolveConversationId(
+    db,
     c.env.APP_URL,
     actor.ap_id,
     otherApId,
@@ -435,7 +439,15 @@ dm.post("/user/:encodedApId/messages", async (c) => {
 
   const apId = objectApId(baseUrl, generateId());
   const now = new Date().toISOString();
-  const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
+  // Reuse an existing thread's stored conversation id (incl. legacy-scheme) so a
+  // reply does not split a pre-migration conversation into a second id; a brand
+  // new conversation falls back to the current-scheme id.
+  const conversationId = await resolveConversationId(
+    db,
+    baseUrl,
+    actor.ap_id,
+    otherApId,
+  );
   const toJson = JSON.stringify([otherApId]);
 
   const isRecipientLocal = !!localActor;

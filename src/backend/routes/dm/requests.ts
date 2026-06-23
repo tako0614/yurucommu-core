@@ -1,9 +1,15 @@
 // DM requests - list, accept, reject
 
 import { Hono } from "hono";
-import { and, desc, eq, inArray } from "drizzle-orm";
-import { blocks, objectRecipients, objects } from "../../../db/index.ts";
-import { getConversationId } from "./query-helpers.ts";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import {
+  activities,
+  blocks,
+  inbox as inboxTable,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
+import { resolveConversationId } from "./query-helpers.ts";
 import {
   buildActorInfoMap,
   findRepliedConversations,
@@ -11,6 +17,12 @@ import {
   type HonoEnv,
   recipientObjectIds,
 } from "./conversations-helpers.ts";
+
+// Upper bound on the number of pending-request CONVERSATIONS returned. The list
+// is collapsed to one row per conversation in SQL (GROUP BY), so this bounds
+// distinct senders, NOT messages — a single high-volume sender can occupy at
+// most one slot and can no longer evict every other pending requester.
+const MAX_REQUEST_CONVERSATIONS = 500;
 
 const requests = new Hono<HonoEnv>();
 
@@ -20,12 +32,19 @@ requests.get("/requests", async (c) => {
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
 
-  const incomingDMs = await db
+  // Collapse to ONE row per conversation IN SQL (GROUP BY) — the latest message
+  // of each — then bound by conversation count. Previously we fetched the 1000
+  // most-recent incoming MESSAGES and deduped in JS, so a single sender with
+  // >1000 stored DMs filled the whole window and evicted every other pending
+  // request (and diverged from the unbounded request_count badge). `max()` with
+  // GROUP BY makes the bare columns take their value from each group's latest
+  // message (SQLite min/max bare-column rule).
+  const latestPerConversation = await db
     .select({
       apId: objects.apId,
       attributedTo: objects.attributedTo,
       content: objects.content,
-      published: objects.published,
+      published: sql<string>`max(${objects.published})`,
       conversation: objects.conversation,
     })
     .from(objects)
@@ -33,6 +52,7 @@ requests.get("/requests", async (c) => {
       and(
         eq(objects.visibility, "direct"),
         eq(objects.type, "Note"),
+        isNotNull(objects.conversation),
         // Incoming DMs = Notes where this actor is a `to` recipient. Resolved
         // via the indexed object_recipients link (see recipientObjectIds)
         // instead of an unindexable `to_json LIKE '%"<apId>"%'` scan; same
@@ -40,45 +60,31 @@ requests.get("/requests", async (c) => {
         inArray(objects.apId, recipientObjectIds(db, actor.ap_id)),
       ),
     )
-    .orderBy(desc(objects.published))
-    .limit(1000);
+    .groupBy(objects.conversation)
+    .orderBy(desc(sql`max(${objects.published})`))
+    .limit(MAX_REQUEST_CONVERSATIONS);
 
-  const allConversations = [
-    ...new Set(
-      incomingDMs
-        .map((dm) => dm.conversation)
-        .filter((c): c is string => c !== null),
-    ),
-  ];
+  const allConversations = latestPerConversation
+    .map((dm) => dm.conversation)
+    .filter((c): c is string => c !== null);
   const repliedConversationsSet = await findRepliedConversations(
     db,
     allConversations,
     actor.ap_id,
   );
 
-  // Filter to only unreplied conversations (one per conversation, most recent first)
-  const seenConversations = new Set<string>();
-  const requestList: Array<{
-    id: string;
-    senderApId: string;
-    content: string;
-    createdAt: string;
-    conversation: string | null;
-  }> = [];
-
-  for (const dm of incomingDMs) {
-    if (!dm.conversation || seenConversations.has(dm.conversation)) continue;
-    if (repliedConversationsSet.has(dm.conversation)) continue;
-
-    seenConversations.add(dm.conversation);
-    requestList.push({
+  // Keep only unreplied conversations; GROUP BY already guarantees one row each.
+  const requestList = latestPerConversation
+    .filter(
+      (dm) => dm.conversation && !repliedConversationsSet.has(dm.conversation),
+    )
+    .map((dm) => ({
       id: dm.apId,
       senderApId: dm.attributedTo,
       content: dm.content,
       createdAt: dm.published,
       conversation: dm.conversation,
-    });
-  }
+    }));
 
   const senderApIds = [...new Set(requestList.map((r) => r.senderApId))];
   const actorInfoMap = await buildActorInfoMap(db, senderApIds);
@@ -106,31 +112,55 @@ requests.post("/requests/reject", async (c) => {
   }
 
   const baseUrl = c.env.APP_URL;
-  const conversationId = getConversationId(
+  // Resolve to the STORED conversation id (legacy- or current-scheme) so a
+  // pre-migration thread is actually matched by the deletes below.
+  const conversationId = await resolveConversationId(
+    db,
     baseUrl,
     actor.ap_id,
     body.sender_ap_id,
   );
 
+  // The set of the sender's messages in this conversation, as a reusable
+  // SUBQUERY (never materialised into an `IN (...)`, which would blow D1's
+  // 100-bound-parameter ceiling once a spammer has written >~100 messages).
+  const senderObjectIds = db
+    .select({ apId: objects.apId })
+    .from(objects)
+    .where(
+      and(
+        eq(objects.conversation, conversationId),
+        eq(objects.attributedTo, body.sender_ap_id),
+      ),
+    );
+
+  // Drop the inbox + delivery Create activities for those messages FIRST, before
+  // the objects vanish. These tables are addressed by AP id with no FK to
+  // `objects`, so deleting only the object orphans them — and the notifications
+  // query LEFT JOINs the now-missing object (gone → NULL visibility → no longer
+  // excluded as "direct"), so each orphan Create would resurface as a blank
+  // "mention" notification with a dead link plus an inflated unread badge. This
+  // mirrors the DM message-delete cleanup (messages.ts).
+  await db
+    .delete(inboxTable)
+    .where(
+      inArray(
+        inboxTable.activityApId,
+        db
+          .select({ apId: activities.apId })
+          .from(activities)
+          .where(inArray(activities.objectApId, senderObjectIds)),
+      ),
+    );
+  await db
+    .delete(activities)
+    .where(inArray(activities.objectApId, senderObjectIds));
+
   // Delete the recipient rows for every message the sender wrote in this
-  // conversation. Expressed as a SUBQUERY (`objectApId IN (SELECT ...)`) rather
-  // than materialising every message id into an `IN (...)`, which would blow
-  // D1's 100-bound-parameter ceiling once a sender has written >~100 messages
-  // (e.g. a spammer's request rejected after a long thread).
-  await db.delete(objectRecipients).where(
-    inArray(
-      objectRecipients.objectApId,
-      db
-        .select({ apId: objects.apId })
-        .from(objects)
-        .where(
-          and(
-            eq(objects.conversation, conversationId),
-            eq(objects.attributedTo, body.sender_ap_id),
-          ),
-        ),
-    ),
-  );
+  // conversation (same subquery-not-IN reasoning as above).
+  await db
+    .delete(objectRecipients)
+    .where(inArray(objectRecipients.objectApId, senderObjectIds));
 
   await db
     .delete(objects)

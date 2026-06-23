@@ -58,6 +58,7 @@ function createDrizzleMockDb(
         | null,
     ) => Promise<TResult1 | TResult2>;
     where: (...args: unknown[]) => TerminalChain;
+    groupBy: (...args: unknown[]) => TerminalChain;
     orderBy: (...args: unknown[]) => TerminalChain;
     limit: (...args: unknown[]) => TerminalChain;
     offset: (...args: unknown[]) => TerminalChain;
@@ -78,6 +79,7 @@ function createDrizzleMockDb(
           onrejected,
         )) as TerminalChain["then"],
       where: spy((..._args: unknown[]) => terminalObj),
+      groupBy: spy((..._args: unknown[]) => terminalObj),
       orderBy: spy((..._args: unknown[]) => terminalObj),
       limit: spy((..._args: unknown[]) => terminalObj),
       offset: spy((..._args: unknown[]) => terminalObj),

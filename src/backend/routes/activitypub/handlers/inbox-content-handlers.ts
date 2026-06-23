@@ -339,14 +339,27 @@ async function insertDirectNote(
         isLocal: 0,
       })
       .onConflictDoNothing(),
+    // The recipient link MUST co-commit with the object. Inbound-DM recipient
+    // membership is resolved EXCLUSIVELY through object_recipients (contacts /
+    // requests / unread-count), so an object that committed WITHOUT its
+    // object_recipients row is a DM permanently invisible to the recipient.
+    // Previously this insert ran as a SEPARATE await after the batch: a crash /
+    // isolate-eviction in that window left exactly that orphan, and the caller's
+    // `if (existing) return` made the re-dispatch skip the repair. In-batch with
+    // onConflictDoNothing it is atomic (never orphaned) AND idempotent (a retry
+    // is a safe no-op). The local-send / community / takos-tools paths already
+    // co-commit this row for the same reason.
+    db
+      .insert(objectRecipients)
+      .values({
+        objectApId: objectId,
+        recipientApId: recipient.apId,
+        type: "to",
+      })
+      .onConflictDoNothing(),
   ]);
 
   if (existingObject) return; // duplicate: no inbox surfacing, no double count
-
-  await db
-    .insert(objectRecipients)
-    .values({ objectApId: objectId, recipientApId: recipient.apId, type: "to" })
-    .onConflictDoNothing();
 
   // Store the inbound Create and surface it in the recipient's inbox so the DM
   // appears in the conversation / message-requests view.
