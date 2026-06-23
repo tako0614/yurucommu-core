@@ -23,7 +23,6 @@ import {
   typeIncludes,
 } from "../inbox-types.ts";
 import {
-  deleteFollowByCompoundKey,
   findFollowByActivityId,
   runBatch,
   undoInteraction,
@@ -258,11 +257,37 @@ export async function handleReject(
   // Only the followed party may Reject the follow (see handleAccept).
   if (!actor || follow.followingApId !== actor) return;
 
-  await deleteFollowByCompoundKey(
-    db,
-    follow.followerApId,
-    follow.followingApId,
-  );
+  // A remote followee can Reject an ALREADY-ACCEPTED follow to terminate it
+  // (Mastodon does this on lock + remove-follower). handleAccept incremented the
+  // local follower's followingCount when the edge became accepted, so a Reject of
+  // an accepted edge MUST decrement it — otherwise the follower's following_count
+  // stays permanently +1 over its true value (the edge IS correctly deleted, only
+  // the denormalized count drifts). Co-commit the accepted-gated decrement with
+  // the delete, mirroring undoFollowEdge: a pending (never-counted) reject and a
+  // duplicate are no-ops via the EXISTS(... status='accepted') + gt(>0) guards.
+  // (followingApId — the rejecting followee — is the remote signer with no local
+  // actors row, so only the local follower's followingCount is reconciled.)
+  const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${follow.followerApId} AND ${follows.followingApId} = ${follow.followingApId} AND ${follows.status} = 'accepted')`;
+  await runBatch(db, [
+    db
+      .update(actors)
+      .set({ followingCount: sql`${actors.followingCount} - 1` })
+      .where(
+        and(
+          eq(actors.apId, follow.followerApId),
+          gt(actors.followingCount, 0),
+          acceptedEdgeExists,
+        ),
+      ),
+    db
+      .delete(follows)
+      .where(
+        and(
+          eq(follows.followerApId, follow.followerApId),
+          eq(follows.followingApId, follow.followingApId),
+        ),
+      ),
+  ]);
 }
 
 // ---------------------------------------------------------------------------

@@ -882,6 +882,67 @@ async function handleRemoteActorDelete(
       ),
     );
 
+  // Reconcile the like/announce/share counters on OTHER objects the deleted
+  // remote INTERACTED with, BEFORE dropping its edges — mirrors the local
+  // account-delete griefing defense (actors.ts). A throwaway remote could ratchet
+  // a local post's like/announce/share counts then self-delete via a signed
+  // Delete(Person); without this those counts stay permanently inflated and the
+  // edge rows orphan (the object-scoped cascade below only reaps interactions ON
+  // the remote's OWN posts, not the ones it authored on others'). gt(...,0) guards
+  // underflow; the subquery scopes without splicing ids (D1 param ceiling).
+  await db
+    .update(objects)
+    .set({ likeCount: sql`${objects.likeCount} - 1` })
+    .where(
+      and(
+        inArray(
+          objects.apId,
+          db
+            .select({ id: likes.objectApId })
+            .from(likes)
+            .where(eq(likes.actorApId, actorId)),
+        ),
+        gt(objects.likeCount, 0),
+      ),
+    );
+  await db
+    .update(objects)
+    .set({ announceCount: sql`${objects.announceCount} - 1` })
+    .where(
+      and(
+        inArray(
+          objects.apId,
+          db
+            .select({ id: announces.objectApId })
+            .from(announces)
+            .where(eq(announces.actorApId, actorId)),
+        ),
+        gt(objects.announceCount, 0),
+      ),
+    );
+  await db
+    .update(objects)
+    .set({ shareCount: sql`${objects.shareCount} - 1` })
+    .where(
+      and(
+        inArray(
+          objects.apId,
+          db
+            .select({ id: storyShares.storyApId })
+            .from(storyShares)
+            .where(eq(storyShares.actorApId, actorId)),
+        ),
+        gt(objects.shareCount, 0),
+      ),
+    );
+  // Delete the interaction edges the remote AUTHORED on OTHER objects.
+  await db.delete(likes).where(eq(likes.actorApId, actorId));
+  await db.delete(announces).where(eq(announces.actorApId, actorId));
+  await db.delete(bookmarks).where(eq(bookmarks.actorApId, actorId));
+  await db.delete(storyShares).where(eq(storyShares.actorApId, actorId));
+  await db.delete(storyVotes).where(eq(storyVotes.actorApId, actorId));
+  await db.delete(storyViews).where(eq(storyViews.actorApId, actorId));
+
   // Cascade child rows keyed by the remote's authored objects (no FK cascade on
   // prod D1), then the objects themselves. A fresh subquery per statement avoids
   // shared-AST reuse.
@@ -1326,6 +1387,28 @@ export async function handleMove(
     ),
   );
 
+  // Symmetric to the above, on the FOLLOWEE side: the old actor's ACCEPTED follow
+  // of a LOCAL actor L incremented L.followerCount (handleFollow). When the
+  // (old→L) rewrite is DROPPED as a duplicate (the NEW actor already follows L,
+  // i.e. L ∈ existingFollowerTargetSet) or as a self-edge (L === newActor), the
+  // delete below still removes (old→L) but NO rewrite re-adds an (new→L) edge for
+  // it — so L would keep a permanent +1 over-count. Decrement those dropped,
+  // accepted, local followees' followerCount once (the non-dropped case is
+  // count-preserving: delete old→L + insert new→L). gt(>0) guards underflow.
+  const droppedAcceptedLocalFolloweeApIds = Array.from(
+    new Set(
+      followerRows
+        .filter(
+          (row) =>
+            row.status === "accepted" &&
+            isLocal(row.followingApId, baseUrl) &&
+            (existingFollowerTargetSet.has(row.followingApId) ||
+              row.followingApId === newActorApId),
+        )
+        .map((row) => row.followingApId),
+    ),
+  );
+
   // Co-commit the four edge mutations + the per-follower followingCount
   // decrements in ONE atomic batch. D1 has no interactive transactions, and the
   // OLD sequential form was non-convergent: a crash between "delete old edges"
@@ -1361,6 +1444,14 @@ export async function handleMove(
         .where(
           and(eq(actors.apId, followerApId), gt(actors.followingCount, 0)),
         ),
+    );
+  }
+  for (const followeeApId of droppedAcceptedLocalFolloweeApIds) {
+    moveOps.push(
+      db
+        .update(actors)
+        .set({ followerCount: sql`${actors.followerCount} - 1` })
+        .where(and(eq(actors.apId, followeeApId), gt(actors.followerCount, 0))),
     );
   }
   if (moveOps.length > 0) {

@@ -9,6 +9,7 @@ import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
   actors,
+  announces,
   follows,
   likes,
   objects,
@@ -129,6 +130,71 @@ test("inbound Delete(Actor) tombstones a remote: purges actorCache, drops follow
       .length,
   ).toBe(0);
   expect((await db.select().from(likes)).length).toBe(0);
+});
+
+// Audit #18: a Delete(Person) must also reconcile the like/announce/share counts
+// the deleted remote bumped on LOCAL posts (and remove its interaction edges) —
+// otherwise a throwaway remote could ratchet a victim's counters then self-delete.
+test("Delete(Actor) reconciles like/announce counts the remote bumped on LOCAL posts + removes those edges", async () => {
+  const db = await freshDb();
+
+  // A local author + their public post, already showing 1 like + 1 boost — both
+  // from the remote that is about to self-delete.
+  const author = "https://yuru.test/ap/users/carol";
+  await db.insert(actors).values({
+    apId: author,
+    type: "Person",
+    preferredUsername: "carol",
+    inbox: `${author}/inbox`,
+    outbox: `${author}/outbox`,
+    followersUrl: `${author}/followers`,
+    followingUrl: `${author}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db.insert(actorCache).values({
+    apId: REMOTE,
+    type: "Person",
+    inbox: `${REMOTE}/inbox`,
+    rawJson: "{}",
+  });
+  const localPost = "https://yuru.test/ap/objects/local-1";
+  await db.insert(objects).values({
+    apId: localPost,
+    type: "Note",
+    attributedTo: author,
+    content: "mine",
+    visibility: "public",
+    isLocal: 1,
+    likeCount: 1,
+    announceCount: 1,
+  });
+  await db.insert(likes).values({
+    actorApId: REMOTE,
+    objectApId: localPost,
+    activityApId: `${REMOTE}/likes/1`,
+  });
+  await db.insert(announces).values({
+    actorApId: REMOTE,
+    objectApId: localPost,
+    activityApId: `${REMOTE}/announces/1`,
+  });
+
+  await handleDelete(ctxFor(db), deleteActor(REMOTE));
+
+  // The local post's counts are reconciled back to 0 and the edges are gone.
+  const post = await db
+    .select({
+      likeCount: objects.likeCount,
+      announceCount: objects.announceCount,
+    })
+    .from(objects)
+    .where(eq(objects.apId, localPost))
+    .get();
+  expect(post?.likeCount).toBe(0);
+  expect(post?.announceCount).toBe(0);
+  expect((await db.select().from(likes)).length).toBe(0);
+  expect((await db.select().from(announces)).length).toBe(0);
 });
 
 test("Delete(Actor) does not touch a still-live remote when object != actor", async () => {

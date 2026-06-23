@@ -317,15 +317,13 @@ test("handleMove decrements a migrated local follower's followingCount so the re
     .update(actors)
     .set({ followingCount: 1 })
     .where(eq(actors.apId, localFollower));
-  await db
-    .insert(follows)
-    .values([
-      {
-        followerApId: localFollower,
-        followingApId: OLD_ACTOR,
-        status: "accepted",
-      },
-    ]);
+  await db.insert(follows).values([
+    {
+      followerApId: localFollower,
+      followingApId: OLD_ACTOR,
+      status: "accepted",
+    },
+  ]);
 
   const activity: Activity = {
     type: "Move",
@@ -358,4 +356,58 @@ test("handleMove decrements a migrated local follower's followingCount so the re
     )
     .get();
   expect(migrated?.status).toBe("pending");
+});
+
+// Audit #18: the FOLLOWEE-side mirror of the followingCount fix. When the old
+// actor's ACCEPTED follow of a LOCAL actor L is dedup-DROPPED (the new actor
+// already follows L), the (old->L) edge is deleted but no rewrite re-adds it, so
+// L.followerCount must be decremented or it stays permanently +1 over.
+test("handleMove decrements a dedup-dropped local followee's followerCount", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+
+  const localFollowee = `${APP_URL}/ap/users/lia`;
+  await seedActor(db, OLD_ACTOR, "old");
+  await seedActor(db, NEW_ACTOR, "new");
+  await seedActor(db, localFollowee, "lia");
+  // L is followed by BOTH old and new (each +1'd L.followerCount → 2).
+  await db
+    .update(actors)
+    .set({ followerCount: 2 })
+    .where(eq(actors.apId, localFollowee));
+  await db.insert(follows).values([
+    {
+      followerApId: OLD_ACTOR,
+      followingApId: localFollowee,
+      status: "accepted",
+    },
+    {
+      followerApId: NEW_ACTOR,
+      followingApId: localFollowee,
+      status: "accepted",
+    },
+  ]);
+
+  await handleMove(
+    ctx(db),
+    { type: "Move", actor: OLD_ACTOR, object: OLD_ACTOR, target: NEW_ACTOR },
+    OLD_ACTOR,
+  );
+
+  // The (old->L) rewrite was dropped (new already follows L) and the edge deleted,
+  // so L now has exactly ONE follower (new) and followerCount reconciled to 1.
+  expect(
+    (
+      await db
+        .select()
+        .from(follows)
+        .where(eq(follows.followingApId, localFollowee))
+    ).length,
+  ).toBe(1);
+  const l = await db
+    .select({ fc: actors.followerCount })
+    .from(actors)
+    .where(eq(actors.apId, localFollowee))
+    .get();
+  expect(l?.fc).toBe(1);
 });

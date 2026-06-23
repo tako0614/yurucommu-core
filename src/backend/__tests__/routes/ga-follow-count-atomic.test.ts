@@ -7,7 +7,10 @@ import { and, eq } from "drizzle-orm";
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actors, blocks, follows } from "../../../db/index.ts";
-import { handleFollow } from "../../routes/activitypub/handlers/inbox-follow-handlers.ts";
+import {
+  handleFollow,
+  handleReject,
+} from "../../routes/activitypub/handlers/inbox-follow-handlers.ts";
 import type {
   Activity,
   ActivityContext,
@@ -254,4 +257,98 @@ test("[R6 #2] a private recipient stays pending with NO followerCount change", a
     .get();
   expect(edge?.status).toBe("pending");
   expect(await followerCount(db, PRIVATE_RECIPIENT)).toBe(0); // pending: never counted
+});
+
+// Audit #18: a remote followee can Reject an ALREADY-ACCEPTED follow to terminate
+// it (Mastodon does this on lock + remove-follower). handleReject must decrement
+// the local follower's followingCount that handleAccept incremented — otherwise
+// it stays permanently +1 over.
+test("[audit#18] inbound Reject of an ACCEPTED follow decrements the local follower's followingCount", async () => {
+  const db = await setup();
+  const REMOTE_FOLLOWEE = "https://remote.example/users/rejector";
+  await seedActor(db, REMOTE_FOLLOWEE, "rejector");
+  const followActId = "https://yuru.test/ap/activities/follow-r1";
+  await db.insert(follows).values({
+    followerApId: LOCAL_FOLLOWER,
+    followingApId: REMOTE_FOLLOWEE,
+    status: "accepted",
+    activityApId: followActId,
+    acceptedAt: new Date().toISOString(),
+  });
+  await db
+    .update(actors)
+    .set({ followingCount: 1 })
+    .where(eq(actors.apId, LOCAL_FOLLOWER));
+
+  await handleReject(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/reject-1",
+      type: "Reject",
+      actor: REMOTE_FOLLOWEE,
+      object: followActId,
+    } as unknown as Activity,
+    REMOTE_FOLLOWEE,
+  );
+
+  // The edge is deleted AND followingCount is reconciled back to 0.
+  expect(
+    (
+      await db
+        .select()
+        .from(follows)
+        .where(eq(follows.followerApId, LOCAL_FOLLOWER))
+    ).length,
+  ).toBe(0);
+  const alice = await db
+    .select({ fc: actors.followingCount })
+    .from(actors)
+    .where(eq(actors.apId, LOCAL_FOLLOWER))
+    .get();
+  expect(alice?.fc).toBe(0);
+});
+
+test("[audit#18] inbound Reject of a PENDING follow does NOT decrement (never counted)", async () => {
+  const db = await setup();
+  const REMOTE_FOLLOWEE = "https://remote.example/users/rejector2";
+  await seedActor(db, REMOTE_FOLLOWEE, "rejector2");
+  const followActId = "https://yuru.test/ap/activities/follow-r2";
+  await db.insert(follows).values({
+    followerApId: LOCAL_FOLLOWER,
+    followingApId: REMOTE_FOLLOWEE,
+    status: "pending",
+    activityApId: followActId,
+  });
+  // A sentinel followingCount of 1 (from some OTHER accepted follow) must be
+  // untouched: a pending edge was never counted, so rejecting it decrements nothing.
+  await db
+    .update(actors)
+    .set({ followingCount: 1 })
+    .where(eq(actors.apId, LOCAL_FOLLOWER));
+
+  await handleReject(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/reject-2",
+      type: "Reject",
+      actor: REMOTE_FOLLOWEE,
+      object: followActId,
+    } as unknown as Activity,
+    REMOTE_FOLLOWEE,
+  );
+
+  expect(
+    (
+      await db
+        .select()
+        .from(follows)
+        .where(eq(follows.followerApId, LOCAL_FOLLOWER))
+    ).length,
+  ).toBe(0); // edge still deleted
+  const alice = await db
+    .select({ fc: actors.followingCount })
+    .from(actors)
+    .where(eq(actors.apId, LOCAL_FOLLOWER))
+    .get();
+  expect(alice?.fc).toBe(1); // sentinel untouched (pending was never counted)
 });
