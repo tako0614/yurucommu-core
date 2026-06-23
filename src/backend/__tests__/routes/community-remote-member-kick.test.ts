@@ -37,6 +37,7 @@ async function freshDb(): Promise<Database> {
     "0004_blocklist.sql",
     "0008_actor_fields_aka.sql",
     "0009_object_tags.sql",
+    "0015_community_bans.sql",
   ]) {
     await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
   }

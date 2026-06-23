@@ -10,9 +10,11 @@ import {
 import type { Env, Variables } from "../../types.ts";
 import {
   fetchCommunityDetails,
+  isMemberBanned,
   memberWhere,
   removeMemberAtomic,
   removeOwnerIfAnotherExists,
+  unbanMember,
 } from "./membership-shared.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import { logger } from "../../lib/logger.ts";
@@ -218,6 +220,8 @@ export function registerMembershipJoinRoutes(
             .where(eq(communities.apId, community.apId));
           await (db as unknown as Batchable).batch([memberInsert, countBump]);
 
+          // Consuming a valid invite is an explicit re-admission — lift any ban.
+          await unbanMember(db, community.apId, actor.ap_id);
           return c.json({ success: true, status: "joined" });
         } catch (error) {
           if (isUniqueConstraintError(error)) {
@@ -231,6 +235,20 @@ export function registerMembershipJoinRoutes(
           });
           return c.json({ error: "Failed to join community" }, 500);
         }
+      }
+
+      // Durable ban: a removed member cannot self-rejoin via OPEN join (the
+      // auto-admit path the kick was meant to stop). Approval (a mod decides)
+      // and invite (explicit re-admission) paths above stay open and lift the
+      // ban on success, so a moderator can always let someone back in.
+      if (await isMemberBanned(db, community.apId, actor.ap_id)) {
+        return c.json(
+          {
+            error: "You have been removed from this community",
+            status: "banned",
+          },
+          403,
+        );
       }
 
       // Open join — create the member + bump the count atomically. D1 has no

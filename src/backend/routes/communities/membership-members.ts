@@ -9,6 +9,7 @@ import {
   parseOffset,
 } from "../../federation-helpers.ts";
 import {
+  banMember,
   batchLoadActorInfo,
   demoteOwnerIfAnotherExists,
   fetchCommunityId,
@@ -82,9 +83,9 @@ export function registerMembershipMemberRoutes(
         // immediately drops them from the relay and makes their inbound posts
         // fail the members-only gate (no outbound Reject is required for the
         // removal to take effect locally). Pending join follows are cleared too.
-        // NOTE: a per-community ban list (to auto-Reject a re-Follow into an
-        // open community) requires a new table + migration and is a documented
-        // follow-up; this closes the "no removal tool at all" gap.
+        // A durable ban (below) auto-Rejects a re-Follow into an open community,
+        // so the kick sticks; an approval re-request or invite lets a mod
+        // re-admit (which lifts the ban).
         const remoteFollow = await db
           .select({ followerApId: follows.followerApId })
           .from(follows)
@@ -106,6 +107,9 @@ export function registerMembershipMemberRoutes(
               eq(follows.followingApId, community.apId),
             ),
           );
+        // Durable ban so the removed remote actor cannot simply re-Follow back
+        // into an open community (handleGroupFollow consults it).
+        await banMember(db, community.apId, targetApId);
         return c.json({ success: true });
       }
 
@@ -139,10 +143,12 @@ export function registerMembershipMemberRoutes(
         if (!removed) {
           return c.json({ error: "Cannot remove the last owner" }, 400);
         }
+        await banMember(db, community.apId, targetApId);
         return c.json({ success: true });
       }
 
       await removeMemberAtomic(db, community.apId, targetApId);
+      await banMember(db, community.apId, targetApId);
 
       return c.json({ success: true });
     },

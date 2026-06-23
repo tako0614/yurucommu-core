@@ -9,6 +9,7 @@ import type { Database } from "../../../../db/index.ts";
 import {
   activities,
   communities,
+  communityBans,
   communityMembers,
   follows,
   objectRecipients,
@@ -473,4 +474,59 @@ test("a non-member CAN post to a postPolicy=anyone PUBLIC community (gate is com
   );
   const audience = await chatMessages(db, apId);
   expect(audience.length).toBe(1);
+});
+
+// Audit #25 finding C — a kicked member is durably BANNED: a re-Follow into an
+// OPEN community must NOT auto-rejoin (no accepted edge), and the group emits a
+// Reject instead of an Accept.
+test("a BANNED remote actor re-Following an open community is Rejected (no accepted edge)", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "club", "open");
+  await db
+    .insert(communityBans)
+    .values({ communityApId: apId, bannedApId: REMOTE });
+
+  const activityId = "https://remote.example/activities/refollow";
+  const activity = {
+    type: "Follow",
+    actor: REMOTE,
+    object: apId,
+    id: activityId,
+  } as unknown as Activity;
+
+  await handleGroupFollow(
+    ctx(db),
+    activity,
+    { apId, joinPolicy: "open" },
+    REMOTE,
+    APP_URL,
+    activityId,
+  );
+
+  // No follows edge was created (the ban blocks the auto-accept).
+  const follow = await db.query.follows.findFirst({
+    where: and(
+      eq(follows.followerApId, REMOTE),
+      eq(follows.followingApId, apId),
+    ),
+  });
+  expect(follow).toBeFalsy();
+
+  // A Reject (not an Accept) is emitted by the group.
+  const reject = await db.query.activities.findFirst({
+    where: and(
+      eq(activities.type, "Reject"),
+      eq(activities.actorApId, apId),
+      eq(activities.objectApId, activityId),
+    ),
+  });
+  expect(reject).toBeTruthy();
+  const accept = await db.query.activities.findFirst({
+    where: and(
+      eq(activities.type, "Accept"),
+      eq(activities.actorApId, apId),
+      eq(activities.objectApId, activityId),
+    ),
+  });
+  expect(accept).toBeFalsy();
 });

@@ -69,6 +69,25 @@ export const communityMembers = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// COMMUNITY_BANS — durable per-community bans so a kicked member cannot
+// immediately re-join an open community (consulted by the local join route +
+// the inbound Group Follow handler; cleared on explicit re-admission).
+// ---------------------------------------------------------------------------
+
+export const communityBans = sqliteTable(
+  "community_bans",
+  {
+    communityApId: text("community_ap_id").notNull(),
+    bannedApId: text("banned_ap_id").notNull(),
+    createdAt: text("created_at").notNull().$defaultFn(nowIso),
+  },
+  (t) => [
+    primaryKey({ columns: [t.communityApId, t.bannedApId] }),
+    index("community_bans_banned_idx").on(t.bannedApId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // COMMUNITY_JOIN_REQUESTS
 // ---------------------------------------------------------------------------
 

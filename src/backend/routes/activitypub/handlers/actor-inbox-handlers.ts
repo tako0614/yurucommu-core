@@ -15,6 +15,7 @@ import {
   objectApId,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import { isMemberBanned } from "../../communities/membership-shared.ts";
 import {
   boundAttachmentsJson,
   boundInboundContent,
@@ -71,11 +72,23 @@ export async function handleGroupFollow(
     ),
   });
 
+  // A banned actor re-Following an OPEN community must NOT auto-rejoin: force a
+  // Reject and record no edge (durable kick — mirrors the local open-join ban
+  // gate). Only the AUTO-ACCEPT path is blocked; an approval community still
+  // lets the Follow go pending so a moderator can re-admit (which lifts the ban).
+  const policyStatus = JOIN_POLICY_STATUS[group.joinPolicy ?? ""] ?? "accepted";
+  const banned =
+    !existing &&
+    policyStatus === "accepted" &&
+    (await isMemberBanned(db, group.apId, actorApIdStr));
+
   const status = existing
     ? existing.status
-    : (JOIN_POLICY_STATUS[group.joinPolicy ?? ""] ?? "accepted");
+    : banned
+      ? "rejected"
+      : policyStatus;
 
-  if (!existing) {
+  if (!existing && !banned) {
     const now = new Date().toISOString();
     await db.insert(follows).values({
       ...followerKey,

@@ -21,6 +21,7 @@ import {
   fetchCommunityId,
   memberWhere,
   requireManager,
+  unbanMember,
 } from "./membership-shared.ts";
 
 const AS_CONTEXT = "https://www.w3.org/ns/activitystreams";
@@ -218,6 +219,9 @@ export function registerMembershipRequestRoutes(
           await enqueueDeliveryToActor(c.env, acceptId, body.actor_ap_id);
         }
       }
+
+      // Accepting a join request is an explicit re-admission — lift any ban.
+      await unbanMember(db, community.apId, body.actor_ap_id);
 
       // Mark the local join-request row processed (a remote accept has none).
       if (localRequest) {

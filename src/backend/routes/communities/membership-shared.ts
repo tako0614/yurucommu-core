@@ -5,6 +5,7 @@ import {
   actorCache,
   actors,
   communities,
+  communityBans,
   communityMembers,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
@@ -12,6 +13,59 @@ import { communityApId } from "../../federation-helpers.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
 
 export const managerRoles = new Set(["owner", "moderator"]);
+
+/**
+ * Record a durable ban so a removed member cannot immediately re-join an OPEN
+ * community (local re-join or a remote re-Follow). Idempotent.
+ */
+export async function banMember(
+  db: Database,
+  communityApIdVal: string,
+  bannedApId: string,
+): Promise<void> {
+  await db
+    .insert(communityBans)
+    .values({ communityApId: communityApIdVal, bannedApId })
+    .onConflictDoNothing();
+}
+
+/**
+ * Lift a ban on explicit re-admission (approve a join request / accept an
+ * invite / add a member). No-op when no ban exists.
+ */
+export async function unbanMember(
+  db: Database,
+  communityApIdVal: string,
+  bannedApId: string,
+): Promise<void> {
+  await db
+    .delete(communityBans)
+    .where(
+      and(
+        eq(communityBans.communityApId, communityApIdVal),
+        eq(communityBans.bannedApId, bannedApId),
+      ),
+    );
+}
+
+/** Whether `actorApId` is banned from the community. */
+export async function isMemberBanned(
+  db: Database,
+  communityApIdVal: string,
+  actorApId: string,
+): Promise<boolean> {
+  const row = await db
+    .select({ bannedApId: communityBans.bannedApId })
+    .from(communityBans)
+    .where(
+      and(
+        eq(communityBans.communityApId, communityApIdVal),
+        eq(communityBans.bannedApId, actorApId),
+      ),
+    )
+    .get();
+  return !!row;
+}
 
 // `Database` is a union whose `.batch` lives only on the concrete D1/libsql
 // subclasses; reach it through a narrow structural cast (matching membership-join).
