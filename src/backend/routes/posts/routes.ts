@@ -37,7 +37,7 @@ import {
   toPostRow,
 } from "./queries.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
-import { deleteObjectCascade } from "./delete-cascade.ts";
+import { deleteObjectCascade, purgeMediaBlobs } from "./delete-cascade.ts";
 import {
   checkCommunityPostPermission,
   deriveContentTags,
@@ -728,7 +728,7 @@ posts.delete("/:id", async (c) => {
   // FK ON DELETE CASCADE is not reliably enforced (PRAGMA foreign_keys is not
   // guaranteed on every runtime/connection, and D1 ignores it), so delete the
   // object's child rows explicitly before the object row to avoid orphans.
-  await deleteObjectCascade(db, post.apId, c.env.MEDIA);
+  const mediaKeys = await deleteObjectCascade(db, post.apId, c.env.MEDIA);
 
   // Co-commit the object delete + author postCount-- + parent replyCount in ONE
   // batch (mirrors the federated handleDelete): a crash between separate
@@ -765,6 +765,10 @@ posts.delete("/:id", async (c) => {
     );
   }
   await (db as unknown as Batchable).batch(ops);
+
+  // Irreversible R2 purge LAST — only now that the objects row is gone. A
+  // failure here degrades to a leaked blob, not a live post with a deleted blob.
+  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
 
   // The Delete must reach everyone the original object reached, not just the
   // author's current followers: mirror the object's stored to/cc, and emit a

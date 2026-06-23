@@ -12,7 +12,10 @@ import {
 } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import { objectApId, safeJsonParse } from "../../federation-helpers.ts";
-import { deleteObjectCascade } from "../posts/delete-cascade.ts";
+import {
+  deleteObjectCascade,
+  purgeMediaBlobs,
+} from "../posts/delete-cascade.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
 
 // Bound the per-run expired-story reap. The cleanup is opportunistic (fired,
@@ -314,8 +317,9 @@ export async function cleanupExpiredStories(
   // media). The helper reads each object row, so run it before deleting them.
   // When a `media` binding is threaded in, the backing R2 blobs are best-effort
   // purged too so expired-story storage does not leak.
+  const mediaKeys: string[] = [];
   for (const apId of expiredApIds) {
-    await deleteObjectCascade(db, apId, media);
+    mediaKeys.push(...(await deleteObjectCascade(db, apId, media)));
   }
 
   // Delete EXACTLY the cascaded set (chunked for D1's 100-bound-param cap), not a
@@ -324,6 +328,9 @@ export async function cleanupExpiredStories(
   for (const chunk of chunkForInClause(expiredApIds)) {
     await db.delete(objects).where(inArray(objects.apId, chunk));
   }
+
+  // Irreversible R2 purge LAST — after the objects rows are gone.
+  await purgeMediaBlobs(media, mediaKeys);
 
   return expiredApIds.length;
 }

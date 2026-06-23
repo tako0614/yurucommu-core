@@ -67,7 +67,7 @@ async function deleteAttachedMediaUploads(
   db: Database,
   objectApId: string,
   media?: IObjectStorage,
-): Promise<void> {
+): Promise<string[]> {
   const obj = await db
     .select({
       attributedTo: objects.attributedTo,
@@ -78,7 +78,7 @@ async function deleteAttachedMediaUploads(
     .get();
 
   // No object row (already deleted) or no attachment payload: nothing to reap.
-  if (!obj || !obj.attachmentsJson || obj.attachmentsJson === "[]") return;
+  if (!obj || !obj.attachmentsJson || obj.attachmentsJson === "[]") return [];
 
   const attachmentsJson = obj.attachmentsJson;
 
@@ -91,7 +91,7 @@ async function deleteAttachedMediaUploads(
 
   const orphaned = candidates.filter((m) => attachmentsJson.includes(m.r2Key));
 
-  if (orphaned.length === 0) return;
+  if (orphaned.length === 0) return [];
 
   // Before any R2 purge, find which of these `r2_key`s are still referenced by
   // ANOTHER (different `ap_id`), still-present object of the same author. Such
@@ -140,22 +140,33 @@ async function deleteAttachedMediaUploads(
     await db.delete(mediaUploads).where(inArray(mediaUploads.id, idsToDelete));
   }
 
-  // Best-effort purge the backing R2 blobs so storage does not leak. Never let
-  // an R2 error fail the delete. Only purge keys whose reference count has
-  // dropped to zero — keys still embedded in another present object's
-  // `attachments_json` are kept (blob + media_uploads row) so shared media is
-  // not lost and can still be GC'd when the last referencer is removed.
-  if (media) {
-    const keys = orphaned
-      .map((m) => m.r2Key)
-      .filter((k) => !stillReferencedKeys.has(k));
-    if (keys.length > 0) {
-      try {
-        await media.delete(keys);
-      } catch {
-        // Swallow: storage purge is best-effort and must not fail the DB delete.
-      }
-    }
+  // Return the keys whose reference count has now dropped to zero. The caller
+  // purges them via purgeMediaBlobs AFTER it deletes the objects row, so the
+  // IRREVERSIBLE R2 delete is the trailing step: if the objects-row delete fails
+  // the blob is still present and the post is recoverable, rather than the post
+  // surviving with a permanently-deleted blob (a broken image with no recovery).
+  // Keys still embedded in another present object's `attachments_json` are kept
+  // (blob + media_uploads row) so shared media isn't lost.
+  return media
+    ? orphaned.map((m) => m.r2Key).filter((k) => !stillReferencedKeys.has(k))
+    : [];
+}
+
+/**
+ * Best-effort purge of unreferenced R2 blobs, intended as the TRAILING step
+ * after the objects row has been deleted (see deleteObjectCascade's return).
+ * R2 errors never propagate — a failed purge degrades to a leaked blob, the
+ * system's already-accepted media failure mode.
+ */
+export async function purgeMediaBlobs(
+  media: IObjectStorage | undefined,
+  keys: string[],
+): Promise<void> {
+  if (!media || keys.length === 0) return;
+  try {
+    await media.delete(keys);
+  } catch {
+    // Swallow: storage purge is best-effort and must not fail the delete flow.
   }
 }
 
@@ -177,10 +188,12 @@ export async function deleteObjectCascade(
   db: Database,
   objectApId: string,
   media?: IObjectStorage,
-): Promise<void> {
-  // Reap attached media first, while the object row (and its attachments_json)
-  // is still readable — the caller may delete the object row afterwards.
-  await deleteAttachedMediaUploads(db, objectApId, media);
+): Promise<string[]> {
+  // Reap the media_uploads rows + child rows while the object row (and its
+  // attachments_json) is still readable. Returns the R2 keys whose blobs are now
+  // unreferenced — the caller MUST purge them via purgeMediaBlobs AFTER it has
+  // deleted the objects row, so the irreversible R2 delete is the trailing step.
+  const mediaKeys = await deleteAttachedMediaUploads(db, objectApId, media);
   await db.delete(likes).where(eq(likes.objectApId, objectApId));
   await db.delete(announces).where(eq(announces.objectApId, objectApId));
   await db.delete(bookmarks).where(eq(bookmarks.objectApId, objectApId));
@@ -190,4 +203,5 @@ export async function deleteObjectCascade(
   await db.delete(storyViews).where(eq(storyViews.storyApId, objectApId));
   await db.delete(storyVotes).where(eq(storyVotes.storyApId, objectApId));
   await db.delete(storyShares).where(eq(storyShares.storyApId, objectApId));
+  return mediaKeys;
 }

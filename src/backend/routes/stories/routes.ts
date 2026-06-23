@@ -12,7 +12,10 @@ import {
   objects,
   storyViews,
 } from "../../../db/index.ts";
-import { deleteObjectCascade } from "../posts/delete-cascade.ts";
+import {
+  deleteObjectCascade,
+  purgeMediaBlobs,
+} from "../posts/delete-cascade.ts";
 import type { Env, Variables } from "../../types.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import {
@@ -282,8 +285,10 @@ async function deleteStoryAndRelatedData(
   apId: string,
   media?: IObjectStorage,
 ): Promise<void> {
-  await deleteObjectCascade(db, apId, media);
+  const mediaKeys = await deleteObjectCascade(db, apId, media);
   await db.delete(objects).where(eq(objects.apId, apId));
+  // Irreversible R2 purge LAST — after the objects row is gone.
+  await purgeMediaBlobs(media, mediaKeys);
 }
 
 /**

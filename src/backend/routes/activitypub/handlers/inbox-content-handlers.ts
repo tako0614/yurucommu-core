@@ -12,7 +12,10 @@ import {
 } from "../../../../db/index.ts";
 import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
-import { deleteObjectCascade } from "../../posts/delete-cascade.ts";
+import {
+  deleteObjectCascade,
+  purgeMediaBlobs,
+} from "../../posts/delete-cascade.ts";
 import {
   boundAttachmentsJson,
   boundInboundContent,
@@ -643,7 +646,7 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
   // (D1 ignores PRAGMA foreign_keys), so cascade explicitly to avoid orphans.
   // Covers likes/announces/bookmarks/object_recipients/story_* in one place,
   // shared with the local DELETE /posts/:id path.
-  await deleteObjectCascade(db, objectId, c.env.MEDIA);
+  const mediaKeys = await deleteObjectCascade(db, objectId, c.env.MEDIA);
 
   // #3 (atomicity + idempotency): the object-row delete and the counter
   // decrements MUST commit together. Previously the row was deleted and the
@@ -684,6 +687,11 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
   } else {
     await runBatch(db, [decPostCount, deleteObject]);
   }
+
+  // Irreversible R2 purge LAST — after the objects row is gone. On the queue-
+  // backed inbox path a failure here is also self-healing: a Delete retry
+  // re-runs, finds no media_uploads rows, and proceeds.
+  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
 }
 
 // ---------------------------------------------------------------------------

@@ -30,7 +30,10 @@ import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actors, mediaUploads, objects } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
-import { deleteObjectCascade } from "../../routes/posts/delete-cascade.ts";
+import {
+  deleteObjectCascade,
+  purgeMediaBlobs,
+} from "../../routes/posts/delete-cascade.ts";
 
 const APP_URL = "https://yuru.test";
 const MIGRATIONS = [
@@ -140,9 +143,11 @@ test("deleting one of two posts sharing an r2_key keeps the shared R2 blob", asy
 
   const { storage, deleted } = recordingStorage();
 
-  // Delete post A (post B still references sharedKey).
-  await deleteObjectCascade(db, postA, storage);
+  // Delete post A (post B still references sharedKey). New contract: cascade
+  // returns the keys, the caller purges AFTER deleting the objects row.
+  const keysA = await deleteObjectCascade(db, postA, storage);
   await db.delete(objects).where(eq(objects.apId, postA));
+  await purgeMediaBlobs(storage, keysA);
 
   // The shared blob must NOT be purged — post B still shows it.
   expect(deleted).not.toContain(sharedKey);
@@ -171,8 +176,9 @@ test("deleting the last post referencing a shared r2_key finally purges the blob
   // post B — so a later delete of the final referencer can still find the row
   // and GC the now-orphaned blob (the leak this guards against).
   const first = recordingStorage();
-  await deleteObjectCascade(db, postA, first.storage);
+  const keysA = await deleteObjectCascade(db, postA, first.storage);
   await db.delete(objects).where(eq(objects.apId, postA));
+  await purgeMediaBlobs(first.storage, keysA);
   expect(first.deleted).not.toContain(sharedKey);
 
   // The shared media_uploads row survived the first delete; confirm it is still
@@ -184,8 +190,9 @@ test("deleting the last post referencing a shared r2_key finally purges the blob
   expect(surviving.length).toBe(1);
 
   const second = recordingStorage();
-  await deleteObjectCascade(db, postB, second.storage);
+  const keysB = await deleteObjectCascade(db, postB, second.storage);
   await db.delete(objects).where(eq(objects.apId, postB));
+  await purgeMediaBlobs(second.storage, keysB);
 
   // No other present object references sharedKey now — purge it.
   expect(second.deleted).toContain(sharedKey);

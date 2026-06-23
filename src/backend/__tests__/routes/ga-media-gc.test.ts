@@ -34,7 +34,10 @@ import {
   storyVotes,
 } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
-import { deleteObjectCascade } from "../../routes/posts/delete-cascade.ts";
+import {
+  deleteObjectCascade,
+  purgeMediaBlobs,
+} from "../../routes/posts/delete-cascade.ts";
 import { cleanupExpiredStories } from "../../routes/stories/query-helpers.ts";
 
 const APP_URL = "https://yuru.test";
@@ -176,8 +179,11 @@ test("deleteObjectCascade requests R2 deletion of the reaped upload's r2_key", a
 
   const { storage, deleted } = recordingStorage();
 
-  await deleteObjectCascade(db, target, storage);
+  // New contract: cascade returns the keys; the caller purges AFTER deleting
+  // the objects row.
+  const keys = await deleteObjectCascade(db, target, storage);
   await db.delete(objects).where(eq(objects.apId, target));
+  await purgeMediaBlobs(storage, keys);
 
   // The reaped object's blob was requested for deletion ...
   expect(deleted).toContain(targetKey);
@@ -224,8 +230,10 @@ test("deleteObjectCascade swallows R2 delete errors (DB delete still succeeds)",
 
   const { storage } = recordingStorage({ throwOnDelete: true });
 
-  // R2 error must NOT propagate / fail the DB delete.
-  await deleteObjectCascade(db, target, storage);
+  // R2 error must NOT propagate / fail the DB delete. The purge now lives in the
+  // trailing purgeMediaBlobs step, so exercise it with a throwing storage too.
+  const keys = await deleteObjectCascade(db, target, storage);
+  await purgeMediaBlobs(storage, keys); // throwOnDelete — must swallow, not throw
 
   const row = await db
     .select()

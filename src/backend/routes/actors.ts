@@ -638,8 +638,11 @@ actorsRoute.post("/me/delete", async (c) => {
 
     // Media: hard-delete the actor's uploads and best-effort purge the backing
     // R2 objects so blobs do not leak. The DB rows are removed regardless of
-    // whether the object-store delete succeeds (R2 has its own GC fallback via
-    // the orphaned-key audit); never block deletion on storage availability.
+    // whether the object-store delete succeeds; never block account deletion on
+    // storage availability. NOTE: there is NO orphaned-key reconcile sweep
+    // (delete-cascade.ts / stories reap the same way), so a failed R2 purge here
+    // leaks the blob permanently — acceptable for a best-effort teardown, but the
+    // blob is not later auto-reclaimed.
     const uploads = await db
       .select({ r2Key: mediaUploads.r2Key })
       .from(mediaUploads)

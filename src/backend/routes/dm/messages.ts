@@ -14,7 +14,10 @@ import {
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
-import { deleteObjectCascade } from "../posts/delete-cascade.ts";
+import {
+  deleteObjectCascade,
+  purgeMediaBlobs,
+} from "../posts/delete-cascade.ts";
 import type { Env, Variables } from "../../types.ts";
 import {
   activityApId,
@@ -624,8 +627,11 @@ dm.delete("/messages/:messageId", async (c) => {
   // there is no blob to leak yet, but routing through the cascade now keeps DM
   // deletion correct the moment DM media upload is wired in (and a leaked DM
   // blob would be PRIVATE) — matching the post and story delete paths.
-  await deleteObjectCascade(db, message.apId, c.env.MEDIA);
+  const mediaKeys = await deleteObjectCascade(db, message.apId, c.env.MEDIA);
   await db.delete(objects).where(eq(objects.apId, message.apId));
+  // Irreversible R2 purge LAST — after the objects row is gone, so a failed
+  // object delete can't leave a live (private) DM pointing at a deleted blob.
+  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
 
   return c.json({ success: true });
 });
