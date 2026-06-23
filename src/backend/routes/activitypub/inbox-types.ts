@@ -14,6 +14,7 @@ export type ActivityObject = {
   content?: string;
   summary?: string | null;
   attachment?: unknown;
+  tag?: unknown;
   overlays?: unknown;
   endTime?: string;
   displayDuration?: string;

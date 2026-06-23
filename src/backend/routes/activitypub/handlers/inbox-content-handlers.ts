@@ -227,6 +227,28 @@ function isObjectIdOriginMismatch(
 }
 
 /**
+ * Extract the `href` of every `Mention` tag on an inbound object. AS2 `tag` may
+ * be an array, a single object, or absent; each Mention carries the mentioned
+ * actor's id in `href`. Used to fan-in mention notifications for federated posts
+ * (mirrors the local processMentions path).
+ */
+function extractMentionHrefs(tag: unknown): string[] {
+  const arr = Array.isArray(tag) ? tag : tag ? [tag] : [];
+  const hrefs: string[] = [];
+  for (const t of arr) {
+    if (
+      t &&
+      typeof t === "object" &&
+      typeIncludes((t as { type?: string | string[] }).type, "Mention")
+    ) {
+      const href = (t as { href?: unknown }).href;
+      if (typeof href === "string" && href) hrefs.push(href);
+    }
+  }
+  return hrefs;
+}
+
+/**
  * Detect an inbound direct (DM) Note: it is addressed (in `to`/`cc`) to one or
  * more recipients but NOT to the Public collection and NOT to a followers
  * collection. The local addressed recipient is the inbox owner (`recipient`),
@@ -615,6 +637,39 @@ export async function handleCreate(
       objectId,
       activity,
       parentObj.attributedTo,
+    );
+  }
+
+  // Notify every LOCAL actor @-mentioned in the post — the federated counterpart
+  // of the local processMentions fan-in. Without this a cross-instance @-mention
+  // produced no notification at all (mention is a first-class notification type
+  // that only ever fired for local-origin posts). Runs once (the duplicate
+  // delivery short-circuits at `existingBeforeInsert` above). Skips the post
+  // author and the parent author (already notified by the reply branch) and
+  // honors the mentioned actor's block of the sender, mirroring the reply gate.
+  const mentionedLocalApIds = new Set<string>();
+  for (const href of extractMentionHrefs(object.tag)) {
+    if (!isLocal(href, baseUrl)) continue;
+    if (href === actor) continue;
+    if (parentObj && href === parentObj.attributedTo) continue;
+    mentionedLocalApIds.add(href);
+  }
+  for (const mentionedApId of mentionedLocalApIds) {
+    const localActor = await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(eq(actors.apId, mentionedApId))
+      .get();
+    if (!localActor) continue;
+    if (await actorIsBlockedBy(db, mentionedApId, actor)) continue;
+    await upsertActivityAndNotify(
+      db,
+      activityApId(baseUrl, generateId()),
+      "Create",
+      actor,
+      objectId,
+      activity,
+      mentionedApId,
     );
   }
 }
