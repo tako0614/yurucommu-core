@@ -291,25 +291,6 @@ export async function cleanupExpiredStories(
 
   const expiredApIds = expiredStories.map((s) => s.apId);
 
-  // Mirror story CREATION's postCount +1 (routes.ts) at expiry — the DOMINANT
-  // end-of-life path. Without this, every story a user posts permanently inflates
-  // their profile post_count by 1 once it expires (create bumps, explicit delete
-  // decrements, but expiry forgot to). Decrement each LOCAL author by the number
-  // of THEIR stories expiring this run; MAX(0, …) guards underflow; remote
-  // authors have no `actors` row so the update is a clean no-op for them.
-  const perAuthor = new Map<string, number>();
-  for (const s of expiredStories) {
-    if (s.attributedTo) {
-      perAuthor.set(s.attributedTo, (perAuthor.get(s.attributedTo) ?? 0) + 1);
-    }
-  }
-  for (const [author, n] of perAuthor) {
-    await db
-      .update(actors)
-      .set({ postCount: sql`MAX(0, ${actors.postCount} - ${n})` })
-      .where(eq(actors.apId, author));
-  }
-
   // Reap every child edge for each expired story through the shared object
   // cascade (likes / announces / bookmarks / object_recipients / story_views /
   // story_votes / story_shares + attached media_uploads), so expiry can't
@@ -324,9 +305,38 @@ export async function cleanupExpiredStories(
 
   // Delete EXACTLY the cascaded set (chunked for D1's 100-bound-param cap), not a
   // broad `endTime < now` — with the per-run limit a broad delete could remove a
-  // story whose children weren't reaped this run, orphaning them.
+  // story whose children weren't reaped this run, orphaning them. Capture the
+  // rows THIS sweep actually removed via RETURNING so the postCount decrement
+  // below is keyed on the real delete, not the earlier SELECT.
+  const deletedAuthors: (string | null)[] = [];
   for (const chunk of chunkForInClause(expiredApIds)) {
-    await db.delete(objects).where(inArray(objects.apId, chunk));
+    const removed = await db
+      .delete(objects)
+      .where(inArray(objects.apId, chunk))
+      .returning({ attributedTo: objects.attributedTo });
+    for (const row of removed) deletedAuthors.push(row.attributedTo);
+  }
+
+  // Mirror story CREATION's postCount +1 (routes.ts) at expiry — the DOMINANT
+  // end-of-life path. Without this, every story a user posts permanently inflates
+  // their profile post_count by 1 once it expires (create bumps, explicit delete
+  // decrements, but expiry forgot to). Decrement each LOCAL author by the number
+  // of THEIR stories THIS sweep actually DELETED (from RETURNING), not the
+  // pre-delete SELECT: D1 serializes writes, so when concurrent isolates race the
+  // same expiry batch only the winning DELETE returns a given row and a losing
+  // isolate's DELETE matches 0 rows — so each story is counted exactly once and
+  // postCount never double-decrements. (The per-isolate in-flight boolean in
+  // routes.ts cannot serialize across Workers isolates.) MAX(0, …) guards
+  // underflow; remote authors have no `actors` row so the update is a no-op.
+  const perAuthor = new Map<string, number>();
+  for (const author of deletedAuthors) {
+    if (author) perAuthor.set(author, (perAuthor.get(author) ?? 0) + 1);
+  }
+  for (const [author, n] of perAuthor) {
+    await db
+      .update(actors)
+      .set({ postCount: sql`MAX(0, ${actors.postCount} - ${n})` })
+      .where(eq(actors.apId, author));
   }
 
   // Irreversible R2 purge LAST — after the objects rows are gone.
