@@ -12,7 +12,7 @@ import {
 } from "../../federation-helpers.ts";
 import { sha256Hex } from "../../lib/delivery/transformers.ts";
 import { getInstanceActor, loadFederatedCommunity } from "./query-helpers.ts";
-import { communityApId } from "../../lib/ap-ids.ts";
+import { communityApId, getDomain } from "../../lib/ap-ids.ts";
 import type { Activity } from "./inbox-types.ts";
 import {
   getActivityObject,
@@ -223,16 +223,35 @@ async function verifyAndParseInbox(
     return c.json({ error: "Invalid activity" }, 400);
   }
 
+  // The activity envelope `id` becomes the dedup ledger key (activities.apId).
+  // Only trust a remote-supplied id when it shares the (signature-bound) actor's
+  // origin and is not a local id; otherwise a remote could set `id` to ANOTHER
+  // instance's namespace and pre-occupy that row (processed=1), silently
+  // black-holing that instance's later legitimate redelivery of the same id
+  // (denial of federation / dedup-ledger poisoning). Mirrors the object-id
+  // origin guard (isObjectIdOriginMismatch) but for the envelope used by dedup.
+  // An untrustworthy id does NOT drop the (validly-signed) activity — it just
+  // gets deduped under a local deterministic synthetic id instead.
+  const rawActivityId = typeof activity.id === "string" ? activity.id : null;
+  let activityIdTrusted = false;
+  if (rawActivityId !== null && !isLocal(rawActivityId, baseUrl)) {
+    try {
+      activityIdTrusted = getDomain(rawActivityId) === getDomain(actor);
+    } catch {
+      activityIdTrusted = false;
+    }
+  }
   const activityId =
-    typeof activity.id === "string"
-      ? activity.id
+    rawActivityId !== null && activityIdTrusted
+      ? rawActivityId
       : activityApId(
           baseUrl,
-          // Deterministic synthetic id for an id-less activity: a redelivery of
-          // the SAME logical action then dedups via the activities table instead
-          // of minting a fresh RANDOM id each time (which re-processed it on
-          // every retry). Defense-in-depth — the side-effect handlers are also
-          // independently idempotent.
+          // Deterministic synthetic id (local namespace) for an id-less OR
+          // untrusted-origin activity: a redelivery of the SAME logical action
+          // then dedups via the activities table instead of minting a fresh
+          // RANDOM id each time (which re-processed it on every retry).
+          // Defense-in-depth — the side-effect handlers are also independently
+          // idempotent.
           `synthetic-${await sha256Hex(
             `${actor}|${activityType}|${getActivityObjectId(activity) ?? ""}`,
           )}`,
