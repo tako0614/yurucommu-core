@@ -10,6 +10,7 @@ import { sql } from "drizzle-orm";
 import { actors, objects } from "../../../db/index.ts";
 
 import { NO_AUDIENCE_PREDICATE } from "../../lib/community-visibility.ts";
+import { excludeBlockedMutedAuthors } from "../../lib/feed-exclude.ts";
 import {
   ACTOR_SUMMARY_COLUMNS,
   errNotFound,
@@ -32,9 +33,9 @@ export function handleSearchUsers(
 export function handleSearchPosts(
   c: ToolContext,
   input: Input,
-  _actor: { ap_id: string } | null,
+  actor: { ap_id: string } | null,
 ) {
-  return searchPosts(c, input);
+  return searchPosts(c, input, actor);
 }
 
 export function handleGetTrending(
@@ -71,6 +72,10 @@ async function searchUsers(c: ToolContext, input: Input) {
     .from(actors)
     .where(
       and(
+        // Exclude soft-deleted tombstones (matches the web /search/actors
+        // notDeleted filter + the sibling searchPosts/getTrending handlers);
+        // otherwise a scrubbed `deleted-<id>` tombstone can surface here.
+        isNull(actors.deletedAt),
         eq(actors.isPrivate, 0),
         or(
           sql`instr(lower(${actors.preferredUsername}), lower(${query})) > 0`,
@@ -92,7 +97,11 @@ async function searchUsers(c: ToolContext, input: Input) {
   );
 }
 
-async function searchPosts(c: ToolContext, input: Input) {
+async function searchPosts(
+  c: ToolContext,
+  input: Input,
+  actor: { ap_id: string } | null,
+) {
   const db = c.get("db");
   const query = requireString(input, "query");
   const limit = toolLimit(input.limit, 20, 50);
@@ -108,6 +117,9 @@ async function searchPosts(c: ToolContext, input: Input) {
         eq(objects.visibility, "public"),
         NO_AUDIENCE_PREDICATE,
         isNull(objects.deletedAt),
+        // Honor the caller's block/mute filter, matching the web search +
+        // feed surfaces (undefined for an anonymous caller → and() drops it).
+        excludeBlockedMutedAuthors(db, actor?.ap_id ?? ""),
       ),
     )
     .orderBy(desc(objects.published))

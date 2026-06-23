@@ -25,6 +25,7 @@ import {
 } from "../lib/activitypub-validators.ts";
 import { logger } from "../lib/logger.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
+import { excludeBlockedMutedAuthors } from "../lib/feed-exclude.ts";
 import { withCache } from "../middleware/cache.ts";
 
 const log = logger.child({ component: "search" });
@@ -483,7 +484,15 @@ search.get("/posts", async (c) => {
       likeCount: objects.likeCount,
     })
     .from(objects)
-    .where(publicSearchableWhere(postContentSearchPredicate(query)))
+    .where(
+      publicSearchableWhere(
+        postContentSearchPredicate(query),
+        // Suppress blocked/muted authors so keyword search honors the same
+        // moderation filter the home/timeline/notifications feeds apply
+        // (undefined for an anonymous viewer → and() drops it).
+        excludeBlockedMutedAuthors(db, actor?.ap_id ?? ""),
+      ),
+    )
     .orderBy(...postOrderByDrizzle(sort))
     .limit(limit + 1)
     .offset(offset);
@@ -639,6 +648,8 @@ search.get("/hashtag/:tag", async (c) => {
   // This is a SUPERSET prefilter; the exact #tag check below narrows it.
   const postWhere = publicSearchableWhere(
     sql`instr(lower(${objects.content}), lower(${hashtagPattern})) > 0`,
+    // Same block/mute moderation filter as the feeds (see /search/posts).
+    excludeBlockedMutedAuthors(db, actor?.ap_id ?? ""),
   );
 
   // `LIKE '%#tag%'` is a SUPERSET prefilter: it also matches longer tags that

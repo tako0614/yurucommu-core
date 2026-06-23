@@ -160,6 +160,39 @@ test("deleting a post removes it from the index (DELETE trigger)", async () => {
   expect(await searchPosts(app, "ephemeral")).toEqual([]);
 });
 
+test("post search excludes blocked AND muted authors (moderation parity with feeds)", async () => {
+  const db = await freshDb();
+  const viewer = await insertLocalActor(db, "viewer");
+  const blocked = await insertLocalActor(db, "blockee");
+  const muted = await insertLocalActor(db, "mutee");
+  const visible = await insertLocalActor(db, "okauthor");
+  await insertPost(db, blocked, "b1", "shared keyword foobar from blocked");
+  await insertPost(db, muted, "m1", "shared keyword foobar from muted");
+  await insertPost(db, visible, "o1", "shared keyword foobar from ok");
+  await db
+    .insert(schema.blocks)
+    .values({ blockerApId: viewer, blockedApId: blocked });
+  await db.insert(schema.mutes).values({ muterApId: viewer, mutedApId: muted });
+
+  // App with the viewer as the authenticated actor.
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    c.set("actor", { ap_id: viewer } as any);
+    await next();
+  });
+  app.route("/search", searchRoutes);
+
+  const res = await app.request(`${APP_URL}/search/posts?q=foobar`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { posts: { content: string }[] };
+  const contents = body.posts.map((p) => p.content);
+  expect(contents).toContain("shared keyword foobar from ok");
+  expect(contents).not.toContain("shared keyword foobar from blocked");
+  expect(contents).not.toContain("shared keyword foobar from muted");
+});
+
 test("1-2 char queries fall back to LIKE (below trigram's minimum)", async () => {
   const db = await freshDb();
   const author = await insertLocalActor(db, "dave");
