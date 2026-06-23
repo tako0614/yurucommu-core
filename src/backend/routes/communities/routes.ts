@@ -14,8 +14,10 @@ import {
   communities,
   communityJoinRequests,
   communityMembers,
+  mediaUploads,
   objects,
 } from "../../../db/index.ts";
+import type { Database } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import {
   communityApId,
@@ -52,6 +54,38 @@ function isValidCommunityIconUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * A local `/media/...` icon URL must reference an upload the SETTER owns.
+ * Otherwise a user could point their community's icon at another user's
+ * (possibly private) blob, and the media-authorization layer would treat the
+ * icon reference as a public grant — a cross-user media IDOR. External
+ * (https) URLs are not local blobs, so this gate only applies to `/media/`.
+ * Mirrors reapReplacedMediaUrl's uploader-scoped lookup.
+ */
+async function isOwnLocalMediaUrl(
+  db: Database,
+  url: string,
+  ownerApId: string,
+): Promise<boolean> {
+  if (!url.startsWith("/media/")) return false;
+  const filename = url.slice("/media/".length);
+  if (!filename || filename.includes("/") || filename.includes("..")) {
+    return false;
+  }
+  const r2Key = `uploads/${filename}`;
+  const owned = await db
+    .select({ id: mediaUploads.id })
+    .from(mediaUploads)
+    .where(
+      and(
+        eq(mediaUploads.r2Key, r2Key),
+        eq(mediaUploads.uploaderApId, ownerApId),
+      ),
+    )
+    .get();
+  return !!owned;
 }
 
 const RESERVED_NAMES = new Set([
@@ -510,6 +544,16 @@ communitiesRouter.patch("/:identifier/settings", async (c) => {
       return c.json({ error: "Invalid icon_url" }, 400);
     } else if (!isValidCommunityIconUrl(body.icon_url)) {
       return c.json({ error: "Invalid icon_url scheme" }, 400);
+    } else if (
+      body.icon_url.trim().startsWith("/media/") &&
+      !(await isOwnLocalMediaUrl(db, body.icon_url.trim(), actor.ap_id))
+    ) {
+      // Reject pointing the icon at a /media blob the setter does not own
+      // (cross-user media IDOR — see isOwnLocalMediaUrl).
+      return c.json(
+        { error: "icon_url must reference your own uploaded media" },
+        400,
+      );
     } else {
       updates.iconUrl = body.icon_url.trim();
     }

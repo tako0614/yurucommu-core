@@ -5,6 +5,7 @@ import type { Database } from "../../db/index.ts";
 import {
   actors,
   communities,
+  communityMembers,
   follows,
   mediaUploads,
   objects,
@@ -437,21 +438,48 @@ async function checkMediaAuthorization(
     // A PUBLIC community's icon is world-readable; a PRIVATE community's stays
     // members-only (mirrors the Group-doc / community-post gates).
     const communityRef = await db
-      .select({ visibility: communities.visibility, apId: communities.apId })
+      .select({
+        visibility: communities.visibility,
+        apId: communities.apId,
+        createdBy: communities.createdBy,
+      })
       .from(communities)
       .where(
         and(eq(communities.iconUrl, mediaUrl), isNull(communities.deletedAt)),
       )
       .get();
+    // Bind the icon reference to the blob's uploader, the same way the actor
+    // avatar branch is scoped to the uploader's own actor row. An iconUrl is an
+    // attacker-controllable cosmetic string: any user can point THEIR public
+    // community's icon at a victim's PRIVATE blob. Without this binding that
+    // alone would serve the victim's private media as world-readable (cross-user
+    // media IDOR). Only honor the icon branch when the uploader controls this
+    // community (its creator or a current member, the analog of "you can only
+    // set your own profile"); otherwise the reference proves nothing and we fall
+    // through to the real per-attachment / uploader-only gates below.
     if (communityRef) {
-      if (communityRef.visibility === "public") return ALLOW_PUBLIC;
-      const allowed = await canViewerReadObject(
-        db,
-        { communityApId: communityRef.apId },
-        currentActorApId,
-      );
-      if (allowed) return ALLOW_PRIVATE;
-      return currentActorApId ? DENY_NOT_AUTHORIZED : DENY_AUTH_REQUIRED;
+      const uploaderControlsCommunity =
+        communityRef.createdBy === uploadRecord.uploaderApId ||
+        !!(await db
+          .select({ actorApId: communityMembers.actorApId })
+          .from(communityMembers)
+          .where(
+            and(
+              eq(communityMembers.communityApId, communityRef.apId),
+              eq(communityMembers.actorApId, uploadRecord.uploaderApId),
+            ),
+          )
+          .get());
+      if (uploaderControlsCommunity) {
+        if (communityRef.visibility === "public") return ALLOW_PUBLIC;
+        const allowed = await canViewerReadObject(
+          db,
+          { communityApId: communityRef.apId },
+          currentActorApId,
+        );
+        if (allowed) return ALLOW_PRIVATE;
+        return currentActorApId ? DENY_NOT_AUTHORIZED : DENY_AUTH_REQUIRED;
+      }
     }
   }
 

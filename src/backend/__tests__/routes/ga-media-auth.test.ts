@@ -717,3 +717,91 @@ test("followers-visibility media in a PUBLIC community is DENIED to a non-follow
     200,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Audit #22 / finding B — cross-user private-media IDOR via community icon.
+//
+//   The community-icon authorization branch matched ANY public community whose
+//   iconUrl === the requested blob URL, with NO binding to the blob's uploader.
+//   So an attacker could create their OWN public community, point its icon at a
+//   VICTIM's private blob, and have it served world-readable. The branch is now
+//   only honored when the blob's uploader controls that community (creator or
+//   member) — the analog of the avatar branch's uploader scoping.
+// ---------------------------------------------------------------------------
+
+test("a victim's PRIVATE blob is NOT exposed by an attacker's community icon (IDOR)", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const victim = await insertLocalActor(db, "victim");
+  const attacker = await insertLocalActor(db, "attacker");
+  // The blob is the VICTIM's, attached to a followers-only post (private). The
+  // attacker is NOT a follower, so the icon IDOR would be their only path in.
+  await seedUpload(db, env, victim);
+  await insertObject(db, {
+    id: "secret",
+    author: victim,
+    visibility: "followers",
+    to: [`${victim}/followers`],
+    attachments: [{ url: MEDIA_URL, r2_key: R2_KEY }],
+  });
+
+  // Attacker stands up THEIR OWN public community and points its icon at the
+  // victim's blob (simulating the pre-fix poisoned row). Attacker is the
+  // creator+member; the victim is NOT a member.
+  const communityApId = `${APP_URL}/ap/groups/evil`;
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "evil",
+    name: "Evil",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    visibility: "public",
+    iconUrl: MEDIA_URL,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: attacker,
+  });
+  await db
+    .insert(communityMembers)
+    .values({ communityApId, actorApId: attacker, role: "owner" });
+
+  // Anonymous + a logged-in non-follower must NOT receive the victim's private
+  // blob — the icon reference no longer grants public access.
+  expect((await getMedia(db, env, null)).status).not.toEqual(200);
+  expect(
+    (await getMedia(db, env, fakeActor(attacker, "attacker"))).status,
+  ).not.toEqual(200);
+  // The uploader (victim) still reads it via the real followers-post gate.
+  expect((await getMedia(db, env, fakeActor(victim, "victim"))).status).toEqual(
+    200,
+  );
+});
+
+test("a public community's icon uploaded BY a member is still served to anyone", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const owner = await insertLocalActor(db, "owner");
+  await seedUpload(db, env, owner); // the icon blob is the owner's own upload
+
+  const communityApId = `${APP_URL}/ap/groups/open2`;
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "open2",
+    name: "Open2",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    visibility: "public",
+    iconUrl: MEDIA_URL,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: owner,
+  });
+  await db
+    .insert(communityMembers)
+    .values({ communityApId, actorApId: owner, role: "owner" });
+
+  // Legit public community icon (uploader controls the community) → world-readable.
+  expect((await getMedia(db, env, null)).status).toEqual(200);
+});
