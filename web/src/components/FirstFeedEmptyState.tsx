@@ -16,8 +16,6 @@ interface FirstFeedEmptyStateProps {
    * "grow your reach" CTAs for community-appropriate ones (post / invite).
    */
   communityScope?: { name: string } | null;
-  /** Opens the global post composer (aimed at the active scope). */
-  onCreatePost?: () => void;
 }
 
 const SearchIcon = () => (
@@ -49,17 +47,6 @@ const InviteIcon = () => (
       stroke-linejoin="round"
       stroke-width={2}
       d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-    />
-  </svg>
-);
-
-const PostIcon = () => (
-  <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width={2}
-      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
     />
   </svg>
 );
@@ -118,25 +105,22 @@ export function FirstFeedEmptyState(props: FirstFeedEmptyStateProps) {
     },
   ];
 
-  // Community-scope CTAs: seed the room you are standing in. Post the first
-  // message, invite members (the community profile / members surface), or read
-  // about the community.
+  // Community-scope CTAs. This is a FILTERED VIEW of home (posts by this
+  // community's members); an empty view just means none of them have posted yet.
+  // Posting goes to your personal reach (not bound to a community), so we do NOT
+  // offer a "seed this circle" post CTA here — that would broadcast to your whole
+  // reach, not the community. Instead point to the community's own surface (open
+  // it / invite members).
   const communityActions = (name: string): EmptyStateAction[] => [
     {
-      icon: <PostIcon />,
-      label: t("scope.communityFirstPost"),
-      onClick: () =>
-        props.onCreatePost ? props.onCreatePost() : props.onCreateStory(),
+      icon: <CommunitiesIcon />,
+      label: t("scope.communityOpen"),
+      onClick: () => navigate(`/groups/${encodeURIComponent(name)}`),
       primary: true,
     },
     {
       icon: <InviteIcon />,
       label: t("scope.communityInvite"),
-      onClick: () => navigate(`/groups/${encodeURIComponent(name)}`),
-    },
-    {
-      icon: <CommunitiesIcon />,
-      label: t("scope.communityAbout"),
       onClick: () => navigate(`/groups/${encodeURIComponent(name)}`),
     },
   ];

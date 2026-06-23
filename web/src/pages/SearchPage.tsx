@@ -25,10 +25,7 @@ import {
   searchRemote,
   unlikePost,
 } from "../lib/api.ts";
-import {
-  enterCommunityScopeAtom,
-  scopeCommunitiesAtom,
-} from "../atoms/scope.ts";
+import { refreshScopesAtom, scopeCommunitiesAtom } from "../atoms/scope.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
@@ -100,7 +97,7 @@ export function SearchPage() {
   const actor = useRequiredActor();
   const { t, language } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
-  const enterCommunityScope = useSetAtom(enterCommunityScopeAtom);
+  const refreshScopes = useSetAtom(refreshScopesAtom);
   // The owner's joined communities (single source of truth for membership).
   // Changes here (a join elsewhere in the app) mean the discover list is stale,
   // so it drives a re-fetch.
@@ -142,6 +139,11 @@ export function SearchPage() {
   const [searchingRemote, setSearchingRemote] = createSignal(false);
 
   const [communities, setCommunities] = createSignal<CommunityDetail[]>([]);
+  // Distinguishes a failed community fetch from a genuinely-empty list, so a
+  // transient /api/communities failure shows a retry instead of "no communities".
+  const [communitiesError, setCommunitiesError] = createSignal<string | null>(
+    null,
+  );
   const [filteredCommunities, setFilteredCommunities] = createSignal<
     CommunityDetail[]
   >([]);
@@ -163,8 +165,14 @@ export function SearchPage() {
   // change) rather than only once on mount.
   const refreshDiscoverCommunities = () => {
     fetchCommunities()
-      .then(setCommunities)
-      .catch((e) => console.error("Failed to fetch communities", e));
+      .then((list) => {
+        setCommunities(list);
+        setCommunitiesError(null);
+      })
+      .catch((e) => {
+        console.error("Failed to fetch communities", e);
+        setCommunitiesError(t("common.loadFailed"));
+      });
   };
 
   onMount(() => {
@@ -637,8 +645,11 @@ export function SearchPage() {
               : c,
           ),
         );
-        // Refresh the scope source and stand in the community just joined.
-        await enterCommunityScope(community);
+        // Surface the joined community as a selectable filter pill — but do NOT
+        // narrow home to it. Joining is a membership action, not a deliberate
+        // view choice; home stays the unified reach until the user explicitly
+        // picks this community in the switcher.
+        await refreshScopes();
         pushToast(
           setToasts,
           t("discover.joined").replace("{name}", label(community)),
@@ -810,11 +821,22 @@ export function SearchPage() {
                     when={discoverCommunities().length > 0}
                     fallback={
                       <div class="px-4 pb-4">
-                        <EmptyState
-                          icon={<SearchEmptyIcon />}
-                          title={t("discover.empty")}
-                          hint={t("discover.emptyHint")}
-                        />
+                        <Show
+                          when={!communitiesError()}
+                          fallback={
+                            <InlineErrorRetry
+                              message={communitiesError()!}
+                              retryLabel={t("common.retry")}
+                              onRetry={refreshDiscoverCommunities}
+                            />
+                          }
+                        >
+                          <EmptyState
+                            icon={<SearchEmptyIcon />}
+                            title={t("discover.empty")}
+                            hint={t("discover.emptyHint")}
+                          />
+                        </Show>
                       </div>
                     }
                   >

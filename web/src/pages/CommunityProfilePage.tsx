@@ -4,10 +4,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { ApiError } from "../lib/api/fetch.ts";
 import { useDialog } from "../lib/useDialog.ts";
-import {
-  enterCommunityScopeAtom,
-  leaveCommunityScopeAtom,
-} from "../atoms/scope.ts";
+import { leaveCommunityScopeAtom, refreshScopesAtom } from "../atoms/scope.ts";
 import {
   acceptCommunityJoinRequest,
   CommunityDetail,
@@ -44,7 +41,7 @@ export function CommunityProfilePage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
-  const enterCommunityScope = useSetAtom(enterCommunityScopeAtom);
+  const refreshScopes = useSetAtom(refreshScopesAtom);
   const leaveCommunityScope = useSetAtom(leaveCommunityScopeAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
@@ -234,9 +231,10 @@ export function CommunityProfilePage() {
             }
           : null;
         setCommunity(updated);
-        // Parity with the discovery-surface join: stand in the community just
-        // joined so it becomes the active inhabited scope (a new ScopeBar pill).
-        if (updated) await enterCommunityScope(updated);
+        // Surface the joined community as a selectable filter pill without
+        // narrowing home to it — joining is a membership action, not a
+        // deliberate view choice (the user is already ON the community page).
+        await refreshScopes();
       }
     } catch (e) {
       console.error("Failed to join:", e);

@@ -5,7 +5,7 @@ import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { StoryBar } from "../components/story/StoryBar.tsx";
 import { ScopeHeader } from "../components/scope/ScopeHeader.tsx";
 import { createScopeOpenAtom } from "../atoms/shell.ts";
-import { showPostModalAtom, showScopeSwitcherAtom } from "../atoms/timeline.ts";
+import { showScopeSwitcherAtom } from "../atoms/timeline.ts";
 import { inhabitedScopeAtom } from "../atoms/scope.ts";
 import { LoadingSpinner } from "../components/LoadingSpinner.tsx";
 
@@ -34,7 +34,6 @@ export function TimelinePage() {
   // the shared atoms instead of mounting private duplicates here.
   const openSwitcher = useSetAtom(showScopeSwitcherAtom);
   const openCreateScope = useSetAtom(createScopeOpenAtom);
-  const openComposer = useSetAtom(showPostModalAtom);
 
   // The inhabited scope drives whether the first-feed empty state shows the
   // personal "grow your reach" CTAs or the community "seed the room you are in"
@@ -177,7 +176,6 @@ export function TimelinePage() {
                 <FirstFeedEmptyState
                   communityScope={communityScope()}
                   onCreateStory={state.handleAddStory}
-                  onCreatePost={() => openComposer(true)}
                   onCreateCommunity={() => openCreateScope(true)}
                   onDiscoverCommunities={() => navigate("/search")}
                 />

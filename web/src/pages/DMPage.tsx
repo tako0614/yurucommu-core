@@ -738,6 +738,12 @@ export function DMPage() {
                 <Show when={loading()}>
                   <PostSkeleton count={6} />
                 </Show>
+                {/* The Archived tab lazy-loads on open via its own fetch; show a
+                    skeleton for it too so it doesn't render a blank pane (the
+                    `loading()` skeleton above only covers the contacts load). */}
+                <Show when={activeTab() === "archived" && loadingArchived()}>
+                  <PostSkeleton count={6} />
+                </Show>
                 <Show when={!loading() && activeTab() === "requests"}>
                   <Show
                     when={requests().length === 0}

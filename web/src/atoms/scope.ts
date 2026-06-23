@@ -165,28 +165,15 @@ export const refreshScopesAtom = atom(
   },
 );
 
-// Action: enter a community as the active scope ("stand in the room you made").
-// Refreshes the picker source so the community is present as a pill, then writes
-// it as the active scope. Used after creating or joining a community.
-export const enterCommunityScopeAtom = atom(
-  null,
-  async (_get, set, community: CommunityDetail): Promise<void> => {
-    const communities = await set(refreshScopesAtom);
-    // Prefer the freshly fetched row (authoritative membership/role); fall back
-    // to the passed-in community if the refetch failed or hasn't propagated.
-    const live =
-      communities.find((c) => c.ap_id === community.ap_id) ?? community;
-    const scope = communityToScope(live);
-    if (scope) set(inhabitedScopeAtom, scope);
-  },
-);
-
-// Action: after LEAVING a community, mirror the join path so the picker and the
-// active filter stay coherent without a reload. Refetches the picker source (so
-// the left community drops out of the switcher) and, if the home view was
-// narrowed to that community, resets it to personal — otherwise the home stays
-// filtered to a community the user is no longer a member of. Symmetric with
-// enterCommunityScopeAtom.
+// Action: after LEAVING a community, keep the picker and the active filter
+// coherent without a reload. Refetches the picker source (so the left community
+// drops out of the switcher) and, if the home view was narrowed to that
+// community, resets it to personal — otherwise the home stays filtered to a
+// community the user is no longer a member of.
+//
+// (Joining/creating a community deliberately does NOT auto-narrow home — those
+// paths only refresh the picker via refreshScopesAtom — because narrowing must
+// be a user-chosen lens, not a side effect of a membership action.)
 export const leaveCommunityScopeAtom = atom(
   null,
   async (get, set, communityApId: string): Promise<void> => {

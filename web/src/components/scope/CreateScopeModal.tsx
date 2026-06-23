@@ -1,10 +1,11 @@
 import { createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+import { useNavigate } from "@solidjs/router";
 import { useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
 import { createCommunity } from "../../lib/api/communities.ts";
-import { enterCommunityScopeAtom } from "../../atoms/scope.ts";
+import { refreshScopesAtom } from "../../atoms/scope.ts";
 import { pushToast, toastsAtom } from "../../atoms/toast.ts";
 
 interface CreateScopeModalProps {
@@ -85,8 +86,9 @@ const isNameValid = (name: string) => {
  */
 export function CreateScopeModal(props: CreateScopeModalProps) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const setToasts = useSetAtom(toastsAtom);
-  const enterCommunityScope = useSetAtom(enterCommunityScopeAtom);
+  const refreshScopes = useSetAtom(refreshScopesAtom);
 
   const [name, setName] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
@@ -132,9 +134,10 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
         display_name: displayName().trim() || undefined,
         summary: summary().trim() || undefined,
       });
-      // Surface the new pill and select it as the active home filter so the
-      // owner lands looking at the room they just made.
-      await enterCommunityScope(community);
+      // Surface the new community as a selectable filter pill, then take the
+      // owner to the community's OWN surface (/groups/:name) — not by hijacking
+      // the global home filter, which would silently narrow their unified home.
+      await refreshScopes();
       pushToast(
         setToasts,
         t("scope.created").replace(
@@ -145,6 +148,7 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
       );
       reset();
       props.onClose();
+      navigate(`/groups/${encodeURIComponent(community.name)}`);
     } catch (err) {
       console.error("Failed to create community:", err);
       // Strip a leading HTTP status prefix (e.g. "400: ...") so the toast shows
