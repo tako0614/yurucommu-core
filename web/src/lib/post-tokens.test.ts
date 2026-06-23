@@ -31,6 +31,18 @@ describe("parsePostTokens", () => {
     ]);
   });
 
+  it("parses a remote @user@host mention as ONE token (not two broken links)", () => {
+    expect(parsePostTokens("ping @carol@remote.test please")).toEqual([
+      { type: "text", text: "ping " },
+      { type: "mention", value: "carol@remote.test" },
+      { type: "text", text: " please" },
+    ]);
+    // The link resolves to the remote-actor search the SearchPage handles.
+    expect(tokenSearchHref("@carol@remote.test")).toEqual(
+      "/search?search=%40carol%40remote.test",
+    );
+  });
+
   it("parses mixed mentions and hashtags in order", () => {
     expect(parsePostTokens("@a #b @c")).toEqual([
       { type: "mention", value: "a" },
