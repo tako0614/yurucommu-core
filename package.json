@@ -1,6 +1,6 @@
 {
   "name": "@takos/yurucommu",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "license": "GPL-3.0-only",
   "type": "module",
   "exports": {
