@@ -147,6 +147,9 @@ export function getProvider(
  */
 export type ProviderId = "google" | "x" | "takos";
 
+// Upper bound for the userinfo fetch so a hung provider can't stall login.
+const USERINFO_FETCH_TIMEOUT_MS = 10_000;
+
 const KNOWN_PROVIDER_IDS: ReadonlySet<ProviderId> = new Set<ProviderId>([
   "google",
   "x",
@@ -286,14 +289,24 @@ export async function fetchUserInfo(
       ? `${provider.userInfoUrl}?user.fields=profile_image_url`
       : provider.userInfoUrl;
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch user info: ${res.status}`);
+  // Bound the userinfo fetch (and its body read) so a hung provider can't stall
+  // the login request; the timer stays armed through res.json(). Mirrors the
+  // token-exchange and fetchJwks timeouts.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), USERINFO_FETCH_TIMEOUT_MS);
+  let raw: unknown;
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch user info: ${res.status}`);
+    }
+    raw = await res.json();
+  } finally {
+    clearTimeout(timer);
   }
-
-  const raw: unknown = await res.json();
   if (!isJsonObject(raw)) {
     throw new Error(`Invalid userinfo response from provider: ${provider.id}`);
   }

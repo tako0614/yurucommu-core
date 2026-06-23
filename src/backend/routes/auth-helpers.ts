@@ -17,6 +17,10 @@ import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "auth.helpers" });
 
+// Upper bound for the OAuth token-exchange / userinfo fetches so a hung provider
+// can't stall the login request (the self-host runtime has no wall-clock cap).
+export const OAUTH_FETCH_TIMEOUT_MS = 10_000;
+
 /** Classify HTTP status into a coarse error kind safe to log. */
 function classifyOAuthErrorKind(status: number): string {
   if (status === 400) return "invalid_request";
@@ -394,24 +398,37 @@ export async function exchangeOAuthToken(
     body: new URLSearchParams(tokenBody),
   };
 
-  const res = await fetch(tokenUrl, requestInit);
-
-  if (!res.ok) {
-    // Do NOT log the raw response body. Upstream OAuth providers can
-    // echo the supplied `client_secret` / `code` / refresh tokens on
-    // validation failures. Log structured fields only.
-    log.error("Token exchange failed", {
-      event: "auth.oauth.token_exchange_failed",
-      provider: providerId,
-      status: res.status,
-      statusText: res.statusText,
-      error_kind: classifyOAuthErrorKind(res.status),
-      tokenUrl: provider.tokenUrl,
+  // Bound the upstream token exchange (and its body read) so a hung or
+  // trickling provider can't stall the login request forever — the self-host
+  // runtime has no wall-clock cap. Mirrors fetchJwks' AbortController pattern;
+  // the timer stays armed through res.json() so a slow body also aborts.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OAUTH_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(tokenUrl, {
+      ...requestInit,
+      signal: controller.signal,
     });
-    return null;
-  }
 
-  return (await res.json()) as OAuthTokens;
+    if (!res.ok) {
+      // Do NOT log the raw response body. Upstream OAuth providers can
+      // echo the supplied `client_secret` / `code` / refresh tokens on
+      // validation failures. Log structured fields only.
+      log.error("Token exchange failed", {
+        event: "auth.oauth.token_exchange_failed",
+        provider: providerId,
+        status: res.status,
+        statusText: res.statusText,
+        error_kind: classifyOAuthErrorKind(res.status),
+        tokenUrl: provider.tokenUrl,
+      });
+      return null;
+    }
+
+    return (await res.json()) as OAuthTokens;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Look up an existing actor by provider user ID, or create a new one. */
