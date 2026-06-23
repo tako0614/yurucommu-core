@@ -130,6 +130,68 @@ function addressesPublic(addresses: string[]): boolean {
   return addresses.some((a) => PUBLIC_COLLECTION.has(a));
 }
 
+// A note addressed to a followers collection (the author's `<actor>/followers`)
+// and NOT to Public is a followers-only post. We match any `/followers`
+// collection by suffix (mirrors isDirectNote), which covers the author's
+// collection without needing to resolve it.
+function addressesFollowers(addresses: string[]): boolean {
+  return addresses.some((a) => a.endsWith("/followers"));
+}
+
+/**
+ * Recipient-INDEPENDENT visibility classification for an inbound generic Note,
+ * mirroring the local outbound addressing contract. CRITICAL invariant: a
+ * non-public Note is NEVER classified as "unlisted" (world-readable). Direct
+ * (addressed-to-specific-actors-only) Notes are diverted BEFORE this is reached
+ * (insertDirectNote / the direct-shaped skip), so the residual here is:
+ *   - "public"    — the Public collection is in `to`;
+ *   - "unlisted"  — Public is only in `cc` (Mastodon-style unlisted), or the
+ *                   note carries no usable addressing at all;
+ *   - "followers" — a followers collection is addressed and Public is absent.
+ * Previously this was derived solely from `to.includes(Public)`, so a remote
+ * followers-only post (Public absent) was silently downgraded to "unlisted" and
+ * became world-readable. */
+function classifyInboundNoteVisibility(object: {
+  to?: string[];
+  cc?: string[];
+}): "public" | "unlisted" | "followers" {
+  const to = object.to ?? [];
+  const cc = object.cc ?? [];
+  if (addressesPublic(to)) return "public";
+  if (addressesPublic(cc)) return "unlisted";
+  if (addressesFollowers([...to, ...cc])) return "followers";
+  return "unlisted";
+}
+
+/**
+ * A Note addressed ONLY to specific actors — no Public, no followers collection
+ * — i.e. a direct/DM-shaped Note. When such a Note reaches a shared-inbox fan-out
+ * recipient it is NOT addressed to, it must NOT be stored as a world-readable
+ * generic Note; the addressed local actor's own delivery handles it via
+ * insertDirectNote. Recipient-independent (keyed on the activity's own
+ * addressing), unlike isDirectNote.
+ */
+function isDirectShapedNote(object: { to?: string[]; cc?: string[] }): boolean {
+  const all = [...(object.to ?? []), ...(object.cc ?? [])];
+  if (all.length === 0) return false;
+  if (addressesPublic(all)) return false;
+  if (addressesFollowers(all)) return false;
+  return true;
+}
+
+// Cap persisted addressing arrays so a remote cannot bloat a row with a huge
+// to/cc list; 64 entries is far beyond any real audience and keeps the explicit-
+// recipient (mention) gate working.
+const MAX_ADDRESS_ENTRIES = 64;
+function boundAddressJson(addresses: string[] | undefined): string {
+  if (!Array.isArray(addresses) || addresses.length === 0) return "[]";
+  return JSON.stringify(
+    addresses
+      .filter((a) => typeof a === "string")
+      .slice(0, MAX_ADDRESS_ENTRIES),
+  );
+}
+
 /**
  * Reject an inbound object whose `object.id` is asserted under a host the
  * delivering actor does not control (object-ID squatting / cross-origin
@@ -352,6 +414,22 @@ export async function handleCreate(
     return;
   }
 
+  // A direct/DM-shaped Note (addressed only to specific actors, neither Public
+  // nor followers) that is NOT addressed to THIS fan-out recipient: the shared
+  // inbox calls handleCreate once per local follower of the sender, so a DM
+  // addressed to actor A is also dispatched for an unrelated follower B. We must
+  // NOT store it as a world-readable generic Note for B — the addressed actor's
+  // own delivery handles it via insertDirectNote above. Skip it here.
+  if (isDirectShapedNote(object)) {
+    log.warn("Skipping direct Note not addressed to this recipient", {
+      event: "ap.create.direct_note_not_addressed",
+      actor,
+      recipient: recipient.apId,
+      objectId: object.id,
+    });
+    return;
+  }
+
   const objectId = object.id || objectApId(baseUrl, generateId());
 
   // Was the object already present BEFORE this dispatch? This is read ONCE and
@@ -413,11 +491,14 @@ export async function handleCreate(
       summary: boundInboundSummary(object.summary),
       attachmentsJson: boundAttachmentsJson(attachments),
       inReplyTo: object.inReplyTo || null,
-      visibility: object.to?.includes(
-        "https://www.w3.org/ns/activitystreams#Public",
-      )
-        ? "public"
-        : "unlisted",
+      // Recipient-independent classification: a non-public Note is never stored
+      // as world-readable "unlisted". A followers-only post → "followers" (gated
+      // by the accepted-follow edge), preserving the remote author's audience.
+      visibility: classifyInboundNoteVisibility(object),
+      // Persist the addressing so the explicit-recipient (mention) gate in
+      // canViewerReadObjectFull / the post-detail route can evaluate.
+      toJson: boundAddressJson(object.to),
+      ccJson: boundAddressJson(object.cc),
       communityApId: null,
       published: publishedAt,
       isLocal: 0,
