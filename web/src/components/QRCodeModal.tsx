@@ -147,13 +147,8 @@ export function QRCodeModal(props: QRCodeModalProps) {
                 const actorData = await fetchActor(identifier);
                 setScanResult(actorData);
               } catch (localErr: unknown) {
-                setScanError(
-                  `Local user fetch error: ${
-                    localErr instanceof Error
-                      ? localErr.message
-                      : String(localErr) || "Unknown"
-                  }`,
-                );
+                console.error("QR local user fetch failed", localErr);
+                setScanError(t("qr.lookupFailed"));
               }
             } else if (username) {
               // Remote user - search via ActivityPub WebFinger
@@ -163,26 +158,18 @@ export function QRCodeModal(props: QRCodeModalProps) {
                 if (results.length > 0) {
                   setScanResult(results[0]);
                 } else {
-                  setScanError(`Remote user not found: ${webfingerAddress}`);
+                  setScanError(t("qr.userNotFound"));
                 }
               } catch (remoteErr: unknown) {
-                setScanError(
-                  `Remote search error: ${
-                    remoteErr instanceof Error
-                      ? remoteErr.message
-                      : String(remoteErr) || "Unknown"
-                  }`,
-                );
+                console.error("QR remote search failed", remoteErr);
+                setScanError(t("qr.lookupFailed"));
               }
             } else {
-              setScanError(`Remote user info insufficient (hash=${url.hash})`);
+              setScanError(t("qr.invalidCode"));
             }
           } catch (err: unknown) {
-            setScanError(
-              `QR parse error: ${
-                err instanceof Error ? err.message : String(err) || "Unknown"
-              }`,
-            );
+            console.error("QR parse error", err);
+            setScanError(t("qr.invalidCode"));
           } finally {
             setLookingUp(false);
           }

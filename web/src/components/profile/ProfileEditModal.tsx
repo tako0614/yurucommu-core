@@ -1,9 +1,27 @@
 import { createSignal, Index, Show } from "solid-js";
 import { CloseIcon } from "./ProfileIcons.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
-import { uploadMedia } from "../../lib/api/media.ts";
+import { FileValidationError, uploadMedia } from "../../lib/api/media.ts";
 import { useDialog } from "../../lib/useDialog.ts";
 import type { Translate } from "../../lib/i18n.tsx";
+
+// Map an upload failure to a LOCALIZED message key. FileValidationError carries
+// raw English in `.message` (e.g. "File too large: 21.34MB..."), so rendering
+// err.message directly leaked English to JA users — translate by its stable
+// `code` instead and fall back to the generic key for network/server errors.
+function uploadErrorKey(err: unknown): Parameters<Translate>[0] {
+  if (err instanceof FileValidationError) {
+    switch (err.code) {
+      case "INVALID_TYPE":
+        return "media.invalidType";
+      case "FILE_TOO_LARGE":
+        return "media.fileTooLarge";
+      case "INVALID_FILENAME":
+        return "media.invalidFilename";
+    }
+  }
+  return "common.uploadFailed";
+}
 
 // Mastodon-parity cap on structured profile fields.
 const MAX_PROFILE_FIELDS = 4;
@@ -82,13 +100,10 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
     } catch (err) {
       // Surface the failure (e.g. >20MB image, wrong type, network) — it was
       // previously only console.error'd, so the upload failed silently and the
-      // user was left wondering why their avatar/header never changed.
+      // user was left wondering why their avatar/header never changed. Show a
+      // LOCALIZED message (not the raw English err.message).
       console.error("Failed to upload image:", err);
-      setUploadError(
-        err instanceof Error && err.message
-          ? err.message
-          : props.t("common.uploadFailed"),
-      );
+      setUploadError(props.t(uploadErrorKey(err)));
     } finally {
       setBusy(false);
     }
