@@ -420,30 +420,29 @@ export function registerMembershipMemberRoutes(
             continue;
           }
 
-          // Can't demote yourself if you're the last owner
-          if (
-            targetApId === actor.ap_id &&
-            targetMembership.role === "owner" &&
-            body.role !== "owner"
-          ) {
-            const ownerCountResult = await db
-              .select({ count: count() })
-              .from(communityMembers)
-              .where(
-                and(
-                  eq(communityMembers.communityApId, community.apId),
-                  eq(communityMembers.role, "owner"),
-                ),
-              )
-              .get();
-            if ((ownerCountResult?.count ?? 0) <= 1) {
+          // Demoting an OWNER (self OR another) must preserve the ">=1 owner"
+          // invariant. The previous self-only count()-then-UPDATE was a TOCTOU
+          // AND skipped the non-self branch entirely, so a single bulk request
+          // demoting BOTH owners (or two owners demoting each other) could leave
+          // ZERO owners. Route every owner demotion through the same atomic guard
+          // the single-target PATCH uses (EXISTS(another owner) inside the UPDATE).
+          if (targetMembership.role === "owner" && body.role !== "owner") {
+            const demoted = await demoteOwnerIfAnotherExists(
+              db,
+              community.apId,
+              targetApId,
+              body.role,
+            );
+            if (!demoted) {
               results.push({
                 ap_id: targetApId,
                 success: false,
-                error: "Cannot demote: only owner",
+                error: "Cannot demote the last owner",
               });
               continue;
             }
+            results.push({ ap_id: targetApId, success: true });
+            continue;
           }
 
           await db

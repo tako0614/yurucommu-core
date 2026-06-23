@@ -202,3 +202,26 @@ test("demoteOwnerIfAnotherExists: two owners demoting EACH OTHER never reach zer
   );
   expect(await ownerCount(db, community)).toBe(1); // a kept — never zero owners
 });
+
+// Bulk role-change (POST /members/batch/role) now routes each owner demotion
+// through demoteOwnerIfAnotherExists instead of a self-only count()-then-UPDATE.
+// This simulates the handler's sequential per-target loop demoting BOTH owners
+// in a SINGLE request — the second demotion must be refused so the community is
+// never left ownerless (the deterministic single-request orphan the old path
+// allowed).
+test("bulk-path loop demoting both owners in one pass keeps the last owner", async () => {
+  const db = await freshDb();
+  const a = `${APP}/ap/users/a`;
+  const b = `${APP}/ap/users/b`;
+  const community = await seedCommunityWithOwners(db, [a, b]);
+
+  // Loop order [a, b]: a demotes (b still owner), then b is the last owner → refused.
+  expect(await demoteOwnerIfAnotherExists(db, community, a, "member")).toBe(
+    true,
+  );
+  expect(await demoteOwnerIfAnotherExists(db, community, b, "member")).toBe(
+    false,
+  );
+  expect(await ownerCount(db, community)).toBe(1);
+  expect(await memberRole(db, community, b)).toBe("owner");
+});
