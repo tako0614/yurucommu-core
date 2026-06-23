@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, asc, count, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, or } from "drizzle-orm";
 import { communities, communityMembers } from "../../../db/index.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
 import type { Env, Variables } from "../../types.ts";
@@ -10,9 +10,11 @@ import {
 } from "../../federation-helpers.ts";
 import {
   batchLoadActorInfo,
+  demoteOwnerIfAnotherExists,
   fetchCommunityId,
   memberWhere,
   removeMemberAtomic,
+  removeOwnerIfAnotherExists,
   requireManager,
   resolveCommunityApId,
 } from "./membership-shared.ts";
@@ -83,6 +85,24 @@ export function registerMembershipMemberRoutes(
         return c.json({ error: "Only owners can remove other owners" }, 403);
       }
 
+      // Removing an owner must never orphan the community: two owners who kick
+      // each other concurrently would both pass the role checks above and leave
+      // ZERO owners. Gate an owner removal on ANOTHER owner (besides the target)
+      // still existing, evaluated atomically inside the delete — mirroring the
+      // last-owner LEAVE guard. D1 serializes the deletes, so the second sees
+      // the first already gone and matches 0 rows.
+      if (targetMembership.role === "owner") {
+        const removed = await removeOwnerIfAnotherExists(
+          db,
+          community.apId,
+          targetApId,
+        );
+        if (!removed) {
+          return c.json({ error: "Cannot remove the last owner" }, 400);
+        }
+        return c.json({ success: true });
+      }
+
       await removeMemberAtomic(db, community.apId, targetApId);
 
       return c.json({ success: true });
@@ -131,34 +151,20 @@ export function registerMembershipMemberRoutes(
         return c.json({ error: "User is not a member" }, 404);
       }
 
-      // Can't demote yourself if you're the last owner. Enforced ATOMICALLY:
-      // a count(owners) > 1 check then a separate UPDATE is a TOCTOU two
-      // concurrent owners can both pass → zero owners. Condition the role change
-      // on another owner still existing; D1 serializes the two updates so the
-      // second sees the first already demoted. Re-read for an accurate message
-      // (driver-agnostic — no reliance on affected-row counts).
-      if (
-        targetApId === actor.ap_id &&
-        targetMembership.role === "owner" &&
-        body.role !== "owner"
-      ) {
-        const anotherOwnerExists = sql`EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${community.apId} AND ${communityMembers.role} = 'owner' AND ${communityMembers.actorApId} <> ${actor.ap_id})`;
-        await db
-          .update(communityMembers)
-          .set({ role: body.role })
-          .where(
-            and(memberWhere(community.apId, targetApId), anotherOwnerExists),
-          );
-        const after = await db
-          .select({ role: communityMembers.role })
-          .from(communityMembers)
-          .where(memberWhere(community.apId, targetApId))
-          .get();
-        if (after?.role === "owner") {
-          return c.json(
-            { error: "Cannot demote: you are the only owner" },
-            400,
-          );
+      // Demoting an owner must never drop the community to ZERO owners — this
+      // holds whether you demote YOURSELF or ANOTHER owner. Two owners who demote
+      // each other concurrently both pass the initial role read above and would
+      // leave the community ownerless; the helper gates the UPDATE on another
+      // owner (besides the target) still existing, atomically.
+      if (targetMembership.role === "owner" && body.role !== "owner") {
+        const demoted = await demoteOwnerIfAnotherExists(
+          db,
+          community.apId,
+          targetApId,
+          body.role,
+        );
+        if (!demoted) {
+          return c.json({ error: "Cannot demote the last owner" }, 400);
         }
         return c.json({ success: true });
       }

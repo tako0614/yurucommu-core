@@ -7,7 +7,10 @@ import { and, eq } from "drizzle-orm";
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actors, communities, communityMembers } from "../../../db/index.ts";
-import { removeOwnerIfAnotherExists } from "../../routes/communities/membership-shared.ts";
+import {
+  demoteOwnerIfAnotherExists,
+  removeOwnerIfAnotherExists,
+} from "../../routes/communities/membership-shared.ts";
 
 // removeOwnerIfAnotherExists enforces the "a community always keeps >=1 owner"
 // invariant ATOMICALLY (replacing a count(owners)>1 check-then-delete TOCTOU
@@ -132,4 +135,70 @@ test("removeOwnerIfAnotherExists: a SECOND last-owner removal is a no-op (race c
   expect(await removeOwnerIfAnotherExists(db, community, a)).toBe(true);
   expect(await removeOwnerIfAnotherExists(db, community, b)).toBe(false);
   expect(await ownerCount(db, community)).toBe(1); // b kept — never zero owners
+});
+
+// demoteOwnerIfAnotherExists guards the ROLE-CHANGE path with the same ">=1
+// owner" invariant. The EXISTS is keyed on the demotion TARGET, so it covers
+// demoting yourself AND demoting a fellow owner identically — closing the gap
+// where the old guard only fired for self-demote and let two owners demote each
+// other concurrently into a zero-owner community.
+
+const memberRole = async (
+  db: Database,
+  communityApId: string,
+  actorApId: string,
+) =>
+  (
+    await db
+      .select({ role: communityMembers.role })
+      .from(communityMembers)
+      .where(
+        and(
+          eq(communityMembers.communityApId, communityApId),
+          eq(communityMembers.actorApId, actorApId),
+        ),
+      )
+      .get()
+  )?.role;
+
+test("demoteOwnerIfAnotherExists: with two owners, demotes the target and reports true", async () => {
+  const db = await freshDb();
+  const a = `${APP}/ap/users/a`;
+  const b = `${APP}/ap/users/b`;
+  const community = await seedCommunityWithOwners(db, [a, b]);
+
+  const demoted = await demoteOwnerIfAnotherExists(db, community, a, "member");
+
+  expect(demoted).toBe(true);
+  expect(await memberRole(db, community, a)).toBe("member"); // a demoted
+  expect(await ownerCount(db, community)).toBe(1); // b still owner
+});
+
+test("demoteOwnerIfAnotherExists: the LAST owner is NOT demoted and reports false", async () => {
+  const db = await freshDb();
+  const a = `${APP}/ap/users/a`;
+  const community = await seedCommunityWithOwners(db, [a]);
+
+  const demoted = await demoteOwnerIfAnotherExists(db, community, a, "member");
+
+  expect(demoted).toBe(false);
+  expect(await memberRole(db, community, a)).toBe("owner"); // invariant held
+  expect(await ownerCount(db, community)).toBe(1);
+});
+
+test("demoteOwnerIfAnotherExists: two owners demoting EACH OTHER never reach zero owners", async () => {
+  const db = await freshDb();
+  const a = `${APP}/ap/users/a`;
+  const b = `${APP}/ap/users/b`;
+  const community = await seedCommunityWithOwners(db, [a, b]);
+
+  // Serialized as D1 would: a's demote of b lands first; then b's demote of a
+  // sees b already a member (no other owner besides a) and is refused.
+  expect(await demoteOwnerIfAnotherExists(db, community, b, "member")).toBe(
+    true,
+  );
+  expect(await demoteOwnerIfAnotherExists(db, community, a, "member")).toBe(
+    false,
+  );
+  expect(await ownerCount(db, community)).toBe(1); // a kept — never zero owners
 });

@@ -98,6 +98,42 @@ export async function removeOwnerIfAnotherExists(
 }
 
 /**
+ * Atomically demote an OWNER to `newRole` only if ANOTHER owner (besides this
+ * target) still remains, preserving the ">=1 owner" invariant. Returns true when
+ * the target is no longer an owner (demotion applied), false when the target was
+ * the last owner and was therefore left untouched.
+ *
+ * Mirrors removeOwnerIfAnotherExists for the role-change path: a
+ * count(owners)>1 check followed by a separate UPDATE is a TOCTOU two owners who
+ * demote EACH OTHER concurrently can both pass, orphaning the community with
+ * zero owners. Conditioning the UPDATE on `EXISTS(another owner)` evaluated
+ * INSIDE the statement closes the window — D1 serializes the two updates, so the
+ * second to execute sees the first already demoted and matches 0 rows. The
+ * EXISTS is keyed on the TARGET (not the caller) so it equally covers demoting
+ * yourself and demoting a fellow owner.
+ */
+export async function demoteOwnerIfAnotherExists(
+  db: Database,
+  communityApIdVal: string,
+  targetApId: string,
+  newRole: string,
+): Promise<boolean> {
+  const anotherOwnerExists = sql`EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${communityApIdVal} AND ${communityMembers.role} = 'owner' AND ${communityMembers.actorApId} <> ${targetApId})`;
+  await db
+    .update(communityMembers)
+    .set({ role: newRole })
+    .where(and(memberWhere(communityApIdVal, targetApId), anotherOwnerExists));
+  // Re-read (driver-agnostic — no reliance on batch affected-row counts). Absent
+  // or no-longer-owner → demotion held; still owner → it was the last owner.
+  const after = await db
+    .select({ role: communityMembers.role })
+    .from(communityMembers)
+    .where(memberWhere(communityApIdVal, targetApId))
+    .get();
+  return after?.role !== "owner";
+}
+
+/**
  * Atomically add a member and increment memberCount in ONE batch. The increment
  * is guarded by `NOT EXISTS(member)` so a duplicate concurrent add (or a retry)
  * cannot double-count; the insert is onConflictDoNothing. Mirrors the open-join
