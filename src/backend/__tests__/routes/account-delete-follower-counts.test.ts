@@ -157,6 +157,41 @@ test("deleting an account decrements counterparties' follower/following counts (
   expect((await countOf(db, carol))?.followerCount).toBe(0);
 });
 
+// Audit #13 finding #2: a PENDING follow edge never incremented either counter
+// (the +1 happens only on Accept), so the account-delete reconcile must NOT
+// decrement a counterparty for a pending edge — it would under-count a real,
+// nonzero accepted-follower total.
+test("account deletion does NOT decrement a counterparty for a PENDING (never-counted) follow edge", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako"); // being deleted
+  // alice's stored followerCount=1 reflects her ONE real accepted follower (bob);
+  // tako has only a PENDING request to alice (which never bumped her count).
+  const alice = await insertActor(db, "alice", { followerCount: 1 });
+  const bob = await insertActor(db, "bob");
+  await follow(db, bob, alice); // accepted bob -> alice (the edge behind count=1)
+  await db.insert(follows).values({
+    followerApId: tako,
+    followingApId: alice,
+    status: "pending", // never incremented alice.followerCount
+  });
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(res.status).toBe(200);
+
+  // alice keeps her true count (1) — the pending edge must not have decremented it.
+  expect((await countOf(db, alice))?.followerCount).toBe(1);
+});
+
 async function insertPost(
   db: Database,
   apId: string,

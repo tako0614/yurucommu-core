@@ -353,10 +353,17 @@ export async function insertPostAndHandleReply(
     .set({ postCount: sql`${actors.postCount} + 1` })
     .where(and(eq(actors.apId, params.actorApId), objectAbsent));
 
+  // Direct (DM) posts do NOT count toward postCount: the dedicated DM send path
+  // (createDmNote) never bumps it, and the generic DELETE skips the decrement for
+  // visibility==='direct'. A direct post created through the generic POST /posts
+  // must therefore skip the bump too — otherwise create/delete are asymmetric and
+  // postCount over-counts permanently.
+  const countStmts = params.visibility === "direct" ? [] : [bumpPostCount];
+
   if (params.inReplyTo) {
     const parentId = params.inReplyTo;
     await (db as unknown as Batchable).batch([
-      bumpPostCount,
+      ...countStmts,
       insertObject,
       db
         .update(objects)
@@ -364,9 +371,12 @@ export async function insertPostAndHandleReply(
           replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
         })
         .where(eq(objects.apId, parentId)),
-    ]);
+    ] as Parameters<Batchable["batch"]>[0]);
   } else {
-    await (db as unknown as Batchable).batch([bumpPostCount, insertObject]);
+    await (db as unknown as Batchable).batch([
+      ...countStmts,
+      insertObject,
+    ] as Parameters<Batchable["batch"]>[0]);
   }
 
   if (params.inReplyTo && parentAuthor) {

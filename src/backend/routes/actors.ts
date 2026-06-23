@@ -561,6 +561,13 @@ actorsRoute.post("/me/delete", async (c) => {
     // timeline feeds were converted away from). The subquery naturally scopes to
     // LOCAL actors (remote actors have no `actors` row); gt(...,0) guards
     // underflow.
+    // Only ACCEPTED edges ever incremented a counter — a pending follow request
+    // is inserted with no count change (+1 happens on Accept). So the reconcile
+    // MUST filter status='accepted', or deleting an actor with a pending request
+    // out/in would wrongly decrement a counterparty's real count (the gt(...,0)
+    // floor only prevents going negative, not under-counting a nonzero value).
+    // Mirrors the EXISTS(... status='accepted') guard every other edge-removal
+    // path uses (unfollow / undoFollow / handleRemove / handleBlock).
     await db
       .update(actors)
       .set({ followerCount: sql`${actors.followerCount} - 1` })
@@ -571,7 +578,12 @@ actorsRoute.post("/me/delete", async (c) => {
             db
               .select({ id: follows.followingApId })
               .from(follows)
-              .where(eq(follows.followerApId, actorApIdVal)),
+              .where(
+                and(
+                  eq(follows.followerApId, actorApIdVal),
+                  eq(follows.status, "accepted"),
+                ),
+              ),
           ),
           gt(actors.followerCount, 0),
         ),
@@ -586,7 +598,12 @@ actorsRoute.post("/me/delete", async (c) => {
             db
               .select({ id: follows.followerApId })
               .from(follows)
-              .where(eq(follows.followingApId, actorApIdVal)),
+              .where(
+                and(
+                  eq(follows.followingApId, actorApIdVal),
+                  eq(follows.status, "accepted"),
+                ),
+              ),
           ),
           gt(actors.followingCount, 0),
         ),

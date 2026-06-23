@@ -469,3 +469,54 @@ test("creating a reply to a PUBLIC parent succeeds and bumps the parent replyCou
   expect(res.status).toBeLessThan(400);
   expect(await replyCountOf(db, parent)).toBe(1);
 });
+
+// Audit #13 finding #3: a `direct` post created via POST /posts must NOT bump the
+// author postCount (the DM send path doesn't, and DELETE skips the decrement for
+// direct — so the create side must skip the bump or postCount over-counts).
+const postCountOf = async (db: Database, apId: string): Promise<number> =>
+  (
+    await db
+      .select({ pc: actors.postCount })
+      .from(actors)
+      .where(eq(actors.apId, apId))
+      .get()
+  )?.pc ?? -1;
+
+async function createPost(
+  db: Database,
+  author: Actor,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const env = envFor(db);
+  const app = appWith(db, env, author);
+  return app.fetch(
+    new Request(`${APP_URL}/`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    env,
+  );
+}
+
+test("a direct-visibility post created via POST /posts does NOT bump postCount", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author");
+  const res = await createPost(db, fakeActor(author, "author"), {
+    content: "dm-shaped",
+    visibility: "direct",
+  });
+  expect(res.status).toBeLessThan(400);
+  expect(await postCountOf(db, author)).toBe(0); // not counted toward postCount
+});
+
+test("a public post created via POST /posts DOES bump postCount", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "author");
+  const res = await createPost(db, fakeActor(author, "author"), {
+    content: "hello world",
+    visibility: "public",
+  });
+  expect(res.status).toBeLessThan(400);
+  expect(await postCountOf(db, author)).toBe(1);
+});
