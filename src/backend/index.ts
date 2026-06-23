@@ -544,6 +544,20 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     "/ap/users/*/outbox",
     rateLimit(RateLimitConfigs.federationDiscovery),
   );
+  // Parity for the structurally-identical Group + instance-actor collection
+  // endpoints (/ap/groups/:name/{outbox,followers,moderators}, /ap/actor/{outbox,
+  // followers}). Without this they were the only unauthenticated AP discovery
+  // GETs with NO per-IP throttle, while /ap/users/*/outbox was capped at 60/min.
+  // Skip the inbox sub-routes so the dedicated 1k/min inbox budget still governs
+  // them (the same skip the /ap/users/* limiter uses), avoiding double-counting.
+  app.use("/ap/groups/*", async (c, next) => {
+    if (c.req.path.endsWith("/inbox")) return next();
+    return fedDiscoveryLimiter(c, next);
+  });
+  app.use("/ap/actor/*", async (c, next) => {
+    if (c.req.path.endsWith("/inbox")) return next();
+    return fedDiscoveryLimiter(c, next);
+  });
 }
 
 function mountCoreRoutes(app: YurucommuApp): void {
