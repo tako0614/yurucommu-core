@@ -512,6 +512,82 @@ test("header media (actor headerUrl) is likewise public", async () => {
   expect(anonRes.status).toEqual(200);
 });
 
+test("PUBLIC community icon (set via /media, attached to no object) is served publicly", async () => {
+  // Audit #16: a community icon set via a local /media upload is stored on the
+  // communities table (not an actor row) and attached to no object. Without the
+  // community branch in checkMediaAuthorization it fell through to the
+  // uploader-only "!obj" deny, so the Group actor doc's published icon 401/403'd
+  // for federation peers and every non-uploader member (broken image).
+  const db = await freshDb();
+  const env = envFor(db);
+  const uploader = await insertLocalActor(db, "alice");
+  await insertLocalActor(db, "mallory");
+  await seedUpload(db, env, uploader);
+
+  const communityApId = `${APP_URL}/ap/groups/open`;
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "open",
+    name: "Open",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    visibility: "public",
+    iconUrl: MEDIA_URL,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: uploader,
+  });
+
+  // Anonymous federation peer / search engine fetching the Group icon: served.
+  const anonRes = await getMedia(db, env, null);
+  expect(anonRes.status).toEqual(200);
+  expect(anonRes.headers.get("Cache-Control")).toContain("public");
+  // A non-uploader signed-in member is served it too.
+  expect(
+    (await getMedia(db, env, fakeActor(localApId("mallory"), "mallory")))
+      .status,
+  ).toEqual(200);
+});
+
+test("PRIVATE community icon stays members-only", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const uploader = await insertLocalActor(db, "alice");
+  const member = await insertLocalActor(db, "bob");
+  const outsider = await insertLocalActor(db, "mallory");
+  await seedUpload(db, env, uploader);
+
+  const communityApId = `${APP_URL}/ap/groups/secret`;
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "secret",
+    name: "Secret",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    visibility: "private",
+    iconUrl: MEDIA_URL,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: uploader,
+  });
+  await db.insert(communityMembers).values([
+    { communityApId, actorApId: uploader },
+    { communityApId, actorApId: member },
+  ]);
+
+  // Non-member + anonymous are denied (a private Group icon is not world-readable).
+  expect(
+    (await getMedia(db, env, fakeActor(outsider, "mallory"))).status,
+  ).toEqual(403);
+  expect((await getMedia(db, env, null)).status).toEqual(403);
+  // A member is served, privately (never shared-cached).
+  const memberRes = await getMedia(db, env, fakeActor(member, "bob"));
+  expect(memberRes.status).toEqual(200);
+  expect(memberRes.headers.get("Cache-Control")).toContain("private");
+});
+
 test("no full-table LIKE scan path remains in media authorization", async () => {
   // The fix must not reintroduce a leading-wildcard LIKE over attachments_json.
   // Assert statically that the route source contains no such scan and instead

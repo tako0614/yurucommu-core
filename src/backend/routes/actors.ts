@@ -84,6 +84,7 @@ import {
   requireActor,
   resolveActorApId,
 } from "./actors-helpers.ts";
+import { reapReplacedMediaUrl } from "./posts/delete-cascade.ts";
 import { safeUrlJoin } from "../lib/activitypub-helpers.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../lib/feed-cursor.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
@@ -1396,6 +1397,18 @@ actorsRoute.put("/me", async (c) => {
 
   const db = c.get("db");
   await db.update(actors).set(updates).where(eq(actors.apId, actor.ap_id));
+
+  // A replaced avatar/header is attached to no object, so no GC path reclaims
+  // the prior blob — reap it now if the old URL is a local /media upload no
+  // longer referenced anywhere (best-effort; never fails the update).
+  for (const [dbKey, oldUrl] of [
+    ["iconUrl", actor.icon_url],
+    ["headerUrl", actor.header_url],
+  ] as const) {
+    if (updates[dbKey] !== undefined && oldUrl && oldUrl !== updates[dbKey]) {
+      await reapReplacedMediaUrl(db, oldUrl, actor.ap_id, c.env.MEDIA);
+    }
+  }
 
   // The `actor` context snapshot predates the new columns, so to federate a
   // faithful Person we read the current persisted values when the request did

@@ -19,13 +19,15 @@
  * the remote `handleDelete` inbox path so neither can orphan rows.
  */
 
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import {
   activities,
+  actors,
   announces,
   bookmarks,
+  communities,
   inbox as inboxTable,
   likes,
   mediaUploads,
@@ -84,14 +86,29 @@ async function deleteAttachedMediaUploads(
 
   const attachmentsJson = obj.attachmentsJson;
 
+  // An attachment may reference an upload by EITHER its `r2_key`
+  // (`uploads/<id>.<ext>`) OR its served `/media/<id>.<ext>` URL — the auth-path
+  // matcher (media.ts attachmentMatches) accepts both, but the GC historically
+  // matched only `r2_key`. A stored attachment carrying only the `/media/` URL
+  // (any client that omits `r2_key`) therefore slipped the reap and leaked its
+  // blob forever. Match BOTH forms here so the GC is symmetric with the auth path.
+  const mediaUrlForKey = (r2Key: string): string =>
+    r2Key.startsWith("uploads/")
+      ? `/media/${r2Key.slice("uploads/".length)}`
+      : r2Key;
+
   // Indexed scan over the author's own uploads, then substring-match the upload
-  // identity (r2_key) against the object's attachment payload.
+  // identity (r2_key OR /media URL) against the object's attachment payload.
   const candidates = await db
     .select({ id: mediaUploads.id, r2Key: mediaUploads.r2Key })
     .from(mediaUploads)
     .where(eq(mediaUploads.uploaderApId, obj.attributedTo));
 
-  const orphaned = candidates.filter((m) => attachmentsJson.includes(m.r2Key));
+  const orphaned = candidates.filter(
+    (m) =>
+      attachmentsJson.includes(m.r2Key) ||
+      attachmentsJson.includes(mediaUrlForKey(m.r2Key)),
+  );
 
   if (orphaned.length === 0) return [];
 
@@ -121,7 +138,10 @@ async function deleteAttachedMediaUploads(
           and(
             eq(objects.attributedTo, obj.attributedTo),
             ne(objects.apId, objectApId),
-            sql`instr(${objects.attachmentsJson}, ${m.r2Key}) > 0`,
+            or(
+              sql`instr(${objects.attachmentsJson}, ${m.r2Key}) > 0`,
+              sql`instr(${objects.attachmentsJson}, ${mediaUrlForKey(m.r2Key)}) > 0`,
+            ),
           ),
         )
         .get();
@@ -169,6 +189,88 @@ export async function purgeMediaBlobs(
     await media.delete(keys);
   } catch {
     // Swallow: storage purge is best-effort and must not fail the delete flow.
+  }
+}
+
+/**
+ * Reap a profile / community image blob that was just REPLACED.
+ *
+ * Avatar / header / community-icon media is attached to no object, so neither
+ * the object-delete GC nor the expired-story reap ever touches it. Replacing the
+ * image — a normal, repeatable user action — would otherwise orphan the prior
+ * blob + `media_uploads` row in R2 forever (there is no orphaned-key sweep).
+ *
+ * Call this AFTER the new URL is persisted: it reaps the OLD `/media/...` URL's
+ * upload iff that URL is no longer referenced by ANY actor avatar/header, any
+ * non-deleted community icon, or any of the uploader's objects' attachments
+ * (URL or `r2_key` form). No-op for empty/external URLs or an upload owned by a
+ * different actor. Best-effort: never throws into the caller's response path.
+ */
+export async function reapReplacedMediaUrl(
+  db: Database,
+  oldUrl: string | null | undefined,
+  uploaderApId: string,
+  media?: IObjectStorage,
+): Promise<void> {
+  try {
+    if (!oldUrl || !oldUrl.startsWith("/media/")) return;
+    const filename = oldUrl.slice("/media/".length);
+    if (!filename || filename.includes("/") || filename.includes("..")) return;
+    const r2Key = `uploads/${filename}`;
+
+    // Only ever reap a blob THIS actor uploaded.
+    const owned = await db
+      .select({ id: mediaUploads.id })
+      .from(mediaUploads)
+      .where(
+        and(
+          eq(mediaUploads.r2Key, r2Key),
+          eq(mediaUploads.uploaderApId, uploaderApId),
+        ),
+      )
+      .get();
+    if (!owned) return;
+
+    // Still an actor avatar/header somewhere (e.g. set as both icon and header)?
+    const actorRef = await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(or(eq(actors.iconUrl, oldUrl), eq(actors.headerUrl, oldUrl)))
+      .get();
+    if (actorRef) return;
+
+    // Still a (non-deleted) community icon?
+    const communityRef = await db
+      .select({ apId: communities.apId })
+      .from(communities)
+      .where(
+        and(eq(communities.iconUrl, oldUrl), isNull(communities.deletedAt)),
+      )
+      .get();
+    if (communityRef) return;
+
+    // Still embedded in one of the uploader's objects' attachments (URL or key)?
+    const objectRef = await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(
+        and(
+          eq(objects.attributedTo, uploaderApId),
+          or(
+            sql`instr(${objects.attachmentsJson}, ${oldUrl}) > 0`,
+            sql`instr(${objects.attachmentsJson}, ${r2Key}) > 0`,
+          ),
+        ),
+      )
+      .get();
+    if (objectRef) return;
+
+    // Unreferenced: drop the DB row, then best-effort purge the blob.
+    await db.delete(mediaUploads).where(eq(mediaUploads.id, owned.id));
+    await purgeMediaBlobs(media, [r2Key]);
+  } catch {
+    // Best-effort hygiene: a failure just leaves the prior blob (the existing
+    // accepted media failure mode), never breaks the profile/community update.
   }
 }
 

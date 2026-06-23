@@ -1,8 +1,14 @@
 import { type Context, Hono } from "hono";
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import type { Database } from "../../db/index.ts";
-import { actors, follows, mediaUploads, objects } from "../../db/index.ts";
+import {
+  actors,
+  communities,
+  follows,
+  mediaUploads,
+  objects,
+} from "../../db/index.ts";
 import { generateId, safeJsonParse } from "../federation-helpers.ts";
 import { canViewerReadObject } from "../lib/community-visibility.ts";
 import { logger } from "../lib/logger.ts";
@@ -401,6 +407,32 @@ async function checkMediaAuthorization(
       )
       .get();
     if (profileRef) return ALLOW_PUBLIC;
+
+    // Community icon set via a local /media upload. Unlike an actor avatar it is
+    // stored on the `communities` table (not an actors row) and is attached to
+    // no object, so without this branch it falls through to the uploader-only
+    // `!obj` deny below — every community avatar would 401/403 for federation
+    // peers and non-uploader members (broken image), even though the Group actor
+    // document at /ap/groups/:name publishes a PUBLIC community's icon to anyone.
+    // A PUBLIC community's icon is world-readable; a PRIVATE community's stays
+    // members-only (mirrors the Group-doc / community-post gates).
+    const communityRef = await db
+      .select({ visibility: communities.visibility, apId: communities.apId })
+      .from(communities)
+      .where(
+        and(eq(communities.iconUrl, mediaUrl), isNull(communities.deletedAt)),
+      )
+      .get();
+    if (communityRef) {
+      if (communityRef.visibility === "public") return ALLOW_PUBLIC;
+      const allowed = await canViewerReadObject(
+        db,
+        { communityApId: communityRef.apId },
+        currentActorApId,
+      );
+      if (allowed) return ALLOW_PRIVATE;
+      return currentActorApId ? DENY_NOT_AUTHORIZED : DENY_AUTH_REQUIRED;
+    }
   }
 
   const obj = uploadRecord

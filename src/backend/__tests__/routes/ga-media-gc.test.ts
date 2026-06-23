@@ -37,6 +37,7 @@ import type { IObjectStorage } from "../../runtime/types.ts";
 import {
   deleteObjectCascade,
   purgeMediaBlobs,
+  reapReplacedMediaUrl,
 } from "../../routes/posts/delete-cascade.ts";
 import { cleanupExpiredStories } from "../../routes/stories/query-helpers.ts";
 
@@ -241,6 +242,138 @@ test("deleteObjectCascade swallows R2 delete errors (DB delete still succeeds)",
     .where(eq(mediaUploads.r2Key, key))
     .get();
   expect(row).toBeUndefined();
+});
+
+test("deleteObjectCascade reaps a blob referenced by ONLY its /media URL (no r2_key field)", async () => {
+  // Audit #16 #8: the GC historically matched only the r2_key substring. An
+  // attachment carrying only the served /media URL (a client that omits r2_key)
+  // slipped the reap and leaked its blob forever. The GC now matches both forms.
+  const db = await freshDb();
+  const author = await insertActor(db, "author");
+
+  const objApId = `${APP_URL}/ap/objects/url-only`;
+  const r2Key = "uploads/urlonly.jpg";
+  await db.insert(objects).values({
+    apId: objApId,
+    type: "Note",
+    attributedTo: author,
+    content: "hi",
+    // ONLY the /media URL — no r2_key field at all.
+    attachmentsJson: JSON.stringify([{ url: "/media/urlonly.jpg" }]),
+    isLocal: 1,
+  });
+  await db.insert(mediaUploads).values({
+    id: "media-urlonly",
+    r2Key,
+    uploaderApId: author,
+    contentType: "image/jpeg",
+    size: 1,
+  });
+
+  const { storage, deleted } = recordingStorage();
+  const keys = await deleteObjectCascade(db, objApId, storage);
+  await purgeMediaBlobs(storage, keys);
+
+  expect(deleted).toContain(r2Key);
+  expect(
+    await db
+      .select()
+      .from(mediaUploads)
+      .where(eq(mediaUploads.r2Key, r2Key))
+      .get(),
+  ).toBeUndefined();
+});
+
+test("reapReplacedMediaUrl reaps an unreferenced replaced avatar but KEEPS one still in use", async () => {
+  // Audit #16 #6: profile/community image media attaches to no object, so no GC
+  // path reclaims a replaced one. reapReplacedMediaUrl handles the replace.
+  const db = await freshDb();
+  const author = await insertActor(db, "author");
+  const oldUrl = "/media/old.png";
+  const r2Key = "uploads/old.png";
+  await db.insert(mediaUploads).values({
+    id: "media-old",
+    r2Key,
+    uploaderApId: author,
+    contentType: "image/png",
+    size: 1,
+  });
+
+  // Case A: the actor's icon was just changed to a NEW url; the old blob is no
+  // longer referenced anywhere → it is reaped.
+  await db
+    .update(actors)
+    .set({ iconUrl: "/media/new.png" })
+    .where(eq(actors.apId, author));
+  const { storage, deleted } = recordingStorage();
+  await reapReplacedMediaUrl(db, oldUrl, author, storage);
+  expect(deleted).toContain(r2Key);
+  expect(
+    await db
+      .select()
+      .from(mediaUploads)
+      .where(eq(mediaUploads.r2Key, r2Key))
+      .get(),
+  ).toBeUndefined();
+
+  // Case B: an identical blob is still referenced as the header → it is KEPT.
+  await db.insert(mediaUploads).values({
+    id: "media-shared",
+    r2Key: "uploads/shared.png",
+    uploaderApId: author,
+    contentType: "image/png",
+    size: 1,
+  });
+  await db
+    .update(actors)
+    .set({ iconUrl: "/media/new.png", headerUrl: "/media/shared.png" })
+    .where(eq(actors.apId, author));
+  const { storage: s2, deleted: d2 } = recordingStorage();
+  // Pretend the icon was set to shared.png then changed away — but header still
+  // uses shared.png, so the blob must NOT be reaped.
+  await reapReplacedMediaUrl(db, "/media/shared.png", author, s2);
+  expect(d2).not.toContain("uploads/shared.png");
+  expect(
+    await db
+      .select()
+      .from(mediaUploads)
+      .where(eq(mediaUploads.r2Key, "uploads/shared.png"))
+      .get(),
+  ).toBeDefined();
+});
+
+test("reapReplacedMediaUrl keeps a blob still embedded in one of the uploader's posts", async () => {
+  const db = await freshDb();
+  const author = await insertActor(db, "author");
+  const url = "/media/inpost.png";
+  const r2Key = "uploads/inpost.png";
+  await db.insert(mediaUploads).values({
+    id: "media-inpost",
+    r2Key,
+    uploaderApId: author,
+    contentType: "image/png",
+    size: 1,
+  });
+  // A post still embeds the blob (by URL form).
+  await db.insert(objects).values({
+    apId: `${APP_URL}/ap/objects/p1`,
+    type: "Note",
+    attributedTo: author,
+    content: "x",
+    attachmentsJson: JSON.stringify([{ url }]),
+    isLocal: 1,
+  });
+
+  const { storage, deleted } = recordingStorage();
+  await reapReplacedMediaUrl(db, url, author, storage);
+  expect(deleted).not.toContain(r2Key);
+  expect(
+    await db
+      .select()
+      .from(mediaUploads)
+      .where(eq(mediaUploads.r2Key, r2Key))
+      .get(),
+  ).toBeDefined();
 });
 
 test("cleanupExpiredStories requests R2 deletion of expired stories' r2_keys", async () => {

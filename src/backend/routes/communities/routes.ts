@@ -29,6 +29,7 @@ import {
   requireManager,
 } from "./membership-shared.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
+import { reapReplacedMediaUrl } from "../posts/delete-cascade.ts";
 
 /**
  * Narrow view over the concrete D1/libsql drizzle client's atomic batch API.
@@ -549,10 +550,27 @@ communitiesRouter.patch("/:identifier/settings", async (c) => {
     return c.json({ error: "Owner role required" }, 403);
   }
 
+  // Capture the prior icon URL (if it is being replaced) so its now-orphaned
+  // /media blob can be reaped after the update — community icons attach to no
+  // object and no GC path otherwise reclaims a replaced one.
+  let priorIconUrl: string | null = null;
+  if (updates.iconUrl !== undefined) {
+    const current = await db
+      .select({ iconUrl: communities.iconUrl })
+      .from(communities)
+      .where(eq(communities.apId, community.apId))
+      .get();
+    priorIconUrl = current?.iconUrl ?? null;
+  }
+
   await db
     .update(communities)
     .set(updates)
     .where(eq(communities.apId, community.apId));
+
+  if (priorIconUrl && priorIconUrl !== updates.iconUrl) {
+    await reapReplacedMediaUrl(db, priorIconUrl, actor.ap_id, c.env.MEDIA);
+  }
 
   return c.json({ success: true });
 });
