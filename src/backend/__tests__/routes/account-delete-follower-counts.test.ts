@@ -10,9 +10,15 @@ import type { Database } from "../../../db/index.ts";
 import {
   actors,
   announces,
+  dmArchivedConversations,
+  dmCommunityReadStatus,
+  dmReadStatus,
+  dmTyping,
   follows,
   likes,
+  objectRecipients,
   objects,
+  storyShares,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import actorsRoute from "../../routes/actors.ts";
@@ -231,4 +237,132 @@ test("deleting an account reconciles like/announce/reply counters on OTHER actor
   // 3 -> 1: recompute counts only the surviving reply (bob's); tako's 2 replies
   // are deleted. A flat -1 would have wrongly left 2.
   expect(after?.replyCount).toBe(1);
+});
+
+const rowCount = async (
+  db: Database,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: Promise<any[]>,
+): Promise<number> => (await query).length;
+
+test("account deletion reaps story_shares (+reconciles shareCount) and DM-status / authored-object_recipients orphans", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako"); // being deleted
+  const alice = await insertActor(db, "alice");
+
+  // alice authored a Story shared once (by tako): share_count = 1.
+  const aliceStory = `${APP_URL}/ap/objects/alice-story`;
+  await db.insert(objects).values({
+    apId: aliceStory,
+    type: "Story",
+    attributedTo: alice,
+    content: "s",
+    visibility: "public",
+    isLocal: 1,
+    shareCount: 1,
+  });
+  await db
+    .insert(storyShares)
+    .values({ id: "share-1", storyApId: aliceStory, actorApId: tako });
+
+  // tako authored a (community-chat) object → object_recipients keyed by the
+  // object id with a NON-actor recipient (the community apId), the orphan case.
+  const takoMsg = `${APP_URL}/ap/objects/tako-msg`;
+  const communityApId = `${APP_URL}/ap/communities/c1`;
+  await insertPost(db, takoMsg, tako);
+  await db.insert(objectRecipients).values({
+    objectApId: takoMsg,
+    recipientApId: communityApId,
+    type: "audience",
+  });
+
+  // Per-actor DM status rows (no FK → no engine cascade).
+  const now = new Date().toISOString();
+  await db
+    .insert(dmReadStatus)
+    .values({ actorApId: tako, conversationId: "conv-1", lastReadAt: now });
+  await db
+    .insert(dmArchivedConversations)
+    .values({ actorApId: tako, conversationId: "conv-1" });
+  await db
+    .insert(dmCommunityReadStatus)
+    .values({ actorApId: tako, communityApId, lastReadAt: now });
+  await db
+    .insert(dmTyping)
+    .values({ actorApId: tako, recipientApId: alice, lastTypedAt: now });
+  // A row where tako is the typing RECIPIENT (someone typing to tako) — must
+  // also be reaped (the OR branch).
+  await db
+    .insert(dmTyping)
+    .values({ actorApId: alice, recipientApId: tako, lastTypedAt: now });
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(res.status).toBe(200);
+
+  // story_shares by tako are gone, and alice's surviving story's share_count is
+  // reconciled to 0 (not left permanently inflated).
+  expect(
+    await rowCount(
+      db,
+      db.select().from(storyShares).where(eq(storyShares.actorApId, tako)),
+    ),
+  ).toBe(0);
+  expect((await objCounts(db, aliceStory))?.likeCount).toBe(0); // sanity: row survives
+  const aliceStoryRow = await db
+    .select({ shareCount: objects.shareCount })
+    .from(objects)
+    .where(eq(objects.apId, aliceStory))
+    .get();
+  expect(aliceStoryRow?.shareCount).toBe(0);
+
+  // authored-object object_recipients orphan (keyed by the community apId, not
+  // by tako) is reaped.
+  expect(
+    await rowCount(
+      db,
+      db
+        .select()
+        .from(objectRecipients)
+        .where(eq(objectRecipients.objectApId, takoMsg)),
+    ),
+  ).toBe(0);
+
+  // All per-actor DM status rows are purged.
+  expect(
+    await rowCount(
+      db,
+      db.select().from(dmReadStatus).where(eq(dmReadStatus.actorApId, tako)),
+    ),
+  ).toBe(0);
+  expect(
+    await rowCount(
+      db,
+      db
+        .select()
+        .from(dmArchivedConversations)
+        .where(eq(dmArchivedConversations.actorApId, tako)),
+    ),
+  ).toBe(0);
+  expect(
+    await rowCount(
+      db,
+      db
+        .select()
+        .from(dmCommunityReadStatus)
+        .where(eq(dmCommunityReadStatus.actorApId, tako)),
+    ),
+  ).toBe(0);
+  // Both dm_typing rows (tako as actor AND tako as recipient) are gone.
+  expect(await rowCount(db, db.select().from(dmTyping))).toBe(0);
 });

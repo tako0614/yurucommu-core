@@ -28,6 +28,10 @@ import {
   communityJoinRequests,
   communityMembers,
   deliveryQueue,
+  dmArchivedConversations,
+  dmCommunityReadStatus,
+  dmReadStatus,
+  dmTyping,
   follows,
   inbox,
   likes,
@@ -39,6 +43,7 @@ import {
   objectRecipients,
   objects,
   sessions,
+  storyShares,
   storyViews,
   storyVotes,
 } from "../../db/index.ts";
@@ -646,6 +651,25 @@ actorsRoute.post("/me/delete", async (c) => {
           gt(objects.announceCount, 0),
         ),
       );
+    // Story shares are the same griefable denormalized-counter shape as
+    // like/announce: each share bumps objects.share_count by +1, so the actor's
+    // shares on OTHER actors' (and remote) stories must be reconciled BEFORE the
+    // edges are deleted, or those stories keep a permanently inflated share_count.
+    await db
+      .update(objects)
+      .set({ shareCount: sql`${objects.shareCount} - 1` })
+      .where(
+        and(
+          inArray(
+            objects.apId,
+            db
+              .select({ id: storyShares.storyApId })
+              .from(storyShares)
+              .where(eq(storyShares.actorApId, actorApIdVal)),
+          ),
+          gt(objects.shareCount, 0),
+        ),
+      );
 
     await db.delete(likes).where(eq(likes.actorApId, actorApIdVal));
     await db.delete(bookmarks).where(eq(bookmarks.actorApId, actorApIdVal));
@@ -701,6 +725,35 @@ actorsRoute.post("/me/delete", async (c) => {
     // actor's votes/views on remote stories are orphaned by the tombstone.
     await db.delete(storyVotes).where(eq(storyVotes.actorApId, actorApIdVal));
     await db.delete(storyViews).where(eq(storyViews.actorApId, actorApIdVal));
+    // Story shares the actor performed on OTHER/remote stories (the
+    // authored-object-scoped delete below only covers THIS actor's own stories),
+    // counterpart to the share_count reconcile above. Without this the share
+    // edges are orphaned by the tombstone and resurface as phantom "already
+    // shared" state if the single-user handle is re-registered (same apId).
+    await db.delete(storyShares).where(eq(storyShares.actorApId, actorApIdVal));
+
+    // Per-actor DM status metadata (typing / read watermarks / community read /
+    // archived conversations). These tables have no FK to actors, so there is no
+    // engine cascade; without these deletes the rows survive the tombstone and,
+    // because the conversation id is a deterministic function of the (re-used)
+    // apIds, stale read/archive state resurfaces for a re-registered identity.
+    await db
+      .delete(dmReadStatus)
+      .where(eq(dmReadStatus.actorApId, actorApIdVal));
+    await db
+      .delete(dmCommunityReadStatus)
+      .where(eq(dmCommunityReadStatus.actorApId, actorApIdVal));
+    await db
+      .delete(dmArchivedConversations)
+      .where(eq(dmArchivedConversations.actorApId, actorApIdVal));
+    await db
+      .delete(dmTyping)
+      .where(
+        or(
+          eq(dmTyping.actorApId, actorApIdVal),
+          eq(dmTyping.recipientApId, actorApIdVal),
+        ),
+      );
 
     // Community membership lifecycle rows for this actor: pending join requests
     // and any invites the actor created or consumed would otherwise dangle.
@@ -835,6 +888,17 @@ actorsRoute.post("/me/delete", async (c) => {
     await db
       .delete(storyViews)
       .where(inArray(storyViews.storyApId, authoredObjectIds()));
+    await db
+      .delete(storyShares)
+      .where(inArray(storyShares.storyApId, authoredObjectIds()));
+    // object_recipients rows for the actor's AUTHORED objects (sent DMs keyed by
+    // the note, community-chat messages keyed by the community apId) are NOT
+    // covered by the recipientApId delete above and have no FK cascade (migration
+    // 0011 dropped it). Mirror deleteObjectCascade so they are not orphaned when
+    // the objects are bulk-deleted just below.
+    await db
+      .delete(objectRecipients)
+      .where(inArray(objectRecipients.objectApId, authoredObjectIds()));
 
     // Reconcile parent posts' replyCount BEFORE bulk-deleting this actor's
     // objects (which include replies to OTHER actors' posts). A flat -1 per
