@@ -3,6 +3,7 @@ import { A } from "@solidjs/router";
 import { Actor, DMMessage } from "../../types/index.ts";
 import {
   CommunityMessage,
+  deleteCommunityMessage,
   DMContact,
   fetchCommunityMessages,
   fetchUserDMMessages,
@@ -66,6 +67,9 @@ export function DMChatPanel(props: DMChatPanelProps) {
   const [loading, setLoading] = createSignal(true);
   const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
+  const [deletingMessage, setDeletingMessage] = createSignal<
+    Record<string, boolean>
+  >({});
   const [isTyping, setIsTyping] = createSignal(false);
   const [errorMessage, setErrorMessage] = createSignal<string | null>(null);
   // Whether an OLDER page of messages exists before the oldest one currently
@@ -85,6 +89,23 @@ export function DMChatPanel(props: DMChatPanelProps) {
   let prevCount = 0;
   let didInitialScroll = false;
   const { t } = useI18n();
+
+  // Delete one of YOUR OWN community-chat messages. The backend enforces
+  // author-or-manager ownership; we expose it for own messages (community chat
+  // only — DM edit/delete isn't surfaced yet). On success the bubble is removed.
+  const handleDeleteCommunityMessage = async (msg: ChatMessage) => {
+    if (props.contact.type !== "community" || deletingMessage()[msg.id]) return;
+    setDeletingMessage((prev) => ({ ...prev, [msg.id]: true }));
+    try {
+      await deleteCommunityMessage(props.contact.ap_id, msg.id);
+      setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+    } catch (e) {
+      console.error("Failed to delete message:", e);
+      setErrorMessage(t("common.error"));
+    } finally {
+      setDeletingMessage((prev) => ({ ...prev, [msg.id]: false }));
+    }
+  };
 
   // Fetch the latest messages for the open conversation. On `initial` load we
   // show the spinner and replace state; on poll refreshes we merge by id so
@@ -549,6 +570,20 @@ export function DMChatPanel(props: DMChatPanelProps) {
                       </div>
                       <div class="text-xs text-neutral-500 mt-1">
                         {formatTime(msg.created_at)}
+                        <Show
+                          when={isMine && props.contact.type === "community"}
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleDeleteCommunityMessage(msg)
+                            }
+                            disabled={deletingMessage()[msg.id]}
+                            class="ml-2 text-rose-400 hover:text-rose-300 disabled:opacity-50"
+                          >
+                            {t("common.delete")}
+                          </button>
+                        </Show>
                       </div>
                     </div>
                   </div>
