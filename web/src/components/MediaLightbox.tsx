@@ -9,6 +9,7 @@ import {
 import { Portal } from "solid-js/web";
 import type { MediaAttachment } from "../types/index.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDialog } from "../lib/useDialog.ts";
 
 /**
  * Resolve the displayable URL for a media attachment. Mirrors the inline
@@ -42,11 +43,26 @@ export function MediaLightbox(props: MediaLightboxProps) {
   const { t } = useI18n();
   const [current, setCurrent] = createSignal(props.index);
   const [zoomed, setZoomed] = createSignal(false);
+  let dialogRef: HTMLDivElement | undefined;
+  let closeButtonRef: HTMLButtonElement | undefined;
 
   // Reset when a new lightbox session opens at a different index.
   createEffect(() => {
     setCurrent(props.index);
     setZoomed(false);
+  });
+
+  // Adopt the shared modal-dialog primitive for focus management: move focus to
+  // the close button on open, trap Tab inside the overlay, restore focus on
+  // close, and refcount the background scroll-lock + Escape-to-close. The
+  // lightbox is always mounted-while-open (the parent gates it behind <Show>),
+  // so isOpen is a constant true here. This replaces the component's own ad-hoc
+  // Escape + scroll-lock wiring (which moved no focus and trapped no Tab).
+  useDialog({
+    isOpen: () => true,
+    onClose: () => props.onClose(),
+    container: () => dialogRef,
+    initialFocus: () => closeButtonRef,
   });
 
   const count = createMemo(() => props.attachments.length);
@@ -70,13 +86,10 @@ export function MediaLightbox(props: MediaLightboxProps) {
     setCurrent((i) => (i + 1) % count());
   };
 
-  // Keyboard: Escape to close, arrows to navigate.
+  // Keyboard: arrows to navigate. Escape + Tab-trap are handled by useDialog.
   createEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        props.onClose();
-      } else if (e.key === "ArrowLeft" && hasMultiple()) {
+      if (e.key === "ArrowLeft" && hasMultiple()) {
         e.preventDefault();
         goPrev();
       } else if (e.key === "ArrowRight" && hasMultiple()) {
@@ -86,15 +99,6 @@ export function MediaLightbox(props: MediaLightboxProps) {
     };
     window.addEventListener("keydown", handleKeyDown);
     onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
-  });
-
-  // Lock background scroll while the lightbox is open.
-  createEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    onCleanup(() => {
-      document.body.style.overflow = previous;
-    });
   });
 
   // Touch handling: horizontal swipe to navigate, pinch to zoom (image only).
@@ -158,6 +162,7 @@ export function MediaLightbox(props: MediaLightboxProps) {
   return (
     <Portal>
       <div
+        ref={dialogRef}
         class="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center select-none"
         role="dialog"
         aria-modal="true"
@@ -167,6 +172,7 @@ export function MediaLightbox(props: MediaLightboxProps) {
       >
         {/* Close button */}
         <button
+          ref={closeButtonRef}
           type="button"
           onClick={(e) => {
             e.stopPropagation();
