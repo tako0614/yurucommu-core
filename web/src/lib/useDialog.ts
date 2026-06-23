@@ -11,6 +11,29 @@ interface UseDialogOptions {
   // Optional element to focus when the dialog opens. When omitted, focus
   // prefers an element with [autofocus], else the first focusable control.
   initialFocus?: () => HTMLElement | null | undefined;
+  // Optional element to focus on CLOSE when the element that opened the dialog
+  // was removed by the dialog's action (e.g. a destructive in-list delete). When
+  // omitted (or detached) focus falls back to the main content landmark so it
+  // never silently drops to <body>.
+  returnFocus?: () => HTMLElement | null | undefined;
+}
+
+/**
+ * Pick where focus should land on close: the explicit returnFocus target if
+ * still mounted, else the main content landmark (made programmatically
+ * focusable). Avoids dropping focus to <body> after a destructive action
+ * detaches the element that opened the dialog.
+ */
+function focusFallback(explicit: HTMLElement | null | undefined): void {
+  if (explicit && explicit.isConnected) {
+    explicit.focus();
+    return;
+  }
+  const main = document.querySelector<HTMLElement>("main, [role='main']");
+  if (main) {
+    if (!main.hasAttribute("tabindex")) main.setAttribute("tabindex", "-1");
+    main.focus();
+  }
 }
 
 interface DialogEntry {
@@ -154,10 +177,14 @@ export function useDialog(options: UseDialogOptions): void {
       const idx = dialogStack.indexOf(entry);
       if (idx !== -1) dialogStack.splice(idx, 1);
       unlockScroll();
-      // Restore focus to whatever was focused before the dialog opened, as long
-      // as it is still in the document.
+      // Restore focus to whatever was focused before the dialog opened. If that
+      // element was removed by a destructive action (isConnected === false),
+      // fall back to an explicit returnFocus target, then the main landmark, so
+      // focus never silently drops to <body>.
       if (previouslyFocused && previouslyFocused.isConnected) {
         previouslyFocused.focus();
+      } else {
+        focusFallback(options.returnFocus?.());
       }
     });
   });

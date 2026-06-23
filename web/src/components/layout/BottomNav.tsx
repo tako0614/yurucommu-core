@@ -20,8 +20,16 @@ export function BottomNav() {
   // The badge count source depends on which nav item it is.
   const badgeCount = (item: NavItem) =>
     item.id === "messages" ? dmUnread() : unreadCount();
-  const badgeLabel = (item: NavItem) =>
-    item.id === "messages" ? t("nav.messages") : t("nav.notifications");
+  // Compose the unread COUNT into the badge's accessible name — NavBadge is a
+  // role="img" leaf whose visible digit is not exposed, so the bare nav name
+  // would announce "Messages" instead of "Messages (3 unread)".
+  const badgeLabel = (item: NavItem) => {
+    const name =
+      item.id === "messages" ? t("nav.messages") : t("nav.notifications");
+    return t("nav.unreadBadge")
+      .replace("{label}", name)
+      .replace("{count}", String(badgeCount(item)));
+  };
 
   const isActive = (route: string) => {
     if (route === "/") return location.pathname === "/";

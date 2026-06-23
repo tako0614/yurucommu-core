@@ -493,10 +493,21 @@ export function DMChatPanel(props: DMChatPanelProps) {
         </Show>
       </div>
 
-      <div ref={scrollContainerRef!} class="flex-1 overflow-y-auto px-4 py-4">
+      <div
+        ref={scrollContainerRef!}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions"
+        aria-atomic="false"
+        class="flex-1 overflow-y-auto px-4 py-4"
+      >
         <Show
           when={!loading()}
-          fallback={<div class="text-center text-neutral-500">Loading...</div>}
+          fallback={
+            <div class="text-center text-neutral-500">
+              {t("common.loading")}
+            </div>
+          }
         >
           <Show
             when={messages().length > 0}

@@ -278,6 +278,11 @@ export function AppMenu() {
                           {(account) => (
                             <button
                               onClick={() => handleSwitchAccount(account.ap_id)}
+                              aria-current={
+                                account.ap_id === currentApId()
+                                  ? "true"
+                                  : undefined
+                              }
                               class={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 transition-colors ${
                                 account.ap_id === currentApId()
                                   ? "bg-neutral-900/50"

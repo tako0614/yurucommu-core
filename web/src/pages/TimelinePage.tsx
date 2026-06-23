@@ -127,7 +127,11 @@ export function TimelinePage() {
             viewport top) so it never collides with the header / story / scope
             bars stacked above the scroll area. */}
         <Show when={state.newPostsCount() > 0}>
-          <div class="pointer-events-none sticky top-2 z-20 flex h-0 justify-center">
+          <div
+            role="status"
+            aria-live="polite"
+            class="pointer-events-none sticky top-2 z-20 flex h-0 justify-center"
+          >
             <button
               onClick={state.handleShowNewPosts}
               class="pointer-events-auto flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-bold text-white shadow-lg transition-colors"
@@ -137,6 +141,7 @@ export function TimelinePage() {
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
+                aria-hidden="true"
               >
                 <path
                   stroke-linecap="round"

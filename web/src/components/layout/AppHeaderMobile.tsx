@@ -98,7 +98,9 @@ export function AppHeaderMobile() {
                 <span class="absolute top-0.5 right-0.5">
                   <NavBadge
                     count={unreadCount()}
-                    label={t("nav.notifications")}
+                    label={t("nav.unreadBadge")
+                      .replace("{label}", t("nav.notifications"))
+                      .replace("{count}", String(unreadCount()))}
                   />
                 </span>
               </Show>

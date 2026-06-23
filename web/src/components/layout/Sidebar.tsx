@@ -25,8 +25,15 @@ export function Sidebar() {
   // The badge count source depends on which nav item it is.
   const badgeCount = (item: NavItem) =>
     item.id === "messages" ? dmUnread() : unreadCount();
-  const badgeLabel = (item: NavItem) =>
-    item.id === "messages" ? t("nav.messages") : t("nav.notifications");
+  // Compose the unread count into the badge's accessible name (NavBadge's
+  // role="img" hides the visible digit from AT).
+  const badgeLabel = (item: NavItem) => {
+    const name =
+      item.id === "messages" ? t("nav.messages") : t("nav.notifications");
+    return t("nav.unreadBadge")
+      .replace("{label}", name)
+      .replace("{count}", String(badgeCount(item)));
+  };
 
   const isActive = (route: string) => {
     if (route === "/") return location.pathname === "/";
