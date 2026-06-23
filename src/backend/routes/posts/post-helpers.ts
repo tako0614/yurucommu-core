@@ -426,6 +426,21 @@ export async function insertPostAndHandleReply(
  * Remote mentioned actors do not get a local inbox row — they are reached by
  * federated delivery, which the caller enqueues via `enqueueDeliveryToActor`.
  */
+
+// Match a cached actor's apId HOST against a mention's `@domain`. A substring
+// test (`apId.includes(domain)`) would resolve a `@user@host.com` mention to a
+// hostile actor whose apId merely CONTAINS the host (e.g.
+// `https://host.com.attacker.test/users/user`), misdirecting the cc + the
+// federated delivery (and, for a followers-only/direct post, handing read access
+// to the wrong actor via isExplicitRecipient). Compare the parsed host exactly.
+function actorHostMatches(apId: string, domain: string): boolean {
+  try {
+    return new URL(apId).host.toLowerCase() === domain.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 export async function processMentions(
   db: Database,
   params: {
@@ -525,7 +540,8 @@ export async function processMentions(
   for (const mention of remoteMentions) {
     const [username, domain] = mention.split("@");
     const matching = cachedActors.find(
-      (a) => a.preferredUsername === username && a.apId.includes(domain),
+      (a) =>
+        a.preferredUsername === username && actorHostMatches(a.apId, domain),
     );
     if (matching) {
       remoteActorMap.set(mention, matching.apId);
@@ -716,7 +732,8 @@ export async function deriveContentTags(
   for (const mention of remoteMentions) {
     const [username, domain] = mention.split("@");
     const matching = cachedActors.find(
-      (a) => a.preferredUsername === username && a.apId.includes(domain),
+      (a) =>
+        a.preferredUsername === username && actorHostMatches(a.apId, domain),
     );
     if (matching) remoteActorMap.set(mention, matching.apId);
   }

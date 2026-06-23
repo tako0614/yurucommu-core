@@ -136,9 +136,13 @@ function postOrderByDrizzle(sort: PostSort) {
 // Canonical hashtag tokenizer. Shared by trending and hashtag search so the two
 // agree on what is a WHOLE hashtag token — a content `LIKE '%#tag%'` alone treats
 // "#go" as matching "#golang" (a substring), which is wrong for both surfaces.
-// The character class mirrors the client-side hashtag linkifier (ASCII word chars
-// + Hiragana/Katakana/CJK) so search matches exactly what is rendered as a link.
-const HASHTAG_TOKEN_REGEX = /#([a-zA-Z0-9_぀-ゟ゠-ヿ一-鿿]+)/g;
+// The character class MUST match the one used by storage/federation
+// (transformers.ts extractHashtags) and the web linkifier (post-tokens.ts), which
+// both use full Unicode word chars (\p{L}\p{N}_). A narrower class here would let
+// a non-CJK tag (Korean / Cyrillic / accented Latin / Greek / …) render as a link
+// and federate but be un-findable by search/trending (and #café would mis-segment
+// to #caf), silently diverging the three layers.
+const HASHTAG_TOKEN_REGEX = /#([\p{L}\p{N}_]+)/gu;
 
 /** Extract the lowercased hashtag tokens (without the leading '#') from content. */
 function extractHashtags(content: string): string[] {

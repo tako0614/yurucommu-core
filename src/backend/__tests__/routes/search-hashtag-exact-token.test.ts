@@ -130,6 +130,30 @@ test("hashtag search matches the whole token, not a prefix of a longer tag", asy
   expect(cwlive.contents[0]).toContain("#cwlive");
 });
 
+// Audit #14 finding #3: the search/trending tokenizer used a narrow class
+// (ASCII + Hiragana/Katakana/CJK) while storage/render/federation use full
+// Unicode word chars, so non-CJK tags rendered + federated but were un-findable
+// (and #café mis-segmented to #caf). The tokenizer is now unified to \p{L}\p{N}_.
+test("hashtag search finds non-CJK Unicode tags (Korean / Cyrillic) — tokenizer class unified", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  await insertPublicPost(db, alice, "k1", "안녕 #한국어 post");
+  // Same-case (SQLite's built-in lower() only case-folds ASCII, an orthogonal
+  // limitation; this test isolates the tokenizer-CLASS fix).
+  await insertPublicPost(db, alice, "c1", "привет #кириллица world");
+
+  const app = appFor(db);
+  // Before unifying the search tokenizer to \p{L}\p{N}_ these returned 0 (the
+  // class was ASCII + Hiragana/Katakana/CJK only) even though they rendered as
+  // links and federated.
+  expect((await hashtagSearch(app, encodeURIComponent("한국어"))).total).toBe(
+    1,
+  );
+  expect(
+    (await hashtagSearch(app, encodeURIComponent("кириллица"))).total,
+  ).toBe(1);
+});
+
 test("hashtag search is case-insensitive on the whole token", async () => {
   const db = await freshDb();
   const alice = await insertLocalActor(db, "alice");
