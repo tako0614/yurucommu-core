@@ -134,9 +134,38 @@ export async function handleUnfollowUser(
     .get();
 
   if (follow) {
-    // Co-commit the edge delete + guarded counter decrements atomically; the
-    // gt(...,0) guards prevent underflow on a redelivered/retried unfollow.
-    const ops: unknown[] = [
+    // #COUNTER-SYM: the decrements run BEFORE the delete and are each gated on
+    // the accepted edge STILL existing (correlated EXISTS), so two concurrent /
+    // retried unfollows can't double-decrement — the second batch's EXISTS is
+    // false (the first already deleted the edge) → its -1s match 0 rows. gt(>0)
+    // additionally guards underflow. Mirrors the canonical web/federated paths.
+    const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${actor.ap_id} AND ${follows.followingApId} = ${target.apId} AND ${follows.status} = 'accepted')`;
+    const ops: unknown[] = [];
+    if (follow.status === "accepted") {
+      ops.push(
+        db
+          .update(actors)
+          .set({ followingCount: sql`${actors.followingCount} - 1` })
+          .where(
+            and(
+              eq(actors.apId, actor.ap_id),
+              gt(actors.followingCount, 0),
+              acceptedEdgeExists,
+            ),
+          ),
+        db
+          .update(actors)
+          .set({ followerCount: sql`${actors.followerCount} - 1` })
+          .where(
+            and(
+              eq(actors.apId, target.apId),
+              gt(actors.followerCount, 0),
+              acceptedEdgeExists,
+            ),
+          ),
+      );
+    }
+    ops.push(
       db
         .delete(follows)
         .where(
@@ -145,23 +174,7 @@ export async function handleUnfollowUser(
             eq(follows.followingApId, target.apId),
           ),
         ),
-    ];
-    if (follow.status === "accepted") {
-      ops.push(
-        db
-          .update(actors)
-          .set({ followingCount: sql`${actors.followingCount} - 1` })
-          .where(
-            and(eq(actors.apId, actor.ap_id), gt(actors.followingCount, 0)),
-          ),
-        db
-          .update(actors)
-          .set({ followerCount: sql`${actors.followerCount} - 1` })
-          .where(
-            and(eq(actors.apId, target.apId), gt(actors.followerCount, 0)),
-          ),
-      );
-    }
+    );
     await (db as unknown as Batchable).batch(ops);
   }
 

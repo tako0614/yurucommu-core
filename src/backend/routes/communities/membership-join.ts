@@ -101,12 +101,19 @@ export function registerMembershipJoinRoutes(
               ),
             );
         } else {
-          await db.insert(communityJoinRequests).values({
-            communityApId: community.apId,
-            actorApId: actor.ap_id,
-            status: "pending",
-            createdAt: now,
-          });
+          // onConflictDoNothing so two concurrent first-time join requests by
+          // the same actor (double-click / retry) don't 500 the loser on the
+          // (communityApId, actorApId) composite PK — the request is idempotent
+          // (matches the invite-join / open-join branches' unique handling).
+          await db
+            .insert(communityJoinRequests)
+            .values({
+              communityApId: community.apId,
+              actorApId: actor.ap_id,
+              status: "pending",
+              createdAt: now,
+            })
+            .onConflictDoNothing();
         }
 
         return c.json({ success: true, status: "pending" });

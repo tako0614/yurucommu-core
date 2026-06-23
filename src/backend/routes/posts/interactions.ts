@@ -519,10 +519,16 @@ posts.post("/:id/bookmark", async (c) => {
     .get();
   if (existing) return c.json({ error: "Already bookmarked" }, 400);
 
-  await db.insert(bookmarks).values({
-    actorApId: actor.ap_id,
-    objectApId: post.apId,
-  });
+  // onConflictDoNothing so two concurrent bookmarks of the same post (two tabs /
+  // a retried slow request) that both pass the existence check don't 500 the
+  // loser on the (actorApId, objectApId) composite PK — the edge is idempotent.
+  await db
+    .insert(bookmarks)
+    .values({
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+    })
+    .onConflictDoNothing();
 
   return c.json({ success: true, bookmarked: true });
 });

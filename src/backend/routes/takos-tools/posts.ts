@@ -111,13 +111,24 @@ export async function handleDeletePost(
     );
   }
 
-  // Co-commit the delete + guarded postCount decrement atomically.
+  // #COUNTER-SYM: gate the decrement on the object STILL existing (correlated
+  // EXISTS) and run it BEFORE the delete, so two concurrent/retried deletes of
+  // the same post can't double-decrement postCount — the second batch's EXISTS
+  // is false (the first already deleted the row) → its -1 matches 0 rows. gt(>0)
+  // guards underflow. Mirrors the canonical web delete path (posts/routes.ts).
+  const objectExists = sql`EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${postId})`;
   await (db as unknown as Batchable).batch([
-    db.delete(objects).where(eq(objects.apId, postId)),
     db
       .update(actors)
       .set({ postCount: sql`${actors.postCount} - 1` })
-      .where(and(eq(actors.apId, actor.ap_id), gt(actors.postCount, 0))),
+      .where(
+        and(
+          eq(actors.apId, actor.ap_id),
+          gt(actors.postCount, 0),
+          objectExists,
+        ),
+      ),
+    db.delete(objects).where(eq(objects.apId, postId)),
   ]);
 
   return c.json(ok({ deleted: true }));

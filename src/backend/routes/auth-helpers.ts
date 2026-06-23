@@ -11,7 +11,11 @@ import { getClientCredentials } from "../lib/oauth-providers.ts";
 import type { Database } from "../../db/index.ts";
 import { and, count, eq, isNotNull } from "drizzle-orm";
 import { actors, notDeleted, sessions } from "../../db/index.ts";
-import { parseJsonObject, parseNonEmptyString } from "../lib/parse-helpers.ts";
+import {
+  isUniqueConstraintError,
+  parseJsonObject,
+  parseNonEmptyString,
+} from "../lib/parse-helpers.ts";
 import { cancelTombstoneDelete } from "./actors.ts";
 import { logger } from "../lib/logger.ts";
 
@@ -457,9 +461,22 @@ export async function findOrCreateOAuthActor(
     // createActorFromOAuth returns null when the owner-slot pin refuses this
     // subject; normalize to undefined so the caller's `if (!actorData)` guard
     // (-> actor_creation_failed) covers both the refusal and a missing row.
-    actorData =
-      (await createActorFromOAuth(db, env, userInfo, providerUserId)) ??
-      undefined;
+    try {
+      actorData =
+        (await createActorFromOAuth(db, env, userInfo, providerUserId)) ??
+        undefined;
+    } catch (e) {
+      // Lost a concurrent first-login race for the same subject: the UNIQUE on
+      // takosUserId fired because the other request already created the actor.
+      // Re-resolve the winner's row instead of 500ing the loser (idempotent
+      // get-or-create). Re-throw anything that isn't the unique conflict.
+      if (!isUniqueConstraintError(e)) throw e;
+      actorData = await db
+        .select()
+        .from(actors)
+        .where(eq(actors.takosUserId, providerUserId))
+        .get();
+    }
   } else {
     await db
       .update(actors)
