@@ -20,6 +20,7 @@ import {
   boundAttachmentsJson,
   boundInboundContent,
   boundInboundSummary,
+  MAX_ATTACHMENTS_JSON_LENGTH,
   MAX_POST_CONTENT_LENGTH,
   MAX_POST_SUMMARY_LENGTH,
   truncate,
@@ -522,16 +523,21 @@ export async function handleCreateStory(
     return;
   }
 
-  // overlays validation (optional, validate if present)
+  // overlays validation (optional, validate if present). Cap the COUNT — the
+  // local create path bounds overlays via validateOverlays (MAX_OVERLAYS=20),
+  // and a hostile remote must not pad an unbounded array into attachments_json.
+  const MAX_INBOUND_OVERLAYS = 20;
   let overlays: StoryOverlay[] | undefined;
   if (Array.isArray(object.overlays)) {
-    const filtered = (object.overlays as StoryOverlay[]).filter(
-      (o: StoryOverlay) =>
-        o &&
-        o.position &&
-        typeof o.position.x === "number" &&
-        typeof o.position.y === "number",
-    );
+    const filtered = (object.overlays as StoryOverlay[])
+      .filter(
+        (o: StoryOverlay) =>
+          o &&
+          o.position &&
+          typeof o.position.x === "number" &&
+          typeof o.position.y === "number",
+      )
+      .slice(0, MAX_INBOUND_OVERLAYS);
     if (filtered.length > 0) overlays = filtered;
   }
 
@@ -546,11 +552,12 @@ export async function handleCreateStory(
     },
     displayDuration:
       (object as { displayDuration?: string }).displayDuration || "PT5S",
-    // The remote caption arrives as the AS2 Note `content`; persist it so the
+    // The remote caption arrives as the AS2 Note `content`; persist it (bounded
+    // to the same local content cap as every other inbound Note path) so the
     // local renderer shows the same caption as the originating instance.
     caption:
       typeof object.content === "string" && object.content.trim().length > 0
-        ? object.content
+        ? boundInboundContent(object.content)
         : undefined,
     overlays,
   };
@@ -581,6 +588,15 @@ export async function handleCreateStory(
   // racing the same cold story can both pass it. `onConflictDoNothing` keeps
   // that race insert-safe, and gating follow-on side effects on the returned
   // row mirrors the duplicate guard in handleCreate.
+  // Bound the serialized story data. Caption is capped and overlays are
+  // count-limited above, but per-overlay padding could still inflate it; if the
+  // blob exceeds the attachments cap, drop the (decorative) overlays so the core
+  // attachment + caption still persist within bounds.
+  let storyDataJson = JSON.stringify(attachmentData);
+  if (storyDataJson.length > MAX_ATTACHMENTS_JSON_LENGTH) {
+    storyDataJson = JSON.stringify({ ...attachmentData, overlays: undefined });
+  }
+
   const inserted = await db
     .insert(objects)
     .values({
@@ -588,7 +604,7 @@ export async function handleCreateStory(
       type: "Story",
       attributedTo: actor,
       content: "",
-      attachmentsJson: JSON.stringify(attachmentData),
+      attachmentsJson: storyDataJson,
       endTime,
       published: publishedAt,
       isLocal: 0,

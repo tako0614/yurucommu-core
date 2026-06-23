@@ -38,6 +38,8 @@ export function registerMembershipRequestRoutes(
         return c.json({ error: "Forbidden" }, 403);
       }
 
+      // Cap the pending-requests list (newest-first) so the response can't grow
+      // unbounded with a flood of join requests.
       const requests = await db
         .select()
         .from(communityJoinRequests)
@@ -47,7 +49,8 @@ export function registerMembershipRequestRoutes(
             eq(communityJoinRequests.status, "pending"),
           ),
         )
-        .orderBy(desc(communityJoinRequests.createdAt));
+        .orderBy(desc(communityJoinRequests.createdAt))
+        .limit(200);
 
       const requestActorApIds = requests.map((r) => r.actorApId);
       const actorInfoMap = await batchLoadActorInfo(db, requestActorApIds);

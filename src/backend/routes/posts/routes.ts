@@ -55,7 +55,10 @@ import {
   communityReadableApIds,
 } from "../../lib/community-visibility.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
-import { isExplicitRecipient } from "../../lib/post-visibility.ts";
+import {
+  canViewerReadObjectFull,
+  isExplicitRecipient,
+} from "../../lib/post-visibility.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { logger } from "../../lib/logger.ts";
 
@@ -490,6 +493,10 @@ posts.get("/:id/replies", async (c) => {
   const parentPost = await db
     .select({
       apId: objects.apId,
+      visibility: objects.visibility,
+      attributedTo: objects.attributedTo,
+      toJson: objects.toJson,
+      ccJson: objects.ccJson,
       audienceJson: objects.audienceJson,
       communityApId: objects.communityApId,
     })
@@ -499,9 +506,12 @@ posts.get("/:id/replies", async (c) => {
 
   if (!parentPost) return c.json({ error: "Post not found" }, 404);
 
-  // Gate the parent on the community read-gate: if the thread root is addressed
-  // to a private community, only an accepted member may enumerate its replies.
-  if (!(await canViewerReadObject(db, parentPost, currentActor?.ap_id))) {
+  // Gate the parent with the FULL read-gate (community membership AND the
+  // followers/direct per-post visibility), mirroring GET /:id and GET
+  // /ap/objects/:id. Gating only the community dimension let anyone enumerate a
+  // followers-only / direct parent's public replies and confirm the restricted
+  // parent exists — an existence/metadata oracle the other surfaces deny.
+  if (!(await canViewerReadObjectFull(db, parentPost, currentActor?.ap_id))) {
     return c.json({ error: "Post not found" }, 404);
   }
 

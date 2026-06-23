@@ -475,6 +475,14 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   // Community creation generates an RSA keypair + actor; bound it at the write
   // budget rather than the general read budget.
   app.post("/api/communities", rateLimit(RateLimitConfigs.postCreate));
+  // Follow / unfollow / accept / reject are federated WRITES (they sign + deliver
+  // Follow / Undo / Accept / Reject to remote inboxes), so bound them at the
+  // write budget like like/repost — a follow-toggle loop otherwise drives ~1000
+  // signed remote deliveries/min at the general read budget.
+  app.post("/api/follow", rateLimit(RateLimitConfigs.postCreate));
+  app.delete("/api/follow", rateLimit(RateLimitConfigs.postCreate));
+  app.post("/api/follow/accept", rateLimit(RateLimitConfigs.postCreate));
+  app.post("/api/follow/reject", rateLimit(RateLimitConfigs.postCreate));
   app.use("/ap/*/inbox", rateLimit(RateLimitConfigs.inbox));
   // `/ap/inbox` (shared inbox) is not matched by `/ap/*/inbox`; apply the same
   // per-IP inbox throttle since it is unauthenticated and federation peers can

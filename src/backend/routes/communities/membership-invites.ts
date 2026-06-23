@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull, or } from "drizzle-orm";
 import { communityInvites } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { formatUsername, generateId } from "../../federation-helpers.ts";
@@ -8,6 +8,12 @@ import {
   fetchCommunityId,
   requireManager,
 } from "./membership-shared.ts";
+
+// Newest-first cap on the manager invite list (bounds response size).
+const INVITE_LIST_MAX = 200;
+// Cap on outstanding (unused, unexpired) invites per community so a manager
+// can't grow community_invites without bound.
+const MAX_OUTSTANDING_INVITES = 200;
 
 export function registerMembershipInviteRoutes(
   communitiesRouter: Hono<{ Bindings: Env; Variables: Variables }>,
@@ -32,11 +38,14 @@ export function registerMembershipInviteRoutes(
         return c.json({ error: "Forbidden" }, 403);
       }
 
+      // Cap the manager invite list (newest-first) so the response can't grow
+      // unbounded with invite-row count.
       const invites = await db
         .select()
         .from(communityInvites)
         .where(eq(communityInvites.communityApId, community.apId))
-        .orderBy(desc(communityInvites.createdAt));
+        .orderBy(desc(communityInvites.createdAt))
+        .limit(INVITE_LIST_MAX);
 
       const invitedByApIds = [
         ...new Set(invites.map((inv) => inv.invitedByApId)),
@@ -110,6 +119,27 @@ export function registerMembershipInviteRoutes(
       const manager = await requireManager(db, community.apId, actor.ap_id);
       if (!manager) {
         return c.json({ error: "Forbidden" }, 403);
+      }
+
+      // Bound outstanding (unused, unexpired) invites per community so a manager
+      // can't loop create and grow community_invites without limit.
+      const nowIso = new Date().toISOString();
+      const outstanding = await db
+        .select({ n: count() })
+        .from(communityInvites)
+        .where(
+          and(
+            eq(communityInvites.communityApId, community.apId),
+            isNull(communityInvites.usedAt),
+            or(
+              isNull(communityInvites.expiresAt),
+              gt(communityInvites.expiresAt, nowIso),
+            ),
+          ),
+        )
+        .get();
+      if ((outstanding?.n ?? 0) >= MAX_OUTSTANDING_INVITES) {
+        return c.json({ error: "Too many outstanding invites" }, 429);
       }
 
       const inviteId = generateId();
