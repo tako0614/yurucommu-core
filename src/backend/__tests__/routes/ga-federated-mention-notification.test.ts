@@ -14,10 +14,8 @@ import {
   objects,
 } from "../../../db/index.ts";
 import { handleCreate } from "../../routes/activitypub/handlers/inbox-content-handlers.ts";
-import type {
-  Activity,
-  ActivityContext,
-} from "../../routes/activitypub/inbox-types.ts";
+import { parseActivity } from "../../lib/activitypub-validators.ts";
+import type { ActivityContext } from "../../routes/activitypub/inbox-types.ts";
 
 // ---------------------------------------------------------------------------
 // Audit #23 / finding B — federated @-mentions must notify the mentioned local
@@ -77,13 +75,12 @@ function recipientRow() {
   return { apId: LOCAL_BOB } as unknown as Parameters<typeof handleCreate>[2];
 }
 
-// A top-level public Note that @-mentions the actors in `mentionHrefs`.
-const mentionNote = (
-  id: string,
-  actor: string,
-  mentionHrefs: string[],
-): Activity =>
-  ({
+// A top-level public Note that @-mentions the actors in `mentionHrefs`. Routed
+// through the REAL parseActivity() narrowing layer — NOT a hand-built Activity —
+// so the test fails if the parser drops object.tag (which it did before audit
+// #25, silently disabling the whole federated-mention path in production).
+const mentionNote = (id: string, actor: string, mentionHrefs: string[]) =>
+  parseActivity({
     id: `${id}/activity`,
     type: "Create",
     actor,
@@ -99,7 +96,7 @@ const mentionNote = (
         name: "@someone",
       })),
     },
-  }) as unknown as Activity;
+  });
 
 async function mentionInboxRows(db: Database, recipientApId: string) {
   return db

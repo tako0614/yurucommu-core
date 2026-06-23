@@ -211,6 +211,11 @@ export interface ActivityObjectDocument {
   content?: string;
   summary?: string | null;
   attachment?: unknown;
+  // AS2 `tag` (Mention / Hashtag / Emoji). Passed through untyped like
+  // `attachment`/`overlays` — handlers read object.tag (e.g. inbound @-mention
+  // notifications in handleCreate). Without copying it here, every handler sees
+  // `tag === undefined` and federated mentions/hashtags are silently dropped.
+  tag?: unknown;
   overlays?: unknown;
   endTime?: string;
   displayDuration?: string;
@@ -247,6 +252,7 @@ function parseActivityObjectFields(
           ? null
           : undefined,
     attachment: record["attachment"],
+    tag: record["tag"],
     overlays: record["overlays"],
     endTime: getString(record, "endTime"),
     displayDuration: getString(record, "displayDuration"),
