@@ -23,8 +23,10 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import {
+  activities,
   announces,
   bookmarks,
+  inbox as inboxTable,
   likes,
   mediaUploads,
   objectRecipients,
@@ -203,5 +205,24 @@ export async function deleteObjectCascade(
   await db.delete(storyViews).where(eq(storyViews.storyApId, objectApId));
   await db.delete(storyVotes).where(eq(storyVotes.storyApId, objectApId));
   await db.delete(storyShares).where(eq(storyShares.storyApId, objectApId));
+
+  // Reap NOTIFICATION inbox rows that pointed at this object (a Like / Announce /
+  // reply-Create that notified a local user). After the object row is gone the
+  // notifications query's leftJoin(objects) yields NULL, so these would otherwise
+  // render as dangling notifications (blank content, dead link) AND keep inflating
+  // the unread badge (the inbox row stays read=0). Delete the INBOX rows only, via
+  // a subquery (D1-param-safe) — NOT the `activities` rows, which may include the
+  // outbound federation Delete that must survive to be delivered.
+  await db
+    .delete(inboxTable)
+    .where(
+      inArray(
+        inboxTable.activityApId,
+        db
+          .select({ id: activities.apId })
+          .from(activities)
+          .where(eq(activities.objectApId, objectApId)),
+      ),
+    );
   return mediaKeys;
 }

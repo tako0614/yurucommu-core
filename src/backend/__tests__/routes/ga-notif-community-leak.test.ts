@@ -32,6 +32,7 @@ import {
   follows,
   inbox as inboxTable,
   mutes,
+  notificationArchived,
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -500,4 +501,50 @@ test("notifications from a blocked or muted actor are suppressed (list + unread 
   );
   expect(countRes.status).toBe(200);
   expect(((await countRes.json()) as { count: number }).count).toBe(1);
+});
+
+// Audit #14 finding #4: the unread-count query must EXCLUDE archived
+// notifications (the default list view does), or archiving an unread notification
+// leaves a phantom badge the client can never clear.
+async function unreadCount(db: Database, viewer: Actor): Promise<number> {
+  const app = appWith(db, viewer);
+  const res = await app.request(`${APP_URL}/unread/count`);
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { count: number }).count;
+}
+
+test("archiving an UNREAD notification removes it from the unread badge count", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+  const post = `${APP_URL}/ap/objects/alice-post`;
+  await db.insert(objects).values({
+    apId: post,
+    type: "Note",
+    attributedTo: alice,
+    content: "hi",
+    visibility: "public",
+    isLocal: 1,
+  });
+  const likeAct = `${APP_URL}/ap/activities/like-x`;
+  await db.insert(activities).values({
+    apId: likeAct,
+    type: "Like",
+    actorApId: bob,
+    objectApId: post,
+    direction: "inbound",
+    rawJson: "{}",
+  });
+  await db
+    .insert(inboxTable)
+    .values({ actorApId: alice, activityApId: likeAct, read: 0 });
+
+  const aliceActor = fakeActor(alice, "alice");
+  expect(await unreadCount(db, aliceActor)).toBe(1);
+
+  // Archive it (read stays 0). The badge must drop to 0 — not stay stuck at 1.
+  await db
+    .insert(notificationArchived)
+    .values({ actorApId: alice, activityApId: likeAct });
+  expect(await unreadCount(db, aliceActor)).toBe(0);
 });

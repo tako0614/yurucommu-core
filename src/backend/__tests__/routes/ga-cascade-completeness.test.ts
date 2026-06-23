@@ -25,9 +25,11 @@ import { eq } from "drizzle-orm";
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
+  activities,
   actors,
   announces,
   bookmarks,
+  inbox as inboxTable,
   likes,
   mediaUploads,
   objectRecipients,
@@ -311,4 +313,43 @@ test("cleanupExpiredStories postCount decrement never underflows below 0", async
     .where(eq(actors.apId, author))
     .get();
   expect(a?.postCount).toBe(0); // MAX(0, 0 - 1) = 0, not -1
+});
+
+test("deleteObjectCascade reaps the notification inbox rows that pointed at the deleted object", async () => {
+  const db = await freshDb();
+  const alice = await insertActor(db, "alice");
+  const bob = await insertActor(db, "bob");
+  const postApId = `${APP_URL}/ap/objects/p-notif`;
+  await db.insert(objects).values({
+    apId: postApId,
+    type: "Note",
+    attributedTo: alice,
+    content: "hi",
+    visibility: "public",
+    isLocal: 1,
+  });
+  // bob liked alice's post → a Like activity referencing the post + a
+  // notification inbox row for alice (read=0, inflating her unread badge).
+  const likeActId = `${APP_URL}/ap/activities/like-1`;
+  await db.insert(activities).values({
+    apId: likeActId,
+    type: "Like",
+    actorApId: bob,
+    objectApId: postApId,
+    direction: "inbound",
+    rawJson: "{}",
+  });
+  await db
+    .insert(inboxTable)
+    .values({ actorApId: alice, activityApId: likeActId, read: 0 });
+
+  await deleteObjectCascade(db, postApId);
+
+  // The dangling notification inbox row is gone (no stale notification, no
+  // permanent unread-badge inflation).
+  const remaining = await db
+    .select()
+    .from(inboxTable)
+    .where(eq(inboxTable.activityApId, likeActId));
+  expect(remaining.length).toBe(0);
 });

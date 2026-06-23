@@ -226,18 +226,18 @@ test("userInboxHandlers hardening - handleDelete performs dependent deletes and 
 
   await handleDelete(context, activity);
 
-  // Verify select was called twice: once in handleDelete (lookup object
-  // owner/type) and once inside deleteObjectCascade's media reaper, which
-  // selects the object's attachments_json to find attached media_uploads. The
-  // reaper's select returns undefined here (no second selectResult), so it
-  // short-circuits before any media delete — keeping the cascade delete count
-  // at 8.
-  assertSpyCalls(db.select, 2);
+  // Verify select was called 3 times: once in handleDelete (lookup object
+  // owner/type), once inside deleteObjectCascade's media reaper (the object's
+  // attachments_json — returns undefined here so it short-circuits before any
+  // media delete), and once for the notification-reap subquery (the activities
+  // referencing this object whose inbox rows are deleted).
+  assertSpyCalls(db.select, 3);
   // Verify delete was called for the full object cascade (likes, announces,
-  // bookmarks, object_recipients, story_views, story_votes, story_shares) plus
-  // the objects row itself = 8. The cascade now runs for every object type via
-  // the shared deleteObjectCascade helper so no child rows are orphaned.
-  assertSpyCalls(db.delete, 8);
+  // bookmarks, object_recipients, story_views, story_votes, story_shares) + the
+  // notification inbox-row reap + the objects row itself = 9. The cascade now
+  // runs for every object type via the shared deleteObjectCascade helper so no
+  // child rows (or dangling notifications) are orphaned.
+  assertSpyCalls(db.delete, 9);
   // Verify update was called (actor postCount decrement)
   assertSpyCalls(db.update, 1);
 });

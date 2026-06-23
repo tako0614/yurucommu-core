@@ -531,6 +531,20 @@ notifications.get("/unread/count", async (c) => {
   // Mirror the list query's DM exclusion (see GET /): a direct Note's Create
   // inbox row must not count toward the notification badge — the DM has its own
   // unread badge, and marking it read never clears this inbox row.
+  // Mirror the default list view's archive exclusion: an archived notification
+  // is hidden from the inbox list, so it must NOT count toward the badge either —
+  // otherwise archiving an UNREAD notification (read stays 0) leaves a phantom
+  // count the client can never clear (its mark-read sweep only touches rows the
+  // inbox view returns, which no longer include the archived one).
+  const archivedSubquery = db
+    .select({ activityApId: notificationArchived.activityApId })
+    .from(notificationArchived)
+    .where(
+      and(
+        eq(notificationArchived.actorApId, inboxTable.actorApId),
+        eq(notificationArchived.activityApId, inboxTable.activityApId),
+      ),
+    );
   const result = await db
     .select({ count: count() })
     .from(inboxTable)
@@ -543,6 +557,7 @@ notifications.get("/unread/count", async (c) => {
         ne(activities.actorApId, actor.ap_id),
         inArray(activities.type, NOTIFICATION_ACTIVITY_TYPES),
         or(isNull(objects.visibility), ne(objects.visibility, "direct"))!,
+        notExists(archivedSubquery),
         // Mirror the list query: don't count notifications from blocked/muted
         // actors toward the unread badge.
         excludeBlockedMutedAuthors(db, actor.ap_id, activities.actorApId),
