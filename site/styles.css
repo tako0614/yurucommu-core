@@ -85,14 +85,6 @@ a {
   font-size: 0.95rem;
 }
 
-.logo::before {
-  content: "";
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
 .header-links {
   display: flex;
   gap: 1.5rem;
