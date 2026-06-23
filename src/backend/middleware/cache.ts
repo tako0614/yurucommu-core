@@ -149,7 +149,10 @@ function maybeCleanup(): void {
 // Shared Helpers
 // ============================================================================
 
-function generateCacheKey(c: HonoContext, config: CacheConfig): string {
+// Exported for tests: the per-viewer (varyByActor) dimension MUST land in the
+// query string, never a URL fragment — Cloudflare's Cache API strips fragments,
+// which would collapse all viewers onto one key (see the comment below).
+export function generateCacheKey(c: HonoContext, config: CacheConfig): string {
   if (config.cacheKeyGenerator) {
     return config.cacheKeyGenerator(c);
   }
@@ -182,7 +185,15 @@ function generateCacheKey(c: HonoContext, config: CacheConfig): string {
 
   if (config.varyByActor) {
     const actor = c.get("actor");
-    cacheKey += actor ? `#actor:${actor.ap_id}` : "#actor:anonymous";
+    const actorVal = actor ? actor.ap_id : "anonymous";
+    // Fold the per-viewer dimension into the QUERY STRING, NOT a URL fragment.
+    // On Cloudflare the Cache API strips the fragment during match()/put(), so a
+    // `#actor:` suffix collapsed ALL viewers onto one key and served viewer A's
+    // private (authenticated, per-viewer) response to viewer B for the TTL. A
+    // query param is part of the real cache key on both the CF and memory paths.
+    cacheKey += `${cacheKey.includes("?") ? "&" : "?"}__actor=${encodeURIComponent(
+      actorVal,
+    )}`;
   }
 
   return cacheKey;
