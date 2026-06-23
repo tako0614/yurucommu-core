@@ -76,3 +76,32 @@ test("the media body cap covers the largest advertised media size", () => {
   // friendly per-size 413 in media.ts is reachable.
   expect(MEDIA_BODY_CAP).toBeGreaterThanOrEqual(ADVERTISED_MAX_VIDEO_SIZE);
 });
+
+// Audit #9 finding #3: the bare /media/upload alias (mediaRoutes is mounted at
+// both /api/media and /media, and registers POST /upload) must be CSRF-protected
+// like its /api/media/upload sibling — not bypass the control by alias.
+test("the bare /media/upload alias is CSRF-protected (no Origin -> 403, not reaching the handler)", async () => {
+  const app = createYurucommuBackendApp();
+  const res = await app.fetch(
+    new Request("https://t.local/media/upload", {
+      method: "POST",
+      headers: { "content-length": "2", "content-type": "application/json" },
+      body: "{}",
+      // @ts-expect-error duplex required for a body in some runtimes
+      duplex: "half",
+    }),
+    { ENVIRONMENT: "test", APP_URL: "https://t.local" } as never,
+  );
+  expect(res.status).toBe(403);
+});
+
+test("GET /media/* is NOT CSRF-blocked (the serve path stays open)", async () => {
+  const app = createYurucommuBackendApp();
+  const res = await app.fetch(
+    new Request("https://t.local/media/nonexistent.png"),
+    { ENVIRONMENT: "test", APP_URL: "https://t.local" } as never,
+  );
+  // A read of a missing blob 404s (or 503 with no R2 binding) — anything but a
+  // 403 CSRF refusal, proving GETs bypass the state-changing-method guard.
+  expect(res.status).not.toBe(403);
+});

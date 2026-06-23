@@ -46,19 +46,125 @@ function isPrivateIPv4(hostname: string): boolean {
 }
 
 const PRIVATE_IPV6_EXACT = ["::1", "0:0:0:0:0:0:0:1", "::", "0:0:0:0:0:0:0:0"];
-const PRIVATE_IPV6_PREFIXES = ["fc", "fd", "fe8", "fe9", "fea", "feb", "ff"];
+// fc/fd = unique-local; fe8/fe9/fea/feb = link-local; fec/fed/fee/fef =
+// deprecated site-local; ff = multicast. Used ONLY as a textual fallback when
+// the address cannot be expanded (the numeric classifier below is canonical).
+const PRIVATE_IPV6_PREFIXES = [
+  "fc",
+  "fd",
+  "fe8",
+  "fe9",
+  "fea",
+  "feb",
+  "fec",
+  "fed",
+  "fee",
+  "fef",
+  "ff",
+];
+
+/**
+ * Expand an IPv6 textual address to its 8 numeric hextets, resolving `::`
+ * compression and a trailing dotted-IPv4 tail (e.g. ::ffff:127.0.0.1 or
+ * 64:ff9b::1.2.3.4). Returns null if `input` is not a well-formed IPv6 literal.
+ * This canonicalization is what lets the classifier treat every encoding of an
+ * embedded IPv4 (mapped hex/dotted, IPv4-compatible, NAT64, 6to4) uniformly.
+ */
+function expandIPv6(input: string): number[] | null {
+  let s = input.toLowerCase().replace(/^\[|\]$/g, "");
+  const zone = s.indexOf("%");
+  if (zone !== -1) s = s.slice(0, zone);
+  if (s.length === 0) return null;
+
+  // Fold a trailing dotted-IPv4 tail into two hex groups so the rest of the
+  // parse is uniform regardless of the surrounding IPv6 prefix.
+  if (s.includes(".")) {
+    const m = s.match(/^(.*:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+    if (!m) return null;
+    const v4 = parseIPv4(m[2]);
+    if (!v4) return null;
+    const h1 = ((v4[0] << 8) | v4[1]).toString(16);
+    const h2 = ((v4[2] << 8) | v4[3]).toString(16);
+    s = `${m[1]}${h1}:${h2}`;
+  }
+
+  const doubleIdx = s.indexOf("::");
+  if (doubleIdx !== s.lastIndexOf("::")) return null; // at most one "::"
+
+  const parseGroups = (str: string): number[] | null => {
+    if (str === "") return [];
+    const out: number[] = [];
+    for (const g of str.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+      out.push(parseInt(g, 16));
+    }
+    return out;
+  };
+
+  let groups: number[];
+  if (doubleIdx !== -1) {
+    const head = parseGroups(s.slice(0, doubleIdx));
+    const tail = parseGroups(s.slice(doubleIdx + 2));
+    if (head === null || tail === null) return null;
+    const missing = 8 - head.length - tail.length;
+    if (missing < 1) return null; // "::" must stand for >= 1 zero group
+    groups = [...head, ...new Array(missing).fill(0), ...tail];
+  } else {
+    const all = parseGroups(s);
+    if (all === null) return null;
+    groups = all;
+  }
+  return groups.length === 8 ? groups : null;
+}
+
+function embeddedV4IsPrivate(hi: number, lo: number): boolean {
+  return isPrivateIPv4(
+    `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`,
+  );
+}
 
 function isPrivateIPv6(ipv6Raw: string): boolean {
-  const ipv6 = ipv6Raw.toLowerCase().replace(/^\[|\]$/g, "");
+  const g = expandIPv6(ipv6Raw);
+  if (!g) {
+    // Unparseable: fall back to the conservative textual checks so a form the
+    // string matcher caught is never regressed.
+    const s = ipv6Raw.toLowerCase().replace(/^\[|\]$/g, "");
+    if (PRIVATE_IPV6_EXACT.includes(s)) return true;
+    return PRIVATE_IPV6_PREFIXES.some((prefix) => s.startsWith(prefix));
+  }
 
-  if (PRIVATE_IPV6_EXACT.includes(ipv6)) return true;
-  if (PRIVATE_IPV6_PREFIXES.some((prefix) => ipv6.startsWith(prefix))) {
+  const allZeroHigh =
+    g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0;
+  // :: (unspecified) and ::1 (loopback)
+  if (allZeroHigh && g[5] === 0 && g[6] === 0 && (g[7] === 0 || g[7] === 1)) {
     return true;
   }
 
-  const mappedIpv4 = ipv6.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  if (mappedIpv4) return isPrivateIPv4(mappedIpv4[1]);
+  const hi8 = g[0] >> 8;
+  if (hi8 === 0xfc || hi8 === 0xfd) return true; // fc00::/7 unique-local
+  if ((g[0] & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((g[0] & 0xffc0) === 0xfec0) return true; // fec0::/10 site-local (deprecated)
+  if (hi8 === 0xff) return true; // ff00::/8 multicast
 
+  // Embedded-IPv4 transition ranges — decode the embedded IPv4 and classify it,
+  // so ::ffff:7f00:1, ::127.0.0.1, 64:ff9b::7f00:1 and 2002:7f00:1:: are all
+  // recognized as 127.0.0.1 etc.
+  if (allZeroHigh && g[5] === 0xffff) return embeddedV4IsPrivate(g[6], g[7]); // IPv4-mapped
+  if (allZeroHigh && g[5] === 0) return embeddedV4IsPrivate(g[6], g[7]); // IPv4-compatible (::/96)
+  if (g[0] === 0x64 && g[1] === 0xff9b) return embeddedV4IsPrivate(g[6], g[7]); // NAT64 64:ff9b::/96
+  if (g[0] === 0x2002) return embeddedV4IsPrivate(g[1], g[2]); // 6to4 2002:V4::/16
+
+  return false;
+}
+
+/**
+ * True if `host` is a well-formed IPv4 or IPv6 literal. Used to reject
+ * unparseable DNS RDATA before the private-IP classifier runs, so a malformed
+ * or ambiguous resolved-IP string can never slip past as "not private".
+ */
+export function isWellFormedIp(host: string): boolean {
+  if (parseIPv4(host)) return true;
+  if (host.includes(":")) return expandIPv6(host) !== null;
   return false;
 }
 
@@ -286,6 +392,11 @@ export async function assertSafeRemoteUrlResolved(
   }
 
   for (const ip of resolvedIps) {
+    // Reject unparseable RDATA first: an IP string the classifier cannot parse
+    // must NOT be allowed through as "not private" (fail closed).
+    if (!isWellFormedIp(ip)) {
+      throw new Error(`Hostname ${hostname} resolved to unparseable IP ${ip}`);
+    }
     if (isPrivateIpAddress(ip)) {
       throw new Error(`Hostname ${hostname} resolved to private IP ${ip}`);
     }

@@ -462,6 +462,15 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
 
   app.use("/api/*", csrfProtection());
   app.use("/.takos/tools/*", csrfProtection());
+  // mediaRoutes is double-mounted at /api/media AND the bare /media, and it
+  // registers POST /upload — so /media/upload is a session-cookie-authenticated
+  // state-changing write (R2 + DB) that, without this, would bypass the CSRF
+  // control its /api/media/upload alias enforces. csrfProtection only guards
+  // POST/PUT/DELETE/PATCH, so the public GET /media/* serve path is unaffected.
+  // (Inert today behind the SameSite=Strict session cookie, but this keeps the
+  // two upload aliases under the same Origin/Referer check regardless of any
+  // future cookie-policy change.)
+  app.use("/media/*", csrfProtection());
 
   app.use("/api/*", rateLimit(RateLimitConfigs.general));
   app.use("/.takos/tools/*", rateLimit(RateLimitConfigs.general));
