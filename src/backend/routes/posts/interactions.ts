@@ -32,7 +32,10 @@ import {
 } from "../../lib/delivery/queue.ts";
 import { communityReadableApIds } from "../../lib/community-visibility.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
-import { canViewerReadObjectFull } from "../../lib/post-visibility.ts";
+import {
+  actorIsBlockedBy,
+  canViewerReadObjectFull,
+} from "../../lib/post-visibility.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "posts.interactions" });
@@ -152,6 +155,11 @@ posts.post("/:id/like", async (c) => {
     !likeGate ||
     !(await canViewerReadObjectFull(db, likeGate, actor.ap_id))
   ) {
+    return c.json({ error: "Post not found" }, 404);
+  }
+  // A blocked actor must not be able to like (bump likeCount + notify) the author
+  // who blocked them — mirror the story-like / DM block guard (404, not 403).
+  if (await actorIsBlockedBy(db, likeGate.attributedTo, actor.ap_id)) {
     return c.json({ error: "Post not found" }, 404);
   }
 
@@ -333,6 +341,11 @@ posts.post("/:id/repost", async (c) => {
     reach.audienceJson === "[]";
   if (!boostable) {
     return c.json({ error: "This post cannot be reposted" }, 403);
+  }
+  // A blocked actor must not be able to repost (bump announceCount + notify) the
+  // author who blocked them — mirror the story-like / DM block guard (404).
+  if (await actorIsBlockedBy(db, post.attributedTo, actor.ap_id)) {
+    return c.json({ error: "Post not found" }, 404);
   }
 
   const existingRepost = await db

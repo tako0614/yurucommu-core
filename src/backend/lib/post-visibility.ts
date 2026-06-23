@@ -8,7 +8,7 @@
 
 import { and, eq } from "drizzle-orm";
 import type { Database } from "../../db/index.ts";
-import { follows } from "../../db/index.ts";
+import { blocks, follows } from "../../db/index.ts";
 import { canViewerReadObject } from "./community-visibility.ts";
 import { safeJsonParse } from "../federation-helpers.ts";
 
@@ -87,4 +87,29 @@ export async function canViewerReadObjectFull(
   }
 
   return true; // public / unlisted
+}
+
+/**
+ * True if `targetApId` (a post author / follow target) has blocked `actorApId`.
+ * Callers reject the interaction (like / repost / follow) with a 404 so a blocked
+ * actor cannot bump the target's counts, establish a follow edge, or insert into
+ * the target's inbox — and the 404 (not 403) avoids leaking the block. Mirrors
+ * the inline guard already used by the story-like and DM-send paths.
+ */
+export async function actorIsBlockedBy(
+  db: Database,
+  targetApId: string,
+  actorApId: string,
+): Promise<boolean> {
+  const row = await db
+    .select({ blockerApId: blocks.blockerApId })
+    .from(blocks)
+    .where(
+      and(
+        eq(blocks.blockerApId, targetApId),
+        eq(blocks.blockedApId, actorApId),
+      ),
+    )
+    .get();
+  return Boolean(row);
 }

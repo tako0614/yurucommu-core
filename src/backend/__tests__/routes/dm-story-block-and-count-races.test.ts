@@ -28,6 +28,8 @@ import {
 import type { Actor, Env, Variables } from "../../types.ts";
 import dmRoutes from "../../routes/dm/messages.ts";
 import storyRoutes from "../../routes/stories/interactions.ts";
+import postsRoutes from "../../routes/posts/routes.ts";
+import followRoutes from "../../routes/follow.ts";
 import { undoInteraction } from "../../routes/activitypub/handlers/inbox-shared-helpers.ts";
 import {
   handleAccept,
@@ -532,4 +534,103 @@ test("duplicate Undo of an accepted follow decrements followerCount exactly once
     .get();
   // Exactly one decrement despite two Undos: 1 -> 0 (not -1).
   expect(target?.followerCount).toEqual(0);
+});
+
+// --- Write-side block guards on post like / repost / follow (G-block-bypass) ---
+
+async function insertPublicPost(
+  db: Database,
+  id: string,
+  author: string,
+): Promise<string> {
+  const apId = `${APP_URL}/ap/objects/${id}`;
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: author,
+    content: "hi",
+    visibility: "public",
+    audienceJson: "[]",
+    toJson: "[]",
+    ccJson: "[]",
+    published: "2026-01-01T00:00:00.000Z",
+    isLocal: 1,
+  });
+  return apId;
+}
+
+test("post like is rejected (404) when the author has blocked the liker, no count bump", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "pauthor");
+  const liker = await insertLocalActor(db, "pliker");
+  const postApId = await insertPublicPost(db, "blk-p1", author);
+  await db.insert(blocks).values({ blockerApId: author, blockedApId: liker });
+
+  const res = await appWith(db, fakeActor(liker, "pliker"), postsRoutes).fetch(
+    new Request(`${APP_URL}/${encodeURIComponent(postApId)}/like`, {
+      method: "POST",
+    }),
+    envFor(db),
+  );
+  expect(res.status).toBe(404);
+  const rows = await db
+    .select()
+    .from(likes)
+    .where(eq(likes.objectApId, postApId))
+    .all();
+  expect(rows.length).toBe(0);
+});
+
+test("post repost is rejected (404) when the author has blocked the booster", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "rauthor");
+  const booster = await insertLocalActor(db, "rbooster");
+  const postApId = await insertPublicPost(db, "blk-p2", author);
+  await db.insert(blocks).values({ blockerApId: author, blockedApId: booster });
+
+  const res = await appWith(
+    db,
+    fakeActor(booster, "rbooster"),
+    postsRoutes,
+  ).fetch(
+    new Request(`${APP_URL}/${encodeURIComponent(postApId)}/repost`, {
+      method: "POST",
+    }),
+    envFor(db),
+  );
+  expect(res.status).toBe(404);
+});
+
+test("follow is rejected (404) when the target has blocked the follower, no edge", async () => {
+  const db = await freshDb();
+  const target = await insertLocalActor(db, "ftarget");
+  const follower = await insertLocalActor(db, "ffollower");
+  await db
+    .insert(blocks)
+    .values({ blockerApId: target, blockedApId: follower });
+
+  const res = await appWith(
+    db,
+    fakeActor(follower, "ffollower"),
+    followRoutes,
+  ).fetch(
+    new Request(`${APP_URL}/`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target_ap_id: target }),
+    }),
+    envFor(db),
+  );
+  expect(res.status).toBe(404);
+  const edge = await db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, follower),
+        eq(follows.followingApId, target),
+      ),
+    )
+    .get();
+  expect(edge).toBeUndefined();
 });

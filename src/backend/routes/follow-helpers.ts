@@ -22,6 +22,7 @@ import {
   parseNonEmptyString,
 } from "../lib/parse-helpers.ts";
 import { fetchAndUpsertActorCache } from "../lib/activitypub-actor-cache.ts";
+import { actorIsBlockedBy } from "../lib/post-visibility.ts";
 import { getInstanceFetchSigner } from "./activitypub/query-helpers.ts";
 import { requireActor } from "./actors-helpers.ts";
 import { logger } from "../lib/logger.ts";
@@ -215,6 +216,14 @@ export async function handleLocalFollow(
     .where(eq(actors.apId, targetApId))
     .get();
   if (!target) return c.json({ error: "Target actor not found" }, 404);
+
+  // A blocked actor must not be able to follow / send a follow request to (and
+  // notify) the target who blocked them, nor re-establish a follow edge to a
+  // public account that blocked them. Same not-found shape so the block is not
+  // leaked; mirrors the story-like / DM block guard.
+  if (await actorIsBlockedBy(db, targetApId, actor.ap_id)) {
+    return c.json({ error: "Target actor not found" }, 404);
+  }
 
   const status = target.isPrivate ? "pending" : "accepted";
   const id = activityApId(baseUrl, generateId());
