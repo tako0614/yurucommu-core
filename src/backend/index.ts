@@ -279,6 +279,24 @@ function mountReadinessRoutes(app: YurucommuApp): void {
 const MEDIA_UPLOAD_BODY_LIMIT_BYTES = 48 * 1024 * 1024; // 48 MiB
 const INBOX_BODY_LIMIT_BYTES = 512 * 1024; // 512 KiB
 
+// Every ActivityPub inbox handler (inbox.ts): the shared inbox `/ap/inbox`, the
+// per-actor singleton `/ap/actor/inbox`, and the two-segment per-recipient
+// inboxes `/ap/users/:username/inbox` + `/ap/groups/:name/inbox`. Hono's single
+// `*` matches EXACTLY ONE path segment, so `/ap/*/inbox` covers `/ap/actor/inbox`
+// but NOT the two-segment user/group inboxes — those must be listed explicitly,
+// or they silently fall through to the lax global default cap + miss the per-IP
+// inbox rate limit. Every inbox is unauthenticated and verifies an HTTP
+// signature + touches the DB *before* any throttle runs, so each one needs BOTH
+// the strict pre-auth body cap AND the dedicated per-IP `inbox` rate limit; this
+// single list is the source of truth for both (applyBodyLimits +
+// applyGlobalMiddleware) so they can never drift out of coverage.
+const INBOX_PATH_PATTERNS = [
+  "/ap/inbox",
+  "/ap/*/inbox",
+  "/ap/users/*/inbox",
+  "/ap/groups/*/inbox",
+] as const;
+
 function applyBodyLimits(app: YurucommuApp): void {
   // Per-route caps are registered BEFORE the global default cap. The stricter
   // inbox cap (512 KiB) wins for /ap/*/inbox; the LARGER media-upload cap
@@ -306,25 +324,20 @@ function applyBodyLimits(app: YurucommuApp): void {
   // chunked-only senders (which are the DoS vector). Legitimate authenticated
   // upload routes keep the default streaming cap instead so chunked uploads
   // are not broken.
-  app.use(
-    "/ap/*/inbox",
-    bodyLimit({
-      maxBytes: INBOX_BODY_LIMIT_BYTES,
-      requireContentLength: true,
-    }),
-  );
-  // The advertised shared inbox is `/ap/inbox` (no middle path segment), which
-  // the `/ap/*/inbox` pattern above does NOT match. It runs the same
-  // verify/dispatch pipeline as the per-actor inboxes and is the primary
-  // fan-out target for large servers, so it needs the same strict pre-auth
-  // body cap.
-  app.use(
-    "/ap/inbox",
-    bodyLimit({
-      maxBytes: INBOX_BODY_LIMIT_BYTES,
-      requireContentLength: true,
-    }),
-  );
+  // Apply the strict pre-auth body cap to EVERY inbox route (shared, per-actor,
+  // and the two-segment user/group inboxes). See INBOX_PATH_PATTERNS: a single
+  // `*` only matches one segment, so the user/group inboxes must be listed
+  // explicitly or they fall through to the lax 1 MiB default cap (which also
+  // omits requireContentLength).
+  for (const pattern of INBOX_PATH_PATTERNS) {
+    app.use(
+      pattern,
+      bodyLimit({
+        maxBytes: INBOX_BODY_LIMIT_BYTES,
+        requireContentLength: true,
+      }),
+    );
+  }
   // Media uploads carry binary payloads (images, short videos). The cap covers
   // the largest advertised media size so routes/media.ts owns the friendly,
   // per-size 413; see the MEDIA_UPLOAD_BODY_LIMIT_BYTES note above.
@@ -483,11 +496,16 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   app.delete("/api/follow", rateLimit(RateLimitConfigs.postCreate));
   app.post("/api/follow/accept", rateLimit(RateLimitConfigs.postCreate));
   app.post("/api/follow/reject", rateLimit(RateLimitConfigs.postCreate));
-  app.use("/ap/*/inbox", rateLimit(RateLimitConfigs.inbox));
-  // `/ap/inbox` (shared inbox) is not matched by `/ap/*/inbox`; apply the same
-  // per-IP inbox throttle since it is unauthenticated and federation peers can
-  // hammer it.
-  app.use("/ap/inbox", rateLimit(RateLimitConfigs.inbox));
+  // Apply the dedicated per-IP `inbox` budget (1k/min) to EVERY inbox route.
+  // The two-segment user/group inboxes are NOT matched by `/ap/*/inbox` and the
+  // user inbox would otherwise be throttled only by the much tighter 60/min
+  // `/ap/users/*` discovery limiter below (wrongly 429'ing legitimate inbound
+  // federation), while the group inbox would get NO per-IP throttle at all (an
+  // unauthenticated per-IP DoS forcing an unthrottled DB lookup + signature
+  // verify per request). See INBOX_PATH_PATTERNS.
+  for (const pattern of INBOX_PATH_PATTERNS) {
+    app.use(pattern, rateLimit(RateLimitConfigs.inbox));
+  }
 
   // Federation discovery endpoints are unauthenticated and can be probed by
   // any remote actor. Throttle them per-IP to mitigate enumeration / DoS.
@@ -500,7 +518,18 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     rateLimit(RateLimitConfigs.federationDiscovery),
   );
   app.use("/nodeinfo/*", rateLimit(RateLimitConfigs.federationDiscovery));
-  app.use("/ap/users/*", rateLimit(RateLimitConfigs.federationDiscovery));
+  // `/ap/users/*` covers actor docs, outbox, followers, etc. — but NOT the user
+  // inbox, which gets the dedicated 1k/min `inbox` budget above. Both limiters
+  // use separate buckets (distinct keyPrefix), so without this skip an inbox
+  // delivery would increment BOTH and stay capped at the stricter 60/min — the
+  // exact over-throttling the dedicated inbox budget exists to avoid.
+  const fedDiscoveryLimiter = rateLimit(RateLimitConfigs.federationDiscovery);
+  app.use("/ap/users/*", async (c, next) => {
+    if (c.req.path.endsWith("/inbox")) {
+      return next();
+    }
+    return fedDiscoveryLimiter(c, next);
+  });
   app.use("/ap/objects/*", rateLimit(RateLimitConfigs.federationDiscovery));
   app.use(
     "/ap/users/*/outbox",

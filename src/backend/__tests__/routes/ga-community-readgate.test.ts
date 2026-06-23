@@ -1,5 +1,15 @@
-import { expect, mock, test } from "bun:test";
+import { afterAll, expect, mock, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+
+// Capture the REAL ap-verify exports before mocking. `bun`'s `mock.module`
+// replaces the module GLOBALLY for every test file loaded after this one and is
+// NOT auto-restored, so a bare mock here leaks its stub into unrelated suites
+// (e.g. the ap-verify host-binding tests would import the stub instead of the
+// real verifier). We spread the real exports into the mock so only the one seam
+// we stub changes, and restore the real module in afterAll so the leak ends with
+// this file.
+import * as realApVerify from "../../lib/ap-verify.ts";
+const realVerifyGetHttpSignature = realApVerify.verifyGetHttpSignature;
 
 /**
  * GA Wave-8 "COMMUNITY-GATE" — private-community single-object read leak.
@@ -25,12 +35,21 @@ import { createClient } from "@libsql/client";
 // Real signatures cannot be minted in a unit test, so stub the verify seam to
 // return whatever signing actor a test request declares via `x-test-signer`.
 mock.module("../../lib/ap-verify.ts", () => ({
+  ...realApVerify,
   verifyGetHttpSignature: async (req: Request) => {
     const signer = req.headers.get("x-test-signer");
     if (!signer) return { valid: false, error: "Missing Signature header" };
     return { valid: true, signingActor: signer };
   },
 }));
+
+// Restore the real module so the stub does not leak into later-loaded suites.
+afterAll(() => {
+  mock.module("../../lib/ap-verify.ts", () => ({
+    ...realApVerify,
+    verifyGetHttpSignature: realVerifyGetHttpSignature,
+  }));
+});
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";

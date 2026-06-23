@@ -399,6 +399,15 @@ export async function verifyGetHttpSignature(
   if (!parsed.headers.includes("(request-target)")) {
     return { valid: false, error: "(request-target) must be signed" };
   }
+  // Require `host` among the signed headers and verify it matches the request
+  // target, mirroring the POST path (verifyHttpSignature). (request-target)
+  // signs only method + path, NOT the host, so without binding `host` a
+  // signature captured for path P on one host would also verify on a DIFFERENT
+  // host serving the same path P — a cross-target read-gate replay surface. The
+  // signed-host match is enforced after the URL is parsed below.
+  if (!parsed.headers.includes("host")) {
+    return { valid: false, error: "host header must be included in signature" };
+  }
   if (parsed.algorithm !== "rsa-sha256") {
     return {
       valid: false,
@@ -422,6 +431,16 @@ export async function verifyGetHttpSignature(
   }
 
   const url = new URL(request.url);
+  // The signed Host value must match the host this request was actually
+  // delivered to, otherwise a validly-signed GET for one origin could be
+  // replayed against another target sharing the same actor key.
+  const signedHost = request.headers.get("host");
+  if (!signedHost) {
+    return { valid: false, error: "Missing Host header required by signature" };
+  }
+  if (signedHost.toLowerCase() !== url.host.toLowerCase()) {
+    return { valid: false, error: "Host header does not match request target" };
+  }
   const requestTarget = `${url.pathname}${url.search}`;
   const signatureParts: string[] = [];
   for (const headerName of parsed.headers) {
