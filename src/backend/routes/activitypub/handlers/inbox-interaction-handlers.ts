@@ -104,6 +104,8 @@ async function handleInteraction(
       ccJson: objects.ccJson,
       audienceJson: objects.audienceJson,
       communityApId: objects.communityApId,
+      type: objects.type,
+      endTime: objects.endTime,
     })
     .from(objects)
     .where(eq(objects.apId, objectId))

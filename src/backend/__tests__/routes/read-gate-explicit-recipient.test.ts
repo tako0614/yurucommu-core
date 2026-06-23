@@ -117,3 +117,63 @@ test("direct post: a cc-addressed recipient can read it", async () => {
   };
   expect(await canViewerReadObjectFull(db, obj, VIEWER)).toBe(true);
 });
+
+// Audit #19: a Story is stored visibility="public"/audienceJson="[]" but its reach
+// is followers-only (personal) and it is revoked at endTime. canViewerReadObjectFull
+// must apply that reach rule, not treat it as world-readable public.
+const FUTURE = "2999-01-01T00:00:00.000Z";
+const PAST = "2000-01-01T00:00:00.000Z";
+function story(extra: Partial<ReadGateObject>): ReadGateObject {
+  return {
+    visibility: "public",
+    attributedTo: AUTHOR,
+    toJson: "[]",
+    ccJson: "[]",
+    audienceJson: "[]",
+    communityApId: null,
+    type: "Story",
+    endTime: FUTURE,
+    ...extra,
+  };
+}
+
+test("personal Story: a non-follower CANNOT read it (despite the public default)", async () => {
+  const db = await freshDb();
+  await seedActor(db, AUTHOR, "author");
+  await seedActor(db, VIEWER, "viewer");
+  expect(await canViewerReadObjectFull(db, story({}), VIEWER)).toBe(false);
+  expect(await canViewerReadObjectFull(db, story({}), null)).toBe(false);
+});
+
+test("personal Story: the author and an accepted follower CAN read it", async () => {
+  const db = await freshDb();
+  await seedActor(db, AUTHOR, "author");
+  await seedActor(db, VIEWER, "viewer");
+  expect(await canViewerReadObjectFull(db, story({}), AUTHOR)).toBe(true);
+  await db.insert(follows).values({
+    followerApId: VIEWER,
+    followingApId: AUTHOR,
+    status: "accepted",
+    acceptedAt: new Date().toISOString(),
+  });
+  expect(await canViewerReadObjectFull(db, story({}), VIEWER)).toBe(true);
+});
+
+test("personal Story: an EXPIRED story is revoked from a follower but not the author", async () => {
+  const db = await freshDb();
+  await seedActor(db, AUTHOR, "author");
+  await seedActor(db, VIEWER, "viewer");
+  await db.insert(follows).values({
+    followerApId: VIEWER,
+    followingApId: AUTHOR,
+    status: "accepted",
+    acceptedAt: new Date().toISOString(),
+  });
+  expect(
+    await canViewerReadObjectFull(db, story({ endTime: PAST }), VIEWER),
+  ).toBe(false);
+  // The author still reads their own expired story.
+  expect(
+    await canViewerReadObjectFull(db, story({ endTime: PAST }), AUTHOR),
+  ).toBe(true);
+});

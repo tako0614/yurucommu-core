@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actorCache, actors, objects } from "../../../db/index.ts";
+import { actorCache, actors, blocks, objects } from "../../../db/index.ts";
 import type {
   Activity,
   ActivityContext,
@@ -59,6 +59,7 @@ async function freshDb(): Promise<Database> {
   const root = new URL("../../../../migrations/", import.meta.url);
   for (const file of [
     "0001_init.sql",
+    "0004_blocklist.sql",
     "0005_story_community_scope.sql",
     "0008_actor_fields_aka.sql",
     "0009_object_tags.sql",
@@ -407,4 +408,43 @@ test("handleCreateStory clamps a far-future inbound published so it cannot domin
   expect(Date.parse(row!.endTime!)).toBeLessThanOrEqual(
     Date.now() + 26 * 60 * 60 * 1000,
   );
+});
+
+// Audit #19: an inbound Create(Story) from an actor the local owner has blocked
+// must be dropped — parity with the inbound DM/Like/Announce/Follow/reply block
+// gates. Without it a blocked actor's story is stored (cap consumption + GET
+// /api/posts/:id retrievability).
+test("inbound Create(Story) from a blocked actor is dropped (not stored)", async () => {
+  const db = await freshDb();
+  const owner = "https://yuru.test/ap/users/tako";
+  await db.insert(actors).values({
+    apId: owner,
+    type: "Person",
+    preferredUsername: "tako",
+    inbox: `${owner}/inbox`,
+    outbox: `${owner}/outbox`,
+    followersUrl: `${owner}/followers`,
+    followingUrl: `${owner}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db.insert(actors).values({
+    apId: ALICE,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${ALICE}/inbox`,
+    outbox: `${ALICE}/outbox`,
+    followersUrl: `${ALICE}/followers`,
+    followingUrl: `${ALICE}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  // The owner blocks the remote story author.
+  await db.insert(blocks).values({ blockerApId: owner, blockedApId: ALICE });
+
+  await handleCreateStory(ctx(db), storyActivity(), ALICE, "https://yuru.test");
+
+  expect(
+    (await db.select().from(objects).where(eq(objects.apId, STORY_ID))).length,
+  ).toBe(0);
 });

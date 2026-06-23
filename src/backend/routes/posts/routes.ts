@@ -50,15 +50,11 @@ import {
   validateSummaryEdit,
 } from "./post-helpers.ts";
 import { requireActor } from "../actors-helpers.ts";
-import {
-  canViewerReadObject,
-  communityReadableApIds,
-} from "../../lib/community-visibility.ts";
+import { communityReadableApIds } from "../../lib/community-visibility.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
 import {
   actorIsBlockedBy,
   canViewerReadObjectFull,
-  isExplicitRecipient,
 } from "../../lib/post-visibility.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { logger } from "../../lib/logger.ts";
@@ -202,6 +198,8 @@ posts.post("/", async (c) => {
         ccJson: objects.ccJson,
         audienceJson: objects.audienceJson,
         communityApId: objects.communityApId,
+        type: objects.type,
+        endTime: objects.endTime,
       })
       .from(objects)
       .where(eq(objects.apId, body.in_reply_to))
@@ -461,47 +459,13 @@ posts.get("/:id", async (c) => {
   const liked = likedIds.has(post.apId);
   const bookmarked = bookmarkedIds.has(post.apId);
 
-  // Check visibility - followers-only. Author, an accepted follower, OR an
-  // explicitly addressed (to/cc) recipient such as a mention may read it: the
-  // author chose to address them (and it was delivered to their inbox), so a
-  // mentioned non-follower must not 404 on the post they were notified about.
-  if (post.visibility === "followers") {
-    if (!currentActor) return c.json({ error: "Post not found" }, 404);
-    if (
-      currentActor.ap_id !== post.attributedTo &&
-      !isExplicitRecipient(post, currentActor.ap_id)
-    ) {
-      const followRow = await db
-        .select({ followerApId: follows.followerApId })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.followerApId, currentActor.ap_id),
-            eq(follows.followingApId, post.attributedTo),
-            eq(follows.status, "accepted"),
-          ),
-        )
-        .get();
-      if (!followRow) return c.json({ error: "Post not found" }, 404);
-    }
-  }
-
-  // Check visibility - direct messages. Author or any addressed (to/cc)
-  // recipient — a mention in a DM is a cc recipient and is delivered to them.
-  if (post.visibility === "direct") {
-    if (!currentActor) return c.json({ error: "Post not found" }, 404);
-    if (
-      currentActor.ap_id !== post.attributedTo &&
-      !isExplicitRecipient(post, currentActor.ap_id)
-    ) {
-      return c.json({ error: "Post not found" }, 404);
-    }
-  }
-
-  // Community read-gate: a community-scoped post is stored with a "public"
-  // visibility (so the checks above pass) but carries an audience. If it is
-  // addressed to a PRIVATE community, only an accepted member may read it.
-  if (!(await canViewerReadObject(db, post, currentActor?.ap_id))) {
+  // Single canonical read-gate: community membership + per-post visibility
+  // (public / unlisted / followers / direct, honoring an explicit to/cc mention)
+  // + the Story reach rule (a Story is stored "public" / empty-audience but is
+  // followers-/member-only and is revoked at endTime — without the Story branch
+  // its full caption/poll/media payload leaked here to any caller with the apId).
+  // `post` (a full objects row) carries type + endTime so the Story branch fires.
+  if (!(await canViewerReadObjectFull(db, post, currentActor?.ap_id))) {
     return c.json({ error: "Post not found" }, 404);
   }
 
@@ -528,6 +492,8 @@ posts.get("/:id/replies", async (c) => {
       ccJson: objects.ccJson,
       audienceJson: objects.audienceJson,
       communityApId: objects.communityApId,
+      type: objects.type,
+      endTime: objects.endTime,
     })
     .from(objects)
     .where(postWhereByIdOrApId(baseUrl, postId)!)

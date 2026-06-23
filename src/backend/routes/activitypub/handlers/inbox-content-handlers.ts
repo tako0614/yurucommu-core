@@ -508,6 +508,8 @@ export async function handleCreate(
           ccJson: objects.ccJson,
           audienceJson: objects.audienceJson,
           communityApId: objects.communityApId,
+          type: objects.type,
+          endTime: objects.endTime,
         })
         .from(objects)
         .where(eq(objects.apId, object.inReplyTo))
@@ -643,6 +645,20 @@ export async function handleCreateStory(
   }
 
   const objectId = object.id || objectApId(baseUrl, generateId());
+
+  // Per-user block: drop a Story from an actor the local owner has blocked,
+  // mirroring the inbound DM blockedBySigner drop + the inbound Like/Announce/
+  // Follow/reply block gates. The other inbound owner-visible paths all enforce
+  // the per-user `blocks` table; Create(Story) was the gap, so a blocked actor's
+  // stories were still stored (consuming the per-author cap + retrievable via
+  // GET /api/posts/:id). Single-user instance: any blocks row blocking this actor
+  // is the owner's block.
+  const blockedByOwner = await db
+    .select({ b: blocks.blockerApId })
+    .from(blocks)
+    .where(eq(blocks.blockedApId, actor))
+    .get();
+  if (blockedByOwner) return;
 
   // Check if story already exists
   const existing = await db

@@ -19,6 +19,12 @@ export type ReadGateObject = {
   ccJson: string;
   audienceJson: string;
   communityApId: string | null;
+  // A Story is stored visibility="public" / audienceJson="[]" but its REAL reach
+  // is followers (personal) or members (community), and it is revoked at endTime.
+  // When these are supplied the gate applies the Story reach rule; omit them for
+  // non-story callers (the branch is then never taken).
+  type?: string;
+  endTime?: string | null;
 };
 
 /**
@@ -51,6 +57,40 @@ export async function canViewerReadObjectFull(
   obj: ReadGateObject,
   viewerApId: string | null | undefined,
 ): Promise<boolean> {
+  // A Story's stored visibility ("public") does NOT encode its reach: a personal
+  // story is followers-only and a community story is members-only, and BOTH are
+  // revoked at endTime. The generic visibility checks below would otherwise treat
+  // it as world-readable (public, empty audience, no community), so gate it here.
+  if (obj.type === "Story") {
+    // The author always reads their own story (even after it expires).
+    if (viewerApId && obj.attributedTo === viewerApId) return true;
+    // Expired → revoked from everyone else (matches the dedicated story feed +
+    // /ap/objects + media gates, which the generic single-object path skipped).
+    if (obj.endTime && obj.endTime <= new Date().toISOString()) return false;
+    // Community story → members-only (canViewerReadObject gates on communityApId).
+    if (obj.communityApId) {
+      return canViewerReadObject(
+        db,
+        { audienceJson: obj.audienceJson, communityApId: obj.communityApId },
+        viewerApId,
+      );
+    }
+    // Personal story → accepted-follower reach (despite the public default).
+    if (!viewerApId) return false;
+    const follower = await db
+      .select({ followerApId: follows.followerApId })
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followerApId, viewerApId),
+          eq(follows.followingApId, obj.attributedTo),
+          eq(follows.status, "accepted"),
+        ),
+      )
+      .get();
+    return Boolean(follower);
+  }
+
   // Private-community membership gate first (non-community objects short to true).
   if (
     !(await canViewerReadObject(

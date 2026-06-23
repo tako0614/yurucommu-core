@@ -147,6 +147,8 @@ posts.post("/:id/like", async (c) => {
       ccJson: objects.ccJson,
       audienceJson: objects.audienceJson,
       communityApId: objects.communityApId,
+      type: objects.type,
+      endTime: objects.endTime,
     })
     .from(objects)
     .where(eq(objects.apId, post.apId))
@@ -331,12 +333,17 @@ posts.post("/:id/repost", async (c) => {
     .select({
       visibility: objects.visibility,
       audienceJson: objects.audienceJson,
+      type: objects.type,
     })
     .from(objects)
     .where(eq(objects.apId, post.apId))
     .get();
   const boostable =
     !!reach &&
+    // A Story is stored visibility="public"/audienceJson="[]" but its reach is
+    // followers-only and it is ephemeral — boosting it would re-broadcast
+    // follower-scoped content to the booster's public audience past its lifetime.
+    reach.type !== "Story" &&
     (reach.visibility === "public" || reach.visibility === "unlisted") &&
     reach.audienceJson === "[]";
   if (!boostable) {

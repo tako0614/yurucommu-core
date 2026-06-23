@@ -71,6 +71,8 @@ export async function handleCreatePost(
         ccJson: objects.ccJson,
         audienceJson: objects.audienceJson,
         communityApId: objects.communityApId,
+        type: objects.type,
+        endTime: objects.endTime,
       })
       .from(objects)
       .where(eq(objects.apId, inReplyTo))
@@ -210,6 +212,8 @@ export async function handleLikePost(
       ccJson: objects.ccJson,
       audienceJson: objects.audienceJson,
       communityApId: objects.communityApId,
+      type: objects.type,
+      endTime: objects.endTime,
     })
     .from(objects)
     .where(eq(objects.apId, postId))
