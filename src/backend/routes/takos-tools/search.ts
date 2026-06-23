@@ -11,6 +11,8 @@ import { actors, objects } from "../../../db/index.ts";
 
 import { NO_AUDIENCE_PREDICATE } from "../../lib/community-visibility.ts";
 import { excludeBlockedMutedAuthors } from "../../lib/feed-exclude.ts";
+import { extractHashtags } from "../posts/transformers.ts";
+import { postContentSearchPredicate } from "../search.ts";
 import {
   ACTOR_SUMMARY_COLUMNS,
   errNotFound,
@@ -113,7 +115,11 @@ async function searchPosts(
     .from(objects)
     .where(
       and(
-        sql`instr(lower(${objects.content}), lower(${query})) > 0`,
+        // Match via the SAME predicate as the web GET /search/posts (FTS trigram
+        // for >=3 codepoints, instr() fallback for shorter) so the agent and web
+        // surfaces return identical results and the agent path uses the FTS index
+        // instead of a full-table substring scan.
+        postContentSearchPredicate(query),
         eq(objects.visibility, "public"),
         NO_AUDIENCE_PREDICATE,
         isNull(objects.deletedAt),
@@ -122,7 +128,7 @@ async function searchPosts(
         excludeBlockedMutedAuthors(db, actor?.ap_id ?? ""),
       ),
     )
-    .orderBy(desc(objects.published))
+    .orderBy(desc(objects.published), desc(objects.apId))
     .limit(limit);
 
   return c.json(
@@ -159,13 +165,16 @@ async function getTrending(c: ToolContext, input: Input) {
     .limit(1000);
 
   const hashtagCounts: Record<string, number> = {};
-  const hashtagRegex =
-    /#([a-zA-Z0-9_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]+)/g;
 
   for (const post of posts) {
-    let match;
-    while ((match = hashtagRegex.exec(post.content || "")) !== null) {
-      const tagName = match[1].toLowerCase();
+    // Use the SHARED full-Unicode tokenizer (extractHashtags) so the agent
+    // trending list tokenizes hashtags identically to storage + web search/
+    // trending. The old inline ASCII+Hiragana+Katakana+BMP-CJK class silently
+    // dropped Korean/Cyrillic/Greek/accented-Latin/CJK-ext tags and mis-segmented
+    // #caf\u00E9 \u2192 #caf. (extractHashtags de-dupes within a post, so a tag spammed in
+    // one post counts once for that post \u2014 desirable for trending.)
+    for (const tag of extractHashtags(post.content || "")) {
+      const tagName = tag.toLowerCase();
       hashtagCounts[tagName] = (hashtagCounts[tagName] || 0) + 1;
     }
   }

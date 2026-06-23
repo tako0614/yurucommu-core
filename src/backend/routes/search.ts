@@ -189,8 +189,13 @@ function likeContains(column: Parameters<typeof like>[0], value: string) {
   return sql`instr(lower(${column}), lower(${value})) > 0`;
 }
 
-function postContentSearchPredicate(query: string) {
-  if (query.length < FTS_MIN_QUERY_LEN) {
+export function postContentSearchPredicate(query: string) {
+  // Count CODEPOINTS, not UTF-16 units: the trigram tokenizer needs >=3
+  // codepoints to form a single trigram, but `query.length` counts UTF-16 units,
+  // so a 2-emoji query ("🦀🦀") has .length 4 yet only 2 codepoints — it would
+  // route to FTS MATCH, form ZERO trigrams, and silently match nothing. Use the
+  // codepoint count so 1-2 codepoint queries fall back to instr() which matches.
+  if ([...query].length < FTS_MIN_QUERY_LEN) {
     return likeContains(objects.content, query);
   }
   const phrase = '"' + query.replace(/"/g, '""') + '"';

@@ -49,6 +49,9 @@ const MIGRATIONS = [
   "0004_blocklist.sql",
   "0008_actor_fields_aka.sql",
   "0009_object_tags.sql",
+  // The agent searchPosts tool now matches via the FTS predicate (same as web
+  // search), so the objects_fts virtual table + sync triggers must exist.
+  "0012_objects_content_fts.sql",
 ];
 
 async function freshDb(): Promise<Database> {
@@ -250,6 +253,26 @@ test("agent get_trending omits community-scoped post hashtags", async () => {
   expect(tags).toContain("plaza");
   expect(tags).not.toContain("backroom");
   expect(tags).not.toContain("ghosttag");
+});
+
+// Audit #19: the agent trending tokenizer must use the SAME full-Unicode class as
+// storage/web, so non-CJK tags (Korean/Cyrillic/accented-Latin) actually trend.
+test("agent get_trending finds non-CJK (Korean / Cyrillic / accented) hashtags", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "dave");
+  await insertPost(db, author, "u1", "공지 #안녕", isoMinutesAgo(3), "[]");
+  await insertPost(db, author, "u2", "privet #привет", isoMinutesAgo(2), "[]");
+  await insertPost(db, author, "u3", "coffee #café", isoMinutesAgo(1), "[]");
+
+  const res = (await handleGetTrending(ctxFor(db), {}, null)) as unknown as {
+    __body: { data: { trending: { tag: string }[] } };
+  };
+  const tags = res.__body.data.trending.map((t) => t.tag);
+  expect(tags).toContain("안녕");
+  expect(tags).toContain("привет");
+  // #café must NOT mis-segment to #caf (the old ASCII-only regex did).
+  expect(tags).toContain("café");
+  expect(tags).not.toContain("caf");
 });
 
 test("agent like_post is read-gated like the web route (cannot like an unreadable post)", async () => {

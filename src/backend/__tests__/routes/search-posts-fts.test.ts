@@ -202,3 +202,15 @@ test("1-2 char queries fall back to LIKE (below trigram's minimum)", async () =>
   // "本" is a single character — trigram can't index it, LIKE fallback must.
   expect(await searchPosts(app, "本")).toEqual(["本日は晴天"]);
 });
+
+// Audit #19: the FTS-vs-fallback decision must count CODEPOINTS, not UTF-16 units.
+// A 2-emoji query ("🦀🦀") has .length 4 (>=3) but only 2 codepoints, so it formed
+// ZERO trigrams under FTS and silently matched nothing; it must fall back to instr().
+test("a short astral (emoji) query falls back to instr() and matches", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "erin");
+  await insertPost(db, author, "e1", "I posted 🦀🦀 about rust");
+  const app = appFor(db);
+
+  expect(await searchPosts(app, "🦀🦀")).toEqual(["I posted 🦀🦀 about rust"]);
+});
