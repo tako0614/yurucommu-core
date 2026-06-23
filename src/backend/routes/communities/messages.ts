@@ -192,7 +192,11 @@ messagesRouter.post(
     const apId = resolveCommunityApId(baseUrl, identifier);
     const body = await c.req.json<{ content: string }>();
 
-    const content = body.content?.trim();
+    // Guard non-string content before .trim() (else TypeError → 500).
+    if (typeof body.content !== "string") {
+      return c.json({ error: "Message content is required" }, 400);
+    }
+    const content = body.content.trim();
     if (!content) {
       return c.json({ error: "Message content is required" }, 400);
     }
@@ -320,7 +324,11 @@ messagesRouter.patch("/:identifier/messages/:messageId", async (c) => {
   }
 
   const body = await c.req.json<{ content: string }>();
-  const content = body.content?.trim();
+  // Guard non-string content before .trim() (else TypeError → 500).
+  if (typeof body.content !== "string") {
+    return c.json({ error: "Message content is required" }, 400);
+  }
+  const content = body.content.trim();
   if (!content) {
     return c.json({ error: "Message content is required" }, 400);
   }

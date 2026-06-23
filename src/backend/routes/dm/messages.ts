@@ -92,9 +92,16 @@ type DmMessageResponse = {
 
 /** Validate trimmed DM content; returns the trimmed string or an error response. */
 function validateContent(
-  raw: string | undefined,
+  raw: unknown,
 ): string | { error: string; status: 400 } {
-  const content = raw?.trim();
+  // The json<{content:string}>() cast is compile-time only; a client can send a
+  // non-string. Guard before .trim() else TypeError → 500 (the global handler
+  // deliberately does not mask TypeError as 400). Mirrors the profile/post/invite
+  // validators.
+  if (typeof raw !== "string") {
+    return { error: "Message content is required", status: 400 };
+  }
+  const content = raw.trim();
   if (!content) return { error: "Message content is required", status: 400 };
   if (content.length > MAX_DM_CONTENT_LENGTH) {
     return {
