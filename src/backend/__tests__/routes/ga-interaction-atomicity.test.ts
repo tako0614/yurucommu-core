@@ -26,6 +26,7 @@ import {
   actors,
   announces,
   follows,
+  inbox as inboxTable,
   likes,
   objects,
 } from "../../../db/index.ts";
@@ -383,4 +384,67 @@ test("like of a followers-only post is rejected for a non-follower (404, no like
   expect(followerRes.status).toEqual(200);
   expect(await likeRowCount(db, followerApId, postApId)).toEqual(1);
   expect(await likeCountOf(db, postApId)).toEqual(1);
+});
+
+// ---------------------------------------------------------------------------
+// Audit #23 / finding B — like→unlike→like must NOT stack notifications.
+// Each like mints a fresh activity id and the dedup guard only checks the
+// `likes` edge, so before the fix a re-like added a SECOND author inbox row
+// (duplicate "X liked your post" + phantom unread +1). Unlike now reaps the
+// prior like's notification (inbox + activity row) in its atomic batch.
+// ---------------------------------------------------------------------------
+
+async function authorInboxCount(
+  db: Database,
+  authorApId: string,
+): Promise<number> {
+  const rows = await db
+    .select({ activityApId: inboxTable.activityApId })
+    .from(inboxTable)
+    .where(eq(inboxTable.actorApId, authorApId));
+  return rows.length;
+}
+
+test("like → unlike → like leaves exactly one notification for the author", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "author3");
+  const likerApId = await insertLocalActor(db, "liker3");
+  const liker = fakeActor(likerApId, "liker3");
+
+  const postApId = `${APP_URL}/ap/objects/p3`;
+  await db.insert(objects).values({
+    apId: postApId,
+    type: "Note",
+    attributedTo: authorApId,
+    content: "hi",
+    visibility: "public",
+    toJson: JSON.stringify(["https://www.w3.org/ns/activitystreams#Public"]),
+    ccJson: "[]",
+    audienceJson: "[]",
+    published: "2026-01-01T00:00:00.000Z",
+    isLocal: 1,
+  });
+
+  const env = envFor(db);
+  const app = appWith(db, env, liker);
+  const encoded = encodeURIComponent(postApId);
+  const like = () =>
+    app.fetch(
+      new Request(`${APP_URL}/${encoded}/like`, { method: "POST" }),
+      env,
+    );
+  const unlike = () =>
+    app.fetch(
+      new Request(`${APP_URL}/${encoded}/like`, { method: "DELETE" }),
+      env,
+    );
+
+  await like();
+  expect(await authorInboxCount(db, authorApId)).toEqual(1);
+  await unlike();
+  // The original notification is reaped on unlike.
+  expect(await authorInboxCount(db, authorApId)).toEqual(0);
+  await like();
+  // Re-like creates exactly one — not a second stacked on the first.
+  expect(await authorInboxCount(db, authorApId)).toEqual(1);
 });

@@ -263,7 +263,21 @@ posts.delete("/:id/like", async (c) => {
   if (!like) return c.json({ error: "Not liked" }, 400);
 
   // D1 has no interactive transactions; group the like-row delete and the
-  // counter decrement into a single atomic batch so they cannot diverge.
+  // counter decrement into a single atomic batch so they cannot diverge. Also
+  // reap the original like's notification: the like mints a FRESH activity id
+  // each time and the dedup guard only checks the `likes` edge, so without this
+  // a like→unlike→like cycle would leave the first notification behind and add a
+  // second — duplicate "X liked your post" rows (and a phantom unread +1). The
+  // inbound-federated path already gates its notify on the existing edge; this
+  // gives the local path the same idempotency.
+  const reapLikeNotification: BatchStatement[] = like.activityApId
+    ? [
+        db
+          .delete(inboxTable)
+          .where(eq(inboxTable.activityApId, like.activityApId)),
+        db.delete(activities).where(eq(activities.apId, like.activityApId)),
+      ]
+    : [];
   await runBatch(db, [
     db
       .delete(likes)
@@ -274,6 +288,7 @@ posts.delete("/:id/like", async (c) => {
       .update(objects)
       .set({ likeCount: sql`${objects.likeCount} - 1` })
       .where(and(eq(objects.apId, post.apId), gt(objects.likeCount, 0))),
+    ...reapLikeNotification,
   ]);
 
   if (!isLocal(post.apId, baseUrl)) {
@@ -452,7 +467,10 @@ posts.delete("/:id/repost", async (c) => {
   const baseUrl = c.env.APP_URL;
 
   const announce = await db
-    .select({ actorApId: announces.actorApId })
+    .select({
+      actorApId: announces.actorApId,
+      activityApId: announces.activityApId,
+    })
     .from(announces)
     .where(
       and(
@@ -464,7 +482,18 @@ posts.delete("/:id/repost", async (c) => {
   if (!announce) return c.json({ error: "Not reposted" }, 400);
 
   // D1 has no interactive transactions; group the announce-row delete and the
-  // counter decrement into a single atomic batch so they cannot diverge.
+  // counter decrement into a single atomic batch so they cannot diverge. Also
+  // reap the original repost's notification (same duplicate-notification issue
+  // as unlike: each repost mints a fresh Announce activity id and the guard only
+  // checks the edge, so repost→unrepost→repost would stack notifications).
+  const reapRepostNotification: BatchStatement[] = announce.activityApId
+    ? [
+        db
+          .delete(inboxTable)
+          .where(eq(inboxTable.activityApId, announce.activityApId)),
+        db.delete(activities).where(eq(activities.apId, announce.activityApId)),
+      ]
+    : [];
   await runBatch(db, [
     db
       .delete(announces)
@@ -478,6 +507,7 @@ posts.delete("/:id/repost", async (c) => {
       .update(objects)
       .set({ announceCount: sql`${objects.announceCount} - 1` })
       .where(and(eq(objects.apId, post.apId), gt(objects.announceCount, 0))),
+    ...reapRepostNotification,
   ]);
 
   const undoActivity = {
