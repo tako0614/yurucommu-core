@@ -72,7 +72,23 @@ follow.post("/", async (c) => {
       ),
     )
     .get();
-  if (existing) return c.json({ error: "Already following or pending" }, 400);
+  if (existing) {
+    // A leftover 'rejected' edge (from before reject switched to deleting the
+    // row) must not permanently block a re-follow — clear it and fall through to
+    // a fresh request. A live pending/accepted edge still blocks.
+    if (existing.status === "rejected") {
+      await db
+        .delete(follows)
+        .where(
+          and(
+            eq(follows.followerApId, actor.ap_id),
+            eq(follows.followingApId, targetApId),
+          ),
+        );
+    } else {
+      return c.json({ error: "Already following or pending" }, 400);
+    }
+  }
 
   if (isLocal(targetApId, baseUrl)) {
     return handleLocalFollow(c, db, baseUrl, actor, targetApId);
@@ -445,9 +461,15 @@ follow.post("/reject", async (c) => {
     return c.json({ error: "No pending follow request" }, 404);
   }
 
+  // DELETE the edge rather than parking it at status='rejected'. A 'rejected'
+  // row is a permanent dead state: the create path blocks on ANY existing edge
+  // ("Already following or pending") and the inbound handleFollow early-returns
+  // on a present edge, so the requester could NEVER re-follow. Deleting matches
+  // the INBOUND reject path (handleReject -> deleteFollowByCompoundKey) and the
+  // community join-request re-pend behaviour, letting a fresh Follow start clean.
+  // A pending edge was never counted, so no counter reconcile is needed.
   await db
-    .update(follows)
-    .set({ status: "rejected" })
+    .delete(follows)
     .where(
       and(
         eq(follows.followerApId, requesterApId),
