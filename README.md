@@ -46,15 +46,11 @@ plain OpenTofu Capsule. Cloudflare backing resources are normal
 `cloudflare/cloudflare` provider resources in [`main.tf`](main.tf); set
 `enable_cloudflare_resources=true` and provide `cloudflare_account_id` when the
 Capsule should create D1 / R2 / KV / Queue resources. Runtime surfaces are
-published through the generic `service_exports` output, and post-apply app setup
-is declared through the neutral `takosumi_release.post_apply` output as an
-opaque command.
-
-The legacy `takos_app` output is still emitted for older Takos distribution
-paths while they migrate, but it is not the Takosumi deploy contract. The target
-contract is: OpenTofu provisions resources, Takosumi records outputs and run
-history, and the app-owned post-apply command performs Yurucommu-specific
-activation.
+published through the generic `service_exports` output, runtime grant requests
+use `service_bindings`, and post-apply app setup is declared through the neutral
+`takosumi_release.post_apply` output as an opaque command. The contract is:
+OpenTofu provisions resources, Takosumi records outputs and run history, and the
+app-owned post-apply command performs Yurucommu-specific activation.
 
 `app:activate` does not require Takosumi to understand databases. It only needs
 the operator activation environment to provide a SQL execution argv, either as a
