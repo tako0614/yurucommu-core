@@ -175,5 +175,15 @@ output "takos_app" {
     ]
 
     env = {}
+
+    release = {
+      post_apply = [
+        {
+          id                = "migrate"
+          command           = ["bun", "run", "takos:migrate", "--resource", "database"]
+          working_directory = "."
+        },
+      ]
+    }
   }
 }
