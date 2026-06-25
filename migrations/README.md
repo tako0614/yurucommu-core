@@ -71,14 +71,14 @@ file name (not the numeric version) in `_cf_migrations`.
    SELECT name, applied_at FROM _cf_migrations ORDER BY applied_at;
    ```
 
-## Known drift from the canonical contract
+## Product-local ledger note
 
-The `_cf_migrations` ledger predates the contract in
-[`docs/quality/migration-runner-contract.md`](../../docs/quality/migration-runner-contract.md).
-A future migration should add `checksum TEXT` and store `sha256:<hex>` per
-applied migration; the runner already has access to the on-disk SQL so the
-change is mechanical, but requires coordination with production data (existing
-rows have NULL checksums until backfilled).
+The `_cf_migrations` ledger is Yurucommu-owned product state. The
+Takosumi/Takos-managed path invokes `bun run app:activate` through the generic
+`takosumi_release.post_apply` command and records activation status/logs; it
+does not expose a Takosumi DB migration API. A future Yurucommu migration may
+add `checksum TEXT` and store `sha256:<hex>` per applied migration, but that is
+Yurucommu product work and requires coordination with production data.
 
 For restore / disaster-recovery procedures, see the operator runbooks under
 [`takosumi/docs/operations/`](../../takosumi/docs/operations/).
