@@ -45,8 +45,9 @@ file name (not the numeric version) in `_cf_migrations`.
 3. **Apply** (Takosumi post-apply activation):
 
    `takosumi_release.post_apply` runs `bun run app:activate` as an opaque
-   command. The operator activation environment must provide the SQL execution
-   command; Yurucommu does not assume a Takosumi DB API.
+   command. Takosumi does not parse migrations, talk to the database, or provide
+   a DB-specific API for this path; it only records the activation result. The
+   operator activation environment must provide the SQL execution command.
 
    Prefix mode appends `<resource> <sql>`:
 

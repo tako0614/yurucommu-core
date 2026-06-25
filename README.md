@@ -52,10 +52,11 @@ use `service_bindings`, and post-apply app setup is declared through the neutral
 OpenTofu provisions resources, Takosumi records outputs and run history, and the
 app-owned post-apply command performs Yurucommu-specific activation.
 
-`app:activate` does not require Takosumi to understand databases. It only needs
-the operator activation environment to provide a SQL execution argv, either as a
-prefix (`YURUCOMMU_SQL_COMMAND_JSON`) or a template
-(`YURUCOMMU_SQL_COMMAND_TEMPLATE_JSON`, with `{resource}` and `{sql}`
+`app:activate` is Yurucommu-owned code, not a Takosumi DB migration API.
+Takosumi only starts the opaque argv declared in `takosumi_release.post_apply`
+and records activation status/logs. The operator activation environment provides
+the SQL execution argv either as a prefix (`YURUCOMMU_SQL_COMMAND_JSON`) or a
+template (`YURUCOMMU_SQL_COMMAND_TEMPLATE_JSON`, with `{resource}` and `{sql}`
 placeholders). No Yurucommu-specific manifest format or DSL is required.
 
 ## Develop
