@@ -9,7 +9,8 @@ Cloudflare D1, depending on deployment).
   migration runner contract; it does **not** carry a checksum column.
 - **Runner sources**:
   - `yurucommu/src/backend/server.ts` (Bun/libSQL local path)
-  - `bun run app:activate` (Takos-managed activation path)
+  - `bun run app:activate` (Takosumi/Takos-managed activation path; requires
+    operator-provided SQL command env)
   - `wrangler d1 migrations apply` (operator-managed Cloudflare D1 path)
 
 ## Naming convention
@@ -41,7 +42,29 @@ file name (not the numeric version) in `_cf_migrations`.
    npx wrangler d1 migrations apply <DB-NAME> --env <env>
    ```
 
-3. **Forensics**:
+3. **Apply** (Takosumi post-apply activation):
+
+   `takosumi_release.post_apply` runs `bun run app:activate` as an opaque
+   command. The operator activation environment must provide the SQL execution
+   command; Yurucommu does not assume a Takosumi DB API.
+
+   Prefix mode appends `<resource> <sql>`:
+
+   ```bash
+   YURUCOMMU_SQL_COMMAND_JSON='["operator-sql-cli","query"]' \
+   YURUCOMMU_SQL_RESOURCE=database \
+   bun run app:activate
+   ```
+
+   Template mode substitutes `{resource}` and `{sql}`:
+
+   ```bash
+   YURUCOMMU_SQL_COMMAND_TEMPLATE_JSON='["bunx","wrangler","d1","execute","{resource}","--remote","--json","--command","{sql}"]' \
+   YURUCOMMU_SQL_RESOURCE=DB \
+   bun run app:activate
+   ```
+
+4. **Forensics**:
 
    ```sql
    SELECT name, applied_at FROM _cf_migrations ORDER BY applied_at;

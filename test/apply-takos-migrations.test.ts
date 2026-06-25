@@ -3,7 +3,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { applyMigrations } from "../scripts/apply-takos-migrations.ts";
+import {
+  applyMigrations,
+  buildSqlCommandArgs,
+} from "../scripts/apply-takos-migrations.ts";
 
 test("app activation applies only migrations missing from _cf_migrations", async () => {
   const dir = await mkdtemp(join(tmpdir(), "yurucommu-app-activate-"));
@@ -89,4 +92,42 @@ test("app activation wraps non-transactional migrations and respects owned trans
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("app activation builds operator-provided SQL command templates", () => {
+  expect(
+    buildSqlCommandArgs(
+      {
+        resource: "DB",
+        sqlCommandTemplate: [
+          "bunx",
+          "wrangler",
+          "d1",
+          "execute",
+          "{resource}",
+          "--remote",
+          "--json",
+          "--command",
+          "{sql}",
+        ],
+      },
+      "SELECT 1",
+    ),
+  ).toEqual([
+    "bunx",
+    "wrangler",
+    "d1",
+    "execute",
+    "DB",
+    "--remote",
+    "--json",
+    "--command",
+    "SELECT 1",
+  ]);
+});
+
+test("app activation fails closed without an operator SQL command", () => {
+  expect(() =>
+    buildSqlCommandArgs({ resource: "database" }, "SELECT 1"),
+  ).toThrow("No SQL command configured");
 });

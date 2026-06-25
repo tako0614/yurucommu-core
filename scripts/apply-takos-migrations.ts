@@ -16,11 +16,10 @@ export type Options = {
   resource: string;
   migrationsDir: string;
   space?: string;
-  sqlCommand: readonly string[];
+  sqlCommand?: readonly string[];
+  sqlCommandTemplate?: readonly string[];
   executeSql?: SqlExecutor;
 };
-
-const DEFAULT_SQL_COMMAND = ["takos", "resource", "sql", "query"] as const;
 
 export function parseArgs(args: string[]): Options {
   const options: Options = {
@@ -31,6 +30,9 @@ export function parseArgs(args: string[]): Options {
       "database",
     migrationsDir: env.MIGRATIONS_DIR ?? "migrations",
     sqlCommand: parseSqlCommandEnv(env.YURUCOMMU_SQL_COMMAND_JSON),
+    sqlCommandTemplate: parseSqlCommandEnv(
+      env.YURUCOMMU_SQL_COMMAND_TEMPLATE_JSON,
+    ),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -53,6 +55,11 @@ export function parseArgs(args: string[]): Options {
     }
     if (arg === "--sql-command-json" && next) {
       options.sqlCommand = parseSqlCommandEnv(next);
+      index += 1;
+      continue;
+    }
+    if (arg === "--sql-command-template-json" && next) {
+      options.sqlCommandTemplate = parseSqlCommandEnv(next);
       index += 1;
       continue;
     }
@@ -167,9 +174,7 @@ async function executeSql(
 ): Promise<unknown> {
   if (options.executeSql) return await options.executeSql(sql, context);
 
-  const args = [...options.sqlCommand];
-  if (options.space) args.push("--space", options.space);
-  args.push(options.resource, sql);
+  const args = buildSqlCommandArgs(options, sql);
   const [command, ...commandArgs] = args;
   const child = Bun.spawn([command!, ...commandArgs], {
     stdout: "pipe",
@@ -184,6 +189,33 @@ async function executeSql(
   return parseSqlCommandOutput(stdout);
 }
 
+export function buildSqlCommandArgs(
+  options: Pick<
+    Options,
+    "resource" | "space" | "sqlCommand" | "sqlCommandTemplate"
+  >,
+  sql: string,
+): readonly string[] {
+  if (options.sqlCommandTemplate) {
+    return options.sqlCommandTemplate.map((part) =>
+      part
+        .replaceAll("{resource}", options.resource)
+        .replaceAll("{space}", options.space ?? "")
+        .replaceAll("{sql}", sql),
+    );
+  }
+  if (options.sqlCommand) {
+    const args = [...options.sqlCommand];
+    if (options.space) args.push("--space", options.space);
+    args.push(options.resource, sql);
+    return args;
+  }
+  throw new Error(
+    "No SQL command configured for app activation. Set YURUCOMMU_SQL_COMMAND_JSON " +
+      'for prefix mode, or YURUCOMMU_SQL_COMMAND_TEMPLATE_JSON with "{resource}" and "{sql}" placeholders.',
+  );
+}
+
 function parseSqlCommandOutput(stdout: string): unknown {
   const trimmed = stdout.trim();
   if (!trimmed) return {};
@@ -194,15 +226,17 @@ function parseSqlCommandOutput(stdout: string): unknown {
   }
 }
 
-function parseSqlCommandEnv(value: string | undefined): readonly string[] {
-  if (!value) return DEFAULT_SQL_COMMAND;
+function parseSqlCommandEnv(
+  value: string | undefined,
+): readonly string[] | undefined {
+  if (!value) return undefined;
   const parsed = JSON.parse(value) as unknown;
   if (
     !Array.isArray(parsed) ||
     parsed.length === 0 ||
     !parsed.every((part) => typeof part === "string" && part.trim())
   ) {
-    throw new Error("YURUCOMMU_SQL_COMMAND_JSON must be a string array");
+    throw new Error("SQL command env must be a string array");
   }
   return parsed;
 }

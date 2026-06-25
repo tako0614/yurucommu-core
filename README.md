@@ -48,8 +48,13 @@ queue + DLQ), routes, secrets, and launcher publication. Post-apply app setup is
 declared separately through the neutral `takosumi_release.post_apply` output as
 an opaque command. The Takos distribution reads those outputs through the
 Takosumi Installation ledger, provisions the resources, runs the declared
-post-apply command, and publishes the launcher surface. No Yurucommu-specific
-manifest format or DSL is required.
+post-apply command, and publishes the launcher surface.
+
+`app:activate` does not require Takosumi to understand databases. It only needs
+the operator activation environment to provide a SQL execution argv, either as a
+prefix (`YURUCOMMU_SQL_COMMAND_JSON`) or a template
+(`YURUCOMMU_SQL_COMMAND_TEMPLATE_JSON`, with `{resource}` and `{sql}`
+placeholders). No Yurucommu-specific manifest format or DSL is required.
 
 ## Develop
 
