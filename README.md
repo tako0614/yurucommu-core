@@ -42,13 +42,19 @@ variable names and local development notes.
 
 Yurucommu is registered as a first-party default app in the Takos distribution
 and auto-installs into new Workspaces. The app exposes its deploy topology as a
-plain OpenTofu Capsule with well-known outputs ([`outputs.tf`](outputs.tf), the
-`takos_app` output) describing its compute, resources (D1 / R2 / KV / delivery
-queue + DLQ), routes, secrets, and launcher publication. Post-apply app setup is
-declared separately through the neutral `takosumi_release.post_apply` output as
-an opaque command. The Takos distribution reads those outputs through the
-Takosumi Installation ledger, provisions the resources, runs the declared
-post-apply command, and publishes the launcher surface.
+plain OpenTofu Capsule. Cloudflare backing resources are normal
+`cloudflare/cloudflare` provider resources in [`main.tf`](main.tf); set
+`enable_cloudflare_resources=true` and provide `cloudflare_account_id` when the
+Capsule should create D1 / R2 / KV / Queue resources. Runtime surfaces are
+published through the generic `service_exports` output, and post-apply app setup
+is declared through the neutral `takosumi_release.post_apply` output as an
+opaque command.
+
+The legacy `takos_app` output is still emitted for older Takos distribution
+paths while they migrate, but it is not the Takosumi deploy contract. The target
+contract is: OpenTofu provisions resources, Takosumi records outputs and run
+history, and the app-owned post-apply command performs Yurucommu-specific
+activation.
 
 `app:activate` does not require Takosumi to understand databases. It only needs
 the operator activation environment to provide a SQL execution argv, either as a
