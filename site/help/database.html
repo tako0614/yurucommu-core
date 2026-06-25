@@ -613,11 +613,12 @@
         </p>
         <p>
           ローカルの Bun サーバーは起動時に <code>MIGRATIONS_PATH</code> の SQL
-          を自動適用します。production では Takosumi が Capsule の Plan -> Apply
-          と operator migration policy に従って D1 schema を更新します。
+          を自動適用します。production では Capsule の Apply 後に
+          <code>takosumi_release.post_apply</code> の <code>app:activate</code>
+          コマンドを実行し、その中でアプリ側が必要な初期化を行います。
         </p>
         <pre><code>flow: Source の pinned commit を更新 -> Takosumi が Capsule を読み検証 -> Plan -> approval -> Apply
-evidence: Run logs / StateVersion / Output / AuditEvent / operator migration record</code></pre>
+evidence: Run logs / StateVersion / Output / AuditEvent / release activation record</code></pre>
 
         <h2>データの確認</h2>
         <p>

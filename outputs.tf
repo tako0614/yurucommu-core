@@ -72,8 +72,7 @@ output "takos_app" {
 
     resources = {
       database = {
-        type       = "sql"
-        migrations = "migrations"
+        type = "sql"
         bindings = {
           web = "DB"
         }
@@ -183,9 +182,9 @@ output "takosumi_release" {
   value = {
     post_apply = [
       {
-        id                = "migrate"
+        id                = "activate"
         executor          = "operator"
-        command           = ["bun", "run", "app:migrate", "--resource", "database"]
+        command           = ["bun", "run", "app:activate"]
         working_directory = "."
       },
     ]

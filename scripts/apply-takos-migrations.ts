@@ -9,7 +9,11 @@ type Options = {
 
 function parseArgs(args: string[]): Options {
   const options: Options = {
-    resource: env.TAKOS_D1_RESOURCE ?? "yurucommu-db",
+    resource:
+      env.YURUCOMMU_SQL_RESOURCE ??
+      env.TAKOS_RESOURCE ??
+      env.TAKOS_D1_RESOURCE ??
+      "database",
     migrationsDir: env.MIGRATIONS_DIR ?? "migrations",
   };
 
@@ -56,7 +60,7 @@ async function runTakosSql(
   if (options.space) args.push("--space", options.space);
   args.push(options.resource, sql);
 
-  console.log(`[app:migrate] Applying ${file} to ${options.resource}`);
+  console.log(`[app:activate] Applying ${file} to ${options.resource}`);
   const child = Bun.spawn(["takos", ...args], {
     stdout: "inherit",
     stderr: "inherit",

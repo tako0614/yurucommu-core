@@ -9,7 +9,7 @@ Cloudflare D1, depending on deployment).
   migration runner contract; it does **not** carry a checksum column.
 - **Runner sources**:
   - `yurucommu/src/backend/server.ts` (Bun/libSQL local path)
-  - `yurucommu/scripts/apply-takos-migrations.ts` (Takos-managed D1 path)
+  - `bun run app:activate` (Takos-managed activation path)
   - `wrangler d1 migrations apply` (operator-managed Cloudflare D1 path)
 
 ## Naming convention
