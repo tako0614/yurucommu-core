@@ -15,7 +15,7 @@ output "takos_app" {
         # hostname, not a value an operator hand-edits after the fact. The
         # routed hostname is only known at apply time, so the Capsule cannot
         # bake it as a literal `env` entry. Instead the worker self-consumes
-        # its own `launcher` UiSurface publication (routeRef = "root") and the
+        # its own `launcher` interface.ui.surface publication (routeRef = "root") and the
         # deploy pipeline resolves that publication's `url` output to the
         # group/install hostname and injects it as APP_URL. This is the same
         # ServiceExport/consume URL-injection mechanism the platform uses for
@@ -154,7 +154,7 @@ output "takos_app" {
       {
         name      = "launcher"
         publisher = "web"
-        type      = "UiSurface"
+        type      = "interface.ui.surface"
         outputs = {
           url = {
             kind     = "url"
