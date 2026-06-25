@@ -56,7 +56,7 @@ async function runTakosSql(
   if (options.space) args.push("--space", options.space);
   args.push(options.resource, sql);
 
-  console.log(`[takos:migrate] Applying ${file} to ${options.resource}`);
+  console.log(`[app:migrate] Applying ${file} to ${options.resource}`);
   const child = Bun.spawn(["takos", ...args], {
     stdout: "inherit",
     stderr: "inherit",

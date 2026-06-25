@@ -176,14 +176,18 @@ output "takos_app" {
 
     env = {}
 
-    release = {
-      post_apply = [
-        {
-          id                = "migrate"
-          command           = ["bun", "run", "takos:migrate", "--resource", "database"]
-          working_directory = "."
-        },
-      ]
-    }
+  }
+}
+
+output "takosumi_release" {
+  value = {
+    post_apply = [
+      {
+        id                = "migrate"
+        executor          = "operator"
+        command           = ["bun", "run", "app:migrate", "--resource", "database"]
+        working_directory = "."
+      },
+    ]
   }
 }

@@ -44,10 +44,12 @@ Yurucommu is registered as a first-party default app in the Takos distribution
 and auto-installs into new Workspaces. The app exposes its deploy topology as a
 plain OpenTofu Capsule with well-known outputs ([`outputs.tf`](outputs.tf), the
 `takos_app` output) describing its compute, resources (D1 / R2 / KV / delivery
-queue + DLQ), routes, secrets, and launcher publication. The Takos distribution
-reads those outputs through the Takosumi Installation ledger, provisions the
-resources, and publishes the launcher surface. No Yurucommu-specific manifest
-format or DSL is required.
+queue + DLQ), routes, secrets, and launcher publication. Post-apply app setup is
+declared separately through the neutral `takosumi_release.post_apply` output as
+an opaque command. The Takos distribution reads those outputs through the
+Takosumi Installation ledger, provisions the resources, runs the declared
+post-apply command, and publishes the launcher surface. No Yurucommu-specific
+manifest format or DSL is required.
 
 ## Develop
 
