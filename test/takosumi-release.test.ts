@@ -7,6 +7,7 @@ import {
   buildWranglerToml,
   parseTakosumiOutputsJson,
   releaseConfigFromOutputs,
+  shouldSkipD1Migrations,
 } from "../scripts/takosumi-release.ts";
 
 const rawOutputs = {
@@ -117,6 +118,15 @@ test("release commands use generated wrangler config", () => {
       "{sql}",
     ],
   );
+});
+
+test("shouldSkipD1Migrations only accepts explicit truthy operator values", () => {
+  expect(shouldSkipD1Migrations("1")).toBe(true);
+  expect(shouldSkipD1Migrations("true")).toBe(true);
+  expect(shouldSkipD1Migrations("YES")).toBe(true);
+  expect(shouldSkipD1Migrations("0")).toBe(false);
+  expect(shouldSkipD1Migrations("false")).toBe(false);
+  expect(shouldSkipD1Migrations(undefined)).toBe(false);
 });
 
 test("parseTakosumiOutputsJson rejects non-object payloads", () => {

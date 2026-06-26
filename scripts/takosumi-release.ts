@@ -256,11 +256,17 @@ async function main(args = argv.slice(2)): Promise<void> {
     warnIfReadinessWillBeIncomplete(config);
     await run(buildInstallArgs());
     await run(["bun", "run", "build"]);
-    await applyMigrations({
-      resource: "DB",
-      migrationsDir: "migrations",
-      sqlCommandTemplate: buildD1ExecuteTemplate(configPath),
-    });
+    if (shouldSkipD1Migrations(env.YURUCOMMU_SKIP_D1_MIGRATIONS)) {
+      console.warn(
+        "[takosumi:release] Skipping D1 migrations because YURUCOMMU_SKIP_D1_MIGRATIONS is enabled.",
+      );
+    } else {
+      await applyMigrations({
+        resource: "DB",
+        migrationsDir: "migrations",
+        sqlCommandTemplate: buildD1ExecuteTemplate(configPath),
+      });
+    }
     await run(buildDeployArgs(configPath, secretsPath));
     console.log(
       JSON.stringify({
@@ -287,6 +293,11 @@ async function run(command: readonly string[]): Promise<void> {
   if (code !== 0) {
     throw new Error(`Command failed (${code}): ${command.join(" ")}`);
   }
+}
+
+export function shouldSkipD1Migrations(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
 function collectWorkerVars(
