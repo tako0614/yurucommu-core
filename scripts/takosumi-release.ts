@@ -207,11 +207,17 @@ export function buildD1ExecuteTemplate(configPath: string): string[] {
   ];
 }
 
+export function buildDeleteWorkerArgs(workerName: string): string[] {
+  return ["bunx", "wrangler", "delete", workerName, "--force"];
+}
+
 async function main(args = argv.slice(2)): Promise<void> {
   const dryRun = args.includes("--dry-run");
   const keepGenerated = args.includes("--keep-generated");
+  const destroy = args.includes("--destroy");
   const unknown = args.find(
-    (arg) => !["--dry-run", "--keep-generated"].includes(arg),
+    (arg) =>
+      !["--dry-run", "--keep-generated", "--destroy"].includes(arg),
   );
   if (unknown) throw new Error(`Unknown argument: ${unknown}`);
 
@@ -220,6 +226,17 @@ async function main(args = argv.slice(2)): Promise<void> {
     throw new Error("TAKOSUMI_OUTPUTS_JSON is required for Yurucommu release");
   }
   const config = releaseConfigFromOutputs(parseTakosumiOutputsJson(rawOutputs));
+  if (destroy) {
+    await run(buildDeleteWorkerArgs(config.workerName));
+    console.log(
+      JSON.stringify({
+        ok: true,
+        destroyed: true,
+        workerName: config.workerName,
+      }),
+    );
+    return;
+  }
   const generatedDir = join(".takosumi-release", randomUUID());
   const configPath = join(generatedDir, "wrangler.toml");
   const secretsPath =

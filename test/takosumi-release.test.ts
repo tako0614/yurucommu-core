@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
   buildD1ExecuteTemplate,
+  buildDeleteWorkerArgs,
   buildDeployArgs,
   buildInstallArgs,
   buildWranglerToml,
@@ -118,6 +119,13 @@ test("release commands use generated wrangler config", () => {
       "{sql}",
     ],
   );
+  expect(buildDeleteWorkerArgs("yuru-smoke")).toEqual([
+    "bunx",
+    "wrangler",
+    "delete",
+    "yuru-smoke",
+    "--force",
+  ]);
 });
 
 test("shouldSkipD1Migrations only accepts explicit truthy operator values", () => {

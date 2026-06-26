@@ -8,6 +8,14 @@ output "takosumi_release" {
         working_directory = "."
       },
     ]
+    pre_destroy = [
+      {
+        id                = "delete-worker"
+        executor          = "operator"
+        command           = ["bun", "run", "takosumi:release", "--", "--destroy"]
+        working_directory = "."
+      },
+    ]
   }
 }
 
