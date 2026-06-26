@@ -56,8 +56,9 @@ app-owned post-apply command performs Yurucommu-specific activation.
 deployment API. Takosumi only starts the opaque argv declared in
 `takosumi_release.post_apply` and records activation status/logs. The command
 reads non-secret OpenTofu outputs from `TAKOSUMI_OUTPUTS_JSON`, renders a
-temporary Wrangler config, applies Yurucommu D1 migrations, and deploys the
-Worker artifact. Operator secrets such as `YURUCOMMU_ENCRYPTION_KEY`,
+temporary Wrangler config, installs dependencies with `bun install
+--frozen-lockfile`, applies Yurucommu D1 migrations, and deploys the Worker
+artifact. Operator secrets such as `YURUCOMMU_ENCRYPTION_KEY`,
 `YURUCOMMU_AUTH_PASSWORD_HASH`, or OAuth client secrets must come from the
 operator activation environment allowlist; they are uploaded as Worker secrets
 and are never stored in OpenTofu outputs. No Yurucommu-specific Takosumi

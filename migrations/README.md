@@ -72,10 +72,11 @@ file name (not the numeric version) in `_cf_migrations`.
 
    `takosumi_release.post_apply` runs `bun run takosumi:release` as an opaque
    operator command. It reads non-secret outputs from `TAKOSUMI_OUTPUTS_JSON`,
-   writes a temporary Wrangler config, runs `bun run build`, applies D1
-   migrations through `wrangler d1 execute`, and deploys with `wrangler deploy`.
-   Provider credentials and app secrets must be supplied by the operator
-   environment, for example through `TAKOSUMI_RELEASE_COMMAND_ENV_ALLOWLIST`.
+   writes a temporary Wrangler config, runs `bun install --frozen-lockfile`,
+   runs `bun run build`, applies D1 migrations through `wrangler d1 execute`,
+   and deploys with `wrangler deploy`. Provider credentials and app secrets must
+   be supplied by the operator environment, for example through
+   `TAKOSUMI_RELEASE_COMMAND_ENV_ALLOWLIST`.
 
    Common operator env names:
 

@@ -186,6 +186,10 @@ export function buildDeployArgs(
   ];
 }
 
+export function buildInstallArgs(): string[] {
+  return ["bun", "install", "--frozen-lockfile"];
+}
+
 export function buildD1ExecuteTemplate(configPath: string): string[] {
   return [
     "bunx",
@@ -250,6 +254,7 @@ async function main(args = argv.slice(2)): Promise<void> {
     }
 
     warnIfReadinessWillBeIncomplete(config);
+    await run(buildInstallArgs());
     await run(["bun", "run", "build"]);
     await applyMigrations({
       resource: "DB",

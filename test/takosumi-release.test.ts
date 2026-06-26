@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
   buildD1ExecuteTemplate,
   buildDeployArgs,
+  buildInstallArgs,
   buildWranglerToml,
   parseTakosumiOutputsJson,
   releaseConfigFromOutputs,
@@ -86,6 +87,7 @@ test("buildWranglerToml renders the Worker bindings without secrets", () => {
 });
 
 test("release commands use generated wrangler config", () => {
+  expect(buildInstallArgs()).toEqual(["bun", "install", "--frozen-lockfile"]);
   expect(buildDeployArgs(".takosumi-release/run/wrangler.toml")).toEqual([
     "bunx",
     "wrangler",
