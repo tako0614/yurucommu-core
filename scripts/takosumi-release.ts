@@ -211,13 +211,49 @@ export function buildDeleteWorkerArgs(workerName: string): string[] {
   return ["bunx", "wrangler", "delete", workerName, "--force"];
 }
 
+export function buildRemoveQueueConsumerArgs(
+  queueName: string,
+  workerName: string,
+): string[] {
+  return [
+    "bunx",
+    "wrangler",
+    "queues",
+    "consumer",
+    "remove",
+    queueName,
+    workerName,
+  ];
+}
+
+export function buildDestroyArgs(config: YurucommuReleaseConfig): string[][] {
+  return [
+    ...(config.deliveryQueueName
+      ? [
+          buildRemoveQueueConsumerArgs(
+            config.deliveryQueueName,
+            config.workerName,
+          ),
+        ]
+      : []),
+    ...(config.deliveryDlqName
+      ? [
+          buildRemoveQueueConsumerArgs(
+            config.deliveryDlqName,
+            config.workerName,
+          ),
+        ]
+      : []),
+    buildDeleteWorkerArgs(config.workerName),
+  ];
+}
+
 async function main(args = argv.slice(2)): Promise<void> {
   const dryRun = args.includes("--dry-run");
   const keepGenerated = args.includes("--keep-generated");
   const destroy = args.includes("--destroy");
   const unknown = args.find(
-    (arg) =>
-      !["--dry-run", "--keep-generated", "--destroy"].includes(arg),
+    (arg) => !["--dry-run", "--keep-generated", "--destroy"].includes(arg),
   );
   if (unknown) throw new Error(`Unknown argument: ${unknown}`);
 
@@ -227,7 +263,9 @@ async function main(args = argv.slice(2)): Promise<void> {
   }
   const config = releaseConfigFromOutputs(parseTakosumiOutputsJson(rawOutputs));
   if (destroy) {
-    await run(buildDeleteWorkerArgs(config.workerName));
+    for (const command of buildDestroyArgs(config)) {
+      await run(command);
+    }
     console.log(
       JSON.stringify({
         ok: true,

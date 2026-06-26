@@ -4,7 +4,9 @@ import {
   buildD1ExecuteTemplate,
   buildDeleteWorkerArgs,
   buildDeployArgs,
+  buildDestroyArgs,
   buildInstallArgs,
+  buildRemoveQueueConsumerArgs,
   buildWranglerToml,
   parseTakosumiOutputsJson,
   releaseConfigFromOutputs,
@@ -125,6 +127,38 @@ test("release commands use generated wrangler config", () => {
     "delete",
     "yuru-smoke",
     "--force",
+  ]);
+  expect(
+    buildRemoveQueueConsumerArgs("yuru-smoke-delivery", "yuru-smoke"),
+  ).toEqual([
+    "bunx",
+    "wrangler",
+    "queues",
+    "consumer",
+    "remove",
+    "yuru-smoke-delivery",
+    "yuru-smoke",
+  ]);
+  expect(buildDestroyArgs(releaseConfigFromOutputs(rawOutputs))).toEqual([
+    [
+      "bunx",
+      "wrangler",
+      "queues",
+      "consumer",
+      "remove",
+      "yuru-smoke-delivery",
+      "yuru-smoke",
+    ],
+    [
+      "bunx",
+      "wrangler",
+      "queues",
+      "consumer",
+      "remove",
+      "yuru-smoke-delivery-dlq",
+      "yuru-smoke",
+    ],
+    ["bunx", "wrangler", "delete", "yuru-smoke", "--force"],
   ]);
 });
 
