@@ -9,8 +9,11 @@ Cloudflare D1, depending on deployment).
   migration runner contract; it does **not** carry a checksum column.
 - **Runner sources**:
   - `yurucommu/src/backend/server.ts` (Bun/libSQL local path)
-  - `bun run app:activate` (Takosumi/Takos-managed activation path; requires
+  - `bun run app:activate` (product-local migration helper; requires
     operator-provided SQL command env)
+  - `bun run takosumi:release` (Takosumi/Takos-managed activation path; renders
+    temporary Wrangler config from `TAKOSUMI_OUTPUTS_JSON`, runs the migration
+    helper, and deploys the Worker)
   - `wrangler d1 migrations apply` (operator-managed Cloudflare D1 path)
 
 ## Naming convention
@@ -42,7 +45,7 @@ file name (not the numeric version) in `_cf_migrations`.
    npx wrangler d1 migrations apply <DB-NAME> --env <env>
    ```
 
-3. **Apply** (Takosumi post-apply activation):
+3. **Apply migrations only** (Takosumi-compatible helper):
 
    `takosumi_release.post_apply` runs `bun run app:activate` as an opaque
    command. Takosumi does not parse migrations, talk to the database, or provide
@@ -65,7 +68,25 @@ file name (not the numeric version) in `_cf_migrations`.
    bun run app:activate
    ```
 
-4. **Forensics**:
+4. **Publish Worker** (Takosumi post-apply activation):
+
+   `takosumi_release.post_apply` runs `bun run takosumi:release` as an opaque
+   operator command. It reads non-secret outputs from `TAKOSUMI_OUTPUTS_JSON`,
+   writes a temporary Wrangler config, runs `bun run build`, applies D1
+   migrations through `wrangler d1 execute`, and deploys with `wrangler deploy`.
+   Provider credentials and app secrets must be supplied by the operator
+   environment, for example through `TAKOSUMI_RELEASE_COMMAND_ENV_ALLOWLIST`.
+
+   Common operator env names:
+
+   ```bash
+   YURUCOMMU_ENCRYPTION_KEY=...
+   YURUCOMMU_AUTH_PASSWORD_HASH=...
+   TAKOSUMI_ACCOUNTS_ISSUER_URL=https://app.takosumi.com
+   TAKOSUMI_ACCOUNTS_CLIENT_ID=...
+   ```
+
+5. **Forensics**:
 
    ```sql
    SELECT name, applied_at FROM _cf_migrations ORDER BY applied_at;

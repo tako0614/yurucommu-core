@@ -2,13 +2,28 @@ output "takosumi_release" {
   value = {
     post_apply = [
       {
-        id                = "activate"
+        id                = "publish"
         executor          = "operator"
-        command           = ["bun", "run", "app:activate"]
+        command           = ["bun", "run", "takosumi:release"]
         working_directory = "."
       },
     ]
   }
+}
+
+output "worker_name" {
+  description = "Cloudflare Worker name used by the Takosumi post-apply release command."
+  value       = local.worker_name
+}
+
+output "launch_url" {
+  description = "Public URL for the published Yurucommu instance, when the Capsule has enough hostname input to derive it."
+  value       = local.launch_url
+}
+
+output "url" {
+  description = "Alias for launch_url for generic Takosumi public URL smoke checks."
+  value       = local.launch_url
 }
 
 output "service_exports" {
@@ -22,6 +37,7 @@ output "service_exports" {
           name       = "default"
           protocol   = "https"
           pathPrefix = "/"
+          url        = local.launch_url
         }
       ]
       metadata = {
@@ -128,6 +144,10 @@ output "cloudflare_queue_names" {
 output "cloudflare_binding_summary" {
   description = "Non-secret binding names and backing resource names used by the Yurucommu Worker artifact activation command."
   value = {
+    worker = {
+      name       = local.worker_name
+      launch_url = local.launch_url
+    }
     db = {
       binding       = "DB"
       database_name = local.d1_database_name

@@ -52,12 +52,16 @@ use `service_bindings`, and post-apply app setup is declared through the neutral
 OpenTofu provisions resources, Takosumi records outputs and run history, and the
 app-owned post-apply command performs Yurucommu-specific activation.
 
-`app:activate` is Yurucommu-owned code, not a Takosumi DB migration API.
-Takosumi only starts the opaque argv declared in `takosumi_release.post_apply`
-and records activation status/logs. The operator activation environment provides
-the SQL execution argv either as a prefix (`YURUCOMMU_SQL_COMMAND_JSON`) or a
-template (`YURUCOMMU_SQL_COMMAND_TEMPLATE_JSON`, with `{resource}` and `{sql}`
-placeholders). No Yurucommu-specific manifest format or DSL is required.
+`takosumi:release` is Yurucommu-owned code, not a Takosumi DB migration or Worker
+deployment API. Takosumi only starts the opaque argv declared in
+`takosumi_release.post_apply` and records activation status/logs. The command
+reads non-secret OpenTofu outputs from `TAKOSUMI_OUTPUTS_JSON`, renders a
+temporary Wrangler config, applies Yurucommu D1 migrations, and deploys the
+Worker artifact. Operator secrets such as `YURUCOMMU_ENCRYPTION_KEY`,
+`YURUCOMMU_AUTH_PASSWORD_HASH`, or OAuth client secrets must come from the
+operator activation environment allowlist; they are uploaded as Worker secrets
+and are never stored in OpenTofu outputs. No Yurucommu-specific Takosumi
+manifest format or DSL is required.
 
 ## Develop
 
