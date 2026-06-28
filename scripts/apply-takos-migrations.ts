@@ -12,10 +12,13 @@ export type SqlExecutor = (
   context: SqlExecutionContext,
 ) => Promise<unknown>;
 
+export const MIGRATION_LEDGER_TABLE = "yurucommu_migrations";
+
 export type Options = {
   resource: string;
   migrationsDir: string;
   space?: string;
+  wrapTransactions?: boolean;
   sqlCommand?: readonly string[];
   sqlCommandTemplate?: readonly string[];
   executeSql?: SqlExecutor;
@@ -32,6 +35,10 @@ export function parseArgs(args: string[]): Options {
     sqlCommand: parseSqlCommandEnv(env.YURUCOMMU_SQL_COMMAND_JSON),
     sqlCommandTemplate: parseSqlCommandEnv(
       env.YURUCOMMU_SQL_COMMAND_TEMPLATE_JSON,
+    ),
+    wrapTransactions: parseBooleanEnv(
+      env.YURUCOMMU_SQL_WRAP_TRANSACTIONS,
+      true,
     ),
   };
 
@@ -63,6 +70,10 @@ export function parseArgs(args: string[]): Options {
       index += 1;
       continue;
     }
+    if (arg === "--no-wrap-transactions") {
+      options.wrapTransactions = false;
+      continue;
+    }
     throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
 
@@ -81,10 +92,10 @@ export async function applyMigrations(options: Options): Promise<{
   await executeSql(
     options,
     `
-      CREATE TABLE IF NOT EXISTS _cf_migrations (
+      CREATE TABLE IF NOT EXISTS ${MIGRATION_LEDGER_TABLE} (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT UNIQUE NOT NULL,
-        applied_at TEXT DEFAULT (datetime('now'))
+        applied_at TEXT NOT NULL
       )
     `,
     { resource: options.resource, purpose: "ledger-init" },
@@ -92,7 +103,7 @@ export async function applyMigrations(options: Options): Promise<{
 
   const appliedRows = await executeSql(
     options,
-    "SELECT name FROM _cf_migrations",
+    `SELECT name FROM ${MIGRATION_LEDGER_TABLE}`,
     { resource: options.resource, purpose: "ledger-read" },
   );
   const appliedSet = new Set(parseAppliedMigrationNames(appliedRows));
@@ -109,7 +120,7 @@ export async function applyMigrations(options: Options): Promise<{
     const path = `${options.migrationsDir.replace(/\/+$/, "")}/${file}`;
     const sql = await readFile(path, "utf8");
     console.log(`[app:activate] Applying ${file} to ${options.resource}`);
-    await executeSql(options, migrationSqlWithLedgerMark(file, sql), {
+    await executeSql(options, migrationSqlWithLedgerMark(file, sql, options), {
       resource: options.resource,
       migration: file,
       purpose: "migration",
@@ -131,9 +142,15 @@ async function listMigrationFiles(migrationsDir: string): Promise<string[]> {
   return files.sort((a, b) => a.localeCompare(b));
 }
 
-function migrationSqlWithLedgerMark(file: string, sql: string): string {
-  const markApplied = `INSERT INTO _cf_migrations (name) VALUES (${sqlString(file)});`;
-  if (migrationOwnsTransaction(sql)) {
+function migrationSqlWithLedgerMark(
+  file: string,
+  sql: string,
+  options: Pick<Options, "wrapTransactions">,
+): string {
+  const markApplied =
+    `INSERT INTO ${MIGRATION_LEDGER_TABLE} (name, applied_at) ` +
+    `VALUES (${sqlString(file)}, ${sqlString(new Date().toISOString())});`;
+  if (options.wrapTransactions === false || migrationOwnsTransaction(sql)) {
     return `${sql.trim()}\n${markApplied}\n`;
   }
   return `BEGIN;\n${sql.trim()}\n${markApplied}\nCOMMIT;\n`;
@@ -178,11 +195,16 @@ async function executeSql(
   const [command, ...commandArgs] = args;
   const child = Bun.spawn([command!, ...commandArgs], {
     stdout: "pipe",
-    stderr: "inherit",
+    stderr: "pipe",
   });
-  const stdout = await new Response(child.stdout).text();
-  const code = await child.exited;
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
   if (code !== 0) {
+    process.stdout.write(stdout);
+    process.stderr.write(stderr);
     const target = context.migration ?? context.purpose;
     throw new Error(`SQL command failed for ${target}`);
   }
@@ -239,6 +261,17 @@ function parseSqlCommandEnv(
     throw new Error("SQL command env must be a string array");
   }
   return parsed;
+}
+
+function parseBooleanEnv(
+  value: string | undefined,
+  defaultValue: boolean,
+): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return defaultValue;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  throw new Error(`Invalid boolean env value: ${value}`);
 }
 
 function sqlString(value: string): string {

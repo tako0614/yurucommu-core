@@ -117,8 +117,7 @@ test("release commands use generated wrangler config", () => {
       "--yes",
       "--config",
       ".takosumi-release/run/wrangler.toml",
-      "--command",
-      "{sql}",
+      "--command={sql}",
     ],
   );
   expect(buildDeleteWorkerArgs("yuru-smoke")).toEqual([

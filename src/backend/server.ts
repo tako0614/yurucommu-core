@@ -407,14 +407,14 @@ export async function runMigrations(
   // self-host boot take minutes.
 
   rawDb.exec(`
-    CREATE TABLE IF NOT EXISTS _cf_migrations (
+    CREATE TABLE IF NOT EXISTS yurucommu_migrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
       applied_at TEXT DEFAULT (datetime('now'))
     )
   `);
 
-  const appliedStmt = rawDb.prepare("SELECT name FROM _cf_migrations");
+  const appliedStmt = rawDb.prepare("SELECT name FROM yurucommu_migrations");
   let applied: Array<{ name: string }>;
   try {
     applied = appliedStmt.all() as Array<{ name: string }>;
@@ -447,7 +447,7 @@ export async function runMigrations(
         sql,
       );
 
-    // Wrap the schema change AND its _cf_migrations bookkeeping in one
+    // Wrap the schema change AND its migration ledger bookkeeping in one
     // transaction so the whole file commits with a single fsync, and so a
     // failure rolls back both the schema and the tracking record together.
     // Use the driver's transaction() wrapper (BEGIN/COMMIT/ROLLBACK handled
@@ -459,7 +459,7 @@ export async function runMigrations(
       rawDb.exec(sql);
 
       const markAppliedStmt = rawDb.prepare(
-        "INSERT INTO _cf_migrations (name) VALUES (?)",
+        "INSERT INTO yurucommu_migrations (name) VALUES (?)",
       );
       try {
         markAppliedStmt.run(file);

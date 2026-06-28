@@ -4,9 +4,9 @@ SQL migrations applied to yurucommu's chat / activity database (libSQL or
 Cloudflare D1, depending on deployment).
 
 - **Substrate**: libSQL (single-host) or Cloudflare D1 (managed edge).
-- **Ledger table**: `_cf_migrations(name TEXT PRIMARY KEY, applied_at)`. This is
-  the legacy wrangler-style ledger that yurucommu adopted before the ecosystem
-  migration runner contract; it does **not** carry a checksum column.
+- **Ledger table**: `yurucommu_migrations(name TEXT PRIMARY KEY, applied_at)`.
+  This is yurucommu-owned product state; it does **not** carry a checksum
+  column.
 - **Runner sources**:
   - `yurucommu/src/backend/server.ts` (Bun/libSQL local path)
   - `bun run app:activate` (product-local migration helper; requires
@@ -25,7 +25,7 @@ NNNN_short_description.sql
 ```
 
 Order is determined by lexicographic sort on the prefix. The runner records the
-file name (not the numeric version) in `_cf_migrations`.
+file name (not the numeric version) in `yurucommu_migrations`.
 
 ## Operator runbook
 
@@ -63,10 +63,15 @@ file name (not the numeric version) in `_cf_migrations`.
    Template mode substitutes `{resource}` and `{sql}`:
 
    ```bash
-   YURUCOMMU_SQL_COMMAND_TEMPLATE_JSON='["bunx","wrangler","d1","execute","{resource}","--remote","--json","--command","{sql}"]' \
+   YURUCOMMU_SQL_COMMAND_TEMPLATE_JSON='["bunx","wrangler","d1","execute","{resource}","--remote","--json","--command={sql}"]' \
+   YURUCOMMU_SQL_WRAP_TRANSACTIONS=false \
    YURUCOMMU_SQL_RESOURCE=DB \
    bun run app:activate
    ```
+
+   Remote Cloudflare D1 rejects explicit `BEGIN` / `SAVEPOINT` statements through
+   this API, so the Takosumi release path disables transaction wrappers while
+   keeping the local/libSQL path wrapped by default.
 
 4. **Publish Worker** (Takosumi post-apply activation):
 
@@ -74,8 +79,8 @@ file name (not the numeric version) in `_cf_migrations`.
    operator command. It reads non-secret outputs from `TAKOSUMI_OUTPUTS_JSON`,
    writes a temporary Wrangler config, runs `bun install --frozen-lockfile`,
    runs `bun run build`, applies D1 migrations through `wrangler d1 execute`,
-   and deploys with `wrangler deploy`. Provider credentials and app secrets must
-   be supplied by the operator environment, for example through
+   without explicit SQL transaction wrappers, and deploys with `wrangler deploy`.
+   Provider credentials and app secrets must be supplied by the operator environment, for example through
    `TAKOSUMI_RELEASE_COMMAND_ENV_ALLOWLIST`.
 
    Common operator env names:
@@ -90,12 +95,12 @@ file name (not the numeric version) in `_cf_migrations`.
 5. **Forensics**:
 
    ```sql
-   SELECT name, applied_at FROM _cf_migrations ORDER BY applied_at;
+   SELECT name, applied_at FROM yurucommu_migrations ORDER BY applied_at;
    ```
 
 ## Product-local ledger note
 
-The `_cf_migrations` ledger is Yurucommu-owned product state. The
+The `yurucommu_migrations` ledger is Yurucommu-owned product state. The
 Takosumi/Takos-managed path invokes `bun run app:activate` through the generic
 `takosumi_release.post_apply` command and records activation status/logs; it
 does not expose a Takosumi DB migration API. A future Yurucommu migration may

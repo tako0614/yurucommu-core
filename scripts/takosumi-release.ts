@@ -202,8 +202,7 @@ export function buildD1ExecuteTemplate(configPath: string): string[] {
     "--yes",
     "--config",
     configPath,
-    "--command",
-    "{sql}",
+    "--command={sql}",
   ];
 }
 
@@ -264,7 +263,7 @@ async function main(args = argv.slice(2)): Promise<void> {
   const config = releaseConfigFromOutputs(parseTakosumiOutputsJson(rawOutputs));
   if (destroy) {
     for (const command of buildDestroyArgs(config)) {
-      await run(command);
+      await run(command, { allowMissingDestroyResource: true });
     }
     console.log(
       JSON.stringify({
@@ -317,9 +316,10 @@ async function main(args = argv.slice(2)): Promise<void> {
       );
     } else {
       await applyMigrations({
-        resource: "DB",
+        resource: config.d1DatabaseName,
         migrationsDir: "migrations",
         sqlCommandTemplate: buildD1ExecuteTemplate(configPath),
+        wrapTransactions: false,
       });
     }
     await run(buildDeployArgs(configPath, secretsPath));
@@ -338,8 +338,32 @@ async function main(args = argv.slice(2)): Promise<void> {
   }
 }
 
-async function run(command: readonly string[]): Promise<void> {
+async function run(
+  command: readonly string[],
+  options: { readonly allowMissingDestroyResource?: boolean } = {},
+): Promise<void> {
   console.log(`\n> ${command.map(shellArg).join(" ")}\n`);
+  if (options.allowMissingDestroyResource) {
+    const child = Bun.spawn([...command], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    process.stdout.write(stdout);
+    process.stderr.write(stderr);
+    if (code === 0) return;
+    if (isIgnorableDestroyFailure(command, `${stdout}\n${stderr}`)) {
+      console.warn(
+        "[takosumi:release] Ignoring missing release resource during destroy.",
+      );
+      return;
+    }
+    throw new Error(`Command failed (${code}): ${command.join(" ")}`);
+  }
   const child = Bun.spawn([...command], {
     stdout: "inherit",
     stderr: "inherit",
@@ -348,6 +372,19 @@ async function run(command: readonly string[]): Promise<void> {
   if (code !== 0) {
     throw new Error(`Command failed (${code}): ${command.join(" ")}`);
   }
+}
+
+function isIgnorableDestroyFailure(
+  command: readonly string[],
+  output: string,
+): boolean {
+  if (command.includes("queues") && command.includes("consumer")) {
+    return /No worker consumer .* exists for queue/u.test(output);
+  }
+  if (command.includes("delete")) {
+    return /not found|does not exist|No such Worker/i.test(output);
+  }
+  return false;
 }
 
 export function shouldSkipD1Migrations(value: string | undefined): boolean {
