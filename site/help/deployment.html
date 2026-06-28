@@ -97,13 +97,13 @@
         </p>
 
         <p>
-          Takosumi install 用の worker entrypoint は CI / build service
-          と同じ流れで生成します。
-        </p>
-        <pre><code>bun run build:worker</code></pre>
-        <p>
-          Takosumi の OpenTofu module から参照する worker entrypoint は
-          <code>dist/worker.js</code> です。
+          Takosumi install では Git 上の OpenTofu module を Plan / Apply し、
+          module outputs の <code>takosumi_release</code> に従って post-apply
+          release command が Worker artifact を publish します。 yurucommu の
+          release command は一時的な <code>wrangler.toml</code> を生成し、
+          <code>src/backend/index.ts</code> を Worker entrypoint として deploy
+          します。事前 build が必要な場合も yurucommu 側の script が担当し、
+          Takosumi は artifact resolver になりません。
         </p>
 
         <h2>Takosumi での install について</h2>

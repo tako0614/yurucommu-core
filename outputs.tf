@@ -35,7 +35,7 @@ output "url" {
 }
 
 output "service_exports" {
-  description = "Takosumi Service Graph exports projected from OpenTofu outputs without resource descriptors."
+  description = "OpenTofu output projection for launch and endpoint metadata without Takosumi-specific resource descriptors."
   value = [
     {
       name         = "launcher"
