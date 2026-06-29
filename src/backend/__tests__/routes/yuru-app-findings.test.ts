@@ -6,8 +6,8 @@ import { readFile } from "node:fs/promises";
  *  - getConversationId no longer collides for distinct same-host actor pairs
  *    (was a 16-char truncated, alnum-stripped base64 of the low-entropy host
  *    prefix), and is order-independent and collision-free.
- *  - recipientToJsonLike escapes LIKE metacharacters so an AP-ID containing
- *    `%` / `_` cannot act as a wildcard.
+ *  - resolveConversationId is wildcard-safe so an AP-ID containing
+ *    `%` / `_` cannot broaden the conversation match.
  *  - POST /requests/accept responds honestly (501) instead of faking success.
  *  - Community message READ is gated by visibility/membership, not post_policy.
  *  - Story GET /:id/votes resolves a full ap_id the same way the sibling
@@ -35,7 +35,6 @@ import {
   getConversationId,
   resolveConversationId,
 } from "../../routes/dm/query-helpers.ts";
-import { recipientToJsonLike } from "../../routes/dm/conversations-helpers.ts";
 import { transformStoryData } from "../../routes/stories/query-helpers.ts";
 import dmRequestRoutes from "../../routes/dm/requests.ts";
 import communityMessageRoutes from "../../routes/communities/messages.ts";
@@ -216,28 +215,6 @@ test("resolveConversationId: wildcard in AP-ID does not broaden the match", asyn
   // unrelated mallory message (which it would if `%` acted as a wildcard).
   const resolved = await resolveConversationId(db, APP_URL, alice, wildcard);
   expect(resolved).toEqual(getConversationId(APP_URL, alice, wildcard));
-});
-
-test("recipientToJsonLike: exact JSON token still matches the stored value", async () => {
-  const db = await freshDb();
-  const alice = await insertLocalActor(db, "alice");
-  const bob = localApId("bob");
-  await db.insert(objects).values({
-    apId: `${APP_URL}/ap/objects/m1`,
-    type: "Note",
-    attributedTo: alice,
-    content: "hi",
-    toJson: JSON.stringify([bob]),
-    visibility: "direct",
-    conversation: getConversationId(APP_URL, alice, bob),
-    published: new Date().toISOString(),
-  });
-
-  const rows = await db
-    .select({ apId: objects.apId })
-    .from(objects)
-    .where(recipientToJsonLike(bob));
-  expect(rows.length).toEqual(1);
 });
 
 // ---------------------------------------------------------------------------

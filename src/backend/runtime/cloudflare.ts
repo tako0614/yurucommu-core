@@ -6,8 +6,6 @@
 
 import type {
   D1Database,
-  D1PreparedStatement,
-  D1Result,
   Fetcher,
   KVNamespace,
   R2Bucket,
@@ -15,92 +13,13 @@ import type {
 } from "@cloudflare/workers-types";
 import { getDb } from "../../db/index.ts";
 import type {
-  FirstResult,
-  IDatabase,
   IKeyValueStore,
   IObjectStorage,
   IStaticAssets,
   ListObjectsResult,
   ObjectMetadata,
-  PreparedStatement,
-  QueryResult,
-  RunResult,
   StorageObject,
 } from "./types.ts";
-
-/**
- * Cloudflare D1 Database Adapter
- */
-class CloudflareDatabase implements IDatabase {
-  constructor(private db: D1Database) {}
-
-  prepare(query: string): PreparedStatement {
-    return new CloudflarePreparedStatement(this.db.prepare(query));
-  }
-
-  async exec(query: string): Promise<void> {
-    await this.db.exec(query);
-  }
-
-  async batch<T = unknown>(
-    statements: PreparedStatement[],
-  ): Promise<QueryResult<T>[]> {
-    const d1Statements = statements.map((s) => {
-      if (s instanceof CloudflarePreparedStatement) return s.getD1Statement();
-      throw new Error("Invalid statement type for Cloudflare batch");
-    });
-
-    const results = await this.db.batch<T>(d1Statements);
-    return results.map((r: D1Result<T>) => ({
-      results: r.results,
-      success: r.success,
-      meta: r.meta,
-    }));
-  }
-}
-
-/**
- * Cloudflare D1 Prepared Statement Adapter
- */
-class CloudflarePreparedStatement implements PreparedStatement {
-  private stmt: D1PreparedStatement;
-
-  constructor(stmt: D1PreparedStatement) {
-    this.stmt = stmt;
-  }
-
-  bind(...values: unknown[]): PreparedStatement {
-    this.stmt = this.stmt.bind(...values);
-    return this;
-  }
-
-  async first<T = unknown>(colName?: string): Promise<FirstResult<T>> {
-    return colName !== undefined
-      ? await this.stmt.first<T>(colName)
-      : await this.stmt.first<T>();
-  }
-
-  async all<T = unknown>(): Promise<QueryResult<T>> {
-    const result = await this.stmt.all<T>();
-    return {
-      results: result.results,
-      success: result.success,
-      meta: result.meta,
-    };
-  }
-
-  async run(): Promise<RunResult> {
-    const result = await this.stmt.run();
-    return {
-      success: result.success,
-      meta: result.meta,
-    };
-  }
-
-  getD1Statement(): D1PreparedStatement {
-    return this.stmt;
-  }
-}
 
 /**
  * Cloudflare R2 Storage Adapter
@@ -279,74 +198,5 @@ export function wrapCloudflareBindings<
     MEDIA: MEDIA ? new CloudflareStorage(MEDIA) : undefined,
     KV: new CloudflareKV(KV),
     ASSETS: ASSETS ? new CloudflareAssets(ASSETS) : undefined,
-  };
-}
-
-/**
- * Create runtime environment from Cloudflare bindings
- */
-export function createCloudflareRuntime(env: {
-  DB: D1Database;
-  MEDIA?: R2Bucket;
-  KV?: KVNamespace;
-  ASSETS?: Fetcher;
-  APP_URL: string;
-  AUTH_PASSWORD_HASH?: string;
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
-  X_CLIENT_ID?: string;
-  X_CLIENT_SECRET?: string;
-  OIDC_ISSUER_URL?: string;
-  OIDC_CLIENT_ID?: string;
-  OIDC_CLIENT_SECRET?: string;
-  OAUTH_ISSUER_URL?: string;
-  TAKOSUMI_ACCOUNTS_ISSUER_URL?: string;
-  TAKOSUMI_ACCOUNTS_CLIENT_ID?: string;
-  TAKOSUMI_ACCOUNTS_CLIENT_SECRET?: string;
-  TAKOS_URL?: string;
-  AUTH_MODE?: string;
-}) {
-  const {
-    DB,
-    MEDIA,
-    KV,
-    ASSETS,
-    APP_URL,
-    AUTH_PASSWORD_HASH,
-    GOOGLE_CLIENT_ID,
-    GOOGLE_CLIENT_SECRET,
-    X_CLIENT_ID,
-    X_CLIENT_SECRET,
-    OIDC_ISSUER_URL,
-    OIDC_CLIENT_ID,
-    OIDC_CLIENT_SECRET,
-    OAUTH_ISSUER_URL,
-    TAKOSUMI_ACCOUNTS_ISSUER_URL,
-    TAKOSUMI_ACCOUNTS_CLIENT_ID,
-    TAKOSUMI_ACCOUNTS_CLIENT_SECRET,
-    TAKOS_URL,
-    AUTH_MODE,
-  } = env;
-
-  return {
-    db: new CloudflareDatabase(DB),
-    storage: MEDIA ? new CloudflareStorage(MEDIA) : undefined,
-    kv: KV ? new CloudflareKV(KV) : undefined,
-    assets: ASSETS ? new CloudflareAssets(ASSETS) : undefined,
-    APP_URL,
-    AUTH_PASSWORD_HASH,
-    GOOGLE_CLIENT_ID,
-    GOOGLE_CLIENT_SECRET,
-    X_CLIENT_ID,
-    X_CLIENT_SECRET,
-    OIDC_ISSUER_URL,
-    OIDC_CLIENT_ID,
-    OIDC_CLIENT_SECRET,
-    OAUTH_ISSUER_URL,
-    TAKOSUMI_ACCOUNTS_ISSUER_URL,
-    TAKOSUMI_ACCOUNTS_CLIENT_ID,
-    TAKOSUMI_ACCOUNTS_CLIENT_SECRET,
-    TAKOS_URL,
-    AUTH_MODE,
   };
 }

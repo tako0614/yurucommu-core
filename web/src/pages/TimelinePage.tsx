@@ -12,7 +12,7 @@ import { LoadingSpinner } from "../components/LoadingSpinner.tsx";
 // Lazy load heavy components
 const StoryViewer = lazy(() => import("../components/story/StoryViewer.tsx"));
 const StoryComposer = lazy(
-  () => import("../components/story/StoryComposer.tsx"),
+  () => import("../components/story/composer/StoryComposer.tsx"),
 );
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { FirstFeedEmptyState } from "../components/FirstFeedEmptyState.tsx";

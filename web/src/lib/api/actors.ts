@@ -2,12 +2,6 @@ import type { Actor, Post } from "../../types/index.ts";
 import { normalizeActor, normalizePost } from "./normalize.ts";
 import { apiDelete, apiFetch, apiPost, apiPut, assertOk } from "./fetch.ts";
 
-export async function fetchActors(): Promise<Actor[]> {
-  const res = await apiFetch("/api/actors");
-  const data = (await res.json()) as { actors?: Actor[] };
-  return (data.actors || []).map(normalizeActor);
-}
-
 export async function fetchActor(identifier: string): Promise<Actor> {
   const res = await apiFetch(`/api/actors/${encodeURIComponent(identifier)}`);
   await assertOk(res, "Actor not found");

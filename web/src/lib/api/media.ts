@@ -75,15 +75,6 @@ export function validateFile(file: File): void {
 }
 
 /**
- * Check if a file type is allowed
- */
-export function isAllowedMimeType(
-  mimeType: string,
-): mimeType is AllowedMimeType {
-  return allowedMimeTypes.includes(mimeType as AllowedMimeType);
-}
-
-/**
  * Upload a media file
  * @throws FileValidationError if validation fails
  * @throws Error if upload fails

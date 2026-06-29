@@ -6,6 +6,7 @@
  */
 
 import { logger } from "./logger.ts";
+import { bytesToHex } from "./hex.ts";
 
 const log = logger.child({ component: "crypto" });
 
@@ -34,12 +35,6 @@ function hexToBytes(hex: string): Uint8Array {
     bytes[i / 2] = byte;
   }
   return bytes;
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 /**

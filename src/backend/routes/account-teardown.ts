@@ -29,11 +29,49 @@ import {
 } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import type { Env } from "../types.ts";
+import type { IObjectStorage } from "../runtime/types.ts";
 import { activityApId, generateId } from "../federation-helpers.ts";
 import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "actors" });
+
+/**
+ * Hard-delete an actor's media uploads and best-effort purge the backing R2
+ * objects. The DB rows are removed regardless of whether the object-store
+ * delete succeeds; account teardown is never blocked on storage availability.
+ * Shared by the owner teardown (routes/actors.ts POST /me/delete) and each
+ * sub-account teardown in {@link teardownActor}.
+ */
+export async function purgeActorMediaUploads(
+  db: Database,
+  media: IObjectStorage | undefined,
+  apId: string,
+): Promise<void> {
+  const uploads = await db
+    .select({ r2Key: mediaUploads.r2Key })
+    .from(mediaUploads)
+    .where(eq(mediaUploads.uploaderApId, apId));
+  if (uploads.length === 0) return;
+  if (media) {
+    const keys = uploads.map((u) => u.r2Key);
+    // R2 caps a single delete() at 1000 keys; chunk the purge.
+    const R2_DELETE_BATCH = 1000;
+    try {
+      for (let i = 0; i < keys.length; i += R2_DELETE_BATCH) {
+        await media.delete(keys.slice(i, i + R2_DELETE_BATCH));
+      }
+    } catch (err) {
+      log.error("Failed to purge R2 objects for deleted account", {
+        event: "actors.account.delete_media_purge_failed",
+        actor: apId,
+        count: keys.length,
+        error: err,
+      });
+    }
+  }
+  await db.delete(mediaUploads).where(eq(mediaUploads.uploaderApId, apId));
+}
 
 /**
  * Full per-actor teardown for account deletion: federate Delete(Actor),
@@ -207,30 +245,7 @@ export async function teardownActor(
     .where(eq(notificationArchived.actorApId, apId));
 
   // Media: hard-delete the actor's uploads + best-effort purge backing R2.
-  const uploads = await db
-    .select({ r2Key: mediaUploads.r2Key })
-    .from(mediaUploads)
-    .where(eq(mediaUploads.uploaderApId, apId));
-  if (uploads.length > 0) {
-    const media = env.MEDIA;
-    if (media) {
-      const keys = uploads.map((u) => u.r2Key);
-      const R2_DELETE_BATCH = 1000;
-      try {
-        for (let i = 0; i < keys.length; i += R2_DELETE_BATCH) {
-          await media.delete(keys.slice(i, i + R2_DELETE_BATCH));
-        }
-      } catch (err) {
-        log.error("Failed to purge R2 objects for deleted account", {
-          event: "actors.account.delete_media_purge_failed",
-          actor: apId,
-          count: keys.length,
-          error: err,
-        });
-      }
-    }
-    await db.delete(mediaUploads).where(eq(mediaUploads.uploaderApId, apId));
-  }
+  await purgeActorMediaUploads(db, env.MEDIA, apId);
 
   // Story interactions the actor performed on OTHER/remote stories.
   await db.delete(storyVotes).where(eq(storyVotes.actorApId, apId));

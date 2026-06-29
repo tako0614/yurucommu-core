@@ -12,19 +12,6 @@ export async function fetchStories(
   return (data.actor_stories || []).map(normalizeActorStories);
 }
 
-export async function fetchActorStories(
-  actorId: string,
-  community?: string,
-): Promise<Story[]> {
-  const qs = community ? `?community=${encodeURIComponent(community)}` : "";
-  const res = await apiFetch(
-    `/api/stories/${encodeURIComponent(actorId)}${qs}`,
-  );
-  await assertOk(res, "Failed to fetch actor stories");
-  const data = (await res.json()) as { stories?: Story[] };
-  return (data.stories || []).map(normalizeStory);
-}
-
 export async function createStory(story: {
   attachment: { url?: string; r2_key: string; content_type: string };
   displayDuration: string;

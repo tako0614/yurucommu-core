@@ -69,7 +69,9 @@ function requireOwner(c: Parameters<typeof requireActor>[0]) {
 async function readApIdBody(
   c: Parameters<typeof requireActor>[0],
   field: "domain" | "ap_id",
-): Promise<{ value: string } | { error: Response }> {
+): Promise<
+  { value: string; body: Record<string, unknown> } | { error: Response }
+> {
   let body: Record<string, unknown>;
   try {
     body = (await c.req.json()) as Record<string, unknown>;
@@ -80,7 +82,7 @@ async function readApIdBody(
   if (typeof raw !== "string" || raw.trim().length === 0) {
     return { error: c.json({ error: `${field} required` }, 400) };
   }
-  return { value: raw.trim() };
+  return { value: raw.trim(), body };
 }
 
 function readReason(body: unknown): string | null {
@@ -124,15 +126,8 @@ moderationRoutes.post("/domains", async (c) => {
   const parsed = await readApIdBody(c, "domain");
   if ("error" in parsed) return parsed.error;
 
-  let body: unknown = null;
   try {
-    body = await c.req.json();
-  } catch {
-    body = null;
-  }
-
-  try {
-    await blockDomain(c.get("db"), parsed.value, readReason(body));
+    await blockDomain(c.get("db"), parsed.value, readReason(parsed.body));
   } catch {
     return c.json({ error: "Invalid domain" }, 400);
   }
@@ -192,15 +187,8 @@ moderationRoutes.post("/actors", async (c) => {
   const parsed = await readApIdBody(c, "ap_id");
   if ("error" in parsed) return parsed.error;
 
-  let body: unknown = null;
   try {
-    body = await c.req.json();
-  } catch {
-    body = null;
-  }
-
-  try {
-    await blockActor(c.get("db"), parsed.value, readReason(body));
+    await blockActor(c.get("db"), parsed.value, readReason(parsed.body));
   } catch {
     return c.json({ error: "Invalid actor" }, 400);
   }

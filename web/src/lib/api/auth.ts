@@ -1,19 +1,4 @@
-import type { Actor } from "../../types/index.ts";
-import { normalizeActor } from "./normalize.ts";
 import { apiFetch, apiPost, assertOk } from "./fetch.ts";
-
-export async function fetchMe(): Promise<{
-  authenticated: boolean;
-  actor?: Actor;
-}> {
-  const res = await apiFetch("/api/auth/me");
-  if (!res.ok) return { authenticated: false };
-  const data = (await res.json()) as { actor?: Actor };
-  if (data.actor) {
-    return { authenticated: true, actor: normalizeActor(data.actor) };
-  }
-  return { authenticated: false };
-}
 
 export async function login(
   password: string,

@@ -88,18 +88,6 @@ export interface DMParticipant {
   icon_url: string | null;
 }
 
-// DM conversation
-export interface DMConversation {
-  id: string;
-  other_participant: DMParticipant;
-  last_message: {
-    content: string;
-    is_mine: boolean;
-  } | null;
-  last_message_at: string | null;
-  created_at: string;
-}
-
 // DM message sender
 export interface DMSender {
   ap_id: string;
@@ -134,16 +122,6 @@ export interface Notification {
   object_ap_id: string | null;
   read: boolean;
   created_at: string;
-}
-
-// Uploaded file
-export interface UploadedFile {
-  url?: string;
-  r2_key: string;
-  content_type: string;
-  filename: string;
-  size: number;
-  preview?: string;
 }
 
 // Story attachment (image or video)

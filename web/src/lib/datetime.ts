@@ -12,17 +12,6 @@ function toDate(dateString: string): Date | null {
   return date;
 }
 
-const relativeFormatterCache = new Map<string, Intl.RelativeTimeFormat>();
-
-function getRelativeFormatter(locale: Locale) {
-  const key = Array.isArray(locale) ? locale.join(",") : (locale ?? "");
-  const cached = relativeFormatterCache.get(key);
-  if (cached) return cached;
-  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-  relativeFormatterCache.set(key, formatter);
-  return formatter;
-}
-
 // Compact relative-time labels per UI language. The Twitter-style compact form
 // ("2h") is intentional (it has to fit the timeline header), so we localize the
 // suffix rather than switch to Intl.RelativeTimeFormat's verbose "2 hours ago".
@@ -111,26 +100,6 @@ export function formatTime(
   });
 }
 
-export function formatChatDateHeader(
-  dateString: string,
-  locale: Locale = "ja-JP",
-): string {
-  const date = toDate(dateString);
-  if (!date) return "";
-  const now = new Date();
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  if (date.toDateString() === now.toDateString()) {
-    return getRelativeFormatter(locale).format(0, "day");
-  }
-  if (date.toDateString() === yesterday.toDateString()) {
-    return getRelativeFormatter(locale).format(-1, "day");
-  }
-
-  return date.toLocaleDateString(locale, { month: "long", day: "numeric" });
-}
-
 export function formatConversationListTime(
   dateString: string | null,
   locale: Locale = "ja-JP",
@@ -160,24 +129,4 @@ export function formatConversationListTime(
     month: "numeric",
     day: "numeric",
   });
-}
-
-export function formatRecentTime(
-  dateString: string | null | undefined,
-  locale: Locale = "ja-JP",
-): string {
-  if (!dateString) return "";
-  const date = toDate(dateString);
-  if (!date) return "";
-
-  const now = new Date();
-  const diffDays = Math.floor((now.getTime() - date.getTime()) / DAY_MS);
-
-  if (diffDays === 0) {
-    return formatTime(dateString, locale);
-  }
-  if (diffDays < 7) {
-    return getRelativeFormatter(locale).format(-diffDays, "day");
-  }
-  return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
 }

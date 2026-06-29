@@ -66,7 +66,10 @@ import {
 import { getInstanceFetchSigner } from "./activitypub/query-helpers.ts";
 import { severFollowEdge } from "./activitypub/handlers/inbox-interaction-handlers.ts";
 import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
-import { teardownActor } from "./account-teardown.ts";
+import {
+  purgeActorMediaUploads,
+  teardownActor,
+} from "./account-teardown.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import {
   actorExists,
@@ -740,34 +743,7 @@ actorsRoute.post("/me/delete", async (c) => {
     // (delete-cascade.ts / stories reap the same way), so a failed R2 purge here
     // leaks the blob permanently — acceptable for a best-effort teardown, but the
     // blob is not later auto-reclaimed.
-    const uploads = await db
-      .select({ r2Key: mediaUploads.r2Key })
-      .from(mediaUploads)
-      .where(eq(mediaUploads.uploaderApId, actorApIdVal));
-    if (uploads.length > 0) {
-      const media = c.env.MEDIA;
-      if (media) {
-        const keys = uploads.map((u) => u.r2Key);
-        // R2 caps a single delete() at 1000 keys; an account with more uploads
-        // would otherwise throw and leak every backing blob. Chunk the purge.
-        const R2_DELETE_BATCH = 1000;
-        try {
-          for (let i = 0; i < keys.length; i += R2_DELETE_BATCH) {
-            await media.delete(keys.slice(i, i + R2_DELETE_BATCH));
-          }
-        } catch (err) {
-          log.error("Failed to purge R2 objects for deleted account", {
-            event: "actors.account.delete_media_purge_failed",
-            actor: actorApIdVal,
-            count: keys.length,
-            error: err,
-          });
-        }
-      }
-      await db
-        .delete(mediaUploads)
-        .where(eq(mediaUploads.uploaderApId, actorApIdVal));
-    }
+    await purgeActorMediaUploads(db, c.env.MEDIA, actorApIdVal);
 
     // Story interactions the actor performed on OTHER actors' stories (incl.
     // remote ones): the objectIds-scoped story_votes/story_views delete below

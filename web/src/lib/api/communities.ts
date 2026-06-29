@@ -316,20 +316,6 @@ export async function updateCommunityMemberRole(
   await assertOk(res, "Failed to update member role");
 }
 
-export async function editCommunityMessage(
-  identifier: string,
-  messageId: string,
-  content: string,
-): Promise<void> {
-  const res = await apiPatch(
-    `/api/communities/${encodeURIComponent(identifier)}/messages/${encodeURIComponent(
-      messageId,
-    )}`,
-    { content },
-  );
-  await assertOk(res, "Failed to edit message");
-}
-
 export async function deleteCommunityMessage(
   identifier: string,
   messageId: string,
