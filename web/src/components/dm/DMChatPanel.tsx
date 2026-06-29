@@ -49,15 +49,11 @@ function mergeMessagesById(
   // return the PREVIOUS array reference so the `messages` signal does not
   // change identity on a poll that fetched nothing new. This stops the
   // scroll-to-bottom effect from re-firing every poll interval.
-  if (merged.length === existing.length) {
-    let same = true;
-    for (let i = 0; i < merged.length; i++) {
-      if (merged[i].id !== existing[i].id) {
-        same = false;
-        break;
-      }
-    }
-    if (same) return existing;
+  if (
+    merged.length === existing.length &&
+    merged.every((m, i) => m.id === existing[i].id)
+  ) {
+    return existing;
   }
   return merged;
 }
