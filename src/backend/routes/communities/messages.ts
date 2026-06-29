@@ -12,6 +12,10 @@ import { formatUsername, generateId } from "../../federation-helpers.ts";
 import { feedCursorWhere } from "../../lib/feed-cursor.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import {
+  deleteObjectCascade,
+  purgeMediaBlobs,
+} from "../posts/delete-cascade.ts";
+import {
   batchLoadActorInfo,
   communityWhere,
   fetchCommunityId,
@@ -458,18 +462,14 @@ messagesRouter.delete("/:identifier/messages/:messageId", async (c) => {
     return c.json({ error: "Permission denied" }, 403);
   }
 
-  // Atomic removal: the object_recipients (audience) row and the objects row must
-  // drop together. As two independent autocommits a failure between them left an
-  // orphan Note with no recipient link that the chat reader (inner-joins
-  // object_recipients) no longer shows but which lingers with no GC. Mirrors the
-  // POST insert path's batch (recipient_ap_id has no FK to actors since 0010, so
-  // a plain Drizzle delete works).
-  await (db as unknown as Batchable).batch([
-    db
-      .delete(objectRecipients)
-      .where(eq(objectRecipients.objectApId, messageId)),
-    db.delete(objects).where(eq(objects.apId, messageId)),
-  ]);
+  // Route through the shared object cascade so a chat message's interaction rows
+  // (likes/announces/bookmarks/object_recipients/story_*) and any attached R2
+  // blob + media_uploads row are reaped deterministically — the runtime's
+  // ON DELETE CASCADE is not relied upon (self-host libsql may run with FK
+  // enforcement off). Then drop the object row and purge blobs last.
+  const mediaKeys = await deleteObjectCascade(db, messageId, c.env.MEDIA);
+  await db.delete(objects).where(eq(objects.apId, messageId));
+  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
 
   return c.json({ success: true });
 });

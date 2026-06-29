@@ -509,6 +509,11 @@ stories.get("/:id/shares", async (c) => {
   if (!(await canViewerReadStory(db, story, actor?.ap_id))) {
     return c.json({ error: "Story not found" }, 404);
   }
+  // Don't serve aggregates for an expired story before the reaper runs,
+  // mirroring the write handlers' expiry gate.
+  if (story.endTime && story.endTime < new Date().toISOString()) {
+    return c.json({ error: "Story has expired" }, 410);
+  }
 
   return c.json({ share_count: story.shareCount || 0 });
 });
@@ -531,6 +536,9 @@ stories.get("/:id/votes", async (c) => {
   // gate isn't a story-existence oracle.
   if (!(await canViewerReadStory(db, story, actor?.ap_id))) {
     return c.json({ error: "Story not found" }, 404);
+  }
+  if (story.endTime && story.endTime < new Date().toISOString()) {
+    return c.json({ error: "Story has expired" }, 410);
   }
 
   const votes = await getVoteCounts(db, apId);

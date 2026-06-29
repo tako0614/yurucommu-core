@@ -278,7 +278,11 @@ test("GET /ap/objects/:id 404s an EXPIRED Story (ephemerality past 24h endTime)"
   const expired = await fetchJson(db, "/ap/objects/story-expired");
   expect(expired.status).toEqual(404);
 
-  // A still-live story (endTime in the future) is still served.
+  // A still-live personal story (endTime in the future) is reach-gated to the
+  // author's accepted followers — every other surface enforces this — so an
+  // UNSIGNED (anonymous / non-follower) fetch must 404 even though the row is
+  // stored visibility="public". A signed accepted-follower (incl. a remote
+  // follower's server during federation) is served via the followers branch.
   const liveId = `${APP_URL}/ap/objects/story-live`;
   await db.insert(objects).values({
     apId: liveId,
@@ -291,8 +295,7 @@ test("GET /ap/objects/:id 404s an EXPIRED Story (ephemerality past 24h endTime)"
     isLocal: 1,
   });
   const live = await fetchJson(db, "/ap/objects/story-live");
-  expect(live.status).toEqual(200);
-  expect(live.body.id).toEqual(liveId);
+  expect(live.status).toEqual(404);
 });
 
 test("#16 GET /ap/objects/:id serves an unlisted object publicly (no signature)", async () => {
