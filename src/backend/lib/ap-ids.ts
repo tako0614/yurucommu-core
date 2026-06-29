@@ -1,4 +1,5 @@
 import { logger } from "./logger.ts";
+import { bytesToHex } from "./hex.ts";
 
 const utilsLog = logger.child({ component: "utils" });
 
@@ -44,9 +45,7 @@ export function generateId(): string {
   // bearer credentials, so we keep the entropy high; 96-bit was too low.
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return bytesToHex(bytes);
 }
 
 export function actorApId(baseUrl: string, username: string): string {

@@ -1,4 +1,5 @@
 import { isSafeRemoteUrl } from "../../federation-helpers.ts";
+import { bytesToHex } from "../hex.ts";
 
 export const DELIVERY_ENDPOINT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -12,10 +13,7 @@ export const DELIVERY_MAX_ATTEMPTS = BACKOFF_SERIES_SECONDS.length;
 export async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
   const digest = await crypto.subtle.digest("SHA-256", data);
-  const bytes = new Uint8Array(digest);
-  let hex = "";
-  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
-  return hex;
+  return bytesToHex(new Uint8Array(digest));
 }
 
 export async function computeDeliveryJobId(

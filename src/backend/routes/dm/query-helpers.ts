@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNotNull, or } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import { objects } from "../../../db/index.ts";
 import { recipientObjectIds } from "./conversations-helpers.ts";
+import { base64UrlEncode } from "../../lib/oauth-utils.ts";
 
 export const MAX_DM_CONTENT_LENGTH = 5000;
 // Capped at 90 (not 100): a page of DM ids is re-queried via `inArray` for
@@ -37,14 +38,9 @@ export function getConversationId(
 ): string {
   const [p1, p2] = [ap1, ap2].sort();
   const bytes = new TextEncoder().encode(`${p1}\n${p2}`);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
   // base64url, no padding: URL-safe and free of characters that would be
   // stripped, so the full (collision-free) encoding is preserved.
-  const hash = btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const hash = base64UrlEncode(bytes.buffer);
   return `${baseUrl}/ap/conversations/${hash}`;
 }
 

@@ -15,6 +15,7 @@
 import type { Context, MiddlewareHandler, Next } from "hono";
 import type { Env, Variables } from "../types.ts";
 import { logger } from "../lib/logger.ts";
+import { bytesToHex } from "../lib/hex.ts";
 
 const log = logger.child({ component: "middleware.cache" });
 
@@ -202,10 +203,7 @@ export function generateCacheKey(c: HonoContext, config: CacheConfig): string {
 async function generateETag(body: string): Promise<string> {
   const data = new TextEncoder().encode(body);
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  const hashHex = bytesToHex(new Uint8Array(hashBuffer));
   return `"${hashHex.substring(0, 16)}"`;
 }
 
