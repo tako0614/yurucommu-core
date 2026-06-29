@@ -49,7 +49,22 @@ const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 // ---------------------------------------------------------------------------
 
 /** Look up a post by local ID or full AP ID. Returns null when not found. */
-async function findPost(c: AppContext, selectFields?: "apIdOnly") {
+async function findPost(
+  c: AppContext,
+): Promise<typeof objects.$inferSelect | null>;
+async function findPost(
+  c: AppContext,
+  selectFields: "apIdOnly",
+): Promise<{ apId: string; attributedTo: string } | null>;
+async function findPost(
+  c: AppContext,
+  selectFields?: "apIdOnly",
+): Promise<
+  | typeof objects.$inferSelect
+  | { apId: string; attributedTo: string }
+  | null
+  | undefined
+> {
   const db = c.get("db");
   const postId = c.req.param("id")!;
   const baseUrl = c.env.APP_URL;
@@ -138,30 +153,14 @@ posts.post("/:id/like", async (c) => {
   // user who learns a post's apId could "like" a followers-only / direct /
   // private-community post they were never shown, notifying the author and
   // bumping the count from an unentitled actor. 404 (not 403) so existence is
-  // not revealed, mirroring the post-detail gate.
-  const likeGate = await db
-    .select({
-      visibility: objects.visibility,
-      attributedTo: objects.attributedTo,
-      toJson: objects.toJson,
-      ccJson: objects.ccJson,
-      audienceJson: objects.audienceJson,
-      communityApId: objects.communityApId,
-      type: objects.type,
-      endTime: objects.endTime,
-    })
-    .from(objects)
-    .where(eq(objects.apId, post.apId))
-    .get();
-  if (
-    !likeGate ||
-    !(await canViewerReadObjectFull(db, likeGate, actor.ap_id))
-  ) {
+  // not revealed, mirroring the post-detail gate. `post` is the full row loaded
+  // above, so the read-gate runs against it directly.
+  if (!(await canViewerReadObjectFull(db, post, actor.ap_id))) {
     return c.json({ error: "Post not found" }, 404);
   }
   // A blocked actor must not be able to like (bump likeCount + notify) the author
   // who blocked them — mirror the story-like / DM block guard (404, not 403).
-  if (await actorIsBlockedBy(db, likeGate.attributedTo, actor.ap_id)) {
+  if (await actorIsBlockedBy(db, post.attributedTo, actor.ap_id)) {
     return c.json({ error: "Post not found" }, 404);
   }
 
@@ -344,23 +343,14 @@ posts.post("/:id/repost", async (c) => {
   // likewise forbids boosting followers-only and direct posts). "Truly public"
   // = visibility public/unlisted AND no community/addressed audience (an empty
   // audienceJson — community feed + chat posts both carry a non-empty audience).
-  const reach = await db
-    .select({
-      visibility: objects.visibility,
-      audienceJson: objects.audienceJson,
-      type: objects.type,
-    })
-    .from(objects)
-    .where(eq(objects.apId, post.apId))
-    .get();
+  // `post` is the full row loaded above, so reach is read from it directly.
   const boostable =
-    !!reach &&
     // A Story is stored visibility="public"/audienceJson="[]" but its reach is
     // followers-only and it is ephemeral — boosting it would re-broadcast
     // follower-scoped content to the booster's public audience past its lifetime.
-    reach.type !== "Story" &&
-    (reach.visibility === "public" || reach.visibility === "unlisted") &&
-    reach.audienceJson === "[]";
+    post.type !== "Story" &&
+    (post.visibility === "public" || post.visibility === "unlisted") &&
+    post.audienceJson === "[]";
   if (!boostable) {
     return c.json({ error: "This post cannot be reposted" }, 403);
   }
