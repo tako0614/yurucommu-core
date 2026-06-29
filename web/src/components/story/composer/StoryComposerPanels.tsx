@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
-import { DrawingPanel, StickerPanel } from "../ToolPanel.tsx";
+import { DrawingPanel } from "../DrawingPanel.tsx";
+import { StickerPanel } from "../StickerPanel.tsx";
 import { useI18n } from "../../../lib/i18n.tsx";
 
 interface StoryComposerStickerPanelProps {

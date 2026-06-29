@@ -1,43 +1,12 @@
 // Shared helpers for DM conversations
 
 import type { Context } from "hono";
-import { and, eq, inArray, isNotNull, or, type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
-import {
-  actorCache,
-  actors,
-  objectRecipients,
-  objects,
-} from "../../../db/index.ts";
+import { objectRecipients, objects } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { safeJsonParse } from "../../federation-helpers.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
-
-/**
- * Build a safe LIKE condition that matches the JSON-quoted token for an AP-ID
- * inside the recipient `toJson` array (e.g. `"https://host/ap/users/alice"`).
- *
- * The AP-ID can be an attacker-influenceable remote URL, so the LIKE pattern
- * MUST escape the `%` / `_` wildcards (and the escape char itself) — otherwise
- * those characters would act as wildcards and broaden or break the match. We
- * anchor on the JSON-stringified token (surrounding double quotes act as
- * delimiters) so a recipient ID that is a textual prefix of another cannot
- * cross-match. This is a substring scan of a JSON array column and is used only
- * to enumerate which conversations involve an actor; message-content access is
- * authorized separately by exact conversation + recipient checks.
- */
-export function recipientToJsonLike(apId: string): SQL {
-  // JSON.stringify yields a quoted token whose surrounding quotes delimit the
-  // value, so a recipient ID that is a textual prefix of another cannot
-  // cross-match. Match with instr() (a LITERAL substring search) — NOT
-  // `LIKE '%...%'`: the AP-ID is caller-supplied and often long (a remote
-  // `https://host/users/name` quoted token easily exceeds D1's LIKE
-  // pattern-complexity limit, SQLITE_ERROR 7500 at ~50 chars). instr() has no
-  // wildcards (so no escaping needed) and no length limit, and is exact
-  // (AP-IDs are matched case-sensitively, as they must be).
-  const token = JSON.stringify(apId);
-  return sql`instr(${objects.toJson}, ${token}) > 0`;
-}
 
 /**
  * Indexed lookup of the object AP-IDs a given actor was addressed on as a DM
@@ -52,9 +21,8 @@ export function recipientToJsonLike(apId: string): SQL {
  * table cannot use an index and degrades to a full-table scan.
  *
  * Returned as a Drizzle subquery so callers can use it inside `inArray(
- * objects.apId, ...)` — the same recipient-membership semantics as
- * {@link recipientToJsonLike} (the `to` audience contains the actor) without
- * the scan.
+ * objects.apId, ...)` — the same recipient-membership semantics (the `to`
+ * audience contains the actor) without an unindexable `to_json` substring scan.
  */
 export function recipientObjectIds(db: Database, recipientApId: string) {
   return db
@@ -75,20 +43,6 @@ export {
   formatActorSummary as formatActorProfile,
   loadActorInfoMap as buildActorInfoMap,
 } from "../actors-helpers.ts";
-
-export const ACTOR_INFO_FIELDS = {
-  apId: actors.apId,
-  preferredUsername: actors.preferredUsername,
-  name: actors.name,
-  iconUrl: actors.iconUrl,
-} as const;
-
-export const ACTOR_CACHE_INFO_FIELDS = {
-  apId: actorCache.apId,
-  preferredUsername: actorCache.preferredUsername,
-  name: actorCache.name,
-  iconUrl: actorCache.iconUrl,
-} as const;
 
 /** Extract the other participant's AP ID from a DM object. */
 export function getOtherParticipant(

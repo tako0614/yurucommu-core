@@ -48,20 +48,6 @@ export async function fetchTimeline(options?: {
   };
 }
 
-export async function fetchFollowingTimeline(options?: {
-  limit?: number;
-  before?: string;
-}): Promise<Post[]> {
-  const params = new URLSearchParams();
-  if (options?.limit) params.set("limit", String(options.limit));
-  if (options?.before) params.set("before", options.before);
-  const query = params.toString() ? `?${params}` : "";
-  const res = await apiFetch(`/api/timeline/following${query}`);
-  await assertOk(res, "Failed to load timeline");
-  const data = (await res.json()) as { posts?: Post[] };
-  return (data.posts || []).map(normalizePost);
-}
-
 export async function fetchPost(apId: string): Promise<Post> {
   const res = await apiFetch(`/api/posts/${encodeURIComponent(apId)}`);
   await assertOk(res, "Post not found");

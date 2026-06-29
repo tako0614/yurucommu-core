@@ -1,7 +1,6 @@
 import path from "node:path";
 
 export const DEFAULT_LIST_LIMIT = 1000;
-export const META_SUFFIX = ".meta.json";
 
 const FALLBACK_MIME = "application/octet-stream";
 

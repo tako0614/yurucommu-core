@@ -132,38 +132,5 @@ export interface Actor {
   created_at: string;
 }
 
-// Cached remote actor
-export interface ActorCache {
-  ap_id: string;
-  type: string;
-  preferred_username: string | null;
-  name: string | null;
-  summary: string | null;
-  icon_url: string | null;
-  inbox: string;
-  public_key_pem: string | null;
-  raw_json: string;
-}
-
-// AP Object (Note/Post)
-export interface APObject {
-  ap_id: string;
-  type: string;
-  attributed_to: string;
-  content: string;
-  summary: string | null;
-  attachments_json: string;
-  in_reply_to: string | null;
-  visibility: string;
-  community_ap_id: string | null;
-  end_time: string | null;
-  like_count: number;
-  reply_count: number;
-  announce_count: number;
-  share_count: number;
-  published: string;
-  is_local: number;
-}
-
 // Re-export Hono types for route files
 export type { Context } from "hono";

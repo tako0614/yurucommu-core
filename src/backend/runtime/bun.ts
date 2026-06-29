@@ -15,7 +15,6 @@ import type {
   PreparedStatement,
   QueryResult,
   RunResult,
-  RuntimeEnv,
   StorageObject,
 } from "./types.ts";
 import {
@@ -618,40 +617,4 @@ export class BunAssets implements IStaticAssets {
     }
     return new Response("Not Found", { status: 404 });
   }
-}
-
-/**
- * Create runtime environment for Bun
- */
-export function createBunRuntime(config: {
-  databasePath?: string;
-  storagePath?: string;
-  assetsPath?: string;
-  envVars: {
-    APP_URL: string;
-    AUTH_PASSWORD_HASH?: string;
-    GOOGLE_CLIENT_ID?: string;
-    GOOGLE_CLIENT_SECRET?: string;
-    X_CLIENT_ID?: string;
-    X_CLIENT_SECRET?: string;
-    OIDC_ISSUER_URL?: string;
-    OIDC_CLIENT_ID?: string;
-    OIDC_CLIENT_SECRET?: string;
-    OAUTH_ISSUER_URL?: string;
-    TAKOSUMI_ACCOUNTS_ISSUER_URL?: string;
-    TAKOSUMI_ACCOUNTS_CLIENT_ID?: string;
-    TAKOSUMI_ACCOUNTS_CLIENT_SECRET?: string;
-    TAKOS_URL?: string;
-    AUTH_MODE?: string;
-  };
-}): RuntimeEnv {
-  return {
-    db: BunDatabase.create(config.databasePath || ":memory:"),
-    storage: config.storagePath
-      ? new BunStorage(config.storagePath)
-      : undefined,
-    kv: new MemoryKV(),
-    assets: config.assetsPath ? BunAssets.create(config.assetsPath) : undefined,
-    ...config.envVars,
-  };
 }
