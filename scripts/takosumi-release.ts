@@ -187,7 +187,7 @@ export function buildDeployArgs(
 }
 
 export function buildInstallArgs(): string[] {
-  return ["bun", "install", "--frozen-lockfile"];
+  return ["bun", "install", "--frozen-lockfile", "--ignore-scripts"];
 }
 
 export function buildD1ExecuteTemplate(configPath: string): string[] {

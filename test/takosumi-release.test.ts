@@ -91,7 +91,12 @@ test("buildWranglerToml renders the Worker bindings without secrets", () => {
 });
 
 test("release commands use generated wrangler config", () => {
-  expect(buildInstallArgs()).toEqual(["bun", "install", "--frozen-lockfile"]);
+  expect(buildInstallArgs()).toEqual([
+    "bun",
+    "install",
+    "--frozen-lockfile",
+    "--ignore-scripts",
+  ]);
   expect(buildDeployArgs(".takosumi-release/run/wrangler.toml")).toEqual([
     "bunx",
     "wrangler",
