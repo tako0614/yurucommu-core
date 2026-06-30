@@ -25,6 +25,7 @@ import {
 } from "../lib/activitypub-validators.ts";
 import { logger } from "../lib/logger.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
+import { type ActorInfo, loadActorInfoMap } from "./actors-helpers.ts";
 import { excludeBlockedMutedAuthors } from "../lib/feed-exclude.ts";
 import { withCache } from "../middleware/cache.ts";
 
@@ -71,12 +72,11 @@ function validateSort<T extends string>(
 // Shared types
 // ---------------------------------------------------------------------------
 
-type ActorInfo = {
-  apId: string;
-  preferredUsername: string | null;
-  name: string | null;
-  iconUrl: string | null;
-};
+// ActorInfo + the local-wins author lookup come from the canonical, D1-chunked
+// loadActorInfoMap (actors-helpers). The previous file-local buildAuthorMap copy
+// passed the (up to 100) author ids straight into inArray with no chunking — at
+// D1's 100-bound-parameter ceiling with zero headroom — so it is removed in
+// favour of the shared loader.
 
 // ---------------------------------------------------------------------------
 // Shared helpers (file-local, not exported)
@@ -202,39 +202,6 @@ export function postContentSearchPredicate(query: string) {
   return sql`objects.rowid IN (SELECT rowid FROM objects_fts WHERE objects_fts MATCH ${phrase})`;
 }
 
-/** Build a merged author lookup map (local actors take priority over cached). */
-async function buildAuthorMap(
-  db: Database,
-  apIds: string[],
-): Promise<Map<string, ActorInfo>> {
-  const [localAuthors, cachedAuthors] = await Promise.all([
-    db
-      .select({
-        apId: actors.apId,
-        preferredUsername: actors.preferredUsername,
-        name: actors.name,
-        iconUrl: actors.iconUrl,
-      })
-      .from(actors)
-      .where(inArray(actors.apId, apIds)),
-    db
-      .select({
-        apId: actorCache.apId,
-        preferredUsername: actorCache.preferredUsername,
-        name: actorCache.name,
-        iconUrl: actorCache.iconUrl,
-      })
-      .from(actorCache)
-      .where(inArray(actorCache.apId, apIds)),
-  ]);
-
-  const map = new Map<string, ActorInfo>();
-  // Insert cached first so local actors override them
-  for (const a of cachedAuthors) map.set(a.apId, a);
-  for (const a of localAuthors) map.set(a.apId, a);
-  return map;
-}
-
 /** Load the set of post AP IDs that a given actor has liked. */
 async function loadLikedPostIds(
   db: Database,
@@ -314,7 +281,7 @@ async function enrichPosts(
 
   const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
   const [authorMap, likedPostIds] = await Promise.all([
-    buildAuthorMap(db, authorApIds),
+    loadActorInfoMap(db, authorApIds, "author"),
     loadLikedPostIds(
       db,
       actorApId,

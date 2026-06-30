@@ -46,6 +46,7 @@ import {
   validateOptionalString,
 } from "./queries.ts";
 import { logger } from "../../lib/logger.ts";
+import { chunkForInClause } from "../../lib/chunk.ts";
 
 const log = logger.child({ component: "posts.helpers" });
 
@@ -441,6 +442,55 @@ function actorHostMatches(apId: string, domain: string): boolean {
   }
 }
 
+type MentionActorRow = { apId: string; preferredUsername: string | null };
+
+/**
+ * Resolve the local (`actors`) and cached-remote (`actor_cache`) rows for the
+ * mention tokens of a post. Both lookups are CHUNKED via chunkForInClause: post
+ * content allows >100 distinct `@token`s within MAX_POST_CONTENT_LENGTH, and an
+ * unchunked `inArray` over that list binds >100 params, exceeding Cloudflare
+ * D1's 100-bound-parameter ceiling ("too many SQL variables") — a prod-only
+ * failure invisible to the libsql/better-sqlite3 test driver. `remoteMentions`
+ * are `user@host` tokens; only their username part is matched here (the caller
+ * disambiguates the host).
+ */
+async function resolveMentionActorRows(
+  db: Database,
+  localMentions: string[],
+  remoteMentions: string[],
+): Promise<{ localActors: MentionActorRow[]; cachedActors: MentionActorRow[] }> {
+  const remoteUsernames = remoteMentions.map((m) => m.split("@")[0]);
+  const [localActors, cachedActors] = await Promise.all([
+    localMentions.length > 0
+      ? Promise.all(
+          chunkForInClause(localMentions).map((chunk) =>
+            db
+              .select({
+                apId: actors.apId,
+                preferredUsername: actors.preferredUsername,
+              })
+              .from(actors)
+              .where(inArray(actors.preferredUsername, chunk)),
+          ),
+        ).then((rows) => rows.flat())
+      : [],
+    remoteUsernames.length > 0
+      ? Promise.all(
+          chunkForInClause(remoteUsernames).map((chunk) =>
+            db
+              .select({
+                apId: actorCache.apId,
+                preferredUsername: actorCache.preferredUsername,
+              })
+              .from(actorCache)
+              .where(inArray(actorCache.preferredUsername, chunk)),
+          ),
+        ).then((rows) => rows.flat())
+      : [],
+  ]);
+  return { localActors, cachedActors };
+}
+
 export async function processMentions(
   db: Database,
   params: {
@@ -507,31 +557,11 @@ export async function processMentions(
   const localMentions = mentions.filter((m) => !m.includes("@"));
   const remoteMentions = mentions.filter((m) => m.includes("@"));
 
-  const [localActors, cachedActors] = await Promise.all([
-    localMentions.length > 0
-      ? db
-          .select({
-            apId: actors.apId,
-            preferredUsername: actors.preferredUsername,
-          })
-          .from(actors)
-          .where(inArray(actors.preferredUsername, localMentions))
-      : [],
-    remoteMentions.length > 0
-      ? db
-          .select({
-            apId: actorCache.apId,
-            preferredUsername: actorCache.preferredUsername,
-          })
-          .from(actorCache)
-          .where(
-            inArray(
-              actorCache.preferredUsername,
-              remoteMentions.map((m) => m.split("@")[0]),
-            ),
-          )
-      : [],
-  ]);
+  const { localActors, cachedActors } = await resolveMentionActorRows(
+    db,
+    localMentions,
+    remoteMentions,
+  );
   const localActorMap = new Map(
     localActors.map((a) => [a.preferredUsername, a.apId]),
   );
@@ -700,31 +730,11 @@ export async function deriveContentTags(
   const localMentions = mentions.filter((m) => !m.includes("@"));
   const remoteMentions = mentions.filter((m) => m.includes("@"));
 
-  const [localActors, cachedActors] = await Promise.all([
-    localMentions.length > 0
-      ? db
-          .select({
-            apId: actors.apId,
-            preferredUsername: actors.preferredUsername,
-          })
-          .from(actors)
-          .where(inArray(actors.preferredUsername, localMentions))
-      : [],
-    remoteMentions.length > 0
-      ? db
-          .select({
-            apId: actorCache.apId,
-            preferredUsername: actorCache.preferredUsername,
-          })
-          .from(actorCache)
-          .where(
-            inArray(
-              actorCache.preferredUsername,
-              remoteMentions.map((m) => m.split("@")[0]),
-            ),
-          )
-      : [],
-  ]);
+  const { localActors, cachedActors } = await resolveMentionActorRows(
+    db,
+    localMentions,
+    remoteMentions,
+  );
   const localActorMap = new Map(
     localActors.map((a) => [a.preferredUsername, a.apId]),
   );

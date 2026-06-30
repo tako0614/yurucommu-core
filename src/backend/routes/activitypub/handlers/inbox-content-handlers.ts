@@ -47,6 +47,7 @@ import {
 } from "../../../lib/activitypub-actor-cache.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { destinationDeclaresAlias } from "../../../lib/account-migration.ts";
+import { chunkForInClause } from "../../../lib/chunk.ts";
 import {
   actorIsBlockedBy,
   canViewerReadObjectFull,
@@ -232,6 +233,14 @@ function isObjectIdOriginMismatch(
  * actor's id in `href`. Used to fan-in mention notifications for federated posts
  * (mirrors the local processMentions path).
  */
+// Cap on the number of distinct local mentions a single inbound activity can
+// fan a notification out to. `object.tag` is bounded only by the 512 KiB inbox
+// payload cap (~9-10k Mention entries), and each one used to cost a serial
+// `actors` SELECT — an attacker could blow the Workers subrequest budget with
+// one signed POST. Real posts mention a handful of people, so this ceiling is
+// generous while bounding the worst case.
+const MAX_INBOUND_MENTIONS = 50;
+
 function extractMentionHrefs(tag: unknown): string[] {
   const arr = Array.isArray(tag) ? tag : tag ? [tag] : [];
   const hrefs: string[] = [];
@@ -653,14 +662,30 @@ export async function handleCreate(
     if (href === actor) continue;
     if (parentObj && href === parentObj.attributedTo) continue;
     mentionedLocalApIds.add(href);
+    // Bound attacker-controlled fan-out: stop collecting once the cap is hit so
+    // a tag array full of distinct fake local hrefs cannot drive unbounded work.
+    if (mentionedLocalApIds.size >= MAX_INBOUND_MENTIONS) break;
   }
-  for (const mentionedApId of mentionedLocalApIds) {
-    const localActor = await db
-      .select({ apId: actors.apId })
-      .from(actors)
-      .where(eq(actors.apId, mentionedApId))
-      .get();
-    if (!localActor) continue;
+  if (mentionedLocalApIds.size === 0) return;
+
+  // Batch-resolve which of the mentioned hrefs are real local actors in one
+  // chunked query (D1 caps bound params at 100), instead of a serial SELECT per
+  // href. An attacker can pack thousands of distinct fake local hrefs into the
+  // tag array; resolving them one-by-one was an N+1 / subrequest-budget
+  // amplification. The chunked inArray collapses it to ceil(N/90) queries, and
+  // only the resolved (existing) actors are then notified.
+  const existingLocalApIds = (
+    await Promise.all(
+      chunkForInClause([...mentionedLocalApIds]).map((chunk) =>
+        db
+          .select({ apId: actors.apId })
+          .from(actors)
+          .where(inArray(actors.apId, chunk)),
+      ),
+    )
+  ).flat();
+
+  for (const { apId: mentionedApId } of existingLocalApIds) {
     if (await actorIsBlockedBy(db, mentionedApId, actor)) continue;
     await upsertActivityAndNotify(
       db,
