@@ -6,7 +6,6 @@ import {
   count,
   desc,
   eq,
-  gt,
   inArray,
   isNotNull,
   isNull,
@@ -20,32 +19,16 @@ import {
   activities,
   actorCache,
   actors,
-  announces,
   blocks,
-  bookmarks,
   communities,
-  communityInvites,
-  communityJoinRequests,
-  communityMembers,
   deliveryQueue,
-  dmArchivedConversations,
-  dmCommunityReadStatus,
-  dmReadStatus,
-  dmTyping,
   follows,
   inbox,
-  likes,
   mediaUploads,
   mutes,
   notDeleted,
-  notificationArchived,
   nowIso,
-  objectRecipients,
   objects,
-  sessions,
-  storyShares,
-  storyViews,
-  storyVotes,
 } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import type { Env, Variables } from "../types.ts";
@@ -65,11 +48,7 @@ import {
 } from "../lib/account-migration.ts";
 import { getInstanceFetchSigner } from "./activitypub/query-helpers.ts";
 import { severFollowEdge } from "./activitypub/handlers/inbox-interaction-handlers.ts";
-import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
-import {
-  purgeActorMediaUploads,
-  teardownActor,
-} from "./account-teardown.ts";
+import { teardownActor } from "./account-teardown.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import {
   actorExists,
@@ -515,492 +494,26 @@ actorsRoute.post("/me/delete", async (c) => {
   const baseUrl = c.env.APP_URL;
 
   try {
-    // Federate account deletion BEFORE local teardown so remote followers
-    // learn the actor is gone. We persist a Delete(actor) activity and
-    // SNAPSHOT the follower inboxes into per-endpoint delivery jobs while the
-    // follower graph and the activity row still exist. A plain async
-    // fanout_followers message would be processed AFTER teardown deletes the
-    // `follows` rows below, so the consumer would read an empty follower graph
-    // and reach zero remote followers; resolving endpoints synchronously here
-    // captures the graph before it is gone. The Delete activity row is
-    // intentionally preserved through teardown (excluded from the activities
-    // delete below) so the deliver_endpoint consumer can still read its
-    // rawJson after the actor's other rows are gone.
-    const deleteActivityId = activityApId(baseUrl, generateId());
-    const deleteActivity = {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: deleteActivityId,
-      type: "Delete",
-      actor: actorApIdVal,
-      to: ["https://www.w3.org/ns/activitystreams#Public"],
-      cc: [actor.followers_url],
-      object: actorApIdVal,
-    };
-    try {
-      await db.insert(activities).values({
-        apId: deleteActivityId,
-        type: "Delete",
-        actorApId: actorApIdVal,
-        objectApId: actorApIdVal,
-        rawJson: JSON.stringify(deleteActivity),
-        direction: "outbound",
-      });
-      // Snapshot follower inboxes into delivery jobs NOW, before the `follows`
-      // rows are deleted in Phase 1 below.
-      await snapshotAndEnqueueFollowerDeliveries(
-        db,
-        c.env,
-        deleteActivityId,
-        actorApIdVal,
-      );
-    } catch (err) {
-      // Federation is best-effort; never block local account deletion on it.
-      log.error("Failed to enqueue account Delete federation", {
-        event: "actors.account.delete_federation_failed",
-        actor: actorApIdVal,
-        error: err,
-      });
-    }
-
-    // Phase 1: remove dependent records sequentially.
-    await db.delete(sessions).where(eq(sessions.memberId, actorApIdVal));
-
     // Gather the owner's SUB-ACCOUNTS (profiles minted via /accounts + /switch)
-    // for a FULL teardown after the owner's own teardown below. A sub-account is
-    // a first-class actor that can post / follow / like / join+own communities,
-    // so a mere tombstone leaves its content live in feeds, its edges inflating
-    // counterparty counters, its community memberships in rosters/counts (and a
-    // sole-owned community permanently unmanageable), and no federated Delete is
-    // sent. teardownActor() applies the same cascade the owner receives. Resolved
-    // by ownerActorApId before the owner row is scrubbed (its ownerActorApId is
-    // its own field; the sub-accounts' link is untouched until their teardown).
+    // BEFORE the owner's own teardown. A sub-account is a first-class actor that
+    // can post / follow / like / join+own communities, so it needs the FULL
+    // cascade, not a mere tombstone. They are keyed by ownerActorApId === the
+    // owner's apId, which the owner teardown does NOT change (it only nulls the
+    // owner's own ownerActorApId field), so gathering them here is order-safe.
     const subAccounts = await db
       .select({ apId: actors.apId, followersUrl: actors.followersUrl })
       .from(actors)
       .where(eq(actors.ownerActorApId, actorApIdVal));
 
-    // Reconcile the COUNTERPARTIES' counts before dropping the edges — this was
-    // the one edge-removal path that skipped it, leaving 3rd-party follower /
-    // following counts inflated after a delete. Each edge is unique per pair, so
-    // a single guarded -1 over the affected local actors is exact:
-    //  - everyone the deleted actor FOLLOWED loses a follower,
-    //  - everyone who FOLLOWED the deleted actor loses a following.
-    // The membership is expressed as `actors.apId IN (SELECT ... FROM follows)`
-    // subqueries (run BEFORE the edges are deleted) so the reconcile is lossless
-    // for any follow-graph size and never splices thousands of ids into the
-    // query as bound parameters (D1's variable ceiling — the same hazard the
-    // timeline feeds were converted away from). The subquery naturally scopes to
-    // LOCAL actors (remote actors have no `actors` row); gt(...,0) guards
-    // underflow.
-    // Only ACCEPTED edges ever incremented a counter — a pending follow request
-    // is inserted with no count change (+1 happens on Accept). So the reconcile
-    // MUST filter status='accepted', or deleting an actor with a pending request
-    // out/in would wrongly decrement a counterparty's real count (the gt(...,0)
-    // floor only prevents going negative, not under-counting a nonzero value).
-    // Mirrors the EXISTS(... status='accepted') guard every other edge-removal
-    // path uses (unfollow / undoFollow / handleRemove / handleBlock).
-    await db
-      .update(actors)
-      .set({ followerCount: sql`${actors.followerCount} - 1` })
-      .where(
-        and(
-          inArray(
-            actors.apId,
-            db
-              .select({ id: follows.followingApId })
-              .from(follows)
-              .where(
-                and(
-                  eq(follows.followerApId, actorApIdVal),
-                  eq(follows.status, "accepted"),
-                ),
-              ),
-          ),
-          gt(actors.followerCount, 0),
-        ),
-      );
-    await db
-      .update(actors)
-      .set({ followingCount: sql`${actors.followingCount} - 1` })
-      .where(
-        and(
-          inArray(
-            actors.apId,
-            db
-              .select({ id: follows.followerApId })
-              .from(follows)
-              .where(
-                and(
-                  eq(follows.followingApId, actorApIdVal),
-                  eq(follows.status, "accepted"),
-                ),
-              ),
-          ),
-          gt(actors.followingCount, 0),
-        ),
-      );
-
-    await db
-      .delete(follows)
-      .where(
-        or(
-          eq(follows.followerApId, actorApIdVal),
-          eq(follows.followingApId, actorApIdVal),
-        ),
-      );
-
-    await db
-      .delete(blocks)
-      .where(
-        or(
-          eq(blocks.blockerApId, actorApIdVal),
-          eq(blocks.blockedApId, actorApIdVal),
-        ),
-      );
-    await db
-      .delete(mutes)
-      .where(
-        or(
-          eq(mutes.muterApId, actorApIdVal),
-          eq(mutes.mutedApId, actorApIdVal),
-        ),
-      );
-
-    // Reconcile the denormalized like/announce counters on OTHER actors' objects
-    // BEFORE deleting this actor's edges — otherwise those posts keep a
-    // permanently inflated like_count/announce_count (griefable: throwaway
-    // accounts could ratchet a victim post's counts then self-delete). Each edge
-    // is unique per (actor, object) pair, so a single guarded -1 over the objects
-    // the actor interacted with is exact — same shape as the follower reconcile
-    // above; the subquery scopes to exactly those objects and never splices ids
-    // as bound params (D1's variable ceiling). (bookmarks have no counter.)
-    await db
-      .update(objects)
-      .set({ likeCount: sql`${objects.likeCount} - 1` })
-      .where(
-        and(
-          inArray(
-            objects.apId,
-            db
-              .select({ id: likes.objectApId })
-              .from(likes)
-              .where(eq(likes.actorApId, actorApIdVal)),
-          ),
-          gt(objects.likeCount, 0),
-        ),
-      );
-    await db
-      .update(objects)
-      .set({ announceCount: sql`${objects.announceCount} - 1` })
-      .where(
-        and(
-          inArray(
-            objects.apId,
-            db
-              .select({ id: announces.objectApId })
-              .from(announces)
-              .where(eq(announces.actorApId, actorApIdVal)),
-          ),
-          gt(objects.announceCount, 0),
-        ),
-      );
-    // Story shares are the same griefable denormalized-counter shape as
-    // like/announce: each share bumps objects.share_count by +1, so the actor's
-    // shares on OTHER actors' (and remote) stories must be reconciled BEFORE the
-    // edges are deleted, or those stories keep a permanently inflated share_count.
-    await db
-      .update(objects)
-      .set({ shareCount: sql`${objects.shareCount} - 1` })
-      .where(
-        and(
-          inArray(
-            objects.apId,
-            db
-              .select({ id: storyShares.storyApId })
-              .from(storyShares)
-              .where(eq(storyShares.actorApId, actorApIdVal)),
-          ),
-          gt(objects.shareCount, 0),
-        ),
-      );
-
-    await db.delete(likes).where(eq(likes.actorApId, actorApIdVal));
-    await db.delete(bookmarks).where(eq(bookmarks.actorApId, actorApIdVal));
-    await db.delete(announces).where(eq(announces.actorApId, actorApIdVal));
-
-    await db.delete(inbox).where(eq(inbox.actorApId, actorApIdVal));
-    // Notification rows for this actor: inbox (above) is the live notification
-    // source; the archived projection must go too so no per-actor notification
-    // data survives the deletion.
-    await db
-      .delete(notificationArchived)
-      .where(eq(notificationArchived.actorApId, actorApIdVal));
-
-    // Media: hard-delete the actor's uploads and best-effort purge the backing
-    // R2 objects so blobs do not leak. The DB rows are removed regardless of
-    // whether the object-store delete succeeds; never block account deletion on
-    // storage availability. NOTE: there is NO orphaned-key reconcile sweep
-    // (delete-cascade.ts / stories reap the same way), so a failed R2 purge here
-    // leaks the blob permanently — acceptable for a best-effort teardown, but the
-    // blob is not later auto-reclaimed.
-    await purgeActorMediaUploads(db, c.env.MEDIA, actorApIdVal);
-
-    // Story interactions the actor performed on OTHER actors' stories (incl.
-    // remote ones): the objectIds-scoped story_votes/story_views delete below
-    // only reaps interactions on THIS actor's own stories, so without these the
-    // actor's votes/views on remote stories are orphaned by the tombstone.
-    await db.delete(storyVotes).where(eq(storyVotes.actorApId, actorApIdVal));
-    await db.delete(storyViews).where(eq(storyViews.actorApId, actorApIdVal));
-    // Story shares the actor performed on OTHER/remote stories (the
-    // authored-object-scoped delete below only covers THIS actor's own stories),
-    // counterpart to the share_count reconcile above. Without this the share
-    // edges are orphaned by the tombstone and resurface as phantom "already
-    // shared" state if the single-user handle is re-registered (same apId).
-    await db.delete(storyShares).where(eq(storyShares.actorApId, actorApIdVal));
-
-    // Per-actor DM status metadata (typing / read watermarks / community read /
-    // archived conversations). These tables have no FK to actors, so there is no
-    // engine cascade; without these deletes the rows survive the tombstone and,
-    // because the conversation id is a deterministic function of the (re-used)
-    // apIds, stale read/archive state resurfaces for a re-registered identity.
-    await db
-      .delete(dmReadStatus)
-      .where(eq(dmReadStatus.actorApId, actorApIdVal));
-    await db
-      .delete(dmCommunityReadStatus)
-      .where(eq(dmCommunityReadStatus.actorApId, actorApIdVal));
-    await db
-      .delete(dmArchivedConversations)
-      .where(eq(dmArchivedConversations.actorApId, actorApIdVal));
-    await db
-      .delete(dmTyping)
-      .where(
-        or(
-          eq(dmTyping.actorApId, actorApIdVal),
-          eq(dmTyping.recipientApId, actorApIdVal),
-        ),
-      );
-
-    // Community membership lifecycle rows for this actor: pending join requests
-    // and any invites the actor created or consumed would otherwise dangle.
-    await db
-      .delete(communityJoinRequests)
-      .where(eq(communityJoinRequests.actorApId, actorApIdVal));
-    await db
-      .delete(communityInvites)
-      .where(
-        or(
-          eq(communityInvites.invitedByApId, actorApIdVal),
-          eq(communityInvites.usedByApId, actorApIdVal),
-          eq(communityInvites.invitedApId, actorApIdVal),
-        ),
-      );
-
-    const memberships = await db
-      .select({
-        communityApId: communityMembers.communityApId,
-        role: communityMembers.role,
-      })
-      .from(communityMembers)
-      .where(eq(communityMembers.actorApId, actorApIdVal));
-    const communityApIds = memberships.map((m) => m.communityApId);
-
-    // Hand off ownership of any community where this actor is the SOLE owner to
-    // the oldest remaining member before dropping their memberships — otherwise
-    // deleting the only owner orphans the community with no one able to manage
-    // it (/leave + role-PATCH already block the last owner from leaving, but
-    // account deletion bypasses that invariant).
-    for (const m of memberships) {
-      if (m.role !== "owner") continue;
-      const otherOwner = await db
-        .select({ actorApId: communityMembers.actorApId })
-        .from(communityMembers)
-        .where(
-          and(
-            eq(communityMembers.communityApId, m.communityApId),
-            eq(communityMembers.role, "owner"),
-            ne(communityMembers.actorApId, actorApIdVal),
-          ),
-        )
-        .get();
-      if (otherOwner) continue; // another owner remains — no hand-off needed
-      const heir = await db
-        .select({ actorApId: communityMembers.actorApId })
-        .from(communityMembers)
-        .where(
-          and(
-            eq(communityMembers.communityApId, m.communityApId),
-            ne(communityMembers.actorApId, actorApIdVal),
-          ),
-        )
-        .orderBy(asc(communityMembers.joinedAt))
-        .get();
-      if (heir) {
-        await db
-          .update(communityMembers)
-          .set({ role: "owner" })
-          .where(
-            and(
-              eq(communityMembers.communityApId, m.communityApId),
-              eq(communityMembers.actorApId, heir.actorApId),
-            ),
-          );
-      }
-      // No remaining members → the community is left empty (no orphan: nobody
-      // is locked out).
-    }
-
-    if (communityApIds.length > 0) {
-      await db
-        .update(communities)
-        .set({ memberCount: sql`${communities.memberCount} - 1` })
-        .where(
-          and(
-            // Subquery, not `inArray(communityApIds)`: a user in >~100
-            // communities would otherwise exceed D1's 100-bound-parameter limit.
-            // Resolved before the membership rows are deleted just below.
-            inArray(
-              communities.apId,
-              db
-                .select({ id: communityMembers.communityApId })
-                .from(communityMembers)
-                .where(eq(communityMembers.actorApId, actorApIdVal)),
-            ),
-            gt(communities.memberCount, 0),
-          ),
-        );
-    }
-    await db
-      .delete(communityMembers)
-      .where(eq(communityMembers.actorApId, actorApIdVal));
-
-    await db
-      .delete(objectRecipients)
-      .where(eq(objectRecipients.recipientApId, actorApIdVal));
-    // Preserve the federation Delete activity so the async delivery consumer
-    // can still read its rawJson; all other activities by this actor go.
-    await db
-      .delete(activities)
-      .where(
-        and(
-          eq(activities.actorApId, actorApIdVal),
-          ne(activities.apId, deleteActivityId),
-        ),
-      );
-
-    // Delete interactions on the actor's authored objects via subqueries
-    // (`object_ap_id IN (SELECT ap_id FROM objects WHERE attributed_to = ?)`),
-    // run BEFORE the objects themselves are deleted. A subquery is lossless for
-    // any post count and never materializes thousands of object ids as bound
-    // parameters (D1's variable ceiling). Each delete builds its own subquery
-    // so there is no shared-AST reuse across statements.
-    const authoredObjectIds = () =>
-      db
-        .select({ id: objects.apId })
-        .from(objects)
-        .where(eq(objects.attributedTo, actorApIdVal));
-    await db
-      .delete(likes)
-      .where(inArray(likes.objectApId, authoredObjectIds()));
-    await db
-      .delete(announces)
-      .where(inArray(announces.objectApId, authoredObjectIds()));
-    await db
-      .delete(bookmarks)
-      .where(inArray(bookmarks.objectApId, authoredObjectIds()));
-    await db
-      .delete(storyVotes)
-      .where(inArray(storyVotes.storyApId, authoredObjectIds()));
-    await db
-      .delete(storyViews)
-      .where(inArray(storyViews.storyApId, authoredObjectIds()));
-    await db
-      .delete(storyShares)
-      .where(inArray(storyShares.storyApId, authoredObjectIds()));
-    // object_recipients rows for the actor's AUTHORED objects (sent DMs keyed by
-    // the note, community-chat messages keyed by the community apId) are NOT
-    // covered by the recipientApId delete above and have no FK cascade (migration
-    // 0011 dropped it). Mirror deleteObjectCascade so they are not orphaned when
-    // the objects are bulk-deleted just below.
-    await db
-      .delete(objectRecipients)
-      .where(inArray(objectRecipients.objectApId, authoredObjectIds()));
-
-    // Reconcile parent posts' replyCount BEFORE bulk-deleting this actor's
-    // objects (which include replies to OTHER actors' posts). A flat -1 per
-    // parent would under-decrement when the actor replied N times to one parent,
-    // so recompute each affected parent's replyCount as COUNT(*) of replies that
-    // will REMAIN (i.e. not authored by the deleting actor). Single statement,
-    // subquery-scoped (no spliced ids → D1-param-safe); the `child` alias keeps
-    // the correlated inner objects distinct from the UPDATE target. A parent that
-    // is itself one of this actor's objects gets deleted next — harmless.
-    await db
-      .update(objects)
-      .set({
-        replyCount: sql`(SELECT COUNT(*) FROM objects AS child WHERE child.in_reply_to = ${objects.apId} AND child.attributed_to <> ${actorApIdVal})`,
-      })
-      .where(
-        inArray(
-          objects.apId,
-          db
-            .select({ id: objects.inReplyTo })
-            .from(objects)
-            .where(
-              and(
-                eq(objects.attributedTo, actorApIdVal),
-                isNotNull(objects.inReplyTo),
-              ),
-            ),
-        ),
-      );
-
-    // Phase 2: explicit ordered hard-delete to satisfy trigger expectations.
-    await db.delete(objects).where(eq(objects.attributedTo, actorApIdVal));
-
-    // Tombstone the actor identity instead of hard-deleting the row. The queued
-    // Delete(actor) deliver_endpoint jobs (snapshotted above) sign with THIS
-    // actor's private key when they later drain; a hard delete would destroy the
-    // signing material and the Delete could never be signed/delivered. We keep
-    // only what the delivery signer needs (apId + keyId-deriving fields +
-    // privateKeyPem/publicKeyPem) and scrub every piece of personal data. The
-    // `deletedAt` tombstone excludes this row from all federation-serving and
-    // counting queries (which filter `notDeleted(actors)`), and all auth paths
-    // are already severed because the sessions were deleted in Phase 1. The
-    // tombstone reaper (reapDrainedTombstones) hard-deletes these rows once the
-    // Delete jobs have drained.
-    //
-    // `preferredUsername` carries a UNIQUE constraint, so leaving the original
-    // handle on the tombstone would permanently squat it: re-registration (and
-    // a re-login that re-provisions the same handle) would collide or be forced
-    // onto a different handle. Rename it to a reserved, non-colliding sentinel
-    // so the original handle is freed immediately while the row lingers for the
-    // delivery signer.
-    await db
-      .update(actors)
-      .set({
-        preferredUsername: `deleted-${generateId()}`,
-        name: null,
-        summary: null,
-        iconUrl: null,
-        headerUrl: null,
-        takosUserId: null,
-        followerCount: 0,
-        followingCount: 0,
-        postCount: 0,
-        fieldsJson: "[]",
-        alsoKnownAsJson: "[]",
-        movedTo: null,
-        ownerActorApId: null,
-        // Demote the tombstone off the "owner" role. Owner password login
-        // resolves the owner by `role = "owner"`; even though that query now
-        // also filters `notDeleted`, defence-in-depth demotes the scrubbed row
-        // so a stale tombstone can never be re-resolved as the instance owner
-        // (and a future role-keyed lookup cannot resurrect a zombie owner).
-        role: "member",
-        deletedAt: nowIso(),
-      })
-      .where(eq(actors.apId, actorApIdVal));
-
+    // Full owner teardown through the SINGLE shared cascade: it federates a
+    // Delete(Actor) (snapshotting follower inboxes before the graph is dropped),
+    // reconciles every counterparty's denormalized counters, deletes the actor's
+    // edges / interactions / memberships / media / DM state, hands off sole-owned
+    // communities to an heir, hard-deletes its authored objects, and
+    // tombstones+scrubs the actor row. This is the EXACT cascade teardownActor
+    // applies to each sub-account below — one chokepoint instead of a ~440-line
+    // hand-rolled copy that had to be kept in sync.
+    await teardownActor(db, c.env, baseUrl, actorApIdVal, actor.followers_url);
     // Now fully tear down each sub-account (same cascade the owner just received)
     // so no "deleted" sub-account content / edge / counter / membership / sole
     // ownership survives, and each federates its own Delete(Actor).
