@@ -12,6 +12,7 @@ import {
 } from "../../db/index.ts";
 import { generateId, safeJsonParse } from "../federation-helpers.ts";
 import { canViewerReadObject } from "../lib/community-visibility.ts";
+import { isExplicitRecipient } from "../lib/post-visibility.ts";
 import { stripImageMetadata } from "../lib/strip-image-metadata.ts";
 import { logger } from "../lib/logger.ts";
 
@@ -309,6 +310,7 @@ type ReferencingObject = {
   attributedTo: string;
   visibility: string;
   toJson: string;
+  ccJson: string;
   communityApId: string | null;
   endTime: string | null;
 };
@@ -361,6 +363,7 @@ async function findReferencingObject(
       attributedTo: objects.attributedTo,
       visibility: objects.visibility,
       toJson: objects.toJson,
+      ccJson: objects.ccJson,
       communityApId: objects.communityApId,
       endTime: objects.endTime,
       attachmentsJson: objects.attachmentsJson,
@@ -385,6 +388,7 @@ async function findReferencingObject(
         attributedTo: row.attributedTo,
         visibility: row.visibility,
         toJson: row.toJson,
+        ccJson: row.ccJson,
         communityApId: row.communityApId,
         endTime: row.endTime,
       };
@@ -582,6 +586,11 @@ async function checkMediaAuthorization(
   if (!currentActorApId) return DENY_AUTH_REQUIRED;
 
   if (obj.visibility === "followers") {
+    // An explicitly-addressed (to/cc) recipient — e.g. a mention — reads it even
+    // without a follow edge, matching the canonical canViewerReadObjectFull gate
+    // (this branch previously ignored to/cc and 403'd the blob for a legit
+    // recipient the post-detail view showed).
+    if (isExplicitRecipient(obj, currentActorApId)) return ALLOW_PRIVATE;
     const follow = await db
       .select()
       .from(follows)
@@ -597,8 +606,8 @@ async function checkMediaAuthorization(
   }
 
   if (obj.visibility === "direct") {
-    const recipients = safeJsonParse<string[]>(obj.toJson, []);
-    return recipients.includes(currentActorApId)
+    // Check both to AND cc (the canonical gate does), not toJson alone.
+    return isExplicitRecipient(obj, currentActorApId)
       ? ALLOW_PRIVATE
       : DENY_NOT_AUTHORIZED;
   }

@@ -35,6 +35,7 @@ import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
 import {
   actorIsBlockedBy,
   canViewerReadObjectFull,
+  passesPostVisibilitySync,
 } from "../../lib/post-visibility.ts";
 import { logger } from "../../lib/logger.ts";
 
@@ -542,10 +543,23 @@ posts.post("/:id/bookmark", async (c) => {
   const actor = c.get("actor");
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const post = await findPost(c, "apIdOnly");
+  // Load the FULL row (not apId-only) so the read-gate can run: previously this
+  // resolved by apId with NO visibility/block check, so any authed user could
+  // bookmark any object by id — including a followers-only / direct / private-
+  // community post or a personal Story they were never shown — which then leaked
+  // via GET /bookmarks. Gate it like /like and /repost (#3).
+  const post = await findPost(c);
   if (!post) return c.json({ error: "Post not found" }, 404);
 
   const db = c.get("db");
+
+  // 404 (not 403) so existence is not revealed, mirroring the like/repost gate.
+  if (!(await canViewerReadObjectFull(db, post, actor.ap_id))) {
+    return c.json({ error: "Post not found" }, 404);
+  }
+  if (await actorIsBlockedBy(db, post.attributedTo, actor.ap_id)) {
+    return c.json({ error: "Post not found" }, 404);
+  }
 
   const existing = await db
     .select({ actorApId: bookmarks.actorApId })
@@ -643,22 +657,27 @@ posts.get("/bookmarks", async (c) => {
       : null;
 
   // Re-check read-access at read time so a bookmark can never resurface a post
-  // the viewer can no longer read. `canViewerReadObject` only gates PRIVATE-
-  // community membership — its contract explicitly delegates the
-  // public/followers/direct visibility check to the caller — so apply those
-  // here too, mirroring the post-detail gate. Two leak classes this closes:
-  //   - a followers-only post bookmarked while following, then unfollowed;
-  //   - a followers-only / direct post bookmarked by apId without ever having
-  //     access (the bookmark-create path resolves apId-only, no visibility gate).
-  // Batch the followers gate: which authors of followers-visibility bookmarks
-  // does the viewer still follow (accepted)?
+  // the viewer can no longer read. The per-post visibility decision is delegated
+  // to the canonical `passesPostVisibilitySync` (the SAME predicate the
+  // single-object gate uses) so the to/cc explicit-recipient and Story branches
+  // cannot drift here — the hand-rolled gate this replaces dropped the cc check
+  // AND had no Story reach/expiry branch, leaking a personal (followers-only)
+  // Story's caption/overlay/attachment metadata to a non-follower and past
+  // expiry (#3). The private-community membership gate is applied separately by
+  // the batched `communityReadableApIds` below.
+  //
+  // Batch the follower lookup: an accepted follow could matter for a
+  // followers-only post OR a personal (non-community) story, so collect those
+  // authors and resolve them in one query, then feed the Set to the predicate.
   const followerGateAuthors = [
     ...new Set(
       allBookmarkRows
         .filter(
           (b) =>
-            b.object.visibility === "followers" &&
-            b.object.attributedTo !== actor.ap_id,
+            b.object.attributedTo !== actor.ap_id &&
+            ((b.object.type === "Story" && !b.object.communityApId) ||
+              (b.object.type !== "Story" &&
+                b.object.visibility === "followers")),
         )
         .map((b) => b.object.attributedTo),
     ),
@@ -681,25 +700,12 @@ posts.get("/bookmarks", async (c) => {
         )
       : new Set<string>();
 
-  const passesVisibilityGate = (obj: {
-    visibility: string;
-    attributedTo: string;
-    toJson: string;
-  }): boolean => {
-    if (obj.attributedTo === actor.ap_id) return true;
-    if (obj.visibility === "followers") {
-      return followedAuthors.has(obj.attributedTo);
-    }
-    if (obj.visibility === "direct") {
-      return safeJsonParse<string[]>(obj.toJson, []).includes(actor.ap_id);
-    }
-    return true; // public / unlisted
-  };
-
   // Sync visibility-gate first, then ONE batched community read-gate over the
   // survivors (2 queries instead of 1-2 per bookmarked post).
   const visibilityOk = allBookmarkRows.filter((b) =>
-    passesVisibilityGate(b.object),
+    passesPostVisibilitySync(b.object, actor.ap_id, (a) =>
+      followedAuthors.has(a),
+    ),
   );
   const communityReadable = await communityReadableApIds(
     db,

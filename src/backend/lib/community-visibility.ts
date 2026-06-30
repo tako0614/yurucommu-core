@@ -35,6 +35,33 @@ import { chunkForInClause } from "./chunk.ts";
  */
 export const NO_AUDIENCE_PREDICATE = eq(objects.audienceJson, "[]");
 
+/**
+ * The community `visibility` values that REQUIRE membership to read. Single
+ * source of truth shared by JS predicates ({@link communityRequiresMembership})
+ * AND drizzle `inArray` gates, so the membership rule cannot drift per surface.
+ *
+ * The read-gate previously keyed on `=== "private"` (single-object / batched
+ * gates) while feed / roster / discovery / messages / inbox sites keyed on
+ * `!== "public"`. Those are equivalent ONLY because creation validation
+ * restricts the column to {public, private}; the moment a third members-only
+ * value is added it must be added HERE once and every gate updates atomically
+ * (otherwise the single-object gate would serve it while feeds hid it). As a
+ * `const` tuple it is usable directly in `inArray(communities.visibility, ...)`.
+ */
+export const MEMBERSHIP_REQUIRED_VISIBILITIES = ["private"] as const;
+
+/**
+ * True when reading a community with this `visibility` requires membership.
+ * (A non-member — including an anonymous viewer — cannot read it.)
+ */
+export function communityRequiresMembership(
+  visibility: string | null | undefined,
+): boolean {
+  return (MEMBERSHIP_REQUIRED_VISIBILITIES as readonly string[]).includes(
+    visibility ?? "public",
+  );
+}
+
 /** Minimal object shape needed to evaluate the community read-gate. */
 export type CommunityGateObject = {
   audienceJson?: string | null;
@@ -95,7 +122,7 @@ export async function canViewerReadObject(
     .where(
       and(
         inArray(communities.apId, communityIds),
-        eq(communities.visibility, "private"),
+        inArray(communities.visibility, MEMBERSHIP_REQUIRED_VISIBILITIES),
       ),
     );
 
@@ -165,7 +192,7 @@ export async function communityReadableApIds<
       .where(
         and(
           inArray(communities.apId, chunk),
-          eq(communities.visibility, "private"),
+          inArray(communities.visibility, MEMBERSHIP_REQUIRED_VISIBILITIES),
         ),
       );
     for (const r of rows) privateSet.add(r.apId);

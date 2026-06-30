@@ -44,12 +44,83 @@ export function isExplicitRecipient(
 }
 
 /**
+ * Resolve whether `viewerApId` has an accepted follow edge to `authorApId`.
+ */
+async function hasAcceptedFollow(
+  db: Database,
+  viewerApId: string,
+  authorApId: string,
+): Promise<boolean> {
+  const row = await db
+    .select({ followerApId: follows.followerApId })
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, viewerApId),
+        eq(follows.followingApId, authorApId),
+        eq(follows.status, "accepted"),
+      ),
+    )
+    .get();
+  return Boolean(row);
+}
+
+/**
+ * Per-post visibility decision EXCLUDING the private-community membership gate.
+ * This is the single source of truth for the public / unlisted / followers /
+ * direct rules plus the Story reach + expiry rule, and is shared by the async
+ * single-object helper (`canViewerReadObjectFull`) and by batched page gates
+ * (bookmarks, etc.) so the to/cc explicit-recipient and Story branches cannot
+ * drift per surface. The community membership gate is applied SEPARATELY by the
+ * caller (inline async in the single-object helper, batched in page gates), and
+ * a follower lookup is injected via `isAcceptedFollower` so both a per-object DB
+ * query and a precomputed batched Set satisfy the same rules without an N+1.
+ *
+ * Returns true/false; for a COMMUNITY story it returns true after the author /
+ * expiry shortcuts so the caller's community gate decides membership.
+ */
+export function passesPostVisibilitySync(
+  obj: ReadGateObject,
+  viewerApId: string | null | undefined,
+  isAcceptedFollower: (authorApId: string) => boolean,
+  now: string = new Date().toISOString(),
+): boolean {
+  // A Story's stored visibility ("public") does NOT encode its reach: a personal
+  // story is followers-only and a community story is members-only, and BOTH are
+  // revoked at endTime.
+  if (obj.type === "Story") {
+    if (viewerApId && obj.attributedTo === viewerApId) return true; // own story
+    if (obj.endTime && obj.endTime <= now) return false; // expired → revoked
+    if (obj.communityApId) return true; // members gate applied by caller
+    if (!viewerApId) return false;
+    return isAcceptedFollower(obj.attributedTo); // personal → followers reach
+  }
+
+  if (obj.visibility === "direct") {
+    if (!viewerApId) return false;
+    if (obj.attributedTo === viewerApId) return true;
+    return isExplicitRecipient(obj, viewerApId);
+  }
+
+  if (obj.visibility === "followers") {
+    if (!viewerApId) return false;
+    if (obj.attributedTo === viewerApId) return true;
+    if (isExplicitRecipient(obj, viewerApId)) return true;
+    return isAcceptedFollower(obj.attributedTo);
+  }
+
+  return true; // public / unlisted
+}
+
+/**
  * Whether `viewerApId` may read `obj`, honoring BOTH the community membership
  * gate and the per-post visibility:
  *   - public / unlisted  → readable (subject to the community gate);
  *   - followers          → author, an accepted follower, OR an explicitly
  *                          addressed (to/cc) recipient such as a mention;
- *   - direct             → author or an addressed recipient (to/cc).
+ *   - direct             → author or an addressed recipient (to/cc);
+ *   - Story              → author always; else revoked past endTime; community
+ *                          story → members-only; personal story → followers.
  * An anonymous viewer (`null`) can never satisfy followers/direct. Fails closed.
  */
 export async function canViewerReadObjectFull(
@@ -57,38 +128,12 @@ export async function canViewerReadObjectFull(
   obj: ReadGateObject,
   viewerApId: string | null | undefined,
 ): Promise<boolean> {
-  // A Story's stored visibility ("public") does NOT encode its reach: a personal
-  // story is followers-only and a community story is members-only, and BOTH are
-  // revoked at endTime. The generic visibility checks below would otherwise treat
-  // it as world-readable (public, empty audience, no community), so gate it here.
+  const now = new Date().toISOString();
+
+  // Story author + expiry shortcuts need no community/follow query.
   if (obj.type === "Story") {
-    // The author always reads their own story (even after it expires).
     if (viewerApId && obj.attributedTo === viewerApId) return true;
-    // Expired → revoked from everyone else (matches the dedicated story feed +
-    // /ap/objects + media gates, which the generic single-object path skipped).
-    if (obj.endTime && obj.endTime <= new Date().toISOString()) return false;
-    // Community story → members-only (canViewerReadObject gates on communityApId).
-    if (obj.communityApId) {
-      return canViewerReadObject(
-        db,
-        { audienceJson: obj.audienceJson, communityApId: obj.communityApId },
-        viewerApId,
-      );
-    }
-    // Personal story → accepted-follower reach (despite the public default).
-    if (!viewerApId) return false;
-    const follower = await db
-      .select({ followerApId: follows.followerApId })
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerApId, viewerApId),
-          eq(follows.followingApId, obj.attributedTo),
-          eq(follows.status, "accepted"),
-        ),
-      )
-      .get();
-    return Boolean(follower);
+    if (obj.endTime && obj.endTime <= now) return false;
   }
 
   // Private-community membership gate first (non-community objects short to true).
@@ -102,31 +147,21 @@ export async function canViewerReadObjectFull(
     return false;
   }
 
-  if (obj.visibility === "direct") {
-    if (!viewerApId) return false;
-    if (obj.attributedTo === viewerApId) return true;
-    return isExplicitRecipient(obj, viewerApId);
-  }
+  // Resolve the single accepted-follow edge only when a follower-gated branch
+  // actually needs it (personal story, or a followers-only post with no explicit
+  // to/cc recipient), then defer to the shared per-post predicate.
+  const needsFollow =
+    !!viewerApId &&
+    obj.attributedTo !== viewerApId &&
+    ((obj.type === "Story" && !obj.communityApId) ||
+      (obj.type !== "Story" &&
+        obj.visibility === "followers" &&
+        !isExplicitRecipient(obj, viewerApId)));
+  const following = needsFollow
+    ? await hasAcceptedFollow(db, viewerApId, obj.attributedTo)
+    : false;
 
-  if (obj.visibility === "followers") {
-    if (!viewerApId) return false;
-    if (obj.attributedTo === viewerApId) return true;
-    if (isExplicitRecipient(obj, viewerApId)) return true;
-    const accepted = await db
-      .select({ followerApId: follows.followerApId })
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerApId, viewerApId),
-          eq(follows.followingApId, obj.attributedTo),
-          eq(follows.status, "accepted"),
-        ),
-      )
-      .get();
-    return Boolean(accepted);
-  }
-
-  return true; // public / unlisted
+  return passesPostVisibilitySync(obj, viewerApId, () => following, now);
 }
 
 /**

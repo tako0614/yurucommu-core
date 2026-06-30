@@ -16,6 +16,7 @@ import {
   objects,
 } from "../../db/index.ts";
 import type { Env, Variables } from "../types.ts";
+import { communityRequiresMembership } from "../lib/community-visibility.ts";
 import {
   formatUsername,
   parseLimit,
@@ -376,7 +377,7 @@ async function resolveCommunityRead(
 
   if (!community) return { gate: "not_found" };
 
-  if ((community.visibility || "public") === "public") {
+  if (!communityRequiresMembership(community.visibility)) {
     return { gate: "ok", community };
   }
 

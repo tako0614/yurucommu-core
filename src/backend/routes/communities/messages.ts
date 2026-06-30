@@ -10,6 +10,7 @@ import {
 import type { Env, Variables } from "../../types.ts";
 import { formatUsername, generateId } from "../../federation-helpers.ts";
 import { feedCursorWhere } from "../../lib/feed-cursor.ts";
+import { communityRequiresMembership } from "../../lib/community-visibility.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import {
   deleteObjectCascade,
@@ -55,7 +56,8 @@ function checkPostPolicy(
   // A non-public community requires membership to WRITE regardless of policy:
   // read is membership-gated (checkReadAccess), so a private community with
   // post_policy="anyone" must not let a non-member who cannot read it post.
-  if (visibility !== "public" && !membership) return "Not a community member";
+  if (communityRequiresMembership(visibility) && !membership)
+    return "Not a community member";
   if (policy !== "anyone" && !membership) return "Not a community member";
   if (policy === "mods" && !isManager) return "Moderator role required";
   if (policy === "owners" && role !== "owner") return "Owner role required";
@@ -72,7 +74,7 @@ function checkReadAccess(
   visibility: string,
   membership: { role: string } | null,
 ): string | null {
-  if (visibility === "public") return null;
+  if (!communityRequiresMembership(visibility)) return null;
   if (!membership) return "Not a community member";
   return null;
 }

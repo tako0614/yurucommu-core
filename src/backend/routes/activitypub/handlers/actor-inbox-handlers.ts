@@ -15,6 +15,7 @@ import {
   objectApId,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import { communityRequiresMembership } from "../../../lib/community-visibility.ts";
 import { isMemberBanned } from "../../communities/membership-shared.ts";
 import {
   boundAttachmentsJson,
@@ -283,7 +284,7 @@ export async function handleGroupCreate(
   const policy = community.postPolicy || "members";
 
   // A non-public community requires membership to post regardless of policy.
-  if ((community.visibility ?? "public") !== "public" && !isMember) return;
+  if (communityRequiresMembership(community.visibility) && !isMember) return;
   if (policy !== "anyone" && !isMember) return;
   if (policy === "mods" && !isManager) return;
   if (policy === "owners" && role !== "owner") return;

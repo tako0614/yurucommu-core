@@ -31,6 +31,7 @@ import {
   requireManager,
 } from "./membership-shared.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
+import { communityRequiresMembership } from "../../lib/community-visibility.ts";
 import { reapReplacedMediaUrl } from "../posts/delete-cascade.ts";
 
 /**
@@ -456,7 +457,8 @@ communitiesRouter.get("/:identifier", async (c) => {
   // which hides private communities from non-members entirely; without it, anyone
   // who guesses the name could read a private community's member/post counts and
   // description by direct fetch.
-  const restricted = community.visibility !== "public" && !isMember;
+  const restricted =
+    communityRequiresMembership(community.visibility) && !isMember;
 
   // member_count is the maintained `communities.memberCount` column (kept atomic
   // by addMemberAtomic/removeMemberAtomic). post_count has no denorm column, so it

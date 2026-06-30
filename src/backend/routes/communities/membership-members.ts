@@ -2,6 +2,7 @@ import type { Context, Hono } from "hono";
 import { and, asc, count, desc, eq, inArray, or } from "drizzle-orm";
 import { communities, communityMembers, follows } from "../../../db/index.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
+import { communityRequiresMembership } from "../../lib/community-visibility.ts";
 import type { Env, Variables } from "../../types.ts";
 import {
   formatUsername,
@@ -251,7 +252,7 @@ export function registerMembershipMemberRoutes(
       // Read gate: a non-public community's roster is members-only, mirroring the
       // /messages and /timeline?community= gates. Without this, anyone (even
       // unauthenticated) could enumerate a private community's full membership.
-      if ((community.visibility || "public") !== "public") {
+      if (communityRequiresMembership(community.visibility)) {
         const actor = c.get("actor");
         if (!actor) return c.json({ error: "Unauthorized" }, 401);
         const membership = await db
