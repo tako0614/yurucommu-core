@@ -73,10 +73,17 @@ export interface EnvVars {
   // 既存動作と同じ (= APP_URL 単一 origin のみ accept、 production 影響ゼロ)。
   CSRF_ALLOWED_ORIGINS?: string;
 
-  // Honour upstream `X-Forwarded-For` / `X-Real-IP` headers. Opt-in so that
-  // a worker fronted directly by an attacker-controlled client cannot
-  // spoof its own IP. On Cloudflare we still prefer `CF-Connecting-IP`
-  // unconditionally because that header is set by the edge itself.
+  // Declare the reverse-proxy type so the client-IP resolver trusts the right
+  // forwarding header (opt-in; a worker fronted directly by a client cannot
+  // spoof its own IP otherwise). Accepted values:
+  //   "generic" — nginx / Caddy / Traefik: trust X-Forwarded-For (leftmost) /
+  //               X-Real-IP, and IGNORE a client-settable CF-Connecting-IP.
+  //   "cf"      — a Cloudflare front (incl. cloudflared tunnel): trust
+  //               CF-Connecting-IP.
+  //   "true" / "1" — legacy alias: behaves like "generic" but keeps a
+  //               CF-Connecting-IP fallback for back-compat.
+  // The genuine Cloudflare edge (unspoofable request.cf) always trusts
+  // CF-Connecting-IP with no opt-in.
   TAKOS_TRUST_PROXY?: string;
 }
 

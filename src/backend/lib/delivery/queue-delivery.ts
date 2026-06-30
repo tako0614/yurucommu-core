@@ -337,7 +337,10 @@ export async function processDeliverEndpoint(
     );
     await sendQueueMessage(
       env,
-      buildDeliverEndpointMessage(job.id),
+      // Preserve the reconcile-cycle count across the re-enqueue — dropping it
+      // resets the budget to 0 every cycle, so a permanently-dead endpoint
+      // would reconcile forever (#6).
+      buildDeliverEndpointMessage(job.id, msg.reconcileAttempt ?? 0),
       deferSeconds,
     );
     message.ack();
@@ -347,7 +350,11 @@ export async function processDeliverEndpoint(
   if (job.status === "processing") {
     const startedMs = safeParseIsoTimeMs(job.processingStartedAt);
     if (startedMs !== null && Date.now() - startedMs < STALE_PROCESSING_MS) {
-      await sendQueueMessage(env, buildDeliverEndpointMessage(job.id), 30);
+      await sendQueueMessage(
+        env,
+        buildDeliverEndpointMessage(job.id, msg.reconcileAttempt ?? 0),
+        30,
+      );
       message.ack();
       return;
     }
@@ -366,7 +373,7 @@ export async function processDeliverEndpoint(
     emitMetric("delivery_circuit_open_count", 1, { endpoint_host: host });
     await sendQueueMessage(
       env,
-      buildDeliverEndpointMessage(job.id),
+      buildDeliverEndpointMessage(job.id, msg.reconcileAttempt ?? 0),
       circuit.deferSeconds,
     );
     message.ack();
@@ -624,7 +631,7 @@ export async function processDeliverEndpoint(
     });
     await sendQueueMessage(
       env,
-      buildDeliverEndpointMessage(job.id),
+      buildDeliverEndpointMessage(job.id, msg.reconcileAttempt ?? 0),
       delaySeconds,
     );
     message.ack();

@@ -83,7 +83,10 @@ test("X-Forwarded-For / X-Real-IP are honoured when TAKOS_TRUST_PROXY=true", asy
   ).toEqual("203.0.113.31");
 });
 
-test("CF-Connecting-IP wins over proxy headers when both are trusted", async () => {
+test("legacy trust prefers the proxy-stamped XFF over a client-supplied CF-Connecting-IP", async () => {
+  // SECURITY (#4): a generic proxy stamps XFF but neither sets nor strips the
+  // Cloudflare-specific CF-Connecting-IP, so a client-supplied copy must NOT
+  // override the trustworthy XFF. (Previously CF-Connecting-IP wrongly won.)
   expect(
     await whoami(
       { TAKOS_TRUST_PROXY: "true" },
@@ -91,6 +94,38 @@ test("CF-Connecting-IP wins over proxy headers when both are trusted", async () 
         "CF-Connecting-IP": "203.0.113.40",
         "X-Forwarded-For": "203.0.113.41",
       },
+    ),
+  ).toEqual("203.0.113.41");
+});
+
+test("generic mode honours XFF and IGNORES a client-supplied CF-Connecting-IP", async () => {
+  expect(
+    await whoami(
+      { TAKOS_TRUST_PROXY: "generic" },
+      {
+        "CF-Connecting-IP": "203.0.113.40",
+        "X-Forwarded-For": "203.0.113.41",
+      },
+    ),
+  ).toEqual("203.0.113.41");
+});
+
+test("generic mode does NOT honour CF-Connecting-IP even when no XFF is present", async () => {
+  // A generic reverse proxy that forwards no XFF still must not trust the
+  // client-settable Cloudflare header — fall through to unknown instead.
+  expect(
+    await whoami(
+      { TAKOS_TRUST_PROXY: "generic" },
+      { "CF-Connecting-IP": "203.0.113.40" },
+    ),
+  ).toEqual("unknown");
+});
+
+test("cf mode honours CF-Connecting-IP (cloudflared tunnel front)", async () => {
+  expect(
+    await whoami(
+      { TAKOS_TRUST_PROXY: "cf" },
+      { "CF-Connecting-IP": "203.0.113.40" },
     ),
   ).toEqual("203.0.113.40");
 });

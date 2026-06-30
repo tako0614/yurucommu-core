@@ -17,12 +17,31 @@ function isValidIP(ip: string): boolean {
   return IPV6_PATTERN.test(ip) && ip.includes(":");
 }
 
-function isProxyTrusted(
+// How much an operator-declared reverse proxy is trusted for forwarding headers:
+//  - "none":    no opt-in; only the genuine CF edge (request.cf) is trusted.
+//  - "cf":      a Cloudflare front (edge OR cloudflared tunnel where request.cf
+//               is absent at the origin) — CF-Connecting-IP is authoritative.
+//  - "generic": a generic reverse proxy (nginx / Caddy / Traefik) that stamps
+//               X-Forwarded-For / X-Real-IP but neither sets nor strips the
+//               Cloudflare-specific header — trust XFF/X-Real-IP, NEVER a
+//               client-supplied CF-Connecting-IP.
+//  - "legacy":  the historical `TAKOS_TRUST_PROXY=true` / `1` opt-in. Treated
+//               like "generic" for spoof-safe precedence (XFF/X-Real-IP win over
+//               a forged CF header), but keeps a CF-Connecting-IP FALLBACK when
+//               no XFF/X-Real-IP is present so an existing cloudflared/CF origin
+//               configured with `true` is not regressed.
+type ProxyTrust = "none" | "cf" | "generic" | "legacy";
+
+function proxyTrust(
   c: Context<{ Bindings: Env; Variables: Variables }>,
-): boolean {
+): ProxyTrust {
   const flag = c.env.TAKOS_TRUST_PROXY;
-  if (typeof flag !== "string") return false;
-  return flag.toLowerCase() === "true" || flag === "1";
+  if (typeof flag !== "string") return "none";
+  const v = flag.trim().toLowerCase();
+  if (v === "cf" || v === "cloudflare") return "cf";
+  if (v === "generic" || v === "xff") return "generic";
+  if (v === "true" || v === "1") return "legacy";
+  return "none";
 }
 
 /**
@@ -71,36 +90,50 @@ function isCloudflareEdge(
 export function getClientIP(
   c: Context<{ Bindings: Env; Variables: Variables }>,
 ): string {
-  // SECURITY (spoofable trust header / auth bypass): `CF-Connecting-IP` is
-  // only authoritative when the request provably transits the Cloudflare
-  // edge, which strips a client-supplied copy. Non-Cloudflare deployments
-  // (Bun entrypoint, node-postgres/Caddy distribution) do not strip it, so
-  // honouring it unconditionally let an attacker forge a fresh source IP per
-  // request and defeat login-lockout / per-IP rate limits. Gate it behind the
-  // same `TAKOS_TRUST_PROXY` operator opt-in already used for X-Forwarded-For,
-  // falling through to "unknown" when the edge/proxy is not trusted.
-  const trusted = isProxyTrusted(c);
+  // SECURITY (spoofable trust header / auth bypass): a generic reverse proxy
+  // (nginx / Caddy / Traefik) stamps X-Forwarded-For / X-Real-IP but does NOT
+  // set or strip the Cloudflare-specific `CF-Connecting-IP`, so a client-supplied
+  // copy passes through the proxy untouched. Honouring CF-Connecting-IP ahead of
+  // the proxy's XFF let an attacker rotate a forged header per request to defeat
+  // login-lockout / per-IP rate limits (or pin the owner's IP to lock them out).
+  // We therefore split the trust sources by an operator-declared proxy TYPE:
+  // CF-Connecting-IP is honoured only on the genuine CF edge or an explicit
+  // `cf`/cloudflared front; a generic/legacy proxy prefers the XFF it controls.
+  const trust = proxyTrust(c);
 
   // CF-Connecting-IP is authoritative when we are provably on the Cloudflare
-  // edge (unspoofable `request.cf`) OR the operator explicitly trusts the proxy.
-  // This keeps the canonical Cloudflare deployment working with no extra config
-  // while blocking forged headers on direct-to-worker (Bun/self-host) access.
-  if (trusted || isCloudflareEdge(c)) {
+  // edge (unspoofable `request.cf`) OR the operator declares a Cloudflare front
+  // (`TAKOS_TRUST_PROXY=cf`, e.g. a cloudflared tunnel where request.cf is
+  // absent at the origin). The canonical CF deployment works with no config.
+  if (isCloudflareEdge(c) || trust === "cf") {
     const cfConnectingIp = c.req.header("CF-Connecting-IP");
     if (cfConnectingIp && isValidIP(cfConnectingIp)) {
       return cfConnectingIp;
     }
   }
 
-  // X-Forwarded-For / X-Real-IP are generic, client-settable proxy headers
-  // (Cloudflare forwards the client's X-Forwarded-For verbatim), so honour them
-  // ONLY under an explicit operator opt-in, never merely because we are on CF.
-  if (trusted) {
+  // X-Forwarded-For (leftmost) / X-Real-IP: the value a trusted reverse proxy
+  // stamps. Honoured under any explicit proxy opt-in and PREFERRED over a
+  // client-supplied CF-Connecting-IP (which a generic proxy never controls).
+  if (trust === "generic" || trust === "legacy" || trust === "cf") {
     const xff = c.req.header("X-Forwarded-For")?.split(",")[0]?.trim();
     if (xff && isValidIP(xff)) return xff;
 
     const xRealIp = c.req.header("X-Real-IP");
     if (xRealIp && isValidIP(xRealIp)) return xRealIp;
+  }
+
+  // Back-compat: the historical `TAKOS_TRUST_PROXY=true` opt-in honoured
+  // CF-Connecting-IP. A cloudflared tunnel sets it but ALSO stamps XFF, so the
+  // block above already covered the common case; keep CF-Connecting-IP as a
+  // last-resort fallback ONLY for the ambiguous legacy flag so an existing
+  // `true`-configured CF/cloudflared origin that sends only the CF header is not
+  // regressed. Explicit `generic` never honours a client-settable CF header.
+  if (trust === "legacy") {
+    const cfConnectingIp = c.req.header("CF-Connecting-IP");
+    if (cfConnectingIp && isValidIP(cfConnectingIp)) {
+      return cfConnectingIp;
+    }
   }
 
   // Last resort: the authentic TCP peer address the self-host (Bun) entrypoint
