@@ -60,9 +60,12 @@ temporary Wrangler config, installs dependencies with `bun install
 --frozen-lockfile`, applies Yurucommu D1 migrations, and deploys the Worker
 artifact. Operator secrets such as `YURUCOMMU_ENCRYPTION_KEY`,
 `YURUCOMMU_AUTH_PASSWORD_HASH`, or OAuth client secrets must come from the
-operator activation environment allowlist; they are uploaded as Worker secrets
-and are never stored in OpenTofu outputs. No Yurucommu-specific Takosumi
-manifest format or DSL is required.
+selected release execution boundary. In the normal Takosumi path this is the
+runner sandbox with ProviderConnection credentials minted only for the release
+dispatch; an operator activator may also provide explicitly allowlisted
+environment values. These secrets are uploaded as Worker secrets and are never
+stored in OpenTofu outputs. No Yurucommu-specific Takosumi manifest format or
+DSL is required.
 
 ## Develop
 

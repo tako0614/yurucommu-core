@@ -3,7 +3,7 @@ output "takosumi_release" {
     post_apply = [
       {
         id                = "publish"
-        executor          = "operator"
+        executor          = "runner"
         command           = ["bun", "run", "takosumi:release"]
         working_directory = "."
       },
@@ -11,7 +11,7 @@ output "takosumi_release" {
     pre_destroy = [
       {
         id                = "delete-worker"
-        executor          = "operator"
+        executor          = "runner"
         command           = ["bun", "run", "takosumi:release", "--", "--destroy"]
         working_directory = "."
       },
