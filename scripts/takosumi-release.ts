@@ -11,6 +11,7 @@ type JsonRecord = Record<string, unknown>;
 export type YurucommuReleaseConfig = {
   workerName: string;
   appUrl: string;
+  cloudflareAccountId?: string;
   d1DatabaseName: string;
   d1DatabaseId: string;
   kvNamespaceId: string;
@@ -82,11 +83,16 @@ export function releaseConfigFromOutputs(
     outputs,
     "cloudflare_kv_namespace_id",
   );
+  const cloudflareAccountId = optionalStringOutput(
+    outputs,
+    "cloudflare_account_id",
+  );
   const queueNames = outputValue(outputs.cloudflare_queue_names);
   const vars = collectWorkerVars(appUrl, queueNames, sourceEnv);
   return {
     workerName,
     appUrl,
+    ...(cloudflareAccountId ? { cloudflareAccountId } : {}),
     d1DatabaseName,
     d1DatabaseId,
     kvNamespaceId,
@@ -283,54 +289,59 @@ async function main(args = argv.slice(2)): Promise<void> {
 
   await mkdir(generatedDir, { recursive: true });
   try {
-    await writeFile(configPath, buildWranglerToml(config));
-    if (secretsPath) {
-      await writeFile(secretsPath, JSON.stringify(config.secrets));
-    }
+    const restoreWranglerEnv = applyWranglerEnv(config);
+    try {
+      await writeFile(configPath, buildWranglerToml(config));
+      if (secretsPath) {
+        await writeFile(secretsPath, JSON.stringify(config.secrets));
+      }
 
-    if (dryRun) {
+      if (dryRun) {
+        console.log(
+          JSON.stringify(
+            {
+              ok: true,
+              dryRun: true,
+              workerName: config.workerName,
+              appUrl: config.appUrl,
+              configPath,
+              secretNames: Object.keys(config.secrets).sort(),
+              deployArgs: buildDeployArgs(configPath, secretsPath),
+            },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+
+      warnIfReadinessWillBeIncomplete(config);
+      await run(buildInstallArgs());
+      await run(["bun", "run", "build"]);
+      if (shouldSkipD1Migrations(env.YURUCOMMU_SKIP_D1_MIGRATIONS)) {
+        console.warn(
+          "[takosumi:release] Skipping D1 migrations because YURUCOMMU_SKIP_D1_MIGRATIONS is enabled.",
+        );
+      } else {
+        await applyMigrations({
+          resource: config.d1DatabaseName,
+          migrationsDir: "migrations",
+          sqlCommandTemplate: buildD1ExecuteTemplate(configPath),
+          wrapTransactions: false,
+        });
+      }
+      await run(buildDeployArgs(configPath, secretsPath));
       console.log(
-        JSON.stringify(
-          {
-            ok: true,
-            dryRun: true,
-            workerName: config.workerName,
-            appUrl: config.appUrl,
-            configPath,
-            secretNames: Object.keys(config.secrets).sort(),
-            deployArgs: buildDeployArgs(configPath, secretsPath),
-          },
-          null,
-          2,
-        ),
+        JSON.stringify({
+          ok: true,
+          workerName: config.workerName,
+          appUrl: config.appUrl,
+          secretNames: Object.keys(config.secrets).sort(),
+        }),
       );
-      return;
+    } finally {
+      restoreWranglerEnv();
     }
-
-    warnIfReadinessWillBeIncomplete(config);
-    await run(buildInstallArgs());
-    await run(["bun", "run", "build"]);
-    if (shouldSkipD1Migrations(env.YURUCOMMU_SKIP_D1_MIGRATIONS)) {
-      console.warn(
-        "[takosumi:release] Skipping D1 migrations because YURUCOMMU_SKIP_D1_MIGRATIONS is enabled.",
-      );
-    } else {
-      await applyMigrations({
-        resource: config.d1DatabaseName,
-        migrationsDir: "migrations",
-        sqlCommandTemplate: buildD1ExecuteTemplate(configPath),
-        wrapTransactions: false,
-      });
-    }
-    await run(buildDeployArgs(configPath, secretsPath));
-    console.log(
-      JSON.stringify({
-        ok: true,
-        workerName: config.workerName,
-        appUrl: config.appUrl,
-        secretNames: Object.keys(config.secrets).sort(),
-      }),
-    );
   } finally {
     if (!keepGenerated) {
       await rm(generatedDir, { recursive: true, force: true });
@@ -385,6 +396,20 @@ function isIgnorableDestroyFailure(
     return /not found|does not exist|No such Worker/i.test(output);
   }
   return false;
+}
+
+function applyWranglerEnv(config: YurucommuReleaseConfig): () => void {
+  const previousAccountId = env.CLOUDFLARE_ACCOUNT_ID;
+  if (!previousAccountId && config.cloudflareAccountId) {
+    env.CLOUDFLARE_ACCOUNT_ID = config.cloudflareAccountId;
+  }
+  return () => {
+    if (previousAccountId === undefined) {
+      delete env.CLOUDFLARE_ACCOUNT_ID;
+    } else {
+      env.CLOUDFLARE_ACCOUNT_ID = previousAccountId;
+    }
+  };
 }
 
 export function shouldSkipD1Migrations(value: string | undefined): boolean {

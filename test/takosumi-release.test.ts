@@ -16,6 +16,7 @@ import {
 const rawOutputs = {
   worker_name: "yuru-smoke",
   launch_url: "https://yuru-smoke.example.workers.dev",
+  cloudflare_account_id: "cf_account_123",
   cloudflare_d1_database_name: "yuru-smoke-db",
   cloudflare_d1_database_id: "d1_123",
   cloudflare_kv_namespace_id: "kv_123",
@@ -37,6 +38,7 @@ test("releaseConfigFromOutputs accepts raw Takosumi outputs and operator env", (
   expect(config).toMatchObject({
     workerName: "yuru-smoke",
     appUrl: "https://yuru-smoke.example.workers.dev",
+    cloudflareAccountId: "cf_account_123",
     d1DatabaseName: "yuru-smoke-db",
     d1DatabaseId: "d1_123",
     kvNamespaceId: "kv_123",
