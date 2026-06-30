@@ -513,8 +513,16 @@ export async function findOrCreateOAuthActor(
     username?: string;
   },
 ) {
-  const providerUserId =
-    providerId === "takos" ? userInfo.id : `${providerId}:${userInfo.id}`;
+  // Namespace EVERY provider's subject by its provider id (`takos:<sub>`,
+  // `google:<id>`, `x:<id>`). Previously the `takos` subject was stored verbatim
+  // — the only un-namespaced source — so a trusted-but-misconfigured/compromised
+  // issuer that emitted sub="password:owner" or "local:tako" would resolve the
+  // get-or-create (keyed solely on takosUserId) to the reserved, higher-privileged
+  // password-owner / local sub-account row instead of provisioning a fresh actor,
+  // bypassing the owner-pin guard (which only runs on the CREATE path). Prefixing
+  // it confines the takos subject space so it can never overlap the reserved
+  // password:/local:/google:/x: keys. (Migration 0016 prefixes existing rows.)
+  const providerUserId = `${providerId}:${userInfo.id}`;
 
   let actorData = await db
     .select()

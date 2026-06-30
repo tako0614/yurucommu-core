@@ -207,11 +207,13 @@ test("happy path: id_token claims become the identity, first login is owner, ses
   expect(res.status).toBe(302);
   expect(res.headers.get("location")).toBe("/");
 
-  // Identity came from the id_token (userinfo had only `sub`), owner on first login.
+  // Identity came from the id_token (userinfo had only `sub`), owner on first
+  // login. The takos OIDC subject is namespaced ("takos:<sub>", #11) so it can
+  // never collide with the reserved password:/local: identity keys.
   const actor = await db
     .select()
     .from(actors)
-    .where(eq(actors.takosUserId, "takos-sub-1"))
+    .where(eq(actors.takosUserId, "takos:takos-sub-1"))
     .get();
   expect(actor).toBeTruthy();
   expect(actor?.name).toBe("Tako Tako");

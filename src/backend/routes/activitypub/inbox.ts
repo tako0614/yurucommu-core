@@ -288,6 +288,17 @@ async function verifyAndParseInbox(
           )}`,
         );
 
+  // Id-less activity (#8): stamp the deterministic synthetic id onto the envelope
+  // so the per-type handlers — which derive their notification / activities id
+  // from `activity.id` (`activity.id || activityApId(generateId())`) — converge
+  // on the SAME id across a concurrent dual-endpoint delivery or an in-flight
+  // re-claim, instead of each run minting a fresh RANDOM id and inserting
+  // DUPLICATE inbox/notification rows. A present (trusted OR untrusted) id is a
+  // stable string that already dedups, so only the absent-id case needs this.
+  if (rawActivityId === null) {
+    activity.id = activityId;
+  }
+
   const signingActor = signingActorFromKeyId(signatureResult.keyId);
   if (isActorMismatch(signingActor, actor)) {
     log.warn("Actor mismatch between activity and signing key", {

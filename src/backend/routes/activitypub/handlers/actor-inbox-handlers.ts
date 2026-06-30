@@ -91,12 +91,20 @@ export async function handleGroupFollow(
 
   if (!existing && !banned) {
     const now = new Date().toISOString();
-    await db.insert(follows).values({
-      ...followerKey,
-      status,
-      activityApId: activityId,
-      acceptedAt: status === "accepted" ? now : null,
-    });
+    // onConflictDoNothing: the same Follow delivered concurrently to two inbox
+    // endpoints (shared + per-actor) can re-claim an in-flight dispatch and run
+    // this insert twice; without it the concurrent loser throws a PK violation on
+    // (follower_ap_id, following_ap_id) that is caught + logged as noise (#8). The
+    // follows edge is idempotent, so silently skipping the duplicate is correct.
+    await db
+      .insert(follows)
+      .values({
+        ...followerKey,
+        status,
+        activityApId: activityId,
+        acceptedAt: status === "accepted" ? now : null,
+      })
+      .onConflictDoNothing();
     // An approval-policy community holds the follow PENDING. The pending follows
     // edge IS the remote join request (it cannot be mirrored into
     // community_join_requests, whose actor_ap_id FKs to the local `actors` table a
