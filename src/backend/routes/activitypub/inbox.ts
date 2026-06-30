@@ -112,41 +112,72 @@ async function readRequestBodyWithLimit(
 /**
  * Extract the actor URL from a keyId (strips the fragment, e.g. "#main-key").
  */
-function signingActorFromKeyId(keyId: string | undefined): string | undefined {
+export function signingActorFromKeyId(
+  keyId: string | undefined,
+): string | undefined {
   if (!keyId) return undefined;
   return keyId.includes("#") ? keyId.split("#")[0] : keyId;
 }
 
 /**
- * Returns true when the signing key and the activity actor belong to different
- * origins (domain-level key delegation is allowed).
+ * Normalize an actor URL for identity comparison: lowercase the host (host names
+ * are case-insensitive) and drop a single trailing slash + any fragment, leaving
+ * the (case-sensitive) path intact. Used to compare the signing-key owner with
+ * the activity actor without rejecting cosmetically-different-but-identical IRIs
+ * (trailing slash / host case) that conformant peers occasionally emit. Returns
+ * null for an unparseable URL.
  */
-function isActorMismatch(
+function normalizeActorUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    let normalized = `${u.protocol}//${u.host}${u.pathname}${u.search}`;
+    if (normalized.endsWith("/")) normalized = normalized.slice(0, -1);
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns true when the HTTP-signature signing key does NOT belong to exactly
+ * the activity actor (after URL normalization).
+ *
+ * SECURITY (#1 — same-host key-delegation impersonation): the signature is
+ * verified against the key published by the keyId's OWNER, and every per-type
+ * handler then authorizes purely on the activity `actor` string. So this binding
+ * is the ONLY thing tying the verified key to the claimed actor — it must be an
+ * EXACT identity match. An earlier version accepted any signer sharing the same
+ * URL host as the actor ("domain-level key delegation"). On a multi-user remote
+ * host that let an attacker who controls one key (`alice#main-key`) sign an
+ * activity claiming `actor=victim` on the same host and have it accepted AS the
+ * victim — cross-actor impersonation (forged Delete, DM-as-victim, Move-based
+ * follower theft, etc.). Mastodon/Lemmy bind keyId-owner === activity.actor
+ * exactly, so this matches the fediverse norm.
+ *
+ * The only legitimate cross-actor case is a remote instance/server actor (type
+ * Application/Service) signing a FORWARDED activity on behalf of one of its
+ * users (ActivityPub §7.1.2 inbox forwarding). That is safe ONLY when the
+ * forwarded object's integrity is independently re-verified (an LD-signature on
+ * the object, or re-fetching it from its origin). This codebase performs no such
+ * re-verification anywhere, so we reject cross-actor delegation outright rather
+ * than trust an unverified relayed envelope.
+ */
+export function isActorMismatch(
   signingActorUrl: string | undefined,
   actor: string,
 ): boolean {
-  if (signingActorUrl === actor) return false;
   if (!signingActorUrl) return true;
+  if (signingActorUrl === actor) return false;
 
-  try {
-    // Use `host` (incl. port), matching getDomain() — the same-origin notion
-    // every downstream ownership/origin guard (resolveCollectionTarget,
-    // isObjectIdOriginMismatch, …) uses. `hostname` (port-insensitive) would let
-    // the key-delegation gate and the per-handler origin checks disagree about
-    // what "same origin" means on a multi-port host.
-    const signingDomain = new URL(signingActorUrl).host;
-    const actorDomain = new URL(actor).host;
-    if (signingDomain === actorDomain) {
-      log.info("Accepting key delegation for same-domain actor", {
-        event: "ap.signature.key_delegation_accepted",
-        signingActor: signingActorUrl,
-        actor,
-        domain: signingDomain,
-      });
-      return false;
-    }
-  } catch {
-    // Invalid URL, treat as mismatch
+  const normalizedSigner = normalizeActorUrl(signingActorUrl);
+  const normalizedActor = normalizeActorUrl(actor);
+  if (
+    normalizedSigner !== null &&
+    normalizedActor !== null &&
+    normalizedSigner === normalizedActor
+  ) {
+    return false;
   }
   return true;
 }
