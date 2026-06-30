@@ -206,9 +206,29 @@ async function executeSql(
     process.stdout.write(stdout);
     process.stderr.write(stderr);
     const target = context.migration ?? context.purpose;
-    throw new Error(`SQL command failed for ${target}`);
+    throw new Error(
+      `SQL command failed for ${target}${sqlFailureDetail(stdout, stderr)}`,
+    );
   }
   return parseSqlCommandOutput(stdout);
+}
+
+function sqlFailureDetail(stdout: string, stderr: string): string {
+  const combined = [stdout, stderr]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join("\n")
+    .replaceAll(
+      /\b(CLOUDFLARE_API_TOKEN|CF_API_TOKEN|AUTH_TOKEN)=\S+/giu,
+      "$1=[redacted]",
+    );
+  if (!combined) return "";
+  const maxLength = 2_000;
+  const clipped =
+    combined.length > maxLength
+      ? `${combined.slice(0, maxLength)}...`
+      : combined;
+  return `: ${clipped}`;
 }
 
 export function buildSqlCommandArgs(
