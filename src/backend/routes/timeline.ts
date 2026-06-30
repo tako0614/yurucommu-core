@@ -31,6 +31,12 @@ import { chunkForInClause } from "../lib/chunk.ts";
 // under D1's 100-bound-parameter ceiling for the `+1 eq` in the interaction
 // batch below (see lib/chunk.ts); the batch is also chunked defensively.
 const MAX_FEED_LIMIT = 90;
+// Cap on offset-based deep paging. Offset pagination forces SQLite to
+// materialize + discard every skipped row of the (OR-of-subqueries) feed
+// predicate per request, so a large offset is an unindexed deep scan. The keyset
+// `before` cursor is the intended path for deep paging (indexed, constant-cost);
+// offset stays as a shallow fallback, clamped well below the old 10000 ceiling.
+const MAX_FEED_OFFSET = 1000;
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -457,7 +463,7 @@ async function handleCommunityTimeline(
   const actor = c.get("actor");
   const db = c.get("db");
   const limit = parseLimit(c.req.query("limit"), 20, MAX_FEED_LIMIT);
-  const offset = parseOffset(c.req.query("offset"), 0, 10000);
+  const offset = parseOffset(c.req.query("offset"), 0, MAX_FEED_OFFSET);
   const before = c.req.query("before");
   const viewerApId = actor?.ap_id || "";
 
@@ -555,7 +561,7 @@ timeline.get(
     const actor = c.get("actor");
     const db = c.get("db");
     const limit = parseLimit(c.req.query("limit"), 20, MAX_FEED_LIMIT);
-    const offset = parseOffset(c.req.query("offset"), 0, 10000);
+    const offset = parseOffset(c.req.query("offset"), 0, MAX_FEED_OFFSET);
     const before = c.req.query("before");
     const viewerApId = actor?.ap_id || "";
 
@@ -692,7 +698,7 @@ timeline.get("/following", async (c) => {
 
   const db = c.get("db");
   const limit = parseLimit(c.req.query("limit"), 20, MAX_FEED_LIMIT);
-  const offset = parseOffset(c.req.query("offset"), 0, 10000);
+  const offset = parseOffset(c.req.query("offset"), 0, MAX_FEED_OFFSET);
   const before = c.req.query("before");
   const viewerApId = actor.ap_id;
 

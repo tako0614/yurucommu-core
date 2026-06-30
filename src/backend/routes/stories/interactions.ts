@@ -347,7 +347,18 @@ stories.delete("/:id/like", async (c) => {
   if (!like) return c.json({ error: "Not liked" }, 400);
 
   // Co-commit the count decrement (guarded gt>0 against underflow) + edge delete
-  // in one batch so a crash between them can't leave likeCount drifted.
+  // in one batch so a crash between them can't leave likeCount drifted. Also reap
+  // the original like's notification: a story like mints a FRESH activity id each
+  // time and the re-like dedup guard only checks the `likes` edge (removed here),
+  // so without this a like→unlike→like cycle would leave the first inbox/activity
+  // rows behind and add new ones — duplicate "X liked your story" + a phantom
+  // unread +1. Mirrors the post-path unlike reap.
+  const reapLikeNotification = like.activityApId
+    ? [
+        db.delete(inbox).where(eq(inbox.activityApId, like.activityApId)),
+        db.delete(activities).where(eq(activities.apId, like.activityApId)),
+      ]
+    : [];
   await (db as unknown as Batchable).batch([
     db
       .update(objects)
@@ -356,6 +367,7 @@ stories.delete("/:id/like", async (c) => {
     db
       .delete(likes)
       .where(and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, apId))),
+    ...reapLikeNotification,
   ]);
 
   if (!isLocal(apId, baseUrl)) {

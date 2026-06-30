@@ -280,15 +280,25 @@ async function createAndFanoutActivity(
  * media; it reads `attachments_json` off the still-present object row, so the
  * object row is dropped afterwards.
  */
+/**
+ * Returns true when THIS call actually removed the objects row (false if it was
+ * already gone). Callers gate the author's postCount decrement on this so a
+ * concurrent duplicate delete — or a race with the opportunistic expiry sweep —
+ * decrements at most once for the single +1 the story counted at create time.
+ */
 async function deleteStoryAndRelatedData(
   db: Database,
   apId: string,
   media?: IObjectStorage,
-): Promise<void> {
+): Promise<boolean> {
   const mediaKeys = await deleteObjectCascade(db, apId, media);
-  await db.delete(objects).where(eq(objects.apId, apId));
+  const deleted = await db
+    .delete(objects)
+    .where(eq(objects.apId, apId))
+    .returning({ apId: objects.apId });
   // Irreversible R2 purge LAST — after the objects row is gone.
   await purgeMediaBlobs(media, mediaKeys);
+  return deleted.length > 0;
 }
 
 /**
@@ -874,16 +884,21 @@ stories.post("/delete", async (c) => {
     story.communityApId,
   );
 
-  await deleteStoryAndRelatedData(db, apId, c.env.MEDIA);
+  const removed = await deleteStoryAndRelatedData(db, apId, c.env.MEDIA);
 
-  // Guard the decrement against underflow (gt > 0), matching every other
-  // postCount-decrement site (posts/routes, inbox-content-handlers,
-  // takos-tools). The early 404 above means a duplicate delete can't reach here,
-  // so a double-decrement is not possible.
-  await db
-    .update(actors)
-    .set({ postCount: sql`${actors.postCount} - 1` })
-    .where(and(eq(actors.apId, actor.ap_id), gt(actors.postCount, 0)));
+  // Decrement the author's postCount ONLY when THIS request actually removed the
+  // row. The early 404 above guards SEQUENTIAL duplicates, but two concurrent
+  // deletes (double-click / retry) — or a manual delete racing the opportunistic
+  // expiry sweep (cleanupExpiredStories) — can both pass the SELECT before either
+  // delete commits, then both reach here; an unconditional decrement would then
+  // subtract 2 for one +1. Gating on the actual delete keeps the count exact
+  // (gt > 0 still guards underflow). Mirrors the EXISTS-guarded post-delete path.
+  if (removed) {
+    await db
+      .update(actors)
+      .set({ postCount: sql`${actors.postCount} - 1` })
+      .where(and(eq(actors.apId, actor.ap_id), gt(actors.postCount, 0)));
+  }
 
   return c.json({ success: true });
 });
