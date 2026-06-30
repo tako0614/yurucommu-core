@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { MOBILE_PUSH_REGISTRATION_PATH } from "takosumi-contract/mobile";
 import type { Env, EnvVars, Variables } from "./types.ts";
 import { extractActorFromSession } from "./lib/session-actor.ts";
 import { isBackendPath } from "./lib/backend-paths.ts";
@@ -24,6 +25,7 @@ import takosToolsRoutes from "./routes/takos-tools.ts";
 import recommendationsRoutes from "./routes/recommendations.ts";
 import { moderationRoutes } from "./routes/moderation.ts";
 import { appsApiRoutes, appsServeRoutes } from "./routes/apps.ts";
+import mobileRoutes from "./routes/mobile.ts";
 
 import { rateLimit, RateLimitConfigs } from "./middleware/rate-limit.ts";
 import { csrfProtection } from "./middleware/csrf.ts";
@@ -232,6 +234,31 @@ function mountReadinessRoutes(app: YurucommuApp): void {
     });
   });
 
+  app.get("/.well-known/yurucommu", (c) => {
+    const appUrl = normalizeOrigin(c.env.APP_URL, c.req.url);
+    const issuer = getOidcIssuerUrl(c.env) ?? appUrl;
+    return c.json(
+      {
+        product: "yurucommu",
+        name: "Yurucommu",
+        issuer,
+        apiBaseUrl: appUrl,
+        endpoints: {
+          api: `${appUrl}/api`,
+          authProviders: `${appUrl}/api/auth/providers`,
+          currentUser: `${appUrl}/api/auth/me`,
+          timeline: `${appUrl}/api/timeline`,
+          notifications: `${appUrl}/api/notifications`,
+          mobilePushRegistrations: `${appUrl}${MOBILE_PUSH_REGISTRATION_PATH}`,
+        },
+      },
+      200,
+      {
+        "Cache-Control": "public, max-age=300",
+      },
+    );
+  });
+
   // Minimal RFC 9116 security.txt. The contact points operators at the
   // instance admin; APP_URL (when configured) makes the policy line concrete.
   app.get("/.well-known/security.txt", (c) => {
@@ -263,6 +290,18 @@ function mountReadinessRoutes(app: YurucommuApp): void {
       "Cache-Control": "public, max-age=3600",
     });
   });
+}
+
+function normalizeOrigin(
+  appUrl: string | undefined,
+  requestUrl: string,
+): string {
+  const raw = appUrl?.trim() || new URL(requestUrl).origin;
+  const url = new URL(raw);
+  url.pathname = "";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/+$/g, "");
 }
 
 // media.ts advertises MAX_VIDEO_SIZE = 40MB (and MAX_IMAGE_SIZE = 20MB) and
@@ -575,6 +614,7 @@ function mountCoreRoutes(app: YurucommuApp): void {
   });
 
   app.route("/api/notifications", notificationsRoutes);
+  app.route("/api/mobile", mobileRoutes);
   app.route("/api/stories", storiesRoutes);
   app.route("/api/search", searchRoutes);
   app.route("/api/communities", communitiesRoutes);

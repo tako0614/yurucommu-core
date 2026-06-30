@@ -11,7 +11,11 @@
     "verbatimModuleSyntax": false,
     "noEmit": true,
     "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "takosumi-contract/mobile": ["../takosumi/contract/mobile.ts"]
+    }
   },
   "include": ["src", "test", "web/src", "shims"]
 }

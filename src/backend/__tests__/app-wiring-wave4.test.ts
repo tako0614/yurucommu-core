@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createYurucommuBackendApp } from "../index.ts";
 import { getAuthConfig } from "../lib/oauth-providers.ts";
+import type { Env } from "../types.ts";
 
 // Wave-4 WIRING cluster regression coverage for src/backend/index.ts.
 
@@ -12,7 +13,7 @@ const freshInstallEnv = {
   KV: {},
   ENCRYPTION_KEY: "test-encryption-key",
   AUTH_PASSWORD_HASH: "argon2-hash",
-} as never;
+} as unknown as Env;
 
 test("readyz passes for a fresh install without MEDIA / delivery queues", async () => {
   const app = createYurucommuBackendApp();
@@ -103,6 +104,32 @@ test("security.txt exposes a contact line", async () => {
   expect(text).toMatch(/^Expires:/m);
   expect(text).not.toContain(
     "Policy: https://test.local/.well-known/security.txt",
+  );
+});
+
+test("well-known yurucommu exposes mobile host discovery", async () => {
+  const app = createYurucommuBackendApp();
+  const res = await app.fetch(
+    new Request("https://test.local/.well-known/yurucommu"),
+    {
+      ...freshInstallEnv,
+      TAKOSUMI_ACCOUNTS_ISSUER_URL: "https://app.takosumi.test",
+    } as never,
+  );
+  expect(res.status).toEqual(200);
+  expect(res.headers.get("Content-Type")).toContain("application/json");
+  const body = (await res.json()) as {
+    product: string;
+    issuer: string;
+    apiBaseUrl: string;
+    endpoints: { currentUser: string; mobilePushRegistrations: string };
+  };
+  expect(body.product).toEqual("yurucommu");
+  expect(body.issuer).toEqual("https://app.takosumi.test");
+  expect(body.apiBaseUrl).toEqual("https://test.local");
+  expect(body.endpoints.currentUser).toEqual("https://test.local/api/auth/me");
+  expect(body.endpoints.mobilePushRegistrations).toEqual(
+    "https://test.local/api/mobile/push-registrations",
   );
 });
 
