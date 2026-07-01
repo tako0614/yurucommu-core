@@ -80,16 +80,32 @@ async function run(command: string[], cwd: URL): Promise<void> {
   }
 }
 
-function createEntrySource(assets: Record<string, StaticAsset>): string {
+export function createEntrySource(assets: Record<string, StaticAsset>): string {
   return `import { backendApp, handleYurucommuQueueBatch } from "../src/backend/index.ts";
-import type { Env } from "../src/backend/types.ts";
+import { wrapCloudflareBindings } from "../src/backend/runtime/cloudflare.ts";
+import type { Env, EnvVars } from "../src/backend/types.ts";
 import type {
   DeliveryDlqMessageV1,
   DeliveryQueueMessageV1,
 } from "../src/backend/lib/delivery/types.ts";
-import type { Fetcher, MessageBatch } from "@cloudflare/workers-types";
+import type {
+  D1Database,
+  Fetcher,
+  KVNamespace,
+  MessageBatch,
+  Queue,
+  R2Bucket,
+} from "@cloudflare/workers-types";
 
 type RuntimeEnv = Omit<Env, "ASSETS"> & { ASSETS?: Fetcher };
+type WorkerBindings = EnvVars & {
+  DB: D1Database;
+  MEDIA?: R2Bucket;
+  KV: KVNamespace;
+  ASSETS?: Fetcher;
+  DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
+  DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
+};
 
 const EMBEDDED_ASSETS = ${JSON.stringify(assets, null, 2)};
 
@@ -164,10 +180,10 @@ function withDefaultAppUrl(request: Request, env: RuntimeEnv): RuntimeEnv {
 export default {
   async fetch(
     request: Request,
-    env: RuntimeEnv,
+    env: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    const envWithAppUrl = withDefaultAppUrl(request, env);
+    const envWithAppUrl = withDefaultAppUrl(request, wrapCloudflareBindings(env));
     const runtimeEnv = envWithAppUrl.ASSETS
       ? envWithAppUrl
       : { ...envWithAppUrl, ASSETS: embeddedAssetsFetcher };
@@ -176,15 +192,15 @@ export default {
 
   async queue(
     batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
-    env: RuntimeEnv,
+    env: WorkerBindings,
   ): Promise<void> {
-    return handleYurucommuQueueBatch(batch, env as Env);
+    return handleYurucommuQueueBatch(batch, wrapCloudflareBindings(env) as Env);
   },
 };
 `;
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   await run(
     ["bunx", "vite", "build", "--config", "web/vite.config.ts"],
     new URL("../", import.meta.url),
@@ -211,4 +227,6 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+if (import.meta.main) {
+  await main();
+}
