@@ -61,8 +61,7 @@ temporary Wrangler config, installs dependencies with `bun install
 artifact. Operator secrets such as `YURUCOMMU_ENCRYPTION_KEY`,
 `YURUCOMMU_AUTH_PASSWORD_HASH`, or OAuth client secrets must come from the
 selected release execution boundary. In the normal Takosumi path this is the
-runner sandbox with ProviderConnection credentials minted only for the release
-dispatch; an operator activator may also provide explicitly allowlisted
+operator release activator, which may provide explicitly allowlisted
 environment values. These secrets are uploaded as Worker secrets and are never
 stored in OpenTofu outputs. The source repo remains a plain Git-hosted
 OpenTofu module; no Yurucommu-specific source metadata file or DSL is required.
