@@ -64,8 +64,8 @@ selected release execution boundary. In the normal Takosumi path this is the
 runner sandbox with ProviderConnection credentials minted only for the release
 dispatch; an operator activator may also provide explicitly allowlisted
 environment values. These secrets are uploaded as Worker secrets and are never
-stored in OpenTofu outputs. No Yurucommu-specific Takosumi manifest format or
-DSL is required.
+stored in OpenTofu outputs. The source repo remains a plain Git-hosted
+OpenTofu module; no Yurucommu-specific source metadata file or DSL is required.
 
 ## Develop
 
