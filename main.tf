@@ -42,7 +42,7 @@ variable "project_name" {
 }
 
 variable "worker_name" {
-  description = "Cloudflare Worker name used by the Takosumi post-apply release command. Defaults to project_name."
+  description = "Cloudflare Worker name used when enable_cloudflare_worker_script is true. Defaults to project_name."
   type        = string
   default     = ""
 
@@ -171,7 +171,7 @@ locals {
   worker_bundle_expected_sha256 = startswith(local.worker_bundle_sha256_input, "sha256:") ? replace(local.worker_bundle_sha256_input, "sha256:", "") : local.worker_bundle_sha256_input
   worker_bundle_local_path      = startswith(var.worker_bundle_path, "/") ? var.worker_bundle_path : "${path.module}/${var.worker_bundle_path}"
   worker_bundle_body            = local.worker_bundle_uses_url ? data.http.worker_bundle[0].response_body : null
-  worker_bundle_content_sha256  = local.worker_bundle_uses_url ? sha256(data.http.worker_bundle[0].response_body) : filesha256(local.worker_bundle_local_path)
+  worker_bundle_content_sha256  = local.cloudflare_worker_enabled ? (local.worker_bundle_uses_url ? sha256(data.http.worker_bundle[0].response_body) : filesha256(local.worker_bundle_local_path)) : null
   worker_assets_enabled         = local.cloudflare_worker_enabled && var.enable_worker_assets && !local.worker_bundle_uses_url
   resource_prefix               = var.project_name
   worker_name                   = trimspace(var.worker_name) != "" ? trimspace(var.worker_name) : local.resource_prefix
