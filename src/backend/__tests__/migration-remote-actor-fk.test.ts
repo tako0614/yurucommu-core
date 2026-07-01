@@ -60,6 +60,26 @@ const CHILD_TABLES = [
   "objects",
 ];
 
+test("0003 can materialize the activities table on a fresh D1-style database", async () => {
+  const c = createClient({ url: ":memory:" });
+  await c.execute("PRAGMA foreign_keys = ON");
+  const root = new URL("../../../migrations/", import.meta.url);
+
+  await c.executeMultiple(
+    await readFile(
+      new URL("0003_activity_remote_object_edges.sql", root),
+      "utf8",
+    ),
+  );
+
+  await c.execute({
+    sql: "INSERT INTO activities (ap_id,type,actor_ap_id,raw_json) VALUES (?,?,?,?)",
+    args: ["act-fresh", "Create", REMOTE, "{}"],
+  });
+  const rows = await c.execute("SELECT COUNT(*) AS n FROM activities");
+  expect(Number(rows.rows[0].n)).toBe(1);
+});
+
 test("with FK ON (matching D1), inbound remote-actor inserts succeed after 0011", async () => {
   const c = createClient({ url: ":memory:" });
   await c.execute("PRAGMA foreign_keys = ON");

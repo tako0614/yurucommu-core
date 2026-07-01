@@ -4,6 +4,19 @@
 
 PRAGMA foreign_keys = OFF;
 
+CREATE TABLE IF NOT EXISTS activities (
+  ap_id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  actor_ap_id TEXT NOT NULL,
+  object_ap_id TEXT,
+  object_json TEXT,
+  target_ap_id TEXT,
+  raw_json TEXT NOT NULL,
+  direction TEXT,
+  processed INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS activities_new (
   ap_id TEXT PRIMARY KEY,
   type TEXT NOT NULL,
