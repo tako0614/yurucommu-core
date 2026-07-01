@@ -1,36 +1,19 @@
 output "takosumi_release" {
   value = {
-    post_apply = concat(
-      local.cloudflare_worker_enabled ? [
-        {
-          id                = "migrate"
-          executor          = "operator"
-          command           = ["bun", "run", "takosumi:release", "--", "--migrations-only"]
-          working_directory = "."
-        },
-      ] : [],
-      local.cloudflare_worker_enabled ? [] : [
-        {
-          id                = "publish"
-          executor          = "operator"
-          command           = ["bun", "run", "takosumi:release"]
-          working_directory = "."
-        },
-      ],
-    )
-    pre_destroy = local.cloudflare_worker_enabled ? [] : [
+    post_apply = local.cloudflare_worker_enabled ? [
       {
-        id                = "delete-worker"
+        id                = "migrate"
         executor          = "operator"
-        command           = ["bun", "run", "takosumi:release", "--", "--destroy"]
+        command           = ["bun", "run", "takosumi:release", "--", "--migrations-only"]
         working_directory = "."
       },
-    ]
+    ] : []
+    pre_destroy = []
   }
 }
 
 output "worker_name" {
-  description = "Cloudflare Worker name. When enable_cloudflare_worker_script is true, OpenTofu manages the Worker script; otherwise the app-owned post-apply command uses this name."
+  description = "Cloudflare Worker name used when enable_cloudflare_worker_script is true."
   value       = local.worker_name
 }
 
