@@ -1,4 +1,6 @@
-import { readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { argv, env } from "node:process";
 
 export type SqlExecutionContext = {
@@ -191,26 +193,46 @@ async function executeSql(
 ): Promise<unknown> {
   if (options.executeSql) return await options.executeSql(sql, context);
 
-  const args = buildSqlCommandArgs(options, sql);
-  const [command, ...commandArgs] = args;
-  const child = Bun.spawn([command!, ...commandArgs], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (code !== 0) {
-    process.stdout.write(stdout);
-    process.stderr.write(stderr);
-    const target = context.migration ?? context.purpose;
-    throw new Error(
-      `SQL command failed for ${target}${sqlFailureDetail(stdout, stderr)}`,
-    );
+  const sqlFile = await materializeSqlFileIfNeeded(options, sql);
+  try {
+    const args = buildSqlCommandArgs(options, sql, sqlFile?.path);
+    const [command, ...commandArgs] = args;
+    const child = Bun.spawn([command!, ...commandArgs], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    if (code !== 0) {
+      process.stdout.write(stdout);
+      process.stderr.write(stderr);
+      const target = context.migration ?? context.purpose;
+      throw new Error(
+        `SQL command failed for ${target}${sqlFailureDetail(stdout, stderr)}`,
+      );
+    }
+    return parseSqlCommandOutput(stdout);
+  } finally {
+    if (sqlFile) await rm(sqlFile.dir, { recursive: true, force: true });
   }
-  return parseSqlCommandOutput(stdout);
+}
+
+async function materializeSqlFileIfNeeded(
+  options: Pick<Options, "sqlCommandTemplate">,
+  sql: string,
+): Promise<{ dir: string; path: string } | undefined> {
+  if (
+    !options.sqlCommandTemplate?.some((part) => part.includes("{sql_file}"))
+  ) {
+    return undefined;
+  }
+  const dir = await mkdtemp(join(tmpdir(), "yurucommu-d1-sql-"));
+  const path = join(dir, "command.sql");
+  await writeFile(path, sql);
+  return { dir, path };
 }
 
 function sqlFailureDetail(stdout: string, stderr: string): string {
@@ -237,12 +259,20 @@ export function buildSqlCommandArgs(
     "resource" | "space" | "sqlCommand" | "sqlCommandTemplate"
   >,
   sql: string,
+  sqlFilePath?: string,
 ): readonly string[] {
   if (options.sqlCommandTemplate) {
+    if (
+      options.sqlCommandTemplate.some((part) => part.includes("{sql_file}")) &&
+      !sqlFilePath
+    ) {
+      throw new Error("SQL command template uses {sql_file} without a file");
+    }
     return options.sqlCommandTemplate.map((part) =>
       part
         .replaceAll("{resource}", options.resource)
         .replaceAll("{space}", options.space ?? "")
+        .replaceAll("{sql_file}", sqlFilePath ?? "")
         .replaceAll("{sql}", sql),
     );
   }

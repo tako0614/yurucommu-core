@@ -139,11 +139,12 @@ test("app activation builds operator-provided SQL command templates", () => {
           "{resource}",
           "--remote",
           "--json",
-          "--command",
-          "{sql}",
+          "--file",
+          "{sql_file}",
         ],
       },
       "SELECT 1",
+      ".tmp/yurucommu.sql",
     ),
   ).toEqual([
     "bunx",
@@ -153,8 +154,8 @@ test("app activation builds operator-provided SQL command templates", () => {
     "DB",
     "--remote",
     "--json",
-    "--command",
-    "SELECT 1",
+    "--file",
+    ".tmp/yurucommu.sql",
   ]);
 
   expect(
@@ -175,6 +176,25 @@ test("app activation builds operator-provided SQL command templates", () => {
       "-- comment\nSELECT 1",
     ).at(-1),
   ).toBe("--command=-- comment\nSELECT 1");
+});
+
+test("app activation fails closed when sql_file templates are built without a file", () => {
+  expect(() =>
+    buildSqlCommandArgs(
+      {
+        resource: "DB",
+        sqlCommandTemplate: [
+          "wrangler",
+          "d1",
+          "execute",
+          "DB",
+          "--file",
+          "{sql_file}",
+        ],
+      },
+      "SELECT 1",
+    ),
+  ).toThrow("{sql_file}");
 });
 
 test("app activation fails closed without an operator SQL command", () => {
