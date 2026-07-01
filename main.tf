@@ -63,6 +63,42 @@ variable "app_url" {
   }
 }
 
+variable "encryption_key" {
+  description = "Sensitive Yurucommu encryption key injected as the ENCRYPTION_KEY Worker secret. Leave empty when the runtime is not managed by this OpenTofu module."
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = trimspace(var.encryption_key) == "" || can(regex("^[a-f0-9]{64}$", trimspace(var.encryption_key)))
+    error_message = "encryption_key must be empty or a 64-character lowercase hex key."
+  }
+}
+
+variable "auth_password_hash" {
+  description = "Optional bootstrap password hash/token injected as AUTH_PASSWORD_HASH. Takosumi installs may instead use the Takosumi Accounts OIDC variables."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "takosumi_accounts_issuer_url" {
+  description = "Optional Takosumi Accounts OIDC issuer URL used as a public auth method for auto-provisioned Capsules."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = trimspace(var.takosumi_accounts_issuer_url) == "" || can(regex("^https://[^[:space:]]+$", trimspace(var.takosumi_accounts_issuer_url)))
+    error_message = "takosumi_accounts_issuer_url must be empty or an https URL."
+  }
+}
+
+variable "takosumi_accounts_client_id" {
+  description = "Optional Takosumi Accounts public OIDC client id used with takosumi_accounts_issuer_url."
+  type        = string
+  default     = ""
+}
+
 variable "cloudflare_workers_subdomain" {
   description = "Cloudflare workers.dev subdomain used to derive launch_url for Worker-dev deployments."
   type        = string
@@ -243,48 +279,76 @@ resource "cloudflare_workers_script" "worker" {
     }
   } : null
 
-  bindings = [
-    {
-      type = "d1"
-      name = "DB"
-      id   = cloudflare_d1_database.database[0].id
-    },
-    {
-      type         = "kv_namespace"
-      name         = "KV"
-      namespace_id = cloudflare_workers_kv_namespace.kv[0].id
-    },
-    {
-      type        = "r2_bucket"
-      name        = "MEDIA"
-      bucket_name = cloudflare_r2_bucket.media[0].name
-    },
-    {
-      type       = "queue"
-      name       = "DELIVERY_QUEUE"
-      queue_name = cloudflare_queue.delivery[0].queue_name
-    },
-    {
-      type       = "queue"
-      name       = "DELIVERY_DLQ"
-      queue_name = cloudflare_queue.delivery_dlq[0].queue_name
-    },
-    {
-      type = "plain_text"
-      name = "APP_URL"
-      text = local.launch_url != null ? local.launch_url : ""
-    },
-    {
-      type = "plain_text"
-      name = "DELIVERY_QUEUE_NAME"
-      text = cloudflare_queue.delivery[0].queue_name
-    },
-    {
-      type = "plain_text"
-      name = "DELIVERY_DLQ_NAME"
-      text = cloudflare_queue.delivery_dlq[0].queue_name
-    },
-  ]
+  bindings = concat(
+    [
+      {
+        type        = "d1"
+        name        = "DB"
+        database_id = cloudflare_d1_database.database[0].id
+      },
+      {
+        type         = "kv_namespace"
+        name         = "KV"
+        namespace_id = cloudflare_workers_kv_namespace.kv[0].id
+      },
+      {
+        type        = "r2_bucket"
+        name        = "MEDIA"
+        bucket_name = cloudflare_r2_bucket.media[0].name
+      },
+      {
+        type       = "queue"
+        name       = "DELIVERY_QUEUE"
+        queue_name = cloudflare_queue.delivery[0].queue_name
+      },
+      {
+        type       = "queue"
+        name       = "DELIVERY_DLQ"
+        queue_name = cloudflare_queue.delivery_dlq[0].queue_name
+      },
+      {
+        type = "plain_text"
+        name = "APP_URL"
+        text = local.launch_url != null ? local.launch_url : ""
+      },
+      {
+        type = "plain_text"
+        name = "DELIVERY_QUEUE_NAME"
+        text = cloudflare_queue.delivery[0].queue_name
+      },
+      {
+        type = "plain_text"
+        name = "DELIVERY_DLQ_NAME"
+        text = cloudflare_queue.delivery_dlq[0].queue_name
+      },
+    ],
+    trimspace(var.encryption_key) != "" ? [
+      {
+        type = "secret_text"
+        name = "ENCRYPTION_KEY"
+        text = trimspace(var.encryption_key)
+      },
+    ] : [],
+    trimspace(var.auth_password_hash) != "" ? [
+      {
+        type = "secret_text"
+        name = "AUTH_PASSWORD_HASH"
+        text = trimspace(var.auth_password_hash)
+      },
+    ] : [],
+    trimspace(var.takosumi_accounts_issuer_url) != "" && trimspace(var.takosumi_accounts_client_id) != "" ? [
+      {
+        type = "plain_text"
+        name = "TAKOSUMI_ACCOUNTS_ISSUER_URL"
+        text = trimspace(var.takosumi_accounts_issuer_url)
+      },
+      {
+        type = "plain_text"
+        name = "TAKOSUMI_ACCOUNTS_CLIENT_ID"
+        text = trimspace(var.takosumi_accounts_client_id)
+      },
+    ] : [],
+  )
 
   lifecycle {
     precondition {
