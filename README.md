@@ -31,7 +31,7 @@ runs standalone without Takos.
 
 Yurucommu deploys as a plain OpenTofu Capsule. A self-hoster installs the Git
 URL / ref / module path through Takosumi, reviews the Compatibility Report and
-plan, then applies the Installation. The generated root owns the Worker,
+plan, then applies the Capsule run. The generated root owns the Worker,
 D1 / R2 / KV / Queue bindings, routes, and secret references; repository-local
 Wrangler files are contributor/debug material, not the product install path.
 See [`.env.example`](.env.example) and the
@@ -45,27 +45,43 @@ and auto-installs into new Workspaces. The app exposes its deploy topology as a
 plain OpenTofu Capsule. Cloudflare backing resources are normal
 `cloudflare/cloudflare` provider resources in [`main.tf`](main.tf); set
 `enable_cloudflare_resources=true` and provide `cloudflare_account_id` when the
-Capsule should create D1 / R2 / KV / Queue resources. Runtime surfaces are
-published through the generic `service_exports` output, runtime grant requests
-use `service_bindings`, and post-apply app setup is declared through the neutral
-`takosumi_release.post_apply` output as an opaque command. The contract is:
-OpenTofu provisions resources, Takosumi records outputs and run history, and the
-app-owned post-apply command performs Yurucommu-specific activation.
+Capsule should create D1 / R2 / KV / Queue resources. For the fully
+OpenTofu-managed path, build first (`bun run build && bun run build:worker`) and
+set `enable_cloudflare_worker_script=true`; OpenTofu then manages the Worker
+script upload, bindings, static assets, queue consumers, and workers.dev
+enablement with the same Cloudflare provider. Runtime surfaces are published
+through the generic `service_exports` output and runtime grant requests use
+`service_bindings`.
+
+For Takosumi Cloud's Cloudflare-compatible endpoint, use the same
+`cloudflare/cloudflare` provider with the Takosumi-provided `base_url`, token,
+and virtual account / zone values. Prefer an explicit Worker route for managed
+hostnames: set `enable_workers_dev_subdomain=false`,
+`cloudflare_route_zone_id=<virtual-zone-id>`,
+`cloudflare_route_pattern=<name>.app.takos.jp/*`, and `app_url` to the matching
+HTTPS URL. For real Cloudflare, the same route variables can point at a real
+zone.
+
+The contract is: OpenTofu provisions declared resources, Takosumi injects
+credentials and records state / outputs / run history, and app-owned post-apply
+commands are only used for app initialization that is not a Cloudflare resource
+itself. In the OpenTofu-managed Worker path, `takosumi_release.post_apply` runs
+Yurucommu D1 migrations only; it does not deploy the Worker a second time.
 
 `takosumi:release` is Yurucommu-owned code, not a Takosumi DB migration or Worker
 deployment API. Takosumi only starts the opaque argv declared in
-`takosumi_release.post_apply` and records activation status/logs. The command
-reads non-secret OpenTofu outputs from `TAKOSUMI_OUTPUTS_JSON`, renders a
+`takosumi_release.post_apply` and records activation status/logs. The fallback
+command reads non-secret OpenTofu outputs from `TAKOSUMI_OUTPUTS_JSON`, renders a
 temporary Wrangler config, installs dependencies with `bun install
 --frozen-lockfile`, applies Yurucommu D1 migrations, and deploys the Worker
-artifact. Operator secrets such as `YURUCOMMU_ENCRYPTION_KEY`,
+artifact only when `enable_cloudflare_worker_script=false`. Operator secrets
+such as `YURUCOMMU_ENCRYPTION_KEY`,
 `YURUCOMMU_AUTH_PASSWORD_HASH`, or OAuth client secrets must come from the
 selected release execution boundary. In the normal Takosumi path this is the
-runner sandbox with ProviderConnection credentials minted only for the release
-dispatch; an operator activator may also provide explicitly allowlisted
+operator release activator, which may provide explicitly allowlisted
 environment values. These secrets are uploaded as Worker secrets and are never
-stored in OpenTofu outputs. No Yurucommu-specific Takosumi manifest format or
-DSL is required.
+stored in OpenTofu outputs. The source repo remains a plain Git-hosted
+OpenTofu module; no Yurucommu-specific source metadata file or DSL is required.
 
 ## Develop
 
@@ -87,7 +103,7 @@ database schema and migrations in `src/db/schema` and `migrations/`.
 Yurucommu implements its own ActivityPub federation, content distribution, and
 user identity entirely at the app layer — it does not depend on Takos core
 services or on a platform-layer federation mechanism. As a Takos bundled app it
-is a normal Installation a user can uninstall, and it is never absorbed into
+is a normal Capsule a user can remove, and it is never absorbed into
 Takos core. See [`AGENTS.md`](AGENTS.md) for the full product boundary.
 
 ## Documentation
