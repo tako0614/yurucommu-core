@@ -65,8 +65,8 @@ hostnames: set `enable_workers_dev_subdomain=false`,
 `cloudflare_route_pattern=<name>.app.takos.jp/*`, and `app_url` to the matching
 HTTPS URL. Provide a release artifact URL and sha through `worker_bundle_url` and
 `worker_bundle_sha256` so the Git module can run without repository-local
-`dist/` files. For real Cloudflare, the same route variables can point at a real
-zone.
+`dist/` files. The checksum may be raw lowercase hex or `sha256:<hex>`. For real
+Cloudflare, the same route variables can point at a real zone.
 
 The contract is: OpenTofu provisions declared resources, Takosumi injects
 credentials and records state / outputs / run history, and app-owned post-apply
