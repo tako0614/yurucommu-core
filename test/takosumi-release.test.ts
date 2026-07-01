@@ -169,6 +169,34 @@ test("release commands use generated wrangler config", () => {
   ]);
 });
 
+test("migrations-only mode is accepted in dry-run output", async () => {
+  const proc = Bun.spawn(
+    ["bun", "scripts/takosumi-release.ts", "--dry-run", "--migrations-only"],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...process.env,
+        TAKOSUMI_OUTPUTS_JSON: JSON.stringify(rawOutputs),
+      },
+    },
+  );
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  expect(stderr).toBe("");
+  expect(code).toBe(0);
+  expect(JSON.parse(stdout)).toMatchObject({
+    ok: true,
+    dryRun: true,
+    migrationsOnly: true,
+    workerName: "yuru-smoke",
+  });
+});
+
 test("shouldSkipD1Migrations only accepts explicit truthy operator values", () => {
   expect(shouldSkipD1Migrations("1")).toBe(true);
   expect(shouldSkipD1Migrations("true")).toBe(true);

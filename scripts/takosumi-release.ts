@@ -258,10 +258,20 @@ async function main(args = argv.slice(2)): Promise<void> {
   const dryRun = args.includes("--dry-run");
   const keepGenerated = args.includes("--keep-generated");
   const destroy = args.includes("--destroy");
+  const migrationsOnly = args.includes("--migrations-only");
   const unknown = args.find(
-    (arg) => !["--dry-run", "--keep-generated", "--destroy"].includes(arg),
+    (arg) =>
+      ![
+        "--dry-run",
+        "--keep-generated",
+        "--destroy",
+        "--migrations-only",
+      ].includes(arg),
   );
   if (unknown) throw new Error(`Unknown argument: ${unknown}`);
+  if (destroy && migrationsOnly) {
+    throw new Error("--destroy and --migrations-only cannot be used together");
+  }
 
   const rawOutputs = env.TAKOSUMI_OUTPUTS_JSON;
   if (!rawOutputs?.trim()) {
@@ -307,6 +317,7 @@ async function main(args = argv.slice(2)): Promise<void> {
               appUrl: config.appUrl,
               configPath,
               secretNames: Object.keys(config.secrets).sort(),
+              migrationsOnly,
               deployArgs: buildDeployArgs(configPath, secretsPath),
             },
             null,
@@ -330,6 +341,17 @@ async function main(args = argv.slice(2)): Promise<void> {
           sqlCommandTemplate: buildD1ExecuteTemplate(configPath),
           wrapTransactions: false,
         });
+      }
+      if (migrationsOnly) {
+        console.log(
+          JSON.stringify({
+            ok: true,
+            migrationsOnly: true,
+            workerName: config.workerName,
+            appUrl: config.appUrl,
+          }),
+        );
+        return;
       }
       await run(buildDeployArgs(configPath, secretsPath));
       console.log(

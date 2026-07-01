@@ -1,14 +1,24 @@
 output "takosumi_release" {
   value = {
-    post_apply = [
-      {
-        id                = "publish"
-        executor          = "operator"
-        command           = ["bun", "run", "takosumi:release"]
-        working_directory = "."
-      },
-    ]
-    pre_destroy = [
+    post_apply = concat(
+      local.cloudflare_worker_enabled ? [
+        {
+          id                = "migrate"
+          executor          = "operator"
+          command           = ["bun", "run", "takosumi:release", "--", "--migrations-only"]
+          working_directory = "."
+        },
+      ] : [],
+      local.cloudflare_worker_enabled ? [] : [
+        {
+          id                = "publish"
+          executor          = "operator"
+          command           = ["bun", "run", "takosumi:release"]
+          working_directory = "."
+        },
+      ],
+    )
+    pre_destroy = local.cloudflare_worker_enabled ? [] : [
       {
         id                = "delete-worker"
         executor          = "operator"
@@ -20,8 +30,23 @@ output "takosumi_release" {
 }
 
 output "worker_name" {
-  description = "Cloudflare Worker name used by the Takosumi post-apply release command."
+  description = "Cloudflare Worker name. When enable_cloudflare_worker_script is true, OpenTofu manages the Worker script; otherwise the app-owned post-apply command uses this name."
   value       = local.worker_name
+}
+
+output "worker_managed_by_opentofu" {
+  description = "True when the Worker script, bindings, assets, queue consumers, and workers.dev enablement are managed by OpenTofu."
+  value       = local.cloudflare_worker_enabled
+}
+
+output "cloudflare_worker_script_id" {
+  description = "OpenTofu-managed Cloudflare Worker script ID, or null when enable_cloudflare_worker_script is false."
+  value       = try(cloudflare_workers_script.worker[0].id, null)
+}
+
+output "cloudflare_worker_route_id" {
+  description = "OpenTofu-managed Cloudflare Worker route ID, or null when cloudflare_route_zone_id/cloudflare_route_pattern are not set."
+  value       = try(cloudflare_workers_route.worker[0].id, null)
 }
 
 output "launch_url" {
