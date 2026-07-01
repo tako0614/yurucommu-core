@@ -98,13 +98,13 @@ variable "worker_bundle_url" {
 }
 
 variable "worker_bundle_sha256" {
-  description = "Expected lowercase hex SHA-256 of the Worker module JS. Required when worker_bundle_url is set; optional for local worker_bundle_path."
+  description = "Expected SHA-256 of the Worker module JS. Accepts lowercase hex or sha256:<hex>. Required when worker_bundle_url is set; optional for local worker_bundle_path."
   type        = string
   default     = ""
 
   validation {
-    condition     = trimspace(var.worker_bundle_sha256) == "" || can(regex("^[a-f0-9]{64}$", trimspace(var.worker_bundle_sha256)))
-    error_message = "worker_bundle_sha256 must be empty or a lowercase 64-character hex SHA-256 digest."
+    condition     = trimspace(var.worker_bundle_sha256) == "" || can(regex("^(sha256:)?[a-f0-9]{64}$", trimspace(var.worker_bundle_sha256)))
+    error_message = "worker_bundle_sha256 must be empty, a lowercase 64-character hex SHA-256 digest, or sha256:<hex>."
   }
 }
 
@@ -162,19 +162,21 @@ variable "worker_compatibility_flags" {
 }
 
 locals {
-  cloudflare_resources_enabled = var.enable_cloudflare_resources
-  cloudflare_worker_enabled    = local.cloudflare_resources_enabled && var.enable_cloudflare_worker_script
-  cloudflare_route_enabled     = local.cloudflare_worker_enabled && trimspace(var.cloudflare_route_zone_id) != "" && trimspace(var.cloudflare_route_pattern) != ""
-  worker_bundle_url            = trimspace(var.worker_bundle_url)
-  worker_bundle_uses_url       = local.cloudflare_worker_enabled && local.worker_bundle_url != ""
-  worker_bundle_local_path     = startswith(var.worker_bundle_path, "/") ? var.worker_bundle_path : "${path.module}/${var.worker_bundle_path}"
-  worker_bundle_body           = local.worker_bundle_uses_url ? data.http.worker_bundle[0].response_body : null
-  worker_bundle_content_sha256 = local.worker_bundle_uses_url ? sha256(data.http.worker_bundle[0].response_body) : filesha256(local.worker_bundle_local_path)
-  worker_assets_enabled        = local.cloudflare_worker_enabled && var.enable_worker_assets && !local.worker_bundle_uses_url
-  resource_prefix              = var.project_name
-  worker_name                  = trimspace(var.worker_name) != "" ? trimspace(var.worker_name) : local.resource_prefix
-  workers_dev_url              = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null
-  launch_url                   = trimspace(var.app_url) != "" ? trimspace(var.app_url) : local.workers_dev_url
+  cloudflare_resources_enabled  = var.enable_cloudflare_resources
+  cloudflare_worker_enabled     = local.cloudflare_resources_enabled && var.enable_cloudflare_worker_script
+  cloudflare_route_enabled      = local.cloudflare_worker_enabled && trimspace(var.cloudflare_route_zone_id) != "" && trimspace(var.cloudflare_route_pattern) != ""
+  worker_bundle_url             = trimspace(var.worker_bundle_url)
+  worker_bundle_uses_url        = local.cloudflare_worker_enabled && local.worker_bundle_url != ""
+  worker_bundle_sha256_input    = trimspace(var.worker_bundle_sha256)
+  worker_bundle_expected_sha256 = startswith(local.worker_bundle_sha256_input, "sha256:") ? replace(local.worker_bundle_sha256_input, "sha256:", "") : local.worker_bundle_sha256_input
+  worker_bundle_local_path      = startswith(var.worker_bundle_path, "/") ? var.worker_bundle_path : "${path.module}/${var.worker_bundle_path}"
+  worker_bundle_body            = local.worker_bundle_uses_url ? data.http.worker_bundle[0].response_body : null
+  worker_bundle_content_sha256  = local.worker_bundle_uses_url ? sha256(data.http.worker_bundle[0].response_body) : filesha256(local.worker_bundle_local_path)
+  worker_assets_enabled         = local.cloudflare_worker_enabled && var.enable_worker_assets && !local.worker_bundle_uses_url
+  resource_prefix               = var.project_name
+  worker_name                   = trimspace(var.worker_name) != "" ? trimspace(var.worker_name) : local.resource_prefix
+  workers_dev_url               = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null
+  launch_url                    = trimspace(var.app_url) != "" ? trimspace(var.app_url) : local.workers_dev_url
 
   d1_database_name    = "${local.resource_prefix}-db"
   r2_media_bucket     = "${local.resource_prefix}-media"
@@ -270,7 +272,7 @@ resource "cloudflare_workers_script" "worker" {
     {
       type = "plain_text"
       name = "APP_URL"
-      text = coalesce(local.launch_url, "")
+      text = local.launch_url != null ? local.launch_url : ""
     },
     {
       type = "plain_text"
@@ -286,12 +288,12 @@ resource "cloudflare_workers_script" "worker" {
 
   lifecycle {
     precondition {
-      condition     = !local.worker_bundle_uses_url || (trimspace(var.worker_bundle_sha256) != "" && trimspace(var.worker_bundle_sha256) == local.worker_bundle_content_sha256)
+      condition     = !local.worker_bundle_uses_url || (local.worker_bundle_expected_sha256 != "" && local.worker_bundle_expected_sha256 == local.worker_bundle_content_sha256)
       error_message = "worker_bundle_sha256 is required for worker_bundle_url and must match the downloaded artifact."
     }
 
     precondition {
-      condition     = local.worker_bundle_uses_url || trimspace(var.worker_bundle_sha256) == "" || trimspace(var.worker_bundle_sha256) == local.worker_bundle_content_sha256
+      condition     = local.worker_bundle_uses_url || local.worker_bundle_expected_sha256 == "" || local.worker_bundle_expected_sha256 == local.worker_bundle_content_sha256
       error_message = "worker_bundle_sha256 does not match worker_bundle_path."
     }
   }
