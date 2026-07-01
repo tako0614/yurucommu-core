@@ -6,6 +6,10 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = "~> 5.0"
     }
+    http = {
+      source  = "hashicorp/http"
+      version = "~> 3.5"
+    }
   }
 }
 
@@ -71,19 +75,30 @@ variable "cloudflare_workers_subdomain" {
 }
 
 variable "enable_cloudflare_worker_script" {
-  description = "Deploy the Yurucommu Worker script, bindings, static assets, queue consumers, and workers.dev enablement through OpenTofu. Build the bundle before apply."
+  description = "Deploy the Yurucommu Worker script, bindings, queue consumers, route, and optional workers.dev enablement through OpenTofu."
   type        = bool
   default     = false
 }
 
 variable "worker_bundle_path" {
-  description = "Path to the prebuilt Worker module JS file used when enable_cloudflare_worker_script is true."
+  description = "Local path to the prebuilt Worker module JS file used when worker_bundle_url is empty."
   type        = string
-  default     = "dist/worker.js"
+  default     = "dist/takos-worker.js"
+}
+
+variable "worker_bundle_url" {
+  description = "Optional HTTPS URL for a prebuilt Worker module JS artifact. When set, OpenTofu downloads this artifact and verifies worker_bundle_sha256 before upload."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = trimspace(var.worker_bundle_url) == "" || can(regex("^https://[^[:space:]]+$", trimspace(var.worker_bundle_url)))
+    error_message = "worker_bundle_url must be empty or an https URL."
+  }
 }
 
 variable "worker_bundle_sha256" {
-  description = "Optional expected hex SHA-256 of worker_bundle_path. OpenTofu validates it before uploading when set."
+  description = "Expected lowercase hex SHA-256 of the Worker module JS. Required when worker_bundle_url is set; optional for local worker_bundle_path."
   type        = string
   default     = ""
 
@@ -100,15 +115,15 @@ variable "worker_main_module" {
 }
 
 variable "worker_assets_directory" {
-  description = "Static assets directory uploaded with the Worker when enable_worker_assets is true."
+  description = "Static assets directory uploaded with the Worker when enable_worker_assets is true. The default artifact embeds assets, so this is normally only needed for direct Cloudflare local builds."
   type        = string
   default     = "dist"
 }
 
 variable "enable_worker_assets" {
-  description = "Upload worker_assets_directory as Cloudflare Workers static assets with the Worker script."
+  description = "Upload worker_assets_directory as Cloudflare Workers static assets with the Worker script. Remote worker_bundle_url artifacts are expected to embed assets, so this is ignored when worker_bundle_url is set."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "enable_workers_dev_subdomain" {
@@ -150,6 +165,12 @@ locals {
   cloudflare_resources_enabled = var.enable_cloudflare_resources
   cloudflare_worker_enabled    = local.cloudflare_resources_enabled && var.enable_cloudflare_worker_script
   cloudflare_route_enabled     = local.cloudflare_worker_enabled && trimspace(var.cloudflare_route_zone_id) != "" && trimspace(var.cloudflare_route_pattern) != ""
+  worker_bundle_url            = trimspace(var.worker_bundle_url)
+  worker_bundle_uses_url       = local.cloudflare_worker_enabled && local.worker_bundle_url != ""
+  worker_bundle_local_path     = startswith(var.worker_bundle_path, "/") ? var.worker_bundle_path : "${path.module}/${var.worker_bundle_path}"
+  worker_bundle_body           = local.worker_bundle_uses_url ? data.http.worker_bundle[0].response_body : null
+  worker_bundle_content_sha256 = local.worker_bundle_uses_url ? sha256(data.http.worker_bundle[0].response_body) : filesha256(local.worker_bundle_local_path)
+  worker_assets_enabled        = local.cloudflare_worker_enabled && var.enable_worker_assets && !local.worker_bundle_uses_url
   resource_prefix              = var.project_name
   worker_name                  = trimspace(var.worker_name) != "" ? trimspace(var.worker_name) : local.resource_prefix
   workers_dev_url              = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null
@@ -160,6 +181,15 @@ locals {
   kv_namespace_title  = "${local.resource_prefix}-kv"
   delivery_queue_name = "${local.resource_prefix}-delivery"
   delivery_dlq_name   = "${local.resource_prefix}-delivery-dlq"
+}
+
+data "http" "worker_bundle" {
+  count = local.worker_bundle_uses_url ? 1 : 0
+  url   = local.worker_bundle_url
+
+  request_headers = {
+    Accept = "application/javascript, text/javascript, application/octet-stream"
+  }
 }
 
 resource "cloudflare_d1_database" "database" {
@@ -196,13 +226,14 @@ resource "cloudflare_workers_script" "worker" {
   count               = local.cloudflare_worker_enabled ? 1 : 0
   account_id          = var.cloudflare_account_id
   script_name         = local.worker_name
-  content_file        = var.worker_bundle_path
-  content_sha256      = filesha256(var.worker_bundle_path)
+  content             = local.worker_bundle_uses_url ? local.worker_bundle_body : null
+  content_file        = local.worker_bundle_uses_url ? null : local.worker_bundle_local_path
+  content_sha256      = local.worker_bundle_content_sha256
   main_module         = var.worker_main_module
   compatibility_date  = var.worker_compatibility_date
   compatibility_flags = var.worker_compatibility_flags
 
-  assets = var.enable_worker_assets ? {
+  assets = local.worker_assets_enabled ? {
     directory = var.worker_assets_directory
     config = {
       run_worker_first   = true
@@ -255,7 +286,12 @@ resource "cloudflare_workers_script" "worker" {
 
   lifecycle {
     precondition {
-      condition     = trimspace(var.worker_bundle_sha256) == "" || trimspace(var.worker_bundle_sha256) == filesha256(var.worker_bundle_path)
+      condition     = !local.worker_bundle_uses_url || (trimspace(var.worker_bundle_sha256) != "" && trimspace(var.worker_bundle_sha256) == local.worker_bundle_content_sha256)
+      error_message = "worker_bundle_sha256 is required for worker_bundle_url and must match the downloaded artifact."
+    }
+
+    precondition {
+      condition     = local.worker_bundle_uses_url || trimspace(var.worker_bundle_sha256) == "" || trimspace(var.worker_bundle_sha256) == local.worker_bundle_content_sha256
       error_message = "worker_bundle_sha256 does not match worker_bundle_path."
     }
   }
