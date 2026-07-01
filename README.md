@@ -46,10 +46,14 @@ plain OpenTofu Capsule. Cloudflare backing resources are normal
 `cloudflare/cloudflare` provider resources in [`main.tf`](main.tf); set
 `enable_cloudflare_resources=true` and provide `cloudflare_account_id` when the
 Capsule should create D1 / R2 / KV / Queue resources. For the fully
-OpenTofu-managed path, build first (`bun run build && bun run build:worker`) and
-set `enable_cloudflare_worker_script=true`; OpenTofu then manages the Worker
-script upload, bindings, static assets, queue consumers, and workers.dev
-enablement with the same Cloudflare provider. Runtime surfaces are published
+OpenTofu-managed path, publish a prebuilt Capsule Worker artifact with
+`bun run build:capsule-worker` and set `enable_cloudflare_worker_script=true`.
+The module accepts either a local `worker_bundle_path` or an HTTPS
+`worker_bundle_url` plus `worker_bundle_sha256`; OpenTofu reads that artifact and
+the `cloudflare/cloudflare` provider manages the Worker script upload, bindings,
+queue consumers, route, and optional workers.dev enablement. The default
+Capsule Worker artifact embeds the web assets, so Cloudflare Workers static
+assets are optional and disabled by default. Runtime surfaces are published
 through the generic `service_exports` output and runtime grant requests use
 `service_bindings`.
 
@@ -59,7 +63,9 @@ and virtual account / zone values. Prefer an explicit Worker route for managed
 hostnames: set `enable_workers_dev_subdomain=false`,
 `cloudflare_route_zone_id=<virtual-zone-id>`,
 `cloudflare_route_pattern=<name>.app.takos.jp/*`, and `app_url` to the matching
-HTTPS URL. For real Cloudflare, the same route variables can point at a real
+HTTPS URL. Provide a release artifact URL and sha through `worker_bundle_url` and
+`worker_bundle_sha256` so the Git module can run without repository-local
+`dist/` files. For real Cloudflare, the same route variables can point at a real
 zone.
 
 The contract is: OpenTofu provisions declared resources, Takosumi injects
