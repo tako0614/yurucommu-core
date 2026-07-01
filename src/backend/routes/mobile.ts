@@ -5,7 +5,7 @@ import {
   type MobilePushHostUnregistrationResponse,
   parseMobilePushHostRegistrationRequest,
   type ParsedMobilePushHostRegistrationRequest,
-} from "takosumi-contract/mobile";
+} from "../lib/mobile-contract.ts";
 
 import { mobilePushRegistrations, type Database } from "../../db/index.ts";
 import type { Actor, Env, Variables } from "../types.ts";
@@ -28,9 +28,7 @@ async function sha256Hex(value: string): Promise<string> {
 function parsePushRegistrationBody(
   body: Record<string, unknown>,
 ): MobilePushRegistrationBody | Response {
-  const parsed = parseMobilePushHostRegistrationRequest(body, {
-    product: "yurucommu",
-  });
+  const parsed = parseMobilePushHostRegistrationRequest(body);
   if (!parsed.ok) return Response.json(parsed.error, { status: 400 });
   return parsed.value;
 }

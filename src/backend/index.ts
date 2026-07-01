@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { MOBILE_PUSH_REGISTRATION_PATH } from "takosumi-contract/mobile";
+import { MOBILE_PUSH_REGISTRATION_PATH } from "./lib/mobile-contract.ts";
 import type { Env, EnvVars, Variables } from "./types.ts";
 import { extractActorFromSession } from "./lib/session-actor.ts";
 import { isBackendPath } from "./lib/backend-paths.ts";
