@@ -32,6 +32,9 @@ test("app activation applies only migrations missing from yurucommu_migrations",
           expect(applied.has(context.migration!)).toBe(false);
           expect(sql).toContain("ALTER TABLE done ADD COLUMN name TEXT;");
           expect(sql).toContain(
+            "CREATE TABLE IF NOT EXISTS yurucommu_migrations",
+          );
+          expect(sql).toContain(
             "INSERT INTO yurucommu_migrations (name, applied_at) VALUES ('0002_next.sql', ",
           );
           applied.add(context.migration!);
@@ -78,13 +81,19 @@ test("app activation wraps non-transactional migrations and respects owned trans
       },
     });
 
-    expect(migrationSql[0]!.startsWith("BEGIN;\nCREATE TABLE plain")).toBe(
-      true,
-    );
+    expect(
+      migrationSql[0]!.startsWith(
+        "BEGIN;\nCREATE TABLE IF NOT EXISTS yurucommu_migrations",
+      ),
+    ).toBe(true);
+    expect(migrationSql[0]).toContain("CREATE TABLE plain");
     expect(migrationSql[0]).toContain("COMMIT;");
-    expect(migrationSql[1]!.startsWith("BEGIN;\nCREATE TABLE owned")).toBe(
-      true,
-    );
+    expect(
+      migrationSql[1]!.startsWith(
+        "CREATE TABLE IF NOT EXISTS yurucommu_migrations",
+      ),
+    ).toBe(true);
+    expect(migrationSql[1]).toContain("BEGIN;\nCREATE TABLE owned");
     expect(migrationSql[1]).not.toContain("BEGIN;\nBEGIN;");
     expect(migrationSql[1]).toContain(
       "INSERT INTO yurucommu_migrations (name, applied_at) VALUES ('0002_owned.sql', ",

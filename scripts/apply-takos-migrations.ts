@@ -149,13 +149,23 @@ function migrationSqlWithLedgerMark(
   sql: string,
   options: Pick<Options, "wrapTransactions">,
 ): string {
+  const ensureLedger = migrationLedgerTableSql();
   const markApplied =
     `INSERT INTO ${MIGRATION_LEDGER_TABLE} (name, applied_at) ` +
     `VALUES (${sqlString(file)}, ${sqlString(new Date().toISOString())});`;
   if (options.wrapTransactions === false || migrationOwnsTransaction(sql)) {
-    return `${sql.trim()}\n${markApplied}\n`;
+    return `${ensureLedger}\n${sql.trim()}\n${markApplied}\n`;
   }
-  return `BEGIN;\n${sql.trim()}\n${markApplied}\nCOMMIT;\n`;
+  return `BEGIN;\n${ensureLedger}\n${sql.trim()}\n${markApplied}\nCOMMIT;\n`;
+}
+
+function migrationLedgerTableSql(): string {
+  return `
+CREATE TABLE IF NOT EXISTS ${MIGRATION_LEDGER_TABLE} (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  applied_at TEXT NOT NULL
+);`.trim();
 }
 
 function migrationOwnsTransaction(sql: string): boolean {
