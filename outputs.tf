@@ -34,6 +34,108 @@ output "url" {
   value       = local.launch_url
 }
 
+output "app_deployment" {
+  description = "Installable app declaration consumed from tofu output -json by Takos/Takosumi install flows."
+  value = {
+    contractVersion = 1
+    name            = "yurucommu"
+    version         = "2.0.0"
+
+    compute = {
+      web = {
+        kind      = "worker"
+        readiness = "/healthz"
+        triggers = {
+          queues = [
+            {
+              binding         = "DELIVERY_QUEUE"
+              deadLetterQueue = "delivery_dlq"
+              maxBatchSize    = 10
+              maxRetries      = 3
+              maxWaitTimeMs   = 1000
+            },
+            {
+              binding       = "DELIVERY_DLQ"
+              maxBatchSize  = 10
+              maxRetries    = 1
+              maxWaitTimeMs = 60000
+            },
+          ]
+        }
+      }
+    }
+
+    resources = {
+      database = {
+        type = "sql"
+        bind = "DB"
+        to   = ["web"]
+      }
+      media = {
+        type = "object-store"
+        bind = "MEDIA"
+        to   = ["web"]
+      }
+      kv = {
+        type = "key-value"
+        bind = "KV"
+        to   = ["web"]
+      }
+      delivery = {
+        type = "queue"
+        bind = "DELIVERY_QUEUE"
+        to   = ["web"]
+        queue = {
+          deadLetterQueue = "delivery_dlq"
+          maxRetries      = 3
+        }
+      }
+      delivery_dlq = {
+        type = "queue"
+        bind = "DELIVERY_DLQ"
+        to   = ["web"]
+        queue = {
+          maxRetries = 1
+        }
+      }
+    }
+
+    routes = [
+      {
+        id     = "root"
+        target = "web"
+        path   = "/"
+      },
+    ]
+
+    publish = [
+      {
+        name      = "launcher"
+        publisher = "web"
+        type      = "interface.ui.surface"
+        outputs = {
+          url = {
+            kind     = "url"
+            routeRef = "root"
+          }
+        }
+        display = {
+          title       = "Yurucommu"
+          description = "Self-hosted ActivityPub social app for posts, messaging, stories, and small communities."
+          category    = "social"
+        }
+        spec = {
+          launcher = true
+        }
+      },
+    ]
+
+    env = {
+      APP_URL = local.launch_url != null ? local.launch_url : ""
+    }
+  }
+}
+
 output "service_exports" {
   description = "OpenTofu output projection for launch and endpoint metadata without Takosumi-specific resource descriptors."
   value = [
