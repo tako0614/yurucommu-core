@@ -210,6 +210,36 @@ test("migrations-only mode is accepted in dry-run output", async () => {
   });
 });
 
+test("migrations-only mode skips dependency install and Worker build", async () => {
+  const proc = Bun.spawn(
+    ["bun", "scripts/takosumi-release.ts", "--migrations-only"],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...process.env,
+        TAKOSUMI_OUTPUTS_JSON: JSON.stringify(rawOutputs),
+        YURUCOMMU_SKIP_D1_MIGRATIONS: "true",
+      },
+    },
+  );
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  expect(code).toBe(0);
+  expect(stderr).toContain("Skipping D1 migrations");
+  expect(stdout).not.toContain("'bun' 'install'");
+  expect(stdout).not.toContain("'bun' 'run' 'build'");
+  expect(JSON.parse(stdout)).toMatchObject({
+    ok: true,
+    migrationsOnly: true,
+    workerName: "yuru-smoke",
+  });
+});
+
 test("shouldSkipD1Migrations only accepts explicit truthy operator values", () => {
   expect(shouldSkipD1Migrations("1")).toBe(true);
   expect(shouldSkipD1Migrations("true")).toBe(true);

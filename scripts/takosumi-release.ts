@@ -327,9 +327,11 @@ async function main(args = argv.slice(2)): Promise<void> {
         return;
       }
 
-      warnIfReadinessWillBeIncomplete(config);
-      await run(buildInstallArgs());
-      await run(["bun", "run", "build"]);
+      if (!migrationsOnly) {
+        warnIfReadinessWillBeIncomplete(config);
+        await run(buildInstallArgs());
+        await run(["bun", "run", "build"]);
+      }
       if (shouldSkipD1Migrations(env.YURUCOMMU_SKIP_D1_MIGRATIONS)) {
         console.warn(
           "[takosumi:release] Skipping D1 migrations because YURUCOMMU_SKIP_D1_MIGRATIONS is enabled.",

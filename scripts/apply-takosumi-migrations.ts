@@ -21,6 +21,8 @@ export type Options = {
   migrationsDir: string;
   space?: string;
   wrapTransactions?: boolean;
+  retryAttempts?: number;
+  retryDelayMs?: number;
   sqlCommand?: readonly string[];
   sqlCommandTemplate?: readonly string[];
   executeSql?: SqlExecutor;
@@ -42,6 +44,8 @@ export function parseArgs(args: string[]): Options {
       env.YURUCOMMU_SQL_WRAP_TRANSACTIONS,
       true,
     ),
+    retryAttempts: parseIntegerEnv(env.YURUCOMMU_SQL_RETRY_ATTEMPTS, 4),
+    retryDelayMs: parseIntegerEnv(env.YURUCOMMU_SQL_RETRY_DELAY_MS, 1500),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -74,6 +78,16 @@ export function parseArgs(args: string[]): Options {
     }
     if (arg === "--no-wrap-transactions") {
       options.wrapTransactions = false;
+      continue;
+    }
+    if (arg === "--retry-attempts" && next) {
+      options.retryAttempts = parsePositiveInteger(next, "--retry-attempts");
+      index += 1;
+      continue;
+    }
+    if (arg === "--retry-delay-ms" && next) {
+      options.retryDelayMs = parseNonNegativeInteger(next, "--retry-delay-ms");
+      index += 1;
       continue;
     }
     throw new Error(`Unknown or incomplete argument: ${arg}`);
@@ -206,34 +220,98 @@ async function executeSql(
   const sqlFile = await materializeSqlFileIfNeeded(options, sql);
   try {
     const args = buildSqlCommandArgs(options, sql, sqlFile?.path);
-    const [command, ...commandArgs] = args;
-    const child = Bun.spawn([command!, ...commandArgs], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
-    const output = parseSqlCommandOutput(stdout);
-    const outputFailure = sqlCommandOutputFailure(output);
-    if (code !== 0 || outputFailure) {
-      process.stdout.write(stdout);
-      process.stderr.write(stderr);
-      const target = context.migration ?? context.purpose;
+    const target = context.migration ?? context.purpose;
+    const maxAttempts = Math.max(1, options.retryAttempts ?? 1);
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const result = await runSqlCommand(args);
+      const output = parseSqlCommandOutput(result.stdout);
+      const outputFailure = sqlCommandOutputFailure(output);
+      const failure = sqlExecutionFailure({
+        code: result.code,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        outputFailure,
+      });
+      if (!failure) return output;
+      if (attempt < maxAttempts && isRetryableSqlFailure(failure.message)) {
+        const delayMs = retryDelayMs(options, attempt);
+        console.warn(
+          `[app:activate] Retrying ${target} after transient SQL failure ` +
+            `(${attempt}/${maxAttempts}): ${oneLine(failure.message)}`,
+        );
+        if (delayMs > 0) await sleep(delayMs);
+        continue;
+      }
+      process.stdout.write(result.stdout);
+      process.stderr.write(result.stderr);
       throw new Error(
         `SQL command failed for ${target}${sqlFailureDetail(
-          stdout,
-          stderr,
-          outputFailure,
+          result.stdout,
+          result.stderr,
+          failure.message,
         )}`,
       );
     }
-    return output;
+    throw new Error(`SQL command failed for ${target}`);
   } finally {
     if (sqlFile) await rm(sqlFile.dir, { recursive: true, force: true });
   }
+}
+
+async function runSqlCommand(args: readonly string[]): Promise<{
+  stdout: string;
+  stderr: string;
+  code: number;
+}> {
+  const [command, ...commandArgs] = args;
+  const child = Bun.spawn([command!, ...commandArgs], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  return { stdout, stderr, code };
+}
+
+function sqlExecutionFailure(input: {
+  code: number;
+  stdout: string;
+  stderr: string;
+  outputFailure?: string;
+}): { message: string } | undefined {
+  if (input.code === 0 && !input.outputFailure) return undefined;
+  return {
+    message:
+      input.outputFailure ??
+      [input.stdout, input.stderr].filter(Boolean).join("\n") ??
+      `exit code ${input.code}`,
+  };
+}
+
+function isRetryableSqlFailure(message: string): boolean {
+  return /(?:no such table|database is locked|SQLITE_BUSY|SQLITE_LOCKED|internal error|timed?\s*out|timeout)/iu.test(
+    message,
+  );
+}
+
+function retryDelayMs(
+  options: Pick<Options, "retryDelayMs">,
+  attempt: number,
+): number {
+  const base = options.retryDelayMs ?? 0;
+  if (base <= 0) return 0;
+  return Math.min(base * 2 ** Math.max(0, attempt - 1), 8000);
+}
+
+function oneLine(value: string): string {
+  return value.replace(/\s+/gu, " ").slice(0, 220);
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function materializeSqlFileIfNeeded(
@@ -399,6 +477,30 @@ function parseBooleanEnv(
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   throw new Error(`Invalid boolean env value: ${value}`);
+}
+
+function parseIntegerEnv(
+  value: string | undefined,
+  defaultValue: number,
+): number {
+  if (!value?.trim()) return defaultValue;
+  return parsePositiveInteger(value, "integer env value");
+}
+
+function parsePositiveInteger(value: string, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function parseNonNegativeInteger(value: string, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return parsed;
 }
 
 function sqlString(value: string): string {
