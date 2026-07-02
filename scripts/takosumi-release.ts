@@ -55,6 +55,9 @@ const OPTIONAL_VAR_ENV = [
   "YURUCOMMU_STRICT_READINESS",
 ] as const;
 
+const DEFAULT_RELEASE_COMMAND_RETRY_ATTEMPTS = 3;
+const DEFAULT_RELEASE_COMMAND_RETRY_INTERVAL_MS = 2_000;
+
 export function parseTakosumiOutputsJson(text: string): JsonRecord {
   const outputs = JSON.parse(text) as unknown;
   if (!isRecord(outputs)) {
@@ -379,7 +382,8 @@ async function run(
   options: { readonly allowMissingDestroyResource?: boolean } = {},
 ): Promise<void> {
   console.log(`\n> ${command.map(shellArg).join(" ")}\n`);
-  if (options.allowMissingDestroyResource) {
+  const retryPolicy = releaseCommandRetryPolicy(env);
+  for (let attempt = 1; attempt <= retryPolicy.attempts; attempt += 1) {
     const child = Bun.spawn([...command], {
       stdout: "pipe",
       stderr: "pipe",
@@ -392,22 +396,56 @@ async function run(
     process.stdout.write(stdout);
     process.stderr.write(stderr);
     if (code === 0) return;
+    const combinedOutput = `${stdout}\n${stderr}`;
     if (isIgnorableDestroyFailure(command, `${stdout}\n${stderr}`)) {
       console.warn(
         "[takosumi:release] Ignoring missing release resource during destroy.",
       );
       return;
     }
+    if (
+      attempt < retryPolicy.attempts &&
+      isRetryableCommandFailure(combinedOutput)
+    ) {
+      console.warn(
+        `[takosumi:release] Retryable command failure; retrying ${attempt + 1}/${retryPolicy.attempts} after ${retryPolicy.intervalMs}ms.`,
+      );
+      await sleep(retryPolicy.intervalMs);
+      continue;
+    }
     throw new Error(`Command failed (${code}): ${command.join(" ")}`);
   }
-  const child = Bun.spawn([...command], {
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const code = await child.exited;
-  if (code !== 0) {
-    throw new Error(`Command failed (${code}): ${command.join(" ")}`);
-  }
+}
+
+export function isRetryableCommandFailure(output: string): boolean {
+  return /Cloudflare's API timed out|fetch failed|fetch request failed|A fetch request failed|network connectivity|ECONNRESET|ETIMEDOUT|EAI_AGAIN|HTTP (?:429|5\d\d)\b|status(?: code)?:? (?:429|5\d\d)\b/i.test(
+    output,
+  );
+}
+
+function releaseCommandRetryPolicy(
+  sourceEnv: Record<string, string | undefined>,
+): { readonly attempts: number; readonly intervalMs: number } {
+  return {
+    attempts: positiveInt(
+      sourceEnv.YURUCOMMU_RELEASE_RETRY_ATTEMPTS,
+      DEFAULT_RELEASE_COMMAND_RETRY_ATTEMPTS,
+    ),
+    intervalMs: positiveInt(
+      sourceEnv.YURUCOMMU_RELEASE_RETRY_INTERVAL_MS,
+      DEFAULT_RELEASE_COMMAND_RETRY_INTERVAL_MS,
+    ),
+  };
+}
+
+function positiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isIgnorableDestroyFailure(
@@ -415,7 +453,9 @@ function isIgnorableDestroyFailure(
   output: string,
 ): boolean {
   if (command.includes("queues") && command.includes("consumer")) {
-    return /No worker consumer .* exists for queue/u.test(output);
+    return /No worker consumer .* exists for queue|Queue .* does not exist/u.test(
+      output,
+    );
   }
   if (command.includes("delete")) {
     return /not found|does not exist|No such Worker/i.test(output);

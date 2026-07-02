@@ -9,6 +9,7 @@ import {
   buildInstallArgs,
   buildRemoveQueueConsumerArgs,
   buildWranglerToml,
+  isRetryableCommandFailure,
   parseTakosumiOutputsJson,
   releaseConfigFromOutputs,
   shouldSkipD1Migrations,
@@ -247,6 +248,22 @@ test("shouldSkipD1Migrations only accepts explicit truthy operator values", () =
   expect(shouldSkipD1Migrations("0")).toBe(false);
   expect(shouldSkipD1Migrations("false")).toBe(false);
   expect(shouldSkipD1Migrations(undefined)).toBe(false);
+});
+
+test("release retry classifier matches transient Wrangler network failures", () => {
+  expect(
+    isRetryableCommandFailure(
+      "wrangler r2 object get failed: The request to Cloudflare's API timed out.",
+    ),
+  ).toBe(true);
+  expect(
+    isRetryableCommandFailure(
+      "A fetch request failed, likely due to a connectivity issue.",
+    ),
+  ).toBe(true);
+  expect(
+    isRetryableCommandFailure("Error: unknown environment production-smoke"),
+  ).toBe(false);
 });
 
 test("parseTakosumiOutputsJson rejects non-object payloads", () => {
