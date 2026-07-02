@@ -72,7 +72,8 @@ The contract is: OpenTofu provisions declared resources, Takosumi injects
 credentials and records state / outputs / run history, and app-owned post-apply
 commands are only used for app initialization that is not a Cloudflare resource
 itself. In the OpenTofu-managed Worker path, `takosumi_release.post_apply` runs
-Yurucommu D1 migrations only; it does not deploy the Worker a second time.
+Yurucommu D1 migrations only in the runner boundary; it does not deploy the
+Worker a second time or wait for an operator materializer.
 
 `takosumi:release` is Yurucommu-owned code, not a Takosumi DB migration or Worker
 deployment API. Takosumi only starts the opaque argv declared in
@@ -84,10 +85,13 @@ artifact only when `enable_cloudflare_worker_script=false`. Operator secrets
 such as `YURUCOMMU_ENCRYPTION_KEY`,
 `YURUCOMMU_AUTH_PASSWORD_HASH`, or OAuth client secrets must come from the
 selected release execution boundary. In the normal Takosumi path this is the
-operator release activator, which may provide explicitly allowlisted
-environment values. These secrets are uploaded as Worker secrets and are never
-stored in OpenTofu outputs. The source repo remains a plain Git-hosted
-OpenTofu module; no Yurucommu-specific source metadata file or DSL is required.
+runner boundary for migrations-only activation because the Worker itself is
+already managed by OpenTofu. In the fallback release path where Wrangler deploys
+the Worker artifact, this is the operator release activator, which may provide
+explicitly allowlisted environment values. These secrets are uploaded as Worker
+secrets and are never stored in OpenTofu outputs. The source repo remains a
+plain Git-hosted OpenTofu module; no Yurucommu-specific source metadata file or
+DSL is required.
 
 ## Develop
 

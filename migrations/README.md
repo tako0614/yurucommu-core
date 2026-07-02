@@ -73,17 +73,20 @@ file name (not the numeric version) in `yurucommu_migrations`.
    this API, so the Takosumi release path disables transaction wrappers while
    keeping the local/libSQL path wrapped by default.
 
-4. **Publish Worker** (Takosumi post-apply activation):
+4. **Post-apply activation**:
 
+   In the OpenTofu-managed Worker path, `takosumi_release.post_apply` runs
+   `bun run takosumi:release -- --migrations-only` as an opaque runner command.
+   It reads non-secret outputs from `TAKOSUMI_OUTPUTS_JSON`, writes a temporary
+   Wrangler config, and applies D1 migrations through `wrangler d1 execute`
+   without explicit SQL transaction wrappers. Provider credentials come from the
+   same reviewed Provider Connection used by the OpenTofu run.
+
+   In the fallback path where the Worker script is not managed by OpenTofu,
    `takosumi_release.post_apply` runs `bun run takosumi:release` as an opaque
-   runner command. It reads non-secret outputs from `TAKOSUMI_OUTPUTS_JSON`,
-   writes a temporary Wrangler config, runs `bun install --frozen-lockfile`,
-   runs `bun run build`, applies D1 migrations through `wrangler d1 execute`,
-   without explicit SQL transaction wrappers, and deploys with `wrangler deploy`.
-   Provider credentials are supplied by Takosumi's runner sandbox from the
-   selected ProviderConnection. App-specific secrets can come from the selected
-   release execution boundary; an operator activator may provide them through
-   `TAKOSUMI_RELEASE_COMMAND_ENV_ALLOWLIST`.
+   operator release command. That path can build and deploy with Wrangler, and
+   app-specific secrets come from the selected operator release activator
+   boundary through `TAKOSUMI_RELEASE_COMMAND_ENV_ALLOWLIST`.
 
    Common operator env names:
 

@@ -4,7 +4,7 @@ output "takosumi_release" {
       local.cloudflare_worker_enabled ? [
         {
           id                = "migrate"
-          executor          = "operator"
+          executor          = "runner"
           command           = ["bun", "run", "takosumi:release", "--", "--migrations-only"]
           working_directory = "."
         },

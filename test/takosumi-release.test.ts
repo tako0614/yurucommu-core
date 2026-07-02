@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 
 import {
   buildD1ExecuteTemplate,
@@ -167,6 +168,18 @@ test("release commands use generated wrangler config", () => {
     ],
     ["bunx", "wrangler", "delete", "yuru-smoke", "--force"],
   ]);
+});
+
+test("OpenTofu-managed Worker migration activation runs in the runner boundary", () => {
+  const outputs = readFileSync("outputs.tf", "utf8");
+
+  expect(outputs).toContain('id                = "migrate"');
+  expect(outputs).toContain('executor          = "runner"');
+  expect(outputs).toContain(
+    'command           = ["bun", "run", "takosumi:release", "--", "--migrations-only"]',
+  );
+  expect(outputs).toContain('id                = "release"');
+  expect(outputs).toContain('executor          = "operator"');
 });
 
 test("migrations-only mode is accepted in dry-run output", async () => {
