@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/http"
       version = "~> 3.5"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.7"
+    }
   }
 }
 
@@ -213,12 +217,34 @@ locals {
   worker_name                   = trimspace(var.worker_name) != "" ? trimspace(var.worker_name) : local.resource_prefix
   workers_dev_url               = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null
   launch_url                    = trimspace(var.app_url) != "" ? trimspace(var.app_url) : local.workers_dev_url
+  provided_encryption_key       = trimspace(var.encryption_key)
+  provided_auth_password_hash   = trimspace(var.auth_password_hash)
+  has_takosumi_accounts_oidc    = trimspace(var.takosumi_accounts_issuer_url) != "" && trimspace(var.takosumi_accounts_client_id) != ""
+  effective_encryption_key      = local.provided_encryption_key != "" ? local.provided_encryption_key : random_id.encryption_key.hex
+  effective_auth_password_hash  = local.provided_auth_password_hash != "" ? local.provided_auth_password_hash : (local.has_takosumi_accounts_oidc ? "" : try(random_id.bootstrap_auth_token[0].hex, ""))
 
   d1_database_name    = "${local.resource_prefix}-db"
   r2_media_bucket     = "${local.resource_prefix}-media"
   kv_namespace_title  = "${local.resource_prefix}-kv"
   delivery_queue_name = "${local.resource_prefix}-delivery"
   delivery_dlq_name   = "${local.resource_prefix}-delivery-dlq"
+}
+
+resource "random_id" "encryption_key" {
+  byte_length = 32
+
+  keepers = {
+    project_name = local.resource_prefix
+  }
+}
+
+resource "random_id" "bootstrap_auth_token" {
+  count       = local.provided_auth_password_hash == "" && !local.has_takosumi_accounts_oidc ? 1 : 0
+  byte_length = 32
+
+  keepers = {
+    project_name = local.resource_prefix
+  }
 }
 
 data "http" "worker_bundle" {
@@ -322,21 +348,21 @@ resource "cloudflare_workers_script" "worker" {
         text = cloudflare_queue.delivery_dlq[0].queue_name
       },
     ],
-    trimspace(var.encryption_key) != "" ? [
+    [
       {
         type = "secret_text"
         name = "ENCRYPTION_KEY"
-        text = trimspace(var.encryption_key)
+        text = local.effective_encryption_key
       },
-    ] : [],
-    trimspace(var.auth_password_hash) != "" ? [
+    ],
+    local.effective_auth_password_hash != "" ? [
       {
         type = "secret_text"
         name = "AUTH_PASSWORD_HASH"
-        text = trimspace(var.auth_password_hash)
+        text = local.effective_auth_password_hash
       },
     ] : [],
-    trimspace(var.takosumi_accounts_issuer_url) != "" && trimspace(var.takosumi_accounts_client_id) != "" ? [
+    local.has_takosumi_accounts_oidc ? [
       {
         type = "plain_text"
         name = "TAKOSUMI_ACCOUNTS_ISSUER_URL"

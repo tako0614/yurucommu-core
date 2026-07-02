@@ -183,6 +183,21 @@ test("OpenTofu-managed Worker migration activation runs in the runner boundary",
   expect(outputs).toContain('executor          = "operator"');
 });
 
+test("OpenTofu module generates fresh install secrets without operator-specific release magic", () => {
+  const main = readFileSync("main.tf", "utf8");
+  const outputs = readFileSync("outputs.tf", "utf8");
+
+  expect(main).toContain('source  = "hashicorp/random"');
+  expect(main).toContain('resource "random_id" "encryption_key"');
+  expect(main).toContain('resource "random_id" "bootstrap_auth_token"');
+  expect(main).toContain("effective_encryption_key");
+  expect(main).toContain("effective_auth_password_hash");
+  expect(main).toContain('name = "ENCRYPTION_KEY"');
+  expect(main).toContain('name = "AUTH_PASSWORD_HASH"');
+  expect(outputs).toContain('output "bootstrap_auth_token"');
+  expect(outputs).toContain("sensitive   = true");
+});
+
 test("migrations-only mode is accepted in dry-run output", async () => {
   const proc = Bun.spawn(
     ["bun", "scripts/takosumi-release.ts", "--dry-run", "--migrations-only"],
