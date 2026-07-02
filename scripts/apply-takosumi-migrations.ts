@@ -139,11 +139,7 @@ export async function applyMigrations(options: Options): Promise<{
     { resource: options.resource, purpose: "ledger-init" },
   );
 
-  const appliedRows = await executeSql(
-    options,
-    `SELECT name FROM ${MIGRATION_LEDGER_TABLE}`,
-    { resource: options.resource, purpose: "ledger-read" },
-  );
+  const appliedRows = await readAppliedMigrationRows(options);
   const appliedSet = new Set(parseAppliedMigrationNames(appliedRows));
   const skipped = files.filter((file) => appliedSet.has(file));
   const pending = files.filter((file) => !appliedSet.has(file));
@@ -248,6 +244,30 @@ CREATE TABLE IF NOT EXISTS ${MIGRATION_LEDGER_TABLE} (
   name TEXT UNIQUE NOT NULL,
   applied_at TEXT NOT NULL
 );`.trim();
+}
+
+async function readAppliedMigrationRows(options: Options): Promise<unknown> {
+  try {
+    return await executeSql(
+      options,
+      `SELECT name FROM ${MIGRATION_LEDGER_TABLE}`,
+      { resource: options.resource, purpose: "ledger-read" },
+    );
+  } catch (error) {
+    if (!isMissingMigrationLedgerTableError(error)) throw error;
+    console.warn(
+      `[app:activate] Migration ledger table ${MIGRATION_LEDGER_TABLE} is not visible yet; treating this as a fresh database.`,
+    );
+    return { rows: [] };
+  }
+}
+
+function isMissingMigrationLedgerTableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return new RegExp(
+    `no such table:\\s*(?:main\\.)?${MIGRATION_LEDGER_TABLE}\\b`,
+    "iu",
+  ).test(message);
 }
 
 function migrationOwnsTransaction(sql: string): boolean {

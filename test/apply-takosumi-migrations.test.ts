@@ -257,6 +257,45 @@ test("app activation retries transient D1 schema failures", async () => {
   }
 });
 
+test("app activation treats a missing migration ledger as a fresh D1 database", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yurucommu-app-activate-"));
+  const migrationSql: string[] = [];
+  try {
+    await writeFile(
+      join(dir, "0001_plain.sql"),
+      "CREATE TABLE plain (id TEXT);",
+    );
+
+    const result = await applyMigrations({
+      resource: "database",
+      migrationsDir: dir,
+      sqlCommand: ["unused"],
+      wrapTransactions: false,
+      executeSql: async (sql, context) => {
+        if (context.purpose === "ledger-read") {
+          throw new Error(
+            "SQL command failed for ledger-read: D1 command returned error: no such table: yurucommu_migrations: SQLITE_ERROR",
+          );
+        }
+        if (context.purpose === "migration") migrationSql.push(sql);
+        return { rows: [] };
+      },
+    });
+
+    expect(result).toEqual({
+      applied: ["0001_plain.sql"],
+      skipped: [],
+    });
+    expect(migrationSql).toHaveLength(1);
+    expect(migrationSql[0]).toContain(
+      "CREATE TABLE IF NOT EXISTS yurucommu_migrations",
+    );
+    expect(migrationSql[0]).toContain("CREATE TABLE plain");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("app activation applies default retries to direct release calls", async () => {
   const dir = await mkdtemp(join(tmpdir(), "yurucommu-app-activate-"));
   try {
