@@ -4,7 +4,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { argv, env } from "node:process";
 
-import { applyMigrations } from "./apply-takos-migrations.ts";
+import { applyMigrations } from "./apply-takosumi-migrations.ts";
 
 type JsonRecord = Record<string, unknown>;
 

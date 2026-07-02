@@ -11,7 +11,7 @@ Cloudflare D1, depending on deployment).
   - `yurucommu/src/backend/server.ts` (Bun/libSQL local path)
   - `bun run app:activate` (product-local migration helper; requires
     operator-provided SQL command env)
-  - `bun run takosumi:release` (Takosumi/Takos-managed activation path; renders
+  - `bun run takosumi:release` (Takosumi-managed activation path; renders
     temporary Wrangler config from `TAKOSUMI_OUTPUTS_JSON`, runs the migration
     helper, and deploys the Worker)
   - `wrangler d1 migrations apply` (operator-managed Cloudflare D1 path)
@@ -106,7 +106,7 @@ file name (not the numeric version) in `yurucommu_migrations`.
 ## Product-local ledger note
 
 The `yurucommu_migrations` ledger is Yurucommu-owned product state. The
-Takosumi/Takos-managed path invokes `bun run app:activate` through the generic
+Takosumi-managed path invokes `bun run app:activate` through the generic
 `takosumi_release.post_apply` command and records activation status/logs; it
 does not expose a Takosumi DB migration API. A future Yurucommu migration may
 add `checksum TEXT` and store `sha256:<hex>` per applied migration, but that is

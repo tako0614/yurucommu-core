@@ -30,8 +30,8 @@ export function parseArgs(args: string[]): Options {
   const options: Options = {
     resource:
       env.YURUCOMMU_SQL_RESOURCE ??
-      env.TAKOS_RESOURCE ??
-      env.TAKOS_D1_RESOURCE ??
+      env.TAKOSUMI_RESOURCE ??
+      env.TAKOSUMI_D1_RESOURCE ??
       "database",
     migrationsDir: env.MIGRATIONS_DIR ?? "migrations",
     sqlCommand: parseSqlCommandEnv(env.YURUCOMMU_SQL_COMMAND_JSON),
@@ -216,15 +216,21 @@ async function executeSql(
       new Response(child.stderr).text(),
       child.exited,
     ]);
-    if (code !== 0) {
+    const output = parseSqlCommandOutput(stdout);
+    const outputFailure = sqlCommandOutputFailure(output);
+    if (code !== 0 || outputFailure) {
       process.stdout.write(stdout);
       process.stderr.write(stderr);
       const target = context.migration ?? context.purpose;
       throw new Error(
-        `SQL command failed for ${target}${sqlFailureDetail(stdout, stderr)}`,
+        `SQL command failed for ${target}${sqlFailureDetail(
+          stdout,
+          stderr,
+          outputFailure,
+        )}`,
       );
     }
-    return parseSqlCommandOutput(stdout);
+    return output;
   } finally {
     if (sqlFile) await rm(sqlFile.dir, { recursive: true, force: true });
   }
@@ -245,8 +251,12 @@ async function materializeSqlFileIfNeeded(
   return { dir, path };
 }
 
-function sqlFailureDetail(stdout: string, stderr: string): string {
-  const combined = [stdout, stderr]
+function sqlFailureDetail(
+  stdout: string,
+  stderr: string,
+  parsedFailure?: string,
+): string {
+  const combined = [parsedFailure, stdout, stderr]
     .map((value) => value.trim())
     .filter(Boolean)
     .join("\n")
@@ -301,10 +311,67 @@ export function buildSqlCommandArgs(
 function parseSqlCommandOutput(stdout: string): unknown {
   const trimmed = stdout.trim();
   if (!trimmed) return {};
+  for (const candidate of jsonCandidates(trimmed)) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next JSON-looking suffix. Wrangler prints progress lines before
+      // the JSON payload when executing SQL files remotely.
+    }
+  }
+  return {};
+}
+
+function jsonCandidates(text: string): string[] {
+  const candidates = [text];
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "{" || char === "[") {
+      const suffix = text.slice(index).trim();
+      if (!candidates.includes(suffix)) candidates.push(suffix);
+    }
+  }
+  return candidates;
+}
+
+function sqlCommandOutputFailure(value: unknown): string | undefined {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const failure = sqlCommandOutputFailure(entry);
+      if (failure) return failure;
+    }
+    return undefined;
+  }
+  if (!isRecord(value)) return undefined;
+  if (value.success === false) {
+    return `D1 command returned success=false${sqlErrorSuffix(value.error)}`;
+  }
+  if ("error" in value && value.error !== undefined && value.error !== null) {
+    return `D1 command returned error${sqlErrorSuffix(value.error)}`;
+  }
+  for (const key of ["result", "results"]) {
+    const failure = sqlCommandOutputFailure(value[key]);
+    if (failure) return failure;
+  }
+  return undefined;
+}
+
+function sqlErrorSuffix(value: unknown): string {
+  const message = sqlErrorMessage(value);
+  return message ? `: ${message}` : "";
+}
+
+function sqlErrorMessage(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (!isRecord(value)) return undefined;
+  for (const key of ["text", "message", "code", "name"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+  }
   try {
-    return JSON.parse(trimmed);
+    return JSON.stringify(value);
   } catch {
-    return {};
+    return undefined;
   }
 }
 

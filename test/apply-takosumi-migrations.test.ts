@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
   applyMigrations,
   buildSqlCommandArgs,
-} from "../scripts/apply-takos-migrations.ts";
+} from "../scripts/apply-takosumi-migrations.ts";
 
 test("app activation applies only migrations missing from yurucommu_migrations", async () => {
   const dir = await mkdtemp(join(tmpdir(), "yurucommu-app-activate-"));
@@ -130,6 +130,45 @@ test("app activation can disable transaction wrappers for remote D1 execution", 
     expect(migrationSql[0]).toContain(
       "INSERT INTO yurucommu_migrations (name, applied_at) VALUES ('0001_plain.sql', ",
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("app activation treats wrangler JSON failures as SQL failures", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yurucommu-app-activate-"));
+  try {
+    const statePath = join(dir, "calls.json");
+    const commandPath = join(dir, "fake-wrangler.mjs");
+    await writeFile(
+      join(dir, "0001_plain.sql"),
+      "CREATE TABLE plain (id TEXT);",
+    );
+    await writeFile(
+      commandPath,
+      [
+        "import { existsSync, readFileSync, writeFileSync } from 'node:fs';",
+        `const statePath = ${JSON.stringify(statePath)};`,
+        "const calls = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : 0;",
+        "const next = calls + 1;",
+        "writeFileSync(statePath, JSON.stringify(next));",
+        "if (next < 3) {",
+        "  console.log(JSON.stringify([{ results: [], success: true }]));",
+        "} else {",
+        "  console.log('├ Checking if file needs uploading');",
+        "  console.log(JSON.stringify([{ success: false, error: { text: 'no such table: main.objects' } }]));",
+        "}",
+      ].join("\n"),
+    );
+
+    await expect(
+      applyMigrations({
+        resource: "database",
+        migrationsDir: dir,
+        sqlCommandTemplate: ["bun", commandPath, "{sql_file}"],
+        wrapTransactions: false,
+      }),
+    ).rejects.toThrow(/no such table: main\.objects/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
