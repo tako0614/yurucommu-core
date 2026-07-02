@@ -135,6 +135,44 @@ test("app activation can disable transaction wrappers for remote D1 execution", 
   }
 });
 
+test("app activation batches sql-file command template migrations", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yurucommu-app-activate-"));
+  const migrationSql: string[] = [];
+  try {
+    await writeFile(
+      join(dir, "0001_plain.sql"),
+      "CREATE TABLE plain (id TEXT);",
+    );
+    await writeFile(
+      join(dir, "0002_next.sql"),
+      "ALTER TABLE plain ADD COLUMN name TEXT;",
+    );
+
+    const result = await applyMigrations({
+      resource: "database",
+      migrationsDir: dir,
+      sqlCommandTemplate: ["bunx", "wrangler", "{sql_file}"],
+      executeSql: async (sql, context) => {
+        if (context.purpose === "ledger-read") return { rows: [] };
+        if (context.purpose === "migration") migrationSql.push(sql);
+        return { rows: [] };
+      },
+    });
+
+    expect(result).toEqual({
+      applied: ["0001_plain.sql", "0002_next.sql"],
+      skipped: [],
+    });
+    expect(migrationSql).toHaveLength(1);
+    expect(migrationSql[0]).toContain("-- yurucommu migration: 0001_plain.sql");
+    expect(migrationSql[0]).toContain("-- yurucommu migration: 0002_next.sql");
+    expect(migrationSql[0]).toContain("CREATE TABLE plain");
+    expect(migrationSql[0]).toContain("ALTER TABLE plain ADD COLUMN name TEXT");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("app activation treats wrangler JSON failures as SQL failures", async () => {
   const dir = await mkdtemp(join(tmpdir(), "yurucommu-app-activate-"));
   try {
@@ -206,6 +244,7 @@ test("app activation retries transient D1 schema failures", async () => {
       sqlCommandTemplate: ["bun", commandPath, "{sql_file}"],
       retryAttempts: 2,
       retryDelayMs: 0,
+      batchPendingMigrations: false,
       wrapTransactions: false,
     });
 

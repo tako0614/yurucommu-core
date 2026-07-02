@@ -23,12 +23,16 @@ export type Options = {
   wrapTransactions?: boolean;
   retryAttempts?: number;
   retryDelayMs?: number;
+  batchPendingMigrations?: boolean;
   sqlCommand?: readonly string[];
   sqlCommandTemplate?: readonly string[];
   executeSql?: SqlExecutor;
 };
 
 export function parseArgs(args: string[]): Options {
+  const batchPendingMigrations = parseOptionalBooleanEnv(
+    env.YURUCOMMU_SQL_BATCH_PENDING,
+  );
   const options: Options = {
     resource:
       env.YURUCOMMU_SQL_RESOURCE ??
@@ -46,6 +50,7 @@ export function parseArgs(args: string[]): Options {
     ),
     retryAttempts: parseIntegerEnv(env.YURUCOMMU_SQL_RETRY_ATTEMPTS, 4),
     retryDelayMs: parseIntegerEnv(env.YURUCOMMU_SQL_RETRY_DELAY_MS, 1500),
+    ...(batchPendingMigrations === undefined ? {} : { batchPendingMigrations }),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -90,6 +95,14 @@ export function parseArgs(args: string[]): Options {
       index += 1;
       continue;
     }
+    if (arg === "--batch-pending-migrations") {
+      options.batchPendingMigrations = true;
+      continue;
+    }
+    if (arg === "--no-batch-pending-migrations") {
+      options.batchPendingMigrations = false;
+      continue;
+    }
     throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
 
@@ -123,16 +136,20 @@ export async function applyMigrations(options: Options): Promise<{
     { resource: options.resource, purpose: "ledger-read" },
   );
   const appliedSet = new Set(parseAppliedMigrationNames(appliedRows));
+  const skipped = files.filter((file) => appliedSet.has(file));
+  const pending = files.filter((file) => !appliedSet.has(file));
+
+  for (const file of skipped) {
+    console.log(`[app:activate] Skipping already applied ${file}`);
+  }
+  if (pending.length === 0) return { applied: [], skipped };
+  if (shouldBatchPendingMigrations(options)) {
+    const applied = await applyPendingMigrationsBatch(options, pending);
+    return { applied, skipped };
+  }
+
   const applied: string[] = [];
-  const skipped: string[] = [];
-
-  for (const file of files) {
-    if (appliedSet.has(file)) {
-      console.log(`[app:activate] Skipping already applied ${file}`);
-      skipped.push(file);
-      continue;
-    }
-
+  for (const file of pending) {
     const path = `${options.migrationsDir.replace(/\/+$/, "")}/${file}`;
     const sql = await readFile(path, "utf8");
     console.log(`[app:activate] Applying ${file} to ${options.resource}`);
@@ -146,6 +163,48 @@ export async function applyMigrations(options: Options): Promise<{
   }
 
   return { applied, skipped };
+}
+
+async function applyPendingMigrationsBatch(
+  options: Options,
+  files: readonly string[],
+): Promise<string[]> {
+  const blocks: string[] = [];
+  for (const file of files) {
+    const path = `${options.migrationsDir.replace(/\/+$/, "")}/${file}`;
+    const sql = await readFile(path, "utf8");
+    blocks.push(`-- yurucommu migration: ${file}`);
+    blocks.push(migrationSqlWithLedgerMark(file, sql, options));
+  }
+  const first = files[0]!;
+  const last = files.at(-1)!;
+  console.log(
+    `[app:activate] Applying ${files.length} pending migrations to ${options.resource} in one batch`,
+  );
+  await executeSql(
+    {
+      ...options,
+      // A failed batch may have applied and ledger-marked an earlier migration.
+      // A later run can resume from the ledger, but retrying the same batch in
+      // this process would re-run non-idempotent ALTER statements.
+      retryAttempts: 1,
+    },
+    blocks.join("\n\n"),
+    {
+      resource: options.resource,
+      migration: first === last ? first : `${first}..${last}`,
+      purpose: "migration",
+    },
+  );
+  return [...files];
+}
+
+function shouldBatchPendingMigrations(options: Options): boolean {
+  if (options.batchPendingMigrations === false) return false;
+  if (options.batchPendingMigrations === true) return true;
+  return Boolean(
+    options.sqlCommandTemplate?.some((part) => part.includes("{sql_file}")),
+  );
 }
 
 async function listMigrationFiles(migrationsDir: string): Promise<string[]> {
@@ -472,8 +531,15 @@ function parseBooleanEnv(
   value: string | undefined,
   defaultValue: boolean,
 ): boolean {
+  const parsed = parseOptionalBooleanEnv(value);
+  return parsed ?? defaultValue;
+}
+
+function parseOptionalBooleanEnv(
+  value: string | undefined,
+): boolean | undefined {
   const normalized = value?.trim().toLowerCase();
-  if (!normalized) return defaultValue;
+  if (!normalized) return undefined;
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   throw new Error(`Invalid boolean env value: ${value}`);
