@@ -257,6 +257,49 @@ test("app activation retries transient D1 schema failures", async () => {
   }
 });
 
+test("app activation applies default retries to direct release calls", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yurucommu-app-activate-"));
+  try {
+    const statePath = join(dir, "calls.json");
+    const commandPath = join(dir, "fake-wrangler.mjs");
+    await writeFile(
+      join(dir, "0001_plain.sql"),
+      "CREATE TABLE plain (id TEXT);",
+    );
+    await writeFile(
+      commandPath,
+      [
+        "import { existsSync, readFileSync, writeFileSync } from 'node:fs';",
+        `const statePath = ${JSON.stringify(statePath)};`,
+        "const calls = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : 0;",
+        "const next = calls + 1;",
+        "writeFileSync(statePath, JSON.stringify(next));",
+        "if (next === 2) {",
+        "  console.log(JSON.stringify([{ success: false, error: { text: 'no such table: yurucommu_migrations: SQLITE_ERROR' } }]));",
+        "} else {",
+        "  console.log(JSON.stringify([{ results: [], success: true }]));",
+        "}",
+      ].join("\n"),
+    );
+
+    const result = await applyMigrations({
+      resource: "database",
+      migrationsDir: dir,
+      sqlCommandTemplate: ["bun", commandPath, "{sql_file}"],
+      retryDelayMs: 0,
+      batchPendingMigrations: false,
+      wrapTransactions: false,
+    });
+
+    expect(result).toEqual({
+      applied: ["0001_plain.sql"],
+      skipped: [],
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("app activation builds operator-provided SQL command templates", () => {
   expect(
     buildSqlCommandArgs(

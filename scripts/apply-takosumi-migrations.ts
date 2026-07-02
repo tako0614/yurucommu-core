@@ -29,6 +29,9 @@ export type Options = {
   executeSql?: SqlExecutor;
 };
 
+const DEFAULT_RETRY_ATTEMPTS = 4;
+const DEFAULT_RETRY_DELAY_MS = 1500;
+
 export function parseArgs(args: string[]): Options {
   const batchPendingMigrations = parseOptionalBooleanEnv(
     env.YURUCOMMU_SQL_BATCH_PENDING,
@@ -48,8 +51,14 @@ export function parseArgs(args: string[]): Options {
       env.YURUCOMMU_SQL_WRAP_TRANSACTIONS,
       true,
     ),
-    retryAttempts: parseIntegerEnv(env.YURUCOMMU_SQL_RETRY_ATTEMPTS, 4),
-    retryDelayMs: parseIntegerEnv(env.YURUCOMMU_SQL_RETRY_DELAY_MS, 1500),
+    retryAttempts: parseIntegerEnv(
+      env.YURUCOMMU_SQL_RETRY_ATTEMPTS,
+      DEFAULT_RETRY_ATTEMPTS,
+    ),
+    retryDelayMs: parseIntegerEnv(
+      env.YURUCOMMU_SQL_RETRY_DELAY_MS,
+      DEFAULT_RETRY_DELAY_MS,
+    ),
     ...(batchPendingMigrations === undefined ? {} : { batchPendingMigrations }),
   };
 
@@ -280,7 +289,10 @@ async function executeSql(
   try {
     const args = buildSqlCommandArgs(options, sql, sqlFile?.path);
     const target = context.migration ?? context.purpose;
-    const maxAttempts = Math.max(1, options.retryAttempts ?? 1);
+    const maxAttempts = Math.max(
+      1,
+      options.retryAttempts ?? DEFAULT_RETRY_ATTEMPTS,
+    );
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const result = await runSqlCommand(args);
       const output = parseSqlCommandOutput(result.stdout);
@@ -360,7 +372,7 @@ function retryDelayMs(
   options: Pick<Options, "retryDelayMs">,
   attempt: number,
 ): number {
-  const base = options.retryDelayMs ?? 0;
+  const base = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   if (base <= 0) return 0;
   return Math.min(base * 2 ** Math.max(0, attempt - 1), 8000);
 }
@@ -394,7 +406,7 @@ function sqlFailureDetail(
   parsedFailure?: string,
 ): string {
   const combined = [parsedFailure, stdout, stderr]
-    .map((value) => value.trim())
+    .map((value) => value?.trim() ?? "")
     .filter(Boolean)
     .join("\n")
     .replaceAll(
