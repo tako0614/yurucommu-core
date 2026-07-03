@@ -194,8 +194,7 @@ test("OpenTofu module generates fresh install secrets without operator-specific 
   expect(main).toContain("effective_auth_password_hash");
   expect(main).toContain('name = "ENCRYPTION_KEY"');
   expect(main).toContain('name = "AUTH_PASSWORD_HASH"');
-  expect(outputs).toContain('output "bootstrap_auth_token"');
-  expect(outputs).toContain("sensitive   = true");
+  expect(outputs).not.toContain("bootstrap_auth_token");
 });
 
 test("migrations-only mode is accepted in dry-run output", async () => {

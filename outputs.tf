@@ -161,11 +161,6 @@ output "app_deployment" {
   }
 }
 
-output "bootstrap_auth_token" {
-  description = "One-time bootstrap password token generated when no explicit auth_password_hash or Takosumi Accounts OIDC client is provided."
-  value       = local.provided_auth_password_hash == "" && !local.has_takosumi_accounts_oidc ? local.effective_auth_password_hash : null
-  sensitive   = true
-}
 
 output "service_exports" {
   description = "OpenTofu output projection for launch and endpoint metadata without Takosumi-specific resource descriptors."
