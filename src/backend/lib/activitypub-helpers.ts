@@ -94,7 +94,7 @@ export function storyToActivityPub(
     // Terms are inlined (not just a remote context URL) so plain AS2 consumers
     // need not dereference https://yurucommu.com/ns/story. This object MUST stay
     // byte-for-term identical to the published context at
-    // site/ns/story/context.jsonld.
+    // the public yurucommu namespace context hosted by the official client site.
     "@context": [
       "https://www.w3.org/ns/activitystreams",
       {

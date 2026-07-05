@@ -458,7 +458,10 @@ async function resolveMentionActorRows(
   db: Database,
   localMentions: string[],
   remoteMentions: string[],
-): Promise<{ localActors: MentionActorRow[]; cachedActors: MentionActorRow[] }> {
+): Promise<{
+  localActors: MentionActorRow[];
+  cachedActors: MentionActorRow[];
+}> {
   const remoteUsernames = remoteMentions.map((m) => m.split("@")[0]);
   const [localActors, cachedActors] = await Promise.all([
     localMentions.length > 0
@@ -802,8 +805,7 @@ export async function validateEditBody(c: {
 }
 
 type EditValidation =
-  | { ok: true; trimmed?: string }
-  | { ok: false; error: string };
+  { ok: true; trimmed?: string } | { ok: false; error: string };
 
 function validateTrimmedEdit(
   value: string | undefined,

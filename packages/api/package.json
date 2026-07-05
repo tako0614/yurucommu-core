@@ -1,0 +1,30 @@
+{
+  "name": "@takosjp/yurucommu-api",
+  "version": "2.0.0",
+  "description": "Typed client SDK and public API contract for yurucommu-server clients.",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "build": "rm -rf dist && bun build src/index.ts --target browser --format esm --outfile dist/index.js && bunx tsc -p tsconfig.build.json && bun scripts/rewrite-dts-imports.mjs",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -27,10 +27,7 @@ export type BunFile = BodyInit & {
 };
 
 type BunWriteData =
-  | Blob
-  | string
-  | ArrayBufferLike
-  | ArrayBufferView<ArrayBufferLike>;
+  Blob | string | ArrayBufferLike | ArrayBufferView<ArrayBufferLike>;
 
 export interface BunRuntime {
   file(path: string): BunFile;

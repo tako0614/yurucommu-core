@@ -1,0 +1,57 @@
+name: API Package
+
+on:
+  push:
+    tags:
+      - "api-v*.*.*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish @takosjp/yurucommu-api to npm"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: yurucommu-api-package-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  BUN_INSTALL_CACHE_DIR: ${{ github.workspace }}/.bun-cache
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build:
+    name: Build API package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned: v6.0.2 (2026)
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # pinned: v2.0.2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun deps
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # pinned: v5.0.5 (2026)
+        with:
+          path: ${{ env.BUN_INSTALL_CACHE_DIR }}
+          key: ${{ runner.os }}-bun-yurucommu-api-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-yurucommu-api-
+
+      - run: bun install --frozen-lockfile
+      - run: bun run build:api
+      - run: bun run pack:api
+
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/api-v') || inputs.publish == true
+        working-directory: packages/api
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

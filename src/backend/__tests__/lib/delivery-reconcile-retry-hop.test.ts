@@ -51,7 +51,9 @@ function recordingQueue() {
   };
 }
 
-const msgFor = (reconcileAttempt: number): DeliveryDeliverEndpointMessageV1 => ({
+const msgFor = (
+  reconcileAttempt: number,
+): DeliveryDeliverEndpointMessageV1 => ({
   version: 1,
   type: "deliver_endpoint",
   jobId: "j1",
@@ -75,7 +77,13 @@ test("the nextAttemptAt defer re-enqueue preserves the reconcile-cycle count", a
     createdAt: new Date().toISOString(),
   });
 
-  await processDeliverEndpoint(db, env, msgFor(3), noopMessage, new Bulkhead(10, 5));
+  await processDeliverEndpoint(
+    db,
+    env,
+    msgFor(3),
+    noopMessage,
+    new Bulkhead(10, 5),
+  );
 
   const deliver = sent.find(
     (m): m is DeliveryDeliverEndpointMessageV1 => m.type === "deliver_endpoint",
@@ -100,7 +108,13 @@ test("the stale-processing re-poll re-enqueue preserves the reconcile-cycle coun
     createdAt: new Date().toISOString(),
   });
 
-  await processDeliverEndpoint(db, env, msgFor(4), noopMessage, new Bulkhead(10, 5));
+  await processDeliverEndpoint(
+    db,
+    env,
+    msgFor(4),
+    noopMessage,
+    new Bulkhead(10, 5),
+  );
 
   const deliver = sent.find(
     (m): m is DeliveryDeliverEndpointMessageV1 => m.type === "deliver_endpoint",

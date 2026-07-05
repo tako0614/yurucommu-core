@@ -7,7 +7,13 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, activities, follows, inbox, objects } from "../../../db/index.ts";
+import {
+  actors,
+  activities,
+  follows,
+  inbox,
+  objects,
+} from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import storiesInteractions from "../../routes/stories/interactions.ts";
 
@@ -85,7 +91,8 @@ test("story like -> unlike -> like does not accumulate duplicate notifications",
   });
 
   const app = appFor(db, liker);
-  const like = () => app.request(`${APP_URL}/story1/like`, { method: "POST" }, env);
+  const like = () =>
+    app.request(`${APP_URL}/story1/like`, { method: "POST" }, env);
   const unlike = () =>
     app.request(`${APP_URL}/story1/like`, { method: "DELETE" }, env);
 

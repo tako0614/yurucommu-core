@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { MOBILE_PUSH_REGISTRATION_PATH } from "./lib/mobile-contract.ts";
 import type { Env, EnvVars, Variables } from "./types.ts";
 import { extractActorFromSession } from "./lib/session-actor.ts";
@@ -168,6 +168,51 @@ function collectMissingRuntimeBindings(env: Env): string[] {
   return missing;
 }
 
+function buildSocialServerDiscovery(appUrl: string, issuer: string) {
+  return {
+    product: "yurucommu",
+    name: "Yurucommu",
+    server: {
+      id: "yurucommu-server",
+      name: "Yurucommu Server",
+      canonicalOrigin: appUrl,
+      activitypubOrigin: appUrl,
+    },
+    clients: [
+      {
+        id: "yurucommu",
+        name: "Yurucommu",
+        defaultEntry: "feed",
+      },
+      {
+        id: "yurume",
+        name: "Yurumeet",
+        defaultEntry: "messages",
+      },
+    ],
+    issuer,
+    apiBaseUrl: appUrl,
+    activitypubOrigin: appUrl,
+    mediaOrigin: `${appUrl}/media`,
+    socialServerCapabilitiesUrl: `${appUrl}/.well-known/social-server`,
+    capabilities: [
+      "api.social.v1",
+      "activitypub.server.v1",
+      "client.yurucommu.feed.v1",
+      "client.yurume.messages.v1",
+    ],
+    endpoints: {
+      api: `${appUrl}/api`,
+      authProviders: `${appUrl}/api/auth/providers`,
+      currentUser: `${appUrl}/api/auth/me`,
+      timeline: `${appUrl}/api/timeline`,
+      conversations: `${appUrl}/api/dm/contacts`,
+      notifications: `${appUrl}/api/notifications`,
+      mobilePushRegistrations: `${appUrl}${MOBILE_PUSH_REGISTRATION_PATH}`,
+    },
+  };
+}
+
 function isStrictReadinessEnabled(env: Env): boolean {
   const value = env.YURUCOMMU_STRICT_READINESS?.trim().toLowerCase();
   return value === "1" || value === "true" || value === "yes";
@@ -234,30 +279,18 @@ function mountReadinessRoutes(app: YurucommuApp): void {
     });
   });
 
-  app.get("/.well-known/yurucommu", (c) => {
+  const wellKnownSocialServer = (
+    c: Context<{ Bindings: Env; Variables: Variables }>,
+  ) => {
     const appUrl = normalizeOrigin(c.env.APP_URL, c.req.url);
     const issuer = getOidcIssuerUrl(c.env) ?? appUrl;
-    return c.json(
-      {
-        product: "yurucommu",
-        name: "Yurucommu",
-        issuer,
-        apiBaseUrl: appUrl,
-        endpoints: {
-          api: `${appUrl}/api`,
-          authProviders: `${appUrl}/api/auth/providers`,
-          currentUser: `${appUrl}/api/auth/me`,
-          timeline: `${appUrl}/api/timeline`,
-          notifications: `${appUrl}/api/notifications`,
-          mobilePushRegistrations: `${appUrl}${MOBILE_PUSH_REGISTRATION_PATH}`,
-        },
-      },
-      200,
-      {
-        "Cache-Control": "public, max-age=300",
-      },
-    );
-  });
+    return c.json(buildSocialServerDiscovery(appUrl, issuer), 200, {
+      "Cache-Control": "public, max-age=300",
+    });
+  };
+
+  app.get("/.well-known/yurucommu", wellKnownSocialServer);
+  app.get("/.well-known/social-server", wellKnownSocialServer);
 
   // Minimal RFC 9116 security.txt. The contact points operators at the
   // instance admin; APP_URL (when configured) makes the policy line concrete.
@@ -421,7 +454,7 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
 
     const takosUrl = c.env.TAKOS_URL?.trim();
     const oidcIssuer = getOidcIssuerUrl(c.env);
-    // unpkg.com is only used by web/src/lib/ffmpeg.ts to fetch @ffmpeg/core
+    // unpkg.com is only used by the official client to fetch @ffmpeg/core
     // assets (JS + WASM). The fetched body is wrapped in a blob: URL via
     // toBlobURL before being imported, so script-src does NOT need unpkg —
     // only connect-src (for fetch) and blob: in script-src (for the wrapped

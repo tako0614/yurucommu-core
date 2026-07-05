@@ -169,15 +169,7 @@ export function buildWranglerToml(config: YurucommuReleaseConfig): string {
     );
   }
 
-  lines.push(
-    "",
-    "[assets]",
-    `directory = "../../dist"`,
-    `binding = "ASSETS"`,
-    "run_worker_first = true",
-    `not_found_handling = "single-page-application"`,
-    "",
-  );
+  lines.push("");
   return `${lines.join("\n")}\n`;
 }
 

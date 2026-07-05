@@ -88,9 +88,7 @@ export function affectedRowCount(result: unknown): number {
  */
 export function notDeleted(
   table:
-    | typeof schema.actors
-    | typeof schema.objects
-    | typeof schema.communities,
+    typeof schema.actors | typeof schema.objects | typeof schema.communities,
 ) {
   return isNull(table.deletedAt);
 }

@@ -15,6 +15,10 @@ dist-*/
 build/
 coverage/
 
+# Optional local client checkouts. Yurumeet/mobile clients live in separate repos
+# and consume @takosjp/yurucommu-api instead of being committed here.
+clients/
+
 # Tooling caches
 .vite/
 .cache/

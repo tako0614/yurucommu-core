@@ -120,16 +120,62 @@ test("well-known yurucommu exposes mobile host discovery", async () => {
   expect(res.headers.get("Content-Type")).toContain("application/json");
   const body = (await res.json()) as {
     product: string;
+    server: { id: string; activitypubOrigin: string };
+    clients: { id: string; name: string; defaultEntry: string }[];
     issuer: string;
     apiBaseUrl: string;
-    endpoints: { currentUser: string; mobilePushRegistrations: string };
+    activitypubOrigin: string;
+    socialServerCapabilitiesUrl: string;
+    endpoints: {
+      currentUser: string;
+      conversations: string;
+      mobilePushRegistrations: string;
+    };
   };
   expect(body.product).toEqual("yurucommu");
+  expect(body.server.id).toEqual("yurucommu-server");
+  expect(body.server.activitypubOrigin).toEqual("https://test.local");
+  expect(body.clients).toContainEqual({
+    id: "yurucommu",
+    name: "Yurucommu",
+    defaultEntry: "feed",
+  });
+  expect(body.clients).toContainEqual({
+    id: "yurume",
+    name: "Yurumeet",
+    defaultEntry: "messages",
+  });
   expect(body.issuer).toEqual("https://app.takosumi.test");
   expect(body.apiBaseUrl).toEqual("https://test.local");
+  expect(body.activitypubOrigin).toEqual("https://test.local");
+  expect(body.socialServerCapabilitiesUrl).toEqual(
+    "https://test.local/.well-known/social-server",
+  );
   expect(body.endpoints.currentUser).toEqual("https://test.local/api/auth/me");
+  expect(body.endpoints.conversations).toEqual(
+    "https://test.local/api/dm/contacts",
+  );
   expect(body.endpoints.mobilePushRegistrations).toEqual(
     "https://test.local/api/mobile/push-registrations",
+  );
+});
+
+test("well-known social-server aliases the Yurucommu server discovery payload", async () => {
+  const app = createYurucommuBackendApp();
+  const res = await app.fetch(
+    new Request("https://test.local/.well-known/social-server"),
+    freshInstallEnv,
+  );
+  expect(res.status).toEqual(200);
+  const body = (await res.json()) as {
+    product: string;
+    server: { id: string };
+    endpoints: { conversations: string };
+  };
+  expect(body.product).toEqual("yurucommu");
+  expect(body.server.id).toEqual("yurucommu-server");
+  expect(body.endpoints.conversations).toEqual(
+    "https://test.local/api/dm/contacts",
   );
 });
 

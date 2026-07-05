@@ -112,17 +112,23 @@ test("E2E: forged Create as a same-host victim (signed by alice) is rejected 401
   await cacheKey(db, ALICE, alice.publicKeyPem);
 
   // Attacker holds alice's key, claims actor=victim on the same host.
-  const res = await postSigned(db, alice.privateKeyPem, ALICE_KEY, "/ap/inbox", {
-    id: `${VICTIM}/dm/1`,
-    type: "Create",
-    actor: VICTIM,
-    object: {
-      id: `${VICTIM}/notes/1`,
-      type: "Note",
-      attributedTo: VICTIM,
-      content: "forged DM as victim",
+  const res = await postSigned(
+    db,
+    alice.privateKeyPem,
+    ALICE_KEY,
+    "/ap/inbox",
+    {
+      id: `${VICTIM}/dm/1`,
+      type: "Create",
+      actor: VICTIM,
+      object: {
+        id: `${VICTIM}/notes/1`,
+        type: "Note",
+        attributedTo: VICTIM,
+        content: "forged DM as victim",
+      },
     },
-  });
+  );
   expect(res.status).toBe(401);
   expect((await res.json()).error).toBe("Actor mismatch");
 });
@@ -132,12 +138,18 @@ test("E2E: forged Delete as a same-host victim (signed by alice) is rejected 401
   const alice = await generateKeyPair();
   await cacheKey(db, ALICE, alice.publicKeyPem);
 
-  const res = await postSigned(db, alice.privateKeyPem, ALICE_KEY, "/ap/inbox", {
-    id: `${VICTIM}#delete`,
-    type: "Delete",
-    actor: VICTIM,
-    object: VICTIM,
-  });
+  const res = await postSigned(
+    db,
+    alice.privateKeyPem,
+    ALICE_KEY,
+    "/ap/inbox",
+    {
+      id: `${VICTIM}#delete`,
+      type: "Delete",
+      actor: VICTIM,
+      object: VICTIM,
+    },
+  );
   expect(res.status).toBe(401);
   expect((await res.json()).error).toBe("Actor mismatch");
 });
@@ -147,17 +159,23 @@ test("E2E: a normal activity where keyId-owner === actor is accepted (202)", asy
   const alice = await generateKeyPair();
   await cacheKey(db, ALICE, alice.publicKeyPem);
 
-  const res = await postSigned(db, alice.privateKeyPem, ALICE_KEY, "/ap/inbox", {
-    id: `${ALICE}/notes/1/activity`,
-    type: "Create",
-    actor: ALICE,
-    object: {
-      id: `${ALICE}/notes/1`,
-      type: "Note",
-      attributedTo: ALICE,
-      content: "hello",
+  const res = await postSigned(
+    db,
+    alice.privateKeyPem,
+    ALICE_KEY,
+    "/ap/inbox",
+    {
+      id: `${ALICE}/notes/1/activity`,
+      type: "Create",
+      actor: ALICE,
+      object: {
+        id: `${ALICE}/notes/1`,
+        type: "Note",
+        attributedTo: ALICE,
+        content: "hello",
+      },
     },
-  });
+  );
   // No local followers of alice → honest no-op, but the binding gate passed.
   expect(res.status).toBe(202);
 });
@@ -169,11 +187,17 @@ test("E2E: a relayed Announce signed by the relaying actor itself is accepted (2
 
   // The legitimate relay case: the Announce actor IS the relay actor, and it
   // signs with its own key (keyId-owner === actor). This must keep working.
-  const res = await postSigned(db, relay.privateKeyPem, RELAY_KEY, "/ap/inbox", {
-    id: `${RELAY}/announces/1`,
-    type: "Announce",
-    actor: RELAY,
-    object: "https://remote.example/users/alice/notes/1",
-  });
+  const res = await postSigned(
+    db,
+    relay.privateKeyPem,
+    RELAY_KEY,
+    "/ap/inbox",
+    {
+      id: `${RELAY}/announces/1`,
+      type: "Announce",
+      actor: RELAY,
+      object: "https://remote.example/users/alice/notes/1",
+    },
+  );
   expect(res.status).toBe(202);
 });

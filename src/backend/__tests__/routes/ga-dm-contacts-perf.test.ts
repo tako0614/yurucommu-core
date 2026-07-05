@@ -164,8 +164,7 @@ async function getContacts(
 
 async function countRows(db: Database, table: string): Promise<number> {
   const row = (await db.get(sql.raw(`SELECT COUNT(*) AS c FROM ${table}`))) as
-    | { c: number }
-    | undefined;
+    { c: number } | undefined;
   return row?.c ?? 0;
 }
 

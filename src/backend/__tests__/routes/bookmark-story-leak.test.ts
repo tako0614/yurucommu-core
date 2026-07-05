@@ -112,9 +112,11 @@ test("GET /bookmarks keeps a personal Story for an accepted follower", async () 
   const viewer = await insertActor(db, "viewer");
   const storyId = await insertPersonalStory(db, author, "story1", future());
   await db.insert(bookmarks).values({ actorApId: viewer, objectApId: storyId });
-  await db
-    .insert(follows)
-    .values({ followerApId: viewer, followingApId: author, status: "accepted" });
+  await db.insert(follows).values({
+    followerApId: viewer,
+    followingApId: author,
+    status: "accepted",
+  });
 
   const res = await appFor(db, viewer).request(`${APP_URL}/posts/bookmarks`);
   const body = (await res.json()) as { posts: { ap_id: string }[] };
@@ -127,9 +129,11 @@ test("GET /bookmarks drops an EXPIRED personal Story even for a follower", async
   const viewer = await insertActor(db, "viewer");
   const storyId = await insertPersonalStory(db, author, "story1", past());
   await db.insert(bookmarks).values({ actorApId: viewer, objectApId: storyId });
-  await db
-    .insert(follows)
-    .values({ followerApId: viewer, followingApId: author, status: "accepted" });
+  await db.insert(follows).values({
+    followerApId: viewer,
+    followingApId: author,
+    status: "accepted",
+  });
 
   const res = await appFor(db, viewer).request(`${APP_URL}/posts/bookmarks`);
   const body = (await res.json()) as { posts: { ap_id: string }[] };
@@ -159,9 +163,11 @@ test("POST /:id/bookmark allows a personal Story for an accepted follower", asyn
   const author = await insertActor(db, "author");
   const viewer = await insertActor(db, "viewer");
   await insertPersonalStory(db, author, "story1", future());
-  await db
-    .insert(follows)
-    .values({ followerApId: viewer, followingApId: author, status: "accepted" });
+  await db.insert(follows).values({
+    followerApId: viewer,
+    followingApId: author,
+    status: "accepted",
+  });
 
   const res = await appFor(db, viewer).request(
     `${APP_URL}/posts/story1/bookmark`,

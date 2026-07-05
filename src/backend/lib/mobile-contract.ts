@@ -1,7 +1,10 @@
 export const MOBILE_PUSH_REGISTRATION_PATH =
   "/api/mobile/push-registrations" as const;
 
-export type MobileProductKind = "yurucommu";
+export const SOCIAL_CLIENT_KINDS = ["yurucommu", "yurume"] as const;
+
+export type SocialClientKind = (typeof SOCIAL_CLIENT_KINDS)[number];
+export type MobileProductKind = SocialClientKind;
 
 export interface MobilePushHostRegistrationRequest {
   readonly product: MobileProductKind;
@@ -53,8 +56,9 @@ export function parseMobilePushHostRegistrationRequest(
     return badRequest("body must be an object");
   }
 
-  if (body.product !== "yurucommu") {
-    return badRequest("product must be yurucommu", "product");
+  const product = parseMobileProductKind(body.product);
+  if (!product) {
+    return badRequest("product must be yurucommu or yurume", "product");
   }
 
   const token = parseNonEmptyString(body.token);
@@ -78,7 +82,7 @@ export function parseMobilePushHostRegistrationRequest(
   return {
     ok: true,
     value: {
-      product: "yurucommu",
+      product,
       token,
       environment,
       hostUrl,
@@ -103,6 +107,13 @@ function parseNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseMobileProductKind(value: unknown): MobileProductKind | null {
+  if (typeof value !== "string") return null;
+  return SOCIAL_CLIENT_KINDS.includes(value as SocialClientKind)
+    ? (value as SocialClientKind)
+    : null;
 }
 
 function parseOptionalHttpUrl(value: unknown): string | null | undefined {

@@ -51,11 +51,9 @@ function createDrizzleMockDb(
     all: (...args: unknown[]) => Promise<unknown[]>;
     then: <TResult1 = unknown[], TResult2 = never>(
       onfulfilled?:
-        | ((value: unknown[]) => TResult1 | PromiseLike<TResult1>)
-        | null,
+        ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
       onrejected?:
-        | ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
-        | null,
+        ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
     ) => Promise<TResult1 | TResult2>;
     where: (...args: unknown[]) => TerminalChain;
     groupBy: (...args: unknown[]) => TerminalChain;

@@ -65,8 +65,7 @@ const MAX_PAYLOAD_BYTES = 512 * 1024;
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 type RequestBodyResult =
-  | { ok: true; body: string }
-  | { ok: false; status: 400 | 413; error: string };
+  { ok: true; body: string } | { ok: false; status: 400 | 413; error: string };
 
 async function readRequestBodyWithLimit(
   request: Request,

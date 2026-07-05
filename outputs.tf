@@ -59,6 +59,31 @@ output "url" {
   value       = local.launch_url
 }
 
+output "social_api_base_url" {
+  description = "Client-neutral base URL for the shared social API used by Yurucommu and Yurumeet clients."
+  value       = local.launch_url
+}
+
+output "activitypub_origin" {
+  description = "Canonical ActivityPub actor/object origin for the shared social server."
+  value       = local.launch_url
+}
+
+output "media_origin" {
+  description = "Public media URL origin/path for clients connected to this social server."
+  value       = local.launch_url != null ? "${local.launch_url}/media" : null
+}
+
+output "social_server_capabilities_url" {
+  description = "Well-known discovery URL for the shared social server capabilities."
+  value       = local.launch_url != null ? "${local.launch_url}/.well-known/social-server" : null
+}
+
+output "mobile_push_registration_url" {
+  description = "Mobile/web push registration endpoint for Yurucommu-compatible clients."
+  value       = local.launch_url != null ? "${local.launch_url}/api/mobile/push-registrations" : null
+}
+
 output "app_deployment" {
   description = "Installable app declaration consumed from tofu output -json by Takos/Takosumi install flows."
   value = {
@@ -165,6 +190,67 @@ output "app_deployment" {
 output "service_exports" {
   description = "OpenTofu output projection for launch and endpoint metadata without Takosumi-specific resource descriptors."
   value = [
+    {
+      name         = "social-api"
+      capabilities = ["protocol.http.api"]
+      endpoints = [
+        {
+          name       = "default"
+          protocol   = "https"
+          pathPrefix = "/api"
+          url        = local.launch_url != null ? "${local.launch_url}/api" : null
+        },
+        {
+          name       = "discovery"
+          protocol   = "https"
+          pathPrefix = "/.well-known/social-server"
+          url        = local.launch_url != null ? "${local.launch_url}/.well-known/social-server" : null
+        },
+      ]
+      metadata = {
+        title              = "Yurucommu Server"
+        description        = "Shared social API for feed-first and message-first clients."
+        canonicalOrigin    = local.launch_url
+        activitypubOrigin  = local.launch_url
+        capabilityIds      = ["api.social.v1"]
+        supportedClientIds = ["yurucommu", "yurume"]
+        clientDisplayNames = {
+          yurucommu = "Yurucommu"
+          yurume    = "Yurumeet"
+        }
+        defaultClientEntries = {
+          yurucommu = "feed"
+          yurume    = "messages"
+        }
+      }
+      visibility = "space"
+    },
+    {
+      name         = "activitypub"
+      capabilities = ["protocol.http.api"]
+      endpoints = [
+        {
+          name       = "actors"
+          protocol   = "https"
+          pathPrefix = "/ap"
+          url        = local.launch_url != null ? "${local.launch_url}/ap" : null
+        },
+        {
+          name       = "webfinger"
+          protocol   = "https"
+          pathPrefix = "/.well-known/webfinger"
+          url        = local.launch_url != null ? "${local.launch_url}/.well-known/webfinger" : null
+        },
+      ]
+      metadata = {
+        title             = "Yurucommu ActivityPub Server"
+        description       = "Canonical ActivityPub identity and federation surface for this social server."
+        canonicalOrigin   = local.launch_url
+        activitypubOrigin = local.launch_url
+        capabilityIds     = ["activitypub.server.v1"]
+      }
+      visibility = "space"
+    },
     {
       name         = "launcher"
       capabilities = ["interface.ui.surface"]

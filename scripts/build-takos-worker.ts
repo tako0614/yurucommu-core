@@ -1,5 +1,5 @@
 import { build, stop } from "esbuild";
-import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 type StaticAsset = {
@@ -201,13 +201,10 @@ export default {
 }
 
 export async function main(): Promise<void> {
-  await run(
-    ["bunx", "vite", "build", "--config", "web/vite.config.ts"],
-    new URL("../", import.meta.url),
-  );
+  await rm(distDir, { recursive: true, force: true });
+  await mkdir(distDir, { recursive: true });
 
   const assets: Record<string, StaticAsset> = {};
-  await collectAssets(distDir, assets);
   await writeFile(tempEntryFile, createEntrySource(assets));
 
   try {

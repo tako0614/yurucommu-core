@@ -42,9 +42,7 @@ type ActorRow = typeof actors.$inferSelect;
  *   updateCount     — number of guarded counter `update` statements that fired
  */
 type StatementDescriptor =
-  | { kind: "insert"; values: unknown }
-  | { kind: "delete" }
-  | { kind: "update" };
+  { kind: "insert"; values: unknown } | { kind: "delete" } | { kind: "update" };
 
 function createMockDb(options: {
   // Row returned by insert(...).returning().get() (undefined = conflict/no-op).

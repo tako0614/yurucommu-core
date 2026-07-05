@@ -132,6 +132,86 @@ test("POST /api/mobile/push-registrations stores a Yurucommu mobile push token w
   ]);
 });
 
+test("POST /api/mobile/push-registrations stores Yurumeet separately on the same server", async () => {
+  const db = await freshDb();
+  const actor = fakeActor();
+  await seedActor(db, actor);
+  const app = appFor(db, actor);
+
+  for (const product of ["yurucommu", "yurume"]) {
+    const response = await app.fetch(
+      new Request(`${APP_URL}/api/mobile/push-registrations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product,
+          token: "shared-device-token",
+          environment: "production",
+          host_url: APP_URL,
+        }),
+      }),
+      { APP_URL } as unknown as Env,
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      registration: {
+        product,
+        environment: "production",
+        host_url: APP_URL,
+      },
+    });
+  }
+
+  const rows = await db
+    .select({
+      actorApId: mobilePushRegistrations.actorApId,
+      product: mobilePushRegistrations.product,
+      token: mobilePushRegistrations.token,
+    })
+    .from(mobilePushRegistrations)
+    .orderBy(mobilePushRegistrations.product);
+  expect(rows).toEqual([
+    {
+      actorApId: ACTOR_AP_ID,
+      product: "yurucommu",
+      token: "shared-device-token",
+    },
+    {
+      actorApId: ACTOR_AP_ID,
+      product: "yurume",
+      token: "shared-device-token",
+    },
+  ]);
+});
+
+test("POST /api/mobile/push-registrations rejects unknown clients", async () => {
+  const db = await freshDb();
+  const actor = fakeActor();
+  await seedActor(db, actor);
+  const app = appFor(db, actor);
+
+  const response = await app.fetch(
+    new Request(`${APP_URL}/api/mobile/push-registrations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        product: "official-chat",
+        token: "push-token",
+      }),
+    }),
+    { APP_URL } as unknown as Env,
+  );
+
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({
+    code: "BAD_REQUEST",
+    error: "product must be yurucommu or yurume",
+    field: "product",
+  });
+});
+
 test("POST /api/mobile/push-registrations requires a resolved actor", async () => {
   const db = await freshDb();
   const app = appFor(db, null);

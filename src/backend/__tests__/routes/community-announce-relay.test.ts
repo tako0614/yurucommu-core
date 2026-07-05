@@ -133,8 +133,7 @@ test("a community Create emits a group Announce + carries it in the fanout", asy
 
   // The fanout message carries the Announce id (remote followers receive it).
   const fanout = sent.find((m) => m.type === "fanout_community") as
-    | { announceActivityId?: string }
-    | undefined;
+    { announceActivityId?: string } | undefined;
   expect(fanout?.announceActivityId).toEqual(announce!.apId);
 });
 
@@ -165,8 +164,7 @@ test("a community Update/Delete relays directly (no Announce, no announceActivit
   expect(announce).toBeUndefined();
 
   const fanout = sent.find((m) => m.type === "fanout_community") as
-    | { announceActivityId?: string }
-    | undefined;
+    { announceActivityId?: string } | undefined;
   expect(fanout?.announceActivityId).toBeUndefined();
 });
 
@@ -256,7 +254,6 @@ test("a PRIVATE community Create emits NO Announce (not federated as a Group)", 
   expect(announce).toBeUndefined();
 
   const fanout = sent.find((m) => m.type === "fanout_community") as
-    | { announceActivityId?: string }
-    | undefined;
+    { announceActivityId?: string } | undefined;
   expect(fanout?.announceActivityId).toBeUndefined();
 });
