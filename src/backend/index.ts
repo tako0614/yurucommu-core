@@ -14,6 +14,7 @@ import actorsRoutes from "./routes/actors.ts";
 import followRoutes from "./routes/follow.ts";
 import timelineRoutes from "./routes/timeline.ts";
 import postsRoutes from "./routes/posts.ts";
+import notesRoutes from "./routes/notes.ts";
 import notificationsRoutes from "./routes/notifications.ts";
 import storiesRoutes from "./routes/stories.ts";
 import searchRoutes from "./routes/search.ts";
@@ -65,7 +66,48 @@ export interface YurucommuBackendPluginV1 {
 
 export interface CreateYurucommuBackendAppOptionsV1 {
   plugins?: YurucommuBackendPluginV1[];
+  discovery?: YurucommuBackendDiscoveryOptionsV1;
 }
+
+export interface YurucommuBackendDiscoveryClientV1 {
+  id: string;
+  name: string;
+  defaultEntry: string;
+}
+
+export interface YurucommuBackendDiscoveryOptionsV1 {
+  product?: string;
+  name?: string;
+  serverId?: string;
+  serverName?: string;
+  clients?: YurucommuBackendDiscoveryClientV1[];
+  capabilities?: string[];
+}
+
+const DEFAULT_DISCOVERY_OPTIONS = {
+  product: "yurucommu",
+  name: "Yurucommu",
+  serverId: "yurucommu-server",
+  serverName: "Yurucommu Server",
+  clients: [
+    {
+      id: "yurucommu",
+      name: "Yurucommu",
+      defaultEntry: "feed",
+    },
+    {
+      id: "yurume",
+      name: "Yurumeet",
+      defaultEntry: "messages",
+    },
+  ],
+  capabilities: [
+    "api.social.v1",
+    "activitypub.server.v1",
+    "client.yurucommu.feed.v1",
+    "client.yurume.messages.v1",
+  ],
+} satisfies Required<YurucommuBackendDiscoveryOptionsV1>;
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -168,39 +210,34 @@ function collectMissingRuntimeBindings(env: Env): string[] {
   return missing;
 }
 
-function buildSocialServerDiscovery(appUrl: string, issuer: string) {
+function buildSocialServerDiscovery(
+  appUrl: string,
+  issuer: string,
+  options: YurucommuBackendDiscoveryOptionsV1 = {},
+) {
+  const discovery = {
+    ...DEFAULT_DISCOVERY_OPTIONS,
+    ...options,
+    clients: options.clients ?? DEFAULT_DISCOVERY_OPTIONS.clients,
+    capabilities:
+      options.capabilities ?? DEFAULT_DISCOVERY_OPTIONS.capabilities,
+  };
   return {
-    product: "yurucommu",
-    name: "Yurucommu",
+    product: discovery.product,
+    name: discovery.name,
     server: {
-      id: "yurucommu-server",
-      name: "Yurucommu Server",
+      id: discovery.serverId,
+      name: discovery.serverName,
       canonicalOrigin: appUrl,
       activitypubOrigin: appUrl,
     },
-    clients: [
-      {
-        id: "yurucommu",
-        name: "Yurucommu",
-        defaultEntry: "feed",
-      },
-      {
-        id: "yurume",
-        name: "Yurumeet",
-        defaultEntry: "messages",
-      },
-    ],
+    clients: discovery.clients,
     issuer,
     apiBaseUrl: appUrl,
     activitypubOrigin: appUrl,
     mediaOrigin: `${appUrl}/media`,
     socialServerCapabilitiesUrl: `${appUrl}/.well-known/social-server`,
-    capabilities: [
-      "api.social.v1",
-      "activitypub.server.v1",
-      "client.yurucommu.feed.v1",
-      "client.yurume.messages.v1",
-    ],
+    capabilities: discovery.capabilities,
     endpoints: {
       api: `${appUrl}/api`,
       authProviders: `${appUrl}/api/auth/providers`,
@@ -218,7 +255,10 @@ function isStrictReadinessEnabled(env: Env): boolean {
   return value === "1" || value === "true" || value === "yes";
 }
 
-function mountReadinessRoutes(app: YurucommuApp): void {
+function mountReadinessRoutes(
+  app: YurucommuApp,
+  discovery: YurucommuBackendDiscoveryOptionsV1 = {},
+): void {
   app.get("/healthz", (c) => {
     // /healthz reports the full picture (required + optional capabilities) so
     // operators can see degraded-but-serving states. The 503 gate stays opt-in
@@ -284,7 +324,7 @@ function mountReadinessRoutes(app: YurucommuApp): void {
   ) => {
     const appUrl = normalizeOrigin(c.env.APP_URL, c.req.url);
     const issuer = getOidcIssuerUrl(c.env) ?? appUrl;
-    return c.json(buildSocialServerDiscovery(appUrl, issuer), 200, {
+    return c.json(buildSocialServerDiscovery(appUrl, issuer, discovery), 200, {
       "Cache-Control": "public, max-age=300",
     });
   };
@@ -561,6 +601,8 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   app.use("/media/*", rateLimit(RateLimitConfigs.mediaUpload));
   app.use("/api/dm/*", rateLimit(RateLimitConfigs.dm));
   app.post("/api/posts", rateLimit(RateLimitConfigs.postCreate));
+  app.post("/api/notes", rateLimit(RateLimitConfigs.postCreate));
+  app.delete("/api/notes/me", rateLimit(RateLimitConfigs.postCreate));
   // Like/repost are federated WRITES (they sign + deliver activities to remote
   // inboxes), so bound them at the write budget rather than the general read
   // budget to limit mass-interaction delivery storms.
@@ -638,6 +680,7 @@ function mountCoreRoutes(app: YurucommuApp): void {
   app.route("/api/follow", followRoutes);
   app.route("/api/timeline", timelineRoutes);
   app.route("/api/posts", postsRoutes);
+  app.route("/api/notes", notesRoutes);
 
   app.get("/api/bookmarks", async (c) => {
     const url = new URL(c.req.url);
@@ -765,7 +808,7 @@ export function createYurucommuBackendApp(
     }
   }
 
-  mountReadinessRoutes(app);
+  mountReadinessRoutes(app, options.discovery);
   // Body-size cap must run BEFORE any handler reads the body or executes
   // expensive auth / rate-limit logic. Mounted after readiness probes so
   // /healthz and /readyz stay reachable even when payload validation

@@ -10,6 +10,7 @@ export * from "./api/notifications.ts";
 export * from "./api/search.ts";
 export * from "./api/media.ts";
 export * from "./api/stories.ts";
+export * from "./api/notes.ts";
 export * from "./api/recommendations.ts";
 export * from "./api/moderation.ts";
 export * from "./api/normalize.ts";

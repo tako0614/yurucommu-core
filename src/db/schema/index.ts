@@ -12,6 +12,7 @@ export * from "./social.ts";
 export * from "./reports.ts";
 export * from "./communities.ts";
 export * from "./stories.ts";
+export * from "./notes.ts";
 export * from "./messaging.ts";
 export * from "./mobile.ts";
 export * from "./relations.ts";

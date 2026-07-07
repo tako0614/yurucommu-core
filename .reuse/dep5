@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: yurucommu
-Source: https://github.com/tako0614/yurucommu
+Upstream-Name: yurucommu-core
+Source: https://github.com/tako0614/yurucommu-core
 
 Files: *
 Copyright: 2026 Takos Contributors
-License: GPL-3.0-only
+License: AGPL-3.0-only

@@ -1,15 +1,49 @@
 {
   "name": "@takosjp/yurucommu-core",
-  "version": "2.0.0",
-  "license": "GPL-3.0-only",
+  "version": "3.0.2",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "workspaces": [
     "packages/*"
+  ],
+  "files": [
+    "src/backend",
+    "src/db",
+    "src/plugin",
+    "src/runtime",
+    "!src/backend/**/__tests__/**",
+    "scripts/apply-takosumi-migrations.ts",
+    "migrations",
+    "packages/api/src/index.ts",
+    "packages/api/src/social-server.ts",
+    "packages/api/src/types",
+    "packages/api/src/lib/api.ts",
+    "packages/api/src/lib/transport.ts",
+    "packages/api/src/lib/fetch-with-timeout.ts",
+    "packages/api/src/lib/api/account.ts",
+    "packages/api/src/lib/api/actors.ts",
+    "packages/api/src/lib/api/auth.ts",
+    "packages/api/src/lib/api/communities.ts",
+    "packages/api/src/lib/api/dm.ts",
+    "packages/api/src/lib/api/fetch.ts",
+    "packages/api/src/lib/api/follow.ts",
+    "packages/api/src/lib/api/media.ts",
+    "packages/api/src/lib/api/moderation.ts",
+    "packages/api/src/lib/api/notes.ts",
+    "packages/api/src/lib/api/normalize.ts",
+    "packages/api/src/lib/api/notifications.ts",
+    "packages/api/src/lib/api/posts.ts",
+    "packages/api/src/lib/api/recommendations.ts",
+    "packages/api/src/lib/api/search.ts",
+    "packages/api/src/lib/api/stories.ts",
+    "packages/api/package.json",
+    "packages/api/LICENSE"
   ],
   "exports": {
     ".": "./src/backend/public.ts",
     "./server": "./src/backend/public.ts",
     "./client-api": "./packages/api/src/index.ts",
+    "./migrations": "./scripts/apply-takosumi-migrations.ts",
     "./plugins": "./src/plugin/public.ts"
   },
   "imports": {
@@ -19,20 +53,17 @@
   },
   "scripts": {
     "start": "bun src/backend/server.ts",
-    "dev": "bunx wrangler dev --config wrangler.local.toml",
+    "dev": "bun src/backend/server.ts",
     "dev:server": "bun src/backend/server.ts",
     "check": "tsc --noEmit",
     "test": "bun run build:api && bun test test/ src/backend/ packages/api/src/",
     "test:backend": "bun test src/backend/",
-    "build": "bun run build:api && bun run build:capsule-worker",
+    "build": "bun run build:api",
     "build:api": "cd packages/api && bun run build",
+    "prepublishOnly": "bun scripts/check-publish-version-discipline.mjs .",
+    "pack:core": "npm pack --dry-run",
     "pack:api": "cd packages/api && bun run pack:dry",
-    "build:worker": "bun x esbuild src/backend/index.ts --bundle --format=esm --outfile=dist/worker.js --platform=browser --target=es2022 --conditions=workerd,worker,browser --external:cloudflare:* --external:node:*",
-    "build:capsule-worker": "bun scripts/build-takos-worker.ts",
-    "build:takos-worker": "bun scripts/build-takos-worker.ts",
     "app:activate": "bun scripts/apply-takosumi-migrations.ts",
-    "takosumi:release": "bun scripts/takosumi-release.ts",
-    "deploy": "bun run build && bunx wrangler deploy --config wrangler.toml",
     "lint": "bun run check",
     "fmt": "bunx prettier --write src test packages/api",
     "fmt:check": "bunx prettier --check src test packages/api",
@@ -42,7 +73,6 @@
     "db:studio": "bunx drizzle-kit studio"
   },
   "dependencies": {
-    "@takosjp/yurucommu-api": "workspace:*",
     "@aws-sdk/client-s3": "^3.971.0",
     "@libsql/client": "^0.17.0",
     "better-sqlite3": "^12.4.1",
@@ -58,8 +88,9 @@
     "@types/bun": "latest",
     "@types/node": "^22.0.0",
     "drizzle-kit": "^0.31.9",
-    "esbuild": "^0.25.12",
-    "typescript": "^5.7.0",
-    "wrangler": "^4.103.0"
+    "typescript": "^5.7.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

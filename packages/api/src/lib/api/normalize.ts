@@ -1,6 +1,7 @@
 import {
   Actor,
   ActorStories,
+  ActorNote,
   Notification,
   Post,
   Story,
@@ -61,6 +62,11 @@ export const normalizeActorStories = (stories: ActorStories): ActorStories => ({
   ...stories,
   actor: normalizeActor(stories.actor),
   stories: (stories.stories || []).map(normalizeStory),
+});
+
+export const normalizeActorNote = (note: ActorNote): ActorNote => ({
+  ...note,
+  actor: normalizeActor(note.actor),
 });
 
 export const normalizeNotification = (

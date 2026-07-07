@@ -183,3 +183,14 @@ export interface ActorStories {
   stories: Story[];
   has_unviewed: boolean;
 }
+
+// Short-lived actor status note. This is the Instagram-Notes-style current
+// status surface, not the ActivityPub `Note` object used for normal posts.
+export interface ActorNote {
+  actor: PostAuthor;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  is_mine: boolean;
+}
