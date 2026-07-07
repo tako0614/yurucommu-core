@@ -98,3 +98,24 @@ test("recommendations exclude private/locked accounts but keep public ones", asy
   expect(ids).toContain(pub);
   expect(ids).not.toContain(locked);
 });
+
+test("recommendations stay non-fatal when the optional query fails", async () => {
+  const viewer = localApId("unstable-viewer");
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", {
+      all: async () => {
+        throw new Error("simulated recommendation storage failure");
+      },
+    } as unknown as Database);
+    c.set("actor", viewerActor(viewer));
+    await next();
+  });
+  app.route("/", recommendationsRoute);
+
+  const res = await app.fetch(new Request(`${APP_URL}/users`), {
+    APP_URL,
+  } as unknown as Env);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ users: [] });
+});
