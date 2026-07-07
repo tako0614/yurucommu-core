@@ -664,23 +664,35 @@ function mountCoreRoutes(app: YurucommuApp): void {
 
 function mountStaticFallback(app: YurucommuApp): void {
   app.all("*", async (c) => {
+    const url = new URL(c.req.url);
     // A request that reaches the static fallback under a backend route prefix
     // means no API / AP / media route matched it — return a genuine JSON 404
     // instead of the SPA HTML shell. Without this, the Cloudflare ASSETS binding
     // (single-page-application mode) served index.html with a 200 for unmatched
     // /api/* paths, so an API client (or our own fetch) got HTML 200 instead of
     // a 404 — the Bun runtime already guarded this; share one source of truth.
-    if (isBackendPath(new URL(c.req.url).pathname)) {
+    if (isBackendPath(url.pathname)) {
       return c.json({ error: "Not Found", code: "NOT_FOUND" }, 404);
     }
 
     if (c.env.ASSETS) {
-      return c.env.ASSETS.fetch(c.req.raw);
+      const response = await c.env.ASSETS.fetch(c.req.raw);
+      const method = c.req.method.toUpperCase();
+      if (
+        response.status === 404 &&
+        (method === "GET" || method === "HEAD") &&
+        !url.pathname.includes(".")
+      ) {
+        const indexUrl = new URL(c.req.url);
+        indexUrl.pathname = "/index.html";
+        indexUrl.search = "";
+        return c.env.ASSETS.fetch(new Request(indexUrl, c.req.raw));
+      }
+      return response;
     }
 
     const storage = (c.env as { STORAGE?: R2Bucket }).STORAGE;
     if (storage) {
-      const url = new URL(c.req.url);
       let assetPath = url.pathname;
 
       if (assetPath === "/" || assetPath === "") {

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { createYurucommuBackendApp } from "../index.ts";
 import { isBackendPath, NON_SPA_PREFIXES } from "../lib/backend-paths.ts";
 
-const ENV = { APP_URL: "https://test.local", DB_INSTANCE: {} } as never;
+const ENV = { APP_URL: "https://test.local", DB_INSTANCE: {} };
 
 // An unmatched backend route must NOT fall through to the SPA HTML shell — an
 // API/AP/media client expects a JSON 404, not a 200 text/html app shell. The
@@ -44,6 +44,56 @@ test("a client-side SPA route is not swallowed by the backend 404 guard", async 
     ENV,
   );
   expect(res.status).not.toEqual(404);
+});
+
+test("Cloudflare ASSETS falls back to the SPA shell for extensionless client routes", async () => {
+  const app = createYurucommuBackendApp();
+  const paths: string[] = [];
+  const assets = {
+    async fetch(request: Request) {
+      const url = new URL(request.url);
+      paths.push(url.pathname);
+      if (url.pathname === "/index.html") {
+        return new Response("<!doctype html><title>Yurucommu</title>", {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    },
+  };
+
+  const res = await app.fetch(
+    new Request("https://test.local/login?return_to=%2F"),
+    { ...ENV, ASSETS: assets } as never,
+  );
+
+  expect(res.status).toEqual(200);
+  expect(res.headers.get("content-type")).toContain("text/html");
+  expect(await res.text()).toContain("Yurucommu");
+  expect(paths).toEqual(["/login", "/index.html"]);
+});
+
+test("Cloudflare ASSETS does not turn missing asset files into the SPA shell", async () => {
+  const app = createYurucommuBackendApp();
+  const paths: string[] = [];
+  const assets = {
+    async fetch(request: Request) {
+      paths.push(new URL(request.url).pathname);
+      return new Response("Not found", { status: 404 });
+    },
+  };
+
+  const res = await app.fetch(
+    new Request("https://test.local/assets/nope.js"),
+    {
+      ...ENV,
+      ASSETS: assets,
+    } as never,
+  );
+
+  expect(res.status).toEqual(404);
+  expect(await res.text()).toEqual("Not found");
+  expect(paths).toEqual(["/assets/nope.js"]);
 });
 
 test("isBackendPath matches prefixes and their children, not lookalikes", () => {
