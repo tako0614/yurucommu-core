@@ -319,7 +319,20 @@ async function handleCloudflareCache(
   const url = new URL(c.req.url);
   const fullCacheKey = new Request(`${url.origin}/_cache${cacheKey}`);
 
-  const cachedResponse = await cache.match(fullCacheKey);
+  let cachedResponse: Response | undefined;
+  try {
+    cachedResponse = await cache.match(fullCacheKey);
+  } catch (error) {
+    if (isDefaultCacheUnavailable(error)) {
+      log.warn("Cloudflare default cache is unavailable; using memory cache", {
+        event: "cache.default_unavailable",
+        cacheKey,
+        error,
+      });
+      return handleMemoryCache(c, next, cacheKey, config);
+    }
+    throw error;
+  }
 
   if (cachedResponse) {
     const etag = cachedResponse.headers.get("ETag");
@@ -369,6 +382,18 @@ async function handleCloudflareCache(
   }
 
   c.res = responseToCache;
+}
+
+function isDefaultCacheUnavailable(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return /not permitted to access the default cache|default cache.*(?:not|un)available|Cache API.*not available/i.test(
+    message,
+  );
 }
 
 async function handleMemoryCache(

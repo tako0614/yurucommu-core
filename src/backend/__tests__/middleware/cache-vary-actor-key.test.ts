@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import { Hono } from "hono";
 
-import { generateCacheKey } from "../../middleware/cache.ts";
+import { generateCacheKey, withCache } from "../../middleware/cache.ts";
 
 /**
  * varyByActor must separate viewers via the QUERY STRING, not a URL fragment.
@@ -80,4 +81,40 @@ test("varyByActor appends with the correct separator when a query already exists
   expect(key).toContain("limit=20");
   expect(key).toContain("__actor=u");
   expect(key.indexOf("?")).toBe(key.lastIndexOf("?")); // exactly one '?'
+});
+
+test("Cloudflare default cache denial falls back without failing the request", async () => {
+  const original = globalThis.caches;
+  Object.defineProperty(globalThis, "caches", {
+    configurable: true,
+    value: {
+      default: {
+        match: async () => {
+          throw new Error(
+            "This Worker is not permitted to access the default cache.",
+          );
+        },
+        put: async () => undefined,
+      },
+    },
+  });
+
+  try {
+    const app = new Hono();
+    app.get(
+      "/cached-default-denied",
+      withCache({ ttl: 60 }),
+      (c) => c.json({ ok: true }),
+    );
+
+    const res = await app.request("https://yuru.test/cached-default-denied");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(res.headers.get("X-Cache")).toBe("MISS");
+  } finally {
+    Object.defineProperty(globalThis, "caches", {
+      configurable: true,
+      value: original,
+    });
+  }
 });
