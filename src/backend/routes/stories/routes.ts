@@ -21,7 +21,6 @@ import type { IObjectStorage } from "../../runtime/types.ts";
 import {
   activityApId,
   actorApId,
-  formatUsername,
   generateId,
   objectApId,
 } from "../../federation-helpers.ts";
@@ -31,10 +30,12 @@ import { maybeReapDrainedTombstones } from "../actors.ts";
 import { checkCommunityPostPermission } from "../posts/post-helpers.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import {
+  buildAuthor,
   cleanupExpiredStories,
   fetchActorCache,
   fetchBatchVotes,
   fetchBlockedAndMutedIds,
+  type StoryAuthor,
   sumVotes,
   transformStoryData,
   validateOverlays,
@@ -101,14 +102,6 @@ stories.post("/delete", storyWriteLimiter);
 
 type VoteResults = Record<number, number>;
 
-type StoryAuthor = {
-  ap_id: string;
-  username: string;
-  preferred_username: string | null;
-  name: string | null;
-  icon_url: string | null;
-};
-
 type StoryResponse = {
   ap_id: string;
   author: StoryAuthor;
@@ -159,27 +152,6 @@ const MAX_STORY_CAPTION_LENGTH = 500;
 // allows ~32k and hides this). 90 active stories is ample for a single-user
 // feed page; a busy instance simply shows the 90 most recent.
 const MAX_STORY_FEED_ITEMS = 90;
-
-/** Build a StoryAuthor from available data sources. */
-function buildAuthor(
-  apId: string,
-  data:
-    | {
-        preferredUsername?: string | null;
-        name?: string | null;
-        iconUrl?: string | null;
-      }
-    | null
-    | undefined,
-): StoryAuthor {
-  return {
-    ap_id: apId,
-    username: formatUsername(apId),
-    preferred_username: data?.preferredUsername || null,
-    name: data?.name || null,
-    icon_url: data?.iconUrl || null,
-  };
-}
 
 /** Build a StoryResponse from a story object row and pre-fetched data. */
 function buildStoryResponse(

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, sql } from "drizzle-orm";
 import type { Env, Variables } from "../../types.ts";
 import {
   activities,
@@ -18,12 +18,14 @@ import {
   safeJsonParse,
 } from "../../federation-helpers.ts";
 import {
+  buildAuthor,
   canViewerReadStory,
   findStory,
   getVoteCounts,
   resolveStoryApId,
   sumVotes,
 } from "./query-helpers.ts";
+import { loadActorInfoMap } from "../actors-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
 import { actorIsBlockedBy } from "../../lib/post-visibility.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
@@ -571,6 +573,68 @@ stories.get("/:id/votes", async (c) => {
   }
 
   return c.json({ votes, total: sumVotes(votes), user_vote });
+});
+
+// Cap the returned viewer list most-recent-first. `view_count` stays the true
+// total (the author sees the real number even when the list is truncated).
+const STORY_VIEWERS_LIMIT = 200;
+
+// Get the "seen by" viewer list for a story (author-only).
+stories.get("/:id/views", async (c) => {
+  const db = c.get("db");
+  const actor = c.get("actor");
+  const baseUrl = c.env.APP_URL;
+  // Resolve the id the same way every sibling /:id/* route does.
+  const apId = resolveStoryApId(c.req.param("id"), baseUrl);
+
+  const story = await findStory(db, apId);
+  if (!story) return c.json({ error: "Story not found" }, 404);
+
+  // Author-only: only the story author may see WHO viewed. Anyone else
+  // (including anonymous) gets 404 so the viewer list isn't disclosed and the
+  // endpoint isn't a story-existence oracle for non-authors.
+  if (!actor || actor.ap_id !== story.attributedTo) {
+    return c.json({ error: "Story not found" }, 404);
+  }
+  // Mirror the /:id/votes expiry gate: don't serve the list for an expired
+  // story before the reaper runs.
+  if (story.endTime && story.endTime < new Date().toISOString()) {
+    return c.json({ error: "Story has expired" }, 410);
+  }
+
+  // True total (uncapped) — stays accurate even when the list below is capped.
+  const totalRow = await db
+    .select({ value: count() })
+    .from(storyViews)
+    .where(eq(storyViews.storyApId, apId))
+    .get();
+  const view_count = totalRow?.value ?? 0;
+
+  // Most-recent-first page of viewers, capped.
+  const rows = await db
+    .select({
+      actorApId: storyViews.actorApId,
+      viewedAt: storyViews.viewedAt,
+    })
+    .from(storyViews)
+    .where(eq(storyViews.storyApId, apId))
+    .orderBy(desc(storyViews.viewedAt))
+    .limit(STORY_VIEWERS_LIMIT);
+
+  // Hydrate ap_id → PostAuthor via the same batch loader the follower/story
+  // lists use (local `actors` + `actor_cache`, local wins). A remote viewer
+  // absent from both degrades to a best-effort author in `buildAuthor`.
+  const infoMap = await loadActorInfoMap(
+    db,
+    rows.map((r) => r.actorApId),
+    "author",
+  );
+  const viewers = rows.map((r) => ({
+    actor: buildAuthor(r.actorApId, infoMap.get(r.actorApId)),
+    viewed_at: r.viewedAt,
+  }));
+
+  return c.json({ view_count, viewers });
 });
 
 export default stories;

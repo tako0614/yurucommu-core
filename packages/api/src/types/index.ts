@@ -150,7 +150,6 @@ export interface StoryOverlay {
   // Question-specific
   name?: string; // Question text
   oneOf?: Array<{ type: string; name: string }>; // Options
-  closed?: string; // Close time
   // Link-specific
   href?: string;
   // Generic
@@ -182,6 +181,18 @@ export interface ActorStories {
   actor: PostAuthor;
   stories: Story[];
   has_unviewed: boolean;
+}
+
+// A single viewer in a story's "seen by" list (author-only).
+export interface StoryViewer {
+  actor: PostAuthor;
+  viewed_at: string;
+}
+
+// Response of GET /api/stories/:id/views (author-only "seen by").
+export interface StoryViewersResponse {
+  view_count: number;
+  viewers: StoryViewer[];
 }
 
 // Short-lived actor status note. This is the Instagram-Notes-style current

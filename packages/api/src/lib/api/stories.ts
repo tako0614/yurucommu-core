@@ -1,4 +1,9 @@
-import type { ActorStories, Story, StoryOverlay } from "../../types/index.ts";
+import type {
+  ActorStories,
+  Story,
+  StoryOverlay,
+  StoryViewersResponse,
+} from "../../types/index.ts";
 import { normalizeActorStories, normalizeStory } from "./normalize.ts";
 import { apiDelete, apiFetch, apiPost, assertOk } from "./fetch.ts";
 
@@ -77,4 +82,14 @@ export async function shareStory(
   const res = await apiPost(`/api/stories/${encodeURIComponent(apId)}/share`);
   await assertOk(res, "Failed to share story");
   return (await res.json()) as { shared: boolean; share_count: number };
+}
+
+// Author-only "seen by" list for a story. GETs the same id-encoded path the
+// sibling like/share routes use.
+export async function getStoryViewers(
+  apId: string,
+): Promise<StoryViewersResponse> {
+  const res = await apiFetch(`/api/stories/${encodeURIComponent(apId)}/views`);
+  await assertOk(res, "Failed to fetch story viewers");
+  return (await res.json()) as StoryViewersResponse;
 }

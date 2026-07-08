@@ -11,7 +11,11 @@ import {
   storyVotes,
 } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
-import { objectApId, safeJsonParse } from "../../federation-helpers.ts";
+import {
+  formatUsername,
+  objectApId,
+  safeJsonParse,
+} from "../../federation-helpers.ts";
 import {
   deleteObjectCascade,
   purgeMediaBlobs,
@@ -269,6 +273,49 @@ export async function fetchActorCache(
       },
     ]),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Author projection
+// ---------------------------------------------------------------------------
+
+/**
+ * Public author projection for a story author / viewer (the `PostAuthor` shape
+ * used across the feed / story surfaces). Shared by the story feed and the
+ * viewer ("seen by") list so both hydrate an ap_id → author identically.
+ */
+export type StoryAuthor = {
+  ap_id: string;
+  username: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+};
+
+/**
+ * Build a StoryAuthor from available data sources. A remote actor with no local
+ * `actors` / `actor_cache` row (`data` undefined) degrades gracefully to a
+ * best-effort `username` derived from the ap_id plus null fields, so a viewer is
+ * never dropped just because its profile isn't cached locally.
+ */
+export function buildAuthor(
+  apId: string,
+  data:
+    | {
+        preferredUsername?: string | null;
+        name?: string | null;
+        iconUrl?: string | null;
+      }
+    | null
+    | undefined,
+): StoryAuthor {
+  return {
+    ap_id: apId,
+    username: formatUsername(apId),
+    preferred_username: data?.preferredUsername || null,
+    name: data?.name || null,
+    icon_url: data?.iconUrl || null,
+  };
 }
 
 // ---------------------------------------------------------------------------
