@@ -83,17 +83,6 @@ file name (not the numeric version) in `yurucommu_migrations`.
    credentials come from the same reviewed Provider Connection used by the
    OpenTofu run.
 
-   In the fallback path where the Worker script is not managed by OpenTofu,
-   `takosumi_release.post_apply` runs `bun run takosumi:release` as an opaque
-   operator release command. It reads non-secret outputs from `TAKOSUMI_OUTPUTS_JSON`,
-   writes a temporary Wrangler config, runs `bun install --frozen-lockfile`,
-   runs `bun run build:takos-worker`, applies D1 migrations through
-   `wrangler d1 execute` without explicit SQL transaction wrappers, and deploys
-   with `wrangler deploy`.
-   Provider credentials and app-specific secrets come from the selected
-   operator release activator boundary through
-   `TAKOSUMI_RELEASE_COMMAND_ENV_ALLOWLIST`.
-
    Common operator env names:
 
    ```bash
