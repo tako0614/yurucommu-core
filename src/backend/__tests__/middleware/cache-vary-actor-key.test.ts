@@ -101,10 +101,8 @@ test("Cloudflare default cache denial falls back without failing the request", a
 
   try {
     const app = new Hono();
-    app.get(
-      "/cached-default-denied",
-      withCache({ ttl: 60 }),
-      (c) => c.json({ ok: true }),
+    app.get("/cached-default-denied", withCache({ ttl: 60 }), (c) =>
+      c.json({ ok: true }),
     );
 
     const res = await app.request("https://yuru.test/cached-default-denied");
