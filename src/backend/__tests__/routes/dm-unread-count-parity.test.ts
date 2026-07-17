@@ -29,6 +29,7 @@ import {
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import dmRoutes from "../../routes/dm/conversations.ts";
+import { yurumeUnreadCounts } from "../../lib/unread-counts.ts";
 
 const APP_URL = "https://yuru.test";
 const MIGRATIONS = [
@@ -270,6 +271,47 @@ test("GET /unread/count total equals the sum of unread_count across /contacts", 
   expect(contactsTotal).toEqual(4);
   expect(count).toEqual({ total: 4, dm: 2, community: 2 });
   expect(count.total).toEqual(contactsTotal);
+});
+
+test("the shared yurumeUnreadCounts helper matches GET /unread/count (push-badge parity)", async () => {
+  // The notification push payload's `counts.unread` is computed by
+  // yurumeUnreadCounts — the SAME helper the endpoint uses. Pin the helper to
+  // the endpoint so a push can never set a badge that disagrees with the number
+  // the client computes when it opens.
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+
+  await insertDm(db, bob, alice, "conv1", "c1m1", "2026-06-20T10:00:00.000Z");
+  await insertDm(db, bob, alice, "conv1", "c1m2", "2026-06-20T10:05:00.000Z");
+  await insertDm(db, bob, alice, "conv2", "c2m1", "2026-06-20T11:00:00.000Z");
+  await db.run(sql`
+    INSERT INTO dm_read_status (actor_ap_id, conversation_id, last_read_at)
+    VALUES (${alice}, 'conv2', '2026-06-20T11:30:00.000Z')
+  `);
+  const fanclub = await insertCommunity(db, "fanclub");
+  await addMember(db, fanclub, alice, "2026-06-20T08:00:00.000Z");
+  await insertCommunityChat(db, bob, fanclub, "g1", "2026-06-20T12:00:00.000Z");
+
+  const actor = fakeActor(alice, "alice");
+  const app = appWith(db, actor);
+  const countRes = await app.fetch(
+    new Request(`${APP_URL}/unread/count`),
+    envFor(db),
+  );
+  const endpoint = (await countRes.json()) as {
+    total: number;
+    dm: number;
+    community: number;
+  };
+  const helper = await yurumeUnreadCounts(db, alice);
+
+  expect(helper).toEqual({ dm: 2, community: 1, total: 3 });
+  expect({
+    total: helper.total,
+    dm: helper.dm,
+    community: helper.community,
+  }).toEqual(endpoint);
 });
 
 test("GET /unread/count requires auth", async () => {

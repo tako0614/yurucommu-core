@@ -47,6 +47,9 @@ const MIGRATIONS = [
   "0001_init.sql",
   "0002_social_remote_actor_edges.sql",
   "0004_blocklist.sql",
+  // The community chat reader returns per-member read positions, so the group
+  // read-status table must exist for the messages routes under test.
+  "0006_dm_community_read_status.sql",
   "0008_actor_fields_aka.sql",
   "0009_object_tags.sql",
 ];

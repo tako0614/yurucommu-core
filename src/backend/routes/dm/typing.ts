@@ -3,6 +3,10 @@
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import { dmTyping } from "../../../db/index.ts";
+import {
+  emitRealtimeBestEffort,
+  runRealtimeAfterResponse,
+} from "../../runtime/realtime-hub.ts";
 import { type HonoEnv, parseOtherApId } from "./conversations-helpers.ts";
 
 const typing = new Hono<HonoEnv>();
@@ -27,6 +31,18 @@ typing.post("/user/:encodedApId/typing", async (c) => {
       target: [dmTyping.actorApId, dmTyping.recipientApId],
       set: { lastTypedAt: now },
     });
+
+  // Push the indicator to the partner's live sockets; the GET endpoint stays
+  // as the fallback-polling read.
+  await runRealtimeAfterResponse(c, () =>
+    emitRealtimeBestEffort(c.env, [
+      {
+        actorApId: otherApId,
+        type: "talk.typing",
+        data: { other_ap_id: actor.ap_id, is_typing: true, typed_at: now },
+      },
+    ]),
+  );
 
   return c.json({ success: true, typed_at: now });
 });

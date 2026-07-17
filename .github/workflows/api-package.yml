@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Publish @takosjp/yurucommu-api to npm"
+        description: "Publish @takosjp/yurucommu-core and @takosjp/yurucommu-api to npm"
         required: false
         default: false
         type: boolean
@@ -27,7 +27,7 @@ env:
 jobs:
   build:
     name: Build packages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned: v6.0.2 (2026)
@@ -36,7 +36,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # pinned: v2.0.2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
 
       - name: Cache Bun deps
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # pinned: v5.0.5 (2026)
@@ -47,19 +47,30 @@ jobs:
             ${{ runner.os }}-bun-yurucommu-core-packages-
 
       - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run test
       - run: bun run build:api
+      - run: bun run check:release-contents
+      - run: bun run check:packed-consumer
       - run: bun run pack:core
       - run: bun run pack:api
+
+      - name: Preflight core npm release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish == true
+        run: bun scripts/publish-package-resumable.mjs . --check-only
+
+      - name: Preflight API npm release
+        if: startsWith(github.ref, 'refs/tags/api-v') || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true
+        run: bun scripts/publish-package-resumable.mjs packages/api --check-only
 
       - name: Publish core to npm
         if: startsWith(github.ref, 'refs/tags/v') || inputs.publish == true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: bun scripts/publish-package-resumable.mjs .
 
       - name: Publish API to npm
         if: startsWith(github.ref, 'refs/tags/api-v') || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true
-        working-directory: packages/api
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: bun scripts/publish-package-resumable.mjs packages/api

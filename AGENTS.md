@@ -2,7 +2,7 @@
 
 `yurucommu-core` は yurucommu family の **ActivityPub / API / DB / runtime engine
 library** です。 deploy される product / OpenTofu Capsule ではありません。
-`yurucommu` repo は feed / story / profile 中心の fullstack product、`Yurumeet`
+`yurucommu` repo は feed / story / profile 中心の fullstack product、`yurumeet`
 repo は talk-first の fullstack product で、どちらもこの core library を npm package
 として利用して Worker artifact と OpenTofu Capsule を自分のrepoで所有します。
 `yurume` は Yurumeet の client id / 略称として使います。
@@ -42,7 +42,7 @@ federation は目的ではなく、プラットフォーム非依存とコミュ
   publication / OIDC discovery で issuer を解決)、 Takos public API
 - **Downstream**: ActivityPub federated network (他の Mastodon / Misskey
   instance と相互接続)
-- **Product repos**: `yurucommu` repo は feed-first、 `Yurumeet` (`yurume`) repo は talk-first。
+- **Product repos**: `yurucommu` repo は feed-first、 `yurumeet` (`yurume`) repo は talk-first。
   どちらも core library から actor / DM / community / ActivityPub API を組み込んで、自分の
   OpenTofu module と Worker artifact を持つ
 - **Client SDK**: client / mobile repo は core repo の内部 path を import せず、

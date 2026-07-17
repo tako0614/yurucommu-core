@@ -23,6 +23,7 @@ import {
 } from "../../../db/index.ts";
 import { formatUsername } from "../../federation-helpers.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
+import { yurumeUnreadCounts } from "../../lib/unread-counts.ts";
 import {
   buildActorInfoMap,
   byTimeDesc,
@@ -476,50 +477,11 @@ contacts.get("/unread/count", async (c) => {
   const actor = c.get("actor");
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
-  const me = actor.ap_id;
 
-  const dmRow = await db.get<{ c: number }>(sql`
-    SELECT COUNT(*) AS c
-    FROM objects o
-    JOIN object_recipients orp
-      ON orp.object_ap_id = o.ap_id
-      AND orp.recipient_ap_id = ${me}
-      AND orp.type = 'to'
-    LEFT JOIN dm_read_status r
-      ON r.conversation_id = o.conversation
-      AND r.actor_ap_id = ${me}
-    WHERE o.visibility = 'direct'
-      AND o.type = 'Note'
-      AND o.conversation IS NOT NULL
-      AND o.attributed_to != ${me}
-      AND o.published > COALESCE(r.last_read_at, '1970-01-01T00:00:00Z')
-      AND o.conversation NOT IN (
-        SELECT conversation_id FROM dm_archived_conversations
-        WHERE actor_ap_id = ${me}
-      )
-  `);
-
-  const communityRow = await db.get<{ c: number }>(sql`
-    SELECT COUNT(*) AS c
-    FROM community_members cm
-    JOIN object_recipients orp
-      ON orp.recipient_ap_id = cm.community_ap_id
-      AND orp.type = 'audience'
-    JOIN objects o
-      ON o.ap_id = orp.object_ap_id
-      AND o.type = 'Note'
-      AND o.community_ap_id IS NULL
-      AND o.attributed_to != ${me}
-    LEFT JOIN dm_community_read_status r
-      ON r.community_ap_id = cm.community_ap_id
-      AND r.actor_ap_id = ${me}
-    WHERE cm.actor_ap_id = ${me}
-      AND o.published > COALESCE(r.last_read_at, cm.joined_at, '1970-01-01T00:00:00Z')
-  `);
-
-  const dm = Number(dmRow?.c ?? 0);
-  const community = Number(communityRow?.c ?? 0);
-  return c.json({ total: dm + community, dm, community });
+  // Single owner of the DM + community-chat unread SQL (lib/unread-counts.ts),
+  // shared with the notification push payload's badge so the two cannot drift.
+  const { total, dm, community } = await yurumeUnreadCounts(db, actor.ap_id);
+  return c.json({ total, dm, community });
 });
 
 export default contacts;

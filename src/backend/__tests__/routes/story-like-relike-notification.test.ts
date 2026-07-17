@@ -16,6 +16,7 @@ import {
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import storiesInteractions from "../../routes/stories/interactions.ts";
+import notificationRoutes from "../../routes/notifications.ts";
 
 // DEEP round-2 #14: a story unlike deleted only the `likes` edge + decremented
 // likeCount, never reaping the inbox/activities rows the like minted. The re-like
@@ -122,4 +123,24 @@ test("story like -> unlike -> like does not accumulate duplicate notifications",
     .where(eq(objects.apId, storyApId))
     .get();
   expect(story?.likeCount).toBe(1);
+
+  const notificationApp = appFor(db, author);
+  notificationApp.route("/notifications", notificationRoutes);
+  const response = await notificationApp.request(
+    `${APP_URL}/notifications`,
+    { method: "GET" },
+    env,
+  );
+  const body = (await response.json()) as {
+    notifications: Array<{
+      target_kind: string;
+      target_id: string | null;
+      target_url: string;
+    }>;
+  };
+  expect(body.notifications[0]).toMatchObject({
+    target_kind: "story",
+    target_id: storyApId,
+    target_url: `/?story=${encodeURIComponent(storyApId)}`,
+  });
 });

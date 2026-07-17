@@ -13,6 +13,12 @@ export { default } from "./index.ts";
 export { default as app } from "./index.ts";
 export { type Database, getDb, getDbSQLite } from "../db/index.ts";
 export { wrapCloudflareBindings } from "./runtime/cloudflare.ts";
+// Call feature: the signaling Durable Object class each product's generated
+// worker entry must re-export so Wrangler can bind CALL_SIGNALING to it.
+export { CallSignalingDurableObject } from "./runtime/call-signaling-do.ts";
+// Realtime stream: the per-user fanout Durable Object class each product's
+// generated worker entry must re-export so Wrangler can bind REALTIME_STREAM.
+export { RealtimeStreamDO } from "./runtime/realtime-stream-do.ts";
 export type { Env, EnvVars } from "./types.ts";
 export type {
   DeliveryDlqMessageV1,

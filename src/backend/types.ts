@@ -67,11 +67,47 @@ export interface EnvVars {
   // app falls back to the YURUCOMMU_VERSION default constant.
   YURUCOMMU_SOFTWARE_VERSION?: string;
 
+  // Product-neutral notification pusher gateway. Public gateway registration
+  // is fail-closed until its hostname is explicitly allowlisted. The bearer is
+  // attached only when data.url exactly matches the canonical URL.
+  YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_ALLOWED_HOSTS?: string;
+  YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_URL?: string;
+  YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TOKEN?: string;
+  YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TIMEOUT_MS?: string;
+  YURUCOMMU_NOTIFICATION_PUSH_ALLOW_INSECURE_LOOPBACK?: string;
+  // Public VAPID application-server key exposed to authenticated browser
+  // clients. The corresponding private key remains gateway-owned.
+  YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY?: string;
+
   // CSRF allowed origins (comma-separated). APP_URL の origin に加えて
   // 受け付ける追加 origin (= dev hostname (`https://yurucommu.test`) を
   // production-equivalent な strict CSRF check 経由で踏むため)。 未設定なら
   // 既存動作と同じ (= APP_URL 単一 origin のみ accept、 production 影響ゼロ)。
   CSRF_ALLOWED_ORIGINS?: string;
+
+  // --- Call feature (WebRTC voice + video) -------------------------------
+  // ICE (STUN/TURN) servers advertised to authenticated call clients as a JSON
+  // array of { urls, username?, credential? }. When TURN uses coturn's REST
+  // ephemeral-credential scheme instead, set YURUCOMMU_RTC_TURN_URIS +
+  // YURUCOMMU_RTC_TURN_SECRET and the app mints short-lived creds per request.
+  // Unset => STUN-only (P2P still works on permissive networks; TURN is the
+  // single biggest determinant of cross-network 1:1 success, so operators
+  // should configure it). None of this is required for the worker to boot.
+  YURUCOMMU_RTC_ICE_SERVERS?: string;
+  // coturn REST-API ephemeral credentials (RFC 8489 long-term-cred via HMAC).
+  // Comma-separated turn:/turns: URIs + a shared secret; TTL in seconds.
+  YURUCOMMU_RTC_TURN_URIS?: string;
+  YURUCOMMU_RTC_TURN_SECRET?: string; // secret
+  YURUCOMMU_RTC_TURN_TTL?: string;
+  // SFU adapter selector for GROUP calls. "p2p" (default) = no SFU, 1:1 P2P
+  // only. Other values ("whip" / "livekit" / "cloudflare-realtime") select a
+  // WHIP/WHEP-speaking focus so the SFU backend stays vendor-neutral. 1:1 calls
+  // never require any SFU config.
+  YURUCOMMU_RTC_SFU_ADAPTER?: string;
+  YURUCOMMU_RTC_SFU_URL?: string;
+  YURUCOMMU_RTC_SFU_TOKEN?: string; // secret
+  YURUCOMMU_RTC_SFU_APP_ID?: string;
+  YURUCOMMU_RTC_SFU_APP_SECRET?: string; // secret
 
   // Declare the reverse-proxy type so the client-IP resolver trusts the right
   // forwarding header (opt-in; a worker fronted directly by a client cannot
@@ -107,6 +143,14 @@ export type Env = {
   ASSETS?: IStaticAssets;
   DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
   DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
+  // Signaling hub for the call feature. Passes through wrapCloudflareBindings
+  // untouched (it is not one of DB/MEDIA/KV/ASSETS). Optional: when unbound the
+  // call routes 503 and the rest of the app serves normally.
+  CALL_SIGNALING?: DurableObjectNamespace;
+  // Per-user realtime event stream (talk/typing/read/notification/unread push).
+  // Same pass-through; optional: when unbound the realtime routes answer 503
+  // and clients fall back to their low-frequency polling loops.
+  REALTIME_STREAM?: DurableObjectNamespace;
 } & EnvVars;
 
 export type Variables = {

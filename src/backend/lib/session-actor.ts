@@ -17,7 +17,7 @@ function isExpired(expiresAt: string): boolean {
 export async function extractActorFromSession(
   c: Context<{ Bindings: Env; Variables: Variables }>,
 ): Promise<void> {
-  const sessionId = getCookie(c, "session");
+  const sessionId = rawSessionCredential(c);
   if (!sessionId) return;
 
   const db = c.get("db");
@@ -58,4 +58,19 @@ export async function extractActorFromSession(
     created_at: m.createdAt,
   };
   c.set("actor", actor);
+}
+
+/**
+ * Resolve the host-owned session credential used by browser and native clients.
+ * Cookie auth wins when both are present so adding an Authorization header to a
+ * browser request never changes its CSRF/session identity semantics.
+ */
+export function rawSessionCredential(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+): string | undefined {
+  const cookie = getCookie(c, "session")?.trim();
+  if (cookie) return cookie;
+  const authorization = c.req.header("Authorization")?.trim();
+  const match = authorization?.match(/^Bearer\s+([^\s]+)$/i);
+  return match?.[1];
 }

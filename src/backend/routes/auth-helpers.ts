@@ -139,6 +139,7 @@ export async function rotateSession(
   tokens: OAuthTokens | null,
   encryptionKey: string | undefined,
   rotationContext: string,
+  options: { setCookie?: boolean } = {},
 ): Promise<string> {
   const db = c.get("db");
 
@@ -184,13 +185,15 @@ export async function rotateSession(
   // served over plain http:// — a hardcoded Secure made an http self-host
   // un-loginnable (the browser never sends a Secure cookie over http), so honour
   // the operator's APP_URL protocol while defaulting to Secure for https/unknown.
-  setCookie(c, "session", sessionId, {
-    httpOnly: true,
-    secure: !(c.env.APP_URL ?? "").startsWith("http://"),
-    sameSite: "Strict",
-    path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS,
-  });
+  if (options.setCookie !== false) {
+    setCookie(c, "session", sessionId, {
+      httpOnly: true,
+      secure: !(c.env.APP_URL ?? "").startsWith("http://"),
+      sameSite: "Strict",
+      path: "/",
+      maxAge: SESSION_MAX_AGE_SECONDS,
+    });
+  }
 
   return sessionId;
 }

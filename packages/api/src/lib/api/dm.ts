@@ -1,4 +1,4 @@
-import type { DMMessage } from "../../types/index.ts";
+import type { DMMessage, MediaAttachment } from "../../types/index.ts";
 import { normalizeActor } from "./normalize.ts";
 import { apiDelete, apiFetch, apiPost, assertOk } from "./fetch.ts";
 
@@ -110,6 +110,12 @@ export async function fetchUserDMMessages(
   messages: DMMessage[];
   conversation_id: string | null;
   hasMore: boolean;
+  /**
+   * The partner's last-read time (LOCAL-ONLY read receipt), or null when
+   * unknown — a remote partner never reports read state, so null must render
+   * as "no receipt", not "unread".
+   */
+  partnerLastReadAt: string | null;
 }> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
@@ -122,21 +128,27 @@ export async function fetchUserDMMessages(
     messages?: DMMessage[];
     conversation_id?: string | null;
     has_more?: boolean;
+    partner_last_read_at?: string | null;
   };
   return {
     messages: (data.messages || []).map(normalizeDmMessage),
     conversation_id: data.conversation_id ?? null,
     hasMore: data.has_more ?? false,
+    partnerLastReadAt: data.partner_last_read_at ?? null,
   };
 }
 
 export async function sendUserDMMessage(
   userApId: string,
   content: string,
+  attachments?: MediaAttachment[],
 ): Promise<{ message: DMMessage; conversation_id: string }> {
   const res = await apiPost(
     `/api/dm/user/${encodeURIComponent(userApId)}/messages`,
-    { content },
+    {
+      content,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    },
   );
   await assertOk(res, "Failed to send message");
   const data = (await res.json()) as {

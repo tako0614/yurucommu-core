@@ -8,6 +8,8 @@ function createApp() {
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();
   app.use("/api/*", csrfProtection());
   app.post("/api/resource", (c) => c.json({ ok: true }));
+  app.post("/api/auth/mobile/login", (c) => c.json({ ok: true }));
+  app.post("/api/auth/mobile/oidc", (c) => c.json({ ok: true }));
   return app;
 }
 
@@ -23,6 +25,18 @@ test("csrfProtection permits cookie-less bearer API requests without browser ori
 
   expect(res.status).toEqual(200);
   expect(await res.json()).toEqual({ ok: true });
+});
+
+test("csrfProtection permits cookie-less native auth exchange requests", async () => {
+  const app = createApp();
+  for (const path of ["/api/auth/mobile/login", "/api/auth/mobile/oidc"]) {
+    const response = await app.request(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(response.status).toBe(200);
+  }
 });
 
 test("csrfProtection keeps Origin checks for cookie-backed requests with Authorization", async () => {

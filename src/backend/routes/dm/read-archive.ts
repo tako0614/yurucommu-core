@@ -12,6 +12,11 @@ import {
 } from "../../../db/index.ts";
 import { resolveConversationId } from "./query-helpers.ts";
 import {
+  emitRealtimeBestEffort,
+  emitUnreadSnapshot,
+  runRealtimeAfterResponse,
+} from "../../runtime/realtime-hub.ts";
+import {
   buildActorInfoMap,
   byTimeDesc,
   dmWhereForActor,
@@ -53,6 +58,23 @@ readArchive.post("/user/:encodedApId/read", async (c) => {
       target: [dmReadStatus.actorApId, dmReadStatus.conversationId],
       set: { lastReadAt: now },
     });
+
+  // Live read receipt for the partner's open thread + refreshed unread badge
+  // for the reader's OTHER tabs/devices.
+  await runRealtimeAfterResponse(c, async () => {
+    await emitRealtimeBestEffort(c.env, [
+      {
+        actorApId: otherApId,
+        type: "talk.read",
+        data: {
+          other_ap_id: actor.ap_id,
+          conversation_id: conversationId,
+          last_read_at: now,
+        },
+      },
+    ]);
+    await emitUnreadSnapshot(c.env, actor.ap_id);
+  });
 
   return c.json({ success: true, last_read_at: now });
 });
@@ -107,6 +129,11 @@ readArchive.post("/community/:encodedApId/read", async (c) => {
       ],
       set: { lastReadAt: now },
     });
+
+  // Refresh the reader's unread badge on their other tabs/devices.
+  await runRealtimeAfterResponse(c, () =>
+    emitUnreadSnapshot(c.env, actor.ap_id),
+  );
 
   return c.json({ success: true, last_read_at: now });
 });

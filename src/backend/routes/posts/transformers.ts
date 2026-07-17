@@ -2,12 +2,14 @@ import { formatUsername, safeJsonParse } from "../../federation-helpers.ts";
 
 export const MAX_POST_CONTENT_LENGTH = 5000;
 export const MAX_POST_SUMMARY_LENGTH = 500;
-// Bound the attachments payload. PostAttachment is an open-ended record, so cap
-// both the COUNT and the serialized SIZE — the size cap bounds row/federated-doc
-// bloat regardless of internal shape (key count / field length). 16 KiB is ample
-// for MAX_ATTACHMENTS media descriptors with alt text + blurhash.
-export const MAX_ATTACHMENTS = 8;
-export const MAX_ATTACHMENTS_JSON_LENGTH = 16 * 1024;
+// Attachment bounds live in lib/attachments.ts (shared with the DM and
+// community-chat validators); re-exported here for the existing post-route and
+// inbound-handler importers.
+export {
+  boundAttachmentsJson,
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENTS_JSON_LENGTH,
+} from "../../lib/attachments.ts";
 
 /** Truncate a string to `max` characters (no-op when already within bounds). */
 export function truncate(s: string, max: number): string {
@@ -27,10 +29,6 @@ export function boundInboundSummary(summary: unknown): string | null {
   return typeof summary === "string" && summary.length > 0
     ? truncate(summary, MAX_POST_SUMMARY_LENGTH)
     : null;
-}
-/** Drop an oversized inbound attachments blob to "[]" rather than store it. */
-export function boundAttachmentsJson(json: string): string {
-  return json.length > MAX_ATTACHMENTS_JSON_LENGTH ? "[]" : json;
 }
 // Capped at 90 (not 100): a page's object ids are re-queried via
 // `inArray(col, objectApIds)` for like/bookmark enrichment, and Cloudflare D1

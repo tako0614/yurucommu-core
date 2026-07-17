@@ -123,12 +123,18 @@ test("well-known yurucommu exposes mobile host discovery", async () => {
     server: { id: string; activitypubOrigin: string };
     clients: { id: string; name: string; defaultEntry: string }[];
     issuer: string;
+    oidcClientId?: string;
+    auth?: { oidc: boolean; password: boolean };
     apiBaseUrl: string;
     activitypubOrigin: string;
     socialServerCapabilitiesUrl: string;
     endpoints: {
       currentUser: string;
+      mobilePasswordLogin: string;
+      mobileOidcExchange: string;
+      mobileLogout: string;
       conversations: string;
+      notificationPushers: string;
       mobilePushRegistrations: string;
     };
   };
@@ -146,6 +152,16 @@ test("well-known yurucommu exposes mobile host discovery", async () => {
     defaultEntry: "messages",
   });
   expect(body.issuer).toEqual("https://app.takosumi.test");
+  expect(body.auth).toEqual({ oidc: false, password: true });
+  expect(body.endpoints.mobilePasswordLogin).toEqual(
+    "https://test.local/api/auth/mobile/login",
+  );
+  expect(body.endpoints.mobileOidcExchange).toEqual(
+    "https://test.local/api/auth/mobile/oidc",
+  );
+  expect(body.endpoints.mobileLogout).toEqual(
+    "https://test.local/api/auth/logout",
+  );
   expect(body.apiBaseUrl).toEqual("https://test.local");
   expect(body.activitypubOrigin).toEqual("https://test.local");
   expect(body.socialServerCapabilitiesUrl).toEqual(
@@ -157,6 +173,9 @@ test("well-known yurucommu exposes mobile host discovery", async () => {
   );
   expect(body.endpoints.mobilePushRegistrations).toEqual(
     "https://test.local/api/mobile/push-registrations",
+  );
+  expect(body.endpoints.notificationPushers).toEqual(
+    "https://test.local/api/notifications/pushers",
   );
 });
 
@@ -177,6 +196,22 @@ test("well-known social-server aliases the Yurucommu server discovery payload", 
   expect(body.endpoints.conversations).toEqual(
     "https://test.local/api/dm/contacts",
   );
+});
+
+test("the standard notification-pusher route is mounted behind actor auth", async () => {
+  const app = createYurucommuBackendApp();
+  const res = await app.fetch(
+    new Request("https://test.local/api/notifications/pushers", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://test.local",
+      },
+      body: JSON.stringify({}),
+    }),
+    freshInstallEnv,
+  );
+  expect(res.status).toEqual(401);
 });
 
 test("a >1MiB body to /media/upload is NOT rejected by the default 1MiB cap", async () => {

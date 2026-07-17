@@ -21,6 +21,11 @@ import { computeDeliveryJobId, safeEndpointHost } from "./transformers.ts";
 import { emitMetric } from "./metrics.ts";
 import { logger } from "../logger.ts";
 import { filterBlockedActorApIds, isActorBlocked } from "../blocklist.ts";
+import {
+  enqueuePendingNotificationPushJobs,
+  processNotificationPushJob,
+  recoverDeadLetteredNotificationPushJob,
+} from "../notification-push.ts";
 
 const log = logger.child({ component: "delivery.queue" });
 
@@ -471,6 +476,9 @@ export async function handleDeliveryQueueBatch(
         case "reconcile_job":
           await processReconcileJob(db, env, body, message);
           break;
+        case "notification_push":
+          await processNotificationPushJob(env, body, message);
+          break;
         default:
           assertNever(body);
       }
@@ -512,6 +520,21 @@ export async function handleDeliveryQueueBatch(
       }
     },
   );
+
+  // Community fanout can create local inbox rows inside this consumer rather
+  // than an HTTP request. Flush the same DB-triggered outbox choke point here.
+  try {
+    await enqueuePendingNotificationPushJobs(env);
+  } catch (error) {
+    log.error("Failed to enqueue notification push outbox", {
+      event: "notification.push.enqueue_failed",
+      error,
+    });
+  }
+  // Same choke point feeds the realtime stream (federated + fanout inserts).
+  const { sweepRealtimeNotifications } =
+    await import("../../runtime/realtime-hub.ts");
+  await sweepRealtimeNotifications(env);
 }
 
 export async function handleDeliveryDlqBatch(
@@ -521,10 +544,21 @@ export async function handleDeliveryDlqBatch(
   for (const message of batch.messages) {
     const body = message.body;
     if (!isDeliveryDlqMessageV1(body)) {
+      // Not an app-built `dlq` message. Cloudflare Queues also delivers here
+      // the RAW original body of any MAIN-queue message that exhausted its
+      // retries (automatic dead-lettering). Those must NOT be silently acked as
+      // "invalid": a lost fanout/resolve drops local notifications or delivery
+      // planning, and a lost notification_push strands its durable outbox row.
+      if (isDeliveryQueueMessageV1(body)) {
+        await handleAutoDeadLetteredMessage(env, body);
+        message.ack();
+        continue;
+      }
       log.warn("Invalid DLQ message format, skipping", {
         event: "delivery.dlq.invalid_message",
         bodyPreview: JSON.stringify(body).slice(0, 200),
       });
+      emitMetric("delivery.dlq.invalid_message", 1, {});
       message.ack();
       continue;
     }
@@ -573,4 +607,47 @@ export async function handleDeliveryDlqBatch(
 
     message.ack();
   }
+}
+
+/**
+ * Recover / account for a MAIN-queue message that Cloudflare auto-dead-lettered
+ * (retries exhausted with the raw body). `notification_push` rows are durable,
+ * so reset the job to retry through the outbox instead of stranding it;
+ * everything else is logged with an alerting metric rather than swallowed.
+ */
+async function handleAutoDeadLetteredMessage(
+  env: Env,
+  body: DeliveryQueueMessageV1,
+): Promise<void> {
+  if (body.type === "notification_push") {
+    try {
+      const recovered = await recoverDeadLetteredNotificationPushJob(
+        env.DB_INSTANCE,
+        body.jobId,
+      );
+      log.error("notification_push dead-lettered; reset durable outbox row", {
+        event: "delivery.dlq.notification_push_recovered",
+        jobId: body.jobId,
+        recovered,
+      });
+      emitMetric("delivery.dlq.notification_push_recovered", 1, {});
+    } catch (error) {
+      log.error("Failed to recover dead-lettered notification_push", {
+        event: "delivery.dlq.notification_push_recover_failed",
+        jobId: body.jobId,
+        error,
+      });
+      emitMetric("delivery.dlq.notification_push_recover_failed", 1, {});
+    }
+    return;
+  }
+
+  // fanout_*/resolve_actor/deliver_endpoint/reconcile_job: no durable ledger to
+  // rewind here, but make the loss explicit (alertable) rather than a silent
+  // "invalid message" ack.
+  log.error("Delivery message auto-dead-lettered; dropping", {
+    event: "delivery.dlq.auto_dead_lettered",
+    messageType: body.type,
+  });
+  emitMetric("delivery.dlq.auto_dead_lettered", 1, { message_type: body.type });
 }

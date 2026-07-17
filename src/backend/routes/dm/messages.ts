@@ -10,6 +10,7 @@ import {
   actorCache,
   actors,
   blocks,
+  dmReadStatus,
   inbox as inboxTable,
   objectRecipients,
   objects,
@@ -34,7 +35,13 @@ import {
   resolveConversationId,
 } from "./query-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import {
+  emitRealtimeBestEffort,
+  runRealtimeAfterResponse,
+} from "../../runtime/realtime-hub.ts";
 import { feedCursorWhere } from "../../lib/feed-cursor.ts";
+import { toApAttachments } from "../../lib/activitypub-helpers.ts";
+import { validateChatAttachments } from "../../lib/attachments.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "dm.messages" });
@@ -90,19 +97,28 @@ type DmMessageResponse = {
   created_at: string | null;
 };
 
-/** Validate trimmed DM content; returns the trimmed string or an error response. */
+/**
+ * Validate trimmed DM content; returns the trimmed string or an error response.
+ * With `allowEmpty` (an attachment-only message) an empty/absent content is
+ * accepted and normalized to "".
+ */
 function validateContent(
   raw: unknown,
+  allowEmpty = false,
 ): string | { error: string; status: 400 } {
   // The json<{content:string}>() cast is compile-time only; a client can send a
   // non-string. Guard before .trim() else TypeError → 500 (the global handler
   // deliberately does not mask TypeError as 400). Mirrors the profile/post/invite
   // validators.
   if (typeof raw !== "string") {
+    if (allowEmpty && (raw === undefined || raw === null)) return "";
     return { error: "Message content is required", status: 400 };
   }
   const content = raw.trim();
-  if (!content) return { error: "Message content is required", status: 400 };
+  if (!content) {
+    if (allowEmpty) return "";
+    return { error: "Message content is required", status: 400 };
+  }
   if (content.length > MAX_DM_CONTENT_LENGTH) {
     return {
       error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)`,
@@ -334,6 +350,7 @@ function dmNoteInsert(
     apId: string;
     actorApId: string;
     content: string;
+    attachments: Attachment[];
     toJson: string;
     conversationId: string;
     published: string;
@@ -344,6 +361,7 @@ function dmNoteInsert(
     type: "Note",
     attributedTo: data.actorApId,
     content: data.content,
+    attachmentsJson: JSON.stringify(data.attachments),
     visibility: "direct",
     toJson: data.toJson,
     ccJson: JSON.stringify([]),
@@ -380,10 +398,27 @@ dm.get("/user/:encodedApId/messages", async (c) => {
     limit,
     before,
   );
+
+  // The partner's read position (LOCAL-ONLY read receipt): the row only exists
+  // when the other participant is a local account that opened the thread —
+  // read state is never federated, so a remote partner stays null ("unknown")
+  // rather than "unread".
+  const partnerRead = await db
+    .select({ lastReadAt: dmReadStatus.lastReadAt })
+    .from(dmReadStatus)
+    .where(
+      and(
+        eq(dmReadStatus.actorApId, otherApId),
+        eq(dmReadStatus.conversationId, conversationId),
+      ),
+    )
+    .get();
+
   return c.json({
     messages,
     conversation_id: conversationId,
     has_more: hasMore,
+    partner_last_read_at: partnerRead?.lastReadAt ?? null,
   });
 });
 
@@ -394,10 +429,20 @@ dm.post("/user/:encodedApId/messages", async (c) => {
 
   const db = c.get("db");
   const otherApId = decodeURIComponent(c.req.param("encodedApId"));
-  const body = await c.req.json<{ content: string }>();
+  const body = await c.req.json<{
+    content?: string;
+    attachments?: unknown;
+  }>();
   const baseUrl = c.env.APP_URL;
 
-  const contentOrError = validateContent(body.content);
+  const attachmentsResult = validateChatAttachments(body.attachments);
+  if (!attachmentsResult.ok) {
+    return c.json({ error: attachmentsResult.error }, 400);
+  }
+  const attachments = attachmentsResult.attachments as Attachment[];
+
+  // An attachment-only message (LINE-style image send) carries no text.
+  const contentOrError = validateContent(body.content, attachments.length > 0);
   if (typeof contentOrError !== "string") {
     return c.json({ error: contentOrError.error }, contentOrError.status);
   }
@@ -466,6 +511,9 @@ dm.post("/user/:encodedApId/messages", async (c) => {
   const mentionTag = [
     { type: "Mention", href: otherApId, name: recipientName },
   ];
+  // Media is stored as an app-relative /media path; absolutize (and strip the
+  // internal r2_key) for the federated copy so the remote can fetch it.
+  const apAttachments = toApAttachments(attachments, baseUrl);
   const remoteCreateActivity = !isRecipientLocal
     ? {
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -480,6 +528,7 @@ dm.post("/user/:encodedApId/messages", async (c) => {
           attributedTo: actor.ap_id,
           to: [otherApId],
           content,
+          ...(apAttachments.length > 0 ? { attachment: apAttachments } : {}),
           published: now,
           conversation: conversationId,
           tag: mentionTag,
@@ -498,6 +547,7 @@ dm.post("/user/:encodedApId/messages", async (c) => {
     apId,
     actorApId: actor.ap_id,
     content,
+    attachments,
     toJson,
     conversationId,
     published: now,
@@ -554,14 +604,51 @@ dm.post("/user/:encodedApId/messages", async (c) => {
     await enqueueDeliveryToActor(c.env, deliveryActivityId, otherApId);
   }
 
+  const messagePayload = {
+    id: apId,
+    sender: buildSenderFromActor(actor),
+    content,
+    attachments,
+    created_at: now,
+  };
+
+  // Realtime fanout (best-effort, after the response): the recipient's open
+  // thread gets the message body without polling; the sender's OTHER tabs and
+  // devices stay in sync too. `other_ap_id` is per-recipient (each side sees
+  // the counterpart). Unread counters flow via the shared post-response sweep
+  // (the inbox trigger wrote a push job for the local recipient).
+  await runRealtimeAfterResponse(c, () =>
+    emitRealtimeBestEffort(c.env, [
+      ...(isRecipientLocal
+        ? [
+            {
+              actorApId: otherApId,
+              type: "talk.message",
+              data: {
+                kind: "dm",
+                other_ap_id: actor.ap_id,
+                conversation_id: conversationId,
+                message: messagePayload,
+              },
+            },
+          ]
+        : []),
+      {
+        actorApId: actor.ap_id,
+        type: "talk.message",
+        data: {
+          kind: "dm",
+          other_ap_id: otherApId,
+          conversation_id: conversationId,
+          message: messagePayload,
+        },
+      },
+    ]),
+  );
+
   return c.json(
     {
-      message: {
-        id: apId,
-        sender: buildSenderFromActor(actor),
-        content,
-        created_at: now,
-      },
+      message: messagePayload,
       conversation_id: conversationId,
     },
     201,

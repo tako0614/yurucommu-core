@@ -1,3 +1,4 @@
+import type { MediaAttachment } from "../../types/index.ts";
 import { normalizeActor } from "./normalize.ts";
 import {
   apiDelete,
@@ -47,7 +48,18 @@ export interface CommunityMessage {
     icon_url: string | null;
   };
   content: string;
+  /** Media attachments (image/video), same shape as post attachments. */
+  attachments?: MediaAttachment[];
   created_at: string;
+}
+
+/**
+ * A member's chat read position (LOCAL-ONLY read receipt). Only local members
+ * that opened the chat appear; remote members never report read state.
+ */
+export interface CommunityReadState {
+  actor_ap_id: string;
+  last_read_at: string;
 }
 
 export interface JoinCommunityResult {
@@ -160,7 +172,12 @@ export async function leaveCommunity(identifier: string): Promise<void> {
 export async function fetchCommunityMessages(
   identifier: string,
   options?: { limit?: number; before?: string },
-): Promise<{ messages: CommunityMessage[]; hasMore: boolean }> {
+): Promise<{
+  messages: CommunityMessage[];
+  hasMore: boolean;
+  /** Per-member read positions (local members only; see CommunityReadState). */
+  readStates: CommunityReadState[];
+}> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
   if (options?.before) params.set("before", options.before);
@@ -172,20 +189,26 @@ export async function fetchCommunityMessages(
   const data = (await res.json()) as {
     messages?: CommunityMessage[];
     has_more?: boolean;
+    read_states?: CommunityReadState[];
   };
   return {
     messages: (data.messages || []).map(normalizeCommunityMessage),
     hasMore: data.has_more ?? false,
+    readStates: data.read_states ?? [],
   };
 }
 
 export async function sendCommunityMessage(
   identifier: string,
   content: string,
+  attachments?: MediaAttachment[],
 ): Promise<CommunityMessage> {
   const res = await apiPost(
     `/api/communities/${encodeURIComponent(identifier)}/messages`,
-    { content },
+    {
+      content,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    },
   );
   await assertOk(res, "Failed to send message");
   const data = (await res.json()) as { message: CommunityMessage };

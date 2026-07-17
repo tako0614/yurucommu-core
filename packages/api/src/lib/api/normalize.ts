@@ -6,6 +6,7 @@ import {
   Post,
   Story,
 } from "../../types/index.ts";
+import { resolveNotificationTarget } from "./notification-target.ts";
 
 type ActorLike = {
   ap_id: string;
@@ -71,7 +72,17 @@ export const normalizeActorNote = (note: ActorNote): ActorNote => ({
 
 export const normalizeNotification = (
   notification: Notification,
-): Notification => ({
-  ...notification,
-  actor: normalizeActor(notification.actor),
-});
+): Notification => {
+  // Fill the navigation target so consumers get a stable, safe same-origin
+  // path even from a pre-3.2.0 server that omitted target_* (or sent an unsafe
+  // target_url). resolveNotificationTarget re-validates a declared target and
+  // otherwise synthesizes it from type + object_ap_id.
+  const target = resolveNotificationTarget(notification);
+  return {
+    ...notification,
+    actor: normalizeActor(notification.actor),
+    target_kind: target.target_kind,
+    target_id: target.target_id,
+    target_url: target.target_url,
+  };
+};
