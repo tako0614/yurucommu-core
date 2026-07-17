@@ -1,4 +1,9 @@
-import type { Notification } from "../../types/index.ts";
+import type {
+  Notification,
+  NotificationPusherInput,
+  NotificationPusherProduct,
+  NotificationPusherRegistration,
+} from "../../types/index.ts";
 import { normalizeNotification } from "./normalize.ts";
 import { apiDelete, apiFetch, apiPost, assertOk } from "./fetch.ts";
 
@@ -58,4 +63,51 @@ export async function archiveAllNotifications(): Promise<number> {
   await assertOk(res, "Failed to archive all");
   const data = (await res.json()) as { archived_count?: number };
   return data.archived_count ?? 0;
+}
+
+export async function registerNotificationPusher(input: {
+  product: NotificationPusherProduct;
+  scope?: string;
+  pusher: NotificationPusherInput;
+}): Promise<NotificationPusherRegistration> {
+  const res = await apiPost("/api/notifications/pushers", input);
+  await assertOk(res, "Failed to register notification pusher");
+  const data = (await res.json()) as {
+    pusher: NotificationPusherRegistration;
+  };
+  return data.pusher;
+}
+
+export async function unregisterNotificationPusher(input: {
+  product: NotificationPusherProduct;
+  scope?: string;
+  app_id: string;
+  pushkey: string;
+}): Promise<void> {
+  const res = await apiDelete("/api/notifications/pushers", input);
+  await assertOk(res, "Failed to unregister notification pusher");
+}
+
+export interface NotificationPusherPublicConfig {
+  readonly enabled: boolean;
+  readonly gateway_url: string | null;
+  readonly web_push_public_key: string | null;
+}
+
+/** Non-secret runtime configuration used by browser/PWA clients. */
+export async function fetchNotificationPusherPublicConfig(): Promise<NotificationPusherPublicConfig> {
+  const res = await apiFetch("/api/notifications/pushers/config");
+  await assertOk(res, "Failed to load notification pusher configuration");
+  const value = (await res.json()) as Partial<NotificationPusherPublicConfig>;
+  const gatewayUrl =
+    typeof value.gateway_url === "string" ? value.gateway_url : null;
+  const publicKey =
+    typeof value.web_push_public_key === "string"
+      ? value.web_push_public_key
+      : null;
+  return {
+    enabled: Boolean(gatewayUrl && publicKey),
+    gateway_url: gatewayUrl,
+    web_push_public_key: publicKey,
+  };
 }

@@ -1,17 +1,34 @@
 import { Hono } from "hono";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import {
   activities,
   communities,
   communityMembers,
+  dmCommunityReadStatus,
+  notificationPushers,
+  notificationPushJobs,
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
-import { formatUsername, generateId } from "../../federation-helpers.ts";
+import {
+  formatUsername,
+  generateId,
+  safeJsonParse,
+} from "../../federation-helpers.ts";
 import { feedCursorWhere } from "../../lib/feed-cursor.ts";
+import {
+  type ChatAttachment,
+  validateChatAttachments,
+} from "../../lib/attachments.ts";
 import { communityRequiresMembership } from "../../lib/community-visibility.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
+import {
+  emitRealtimeBestEffort,
+  emitUnreadSnapshot,
+  isRealtimeAvailable,
+  runRealtimeAfterResponse,
+} from "../../runtime/realtime-hub.ts";
 import {
   deleteObjectCascade,
   purgeMediaBlobs,
@@ -27,6 +44,9 @@ import {
 
 const MAX_COMMUNITY_MESSAGE_LENGTH = 5000;
 const MAX_COMMUNITY_MESSAGES_LIMIT = 100;
+// Cap the per-member read receipts returned alongside a page so a very large
+// community's chat reader stays bounded regardless of local-member count.
+const MAX_COMMUNITY_READ_STATES = 200;
 
 // D1's batch() (atomic multi-statement) is only on the concrete D1/libsql
 // driver, not the shared `Database` union; reach it through a narrow cast.
@@ -151,6 +171,7 @@ messagesRouter.get("/:identifier/messages", async (c) => {
       apId: objects.apId,
       attributedTo: objects.attributedTo,
       content: objects.content,
+      attachmentsJson: objects.attachmentsJson,
       published: objects.published,
     })
     .from(objectRecipients)
@@ -176,11 +197,42 @@ messagesRouter.get("/:identifier/messages", async (c) => {
         icon_url: senderInfo?.iconUrl || null,
       },
       content: msg.content,
+      attachments: safeJsonParse<ChatAttachment[]>(msg.attachmentsJson, []),
       created_at: msg.published,
     };
   });
 
-  return c.json({ messages: result, has_more: hasMore });
+  // Per-member read positions (LOCAL-ONLY read receipts): rows exist only for
+  // local members that marked the chat read — read state is never federated,
+  // so remote members simply never appear here. Restricted to CURRENT members
+  // so a kicked member's stale row doesn't leak into the read count, and capped
+  // (most-recently-read first) so a huge community can't return an unbounded
+  // receipt list on every page fetch.
+  const readStates = await db
+    .select({
+      actorApId: dmCommunityReadStatus.actorApId,
+      lastReadAt: dmCommunityReadStatus.lastReadAt,
+    })
+    .from(dmCommunityReadStatus)
+    .innerJoin(
+      communityMembers,
+      and(
+        eq(communityMembers.communityApId, dmCommunityReadStatus.communityApId),
+        eq(communityMembers.actorApId, dmCommunityReadStatus.actorApId),
+      ),
+    )
+    .where(eq(dmCommunityReadStatus.communityApId, community.apId))
+    .orderBy(desc(dmCommunityReadStatus.lastReadAt))
+    .limit(MAX_COMMUNITY_READ_STATES);
+
+  return c.json({
+    messages: result,
+    has_more: hasMore,
+    read_states: readStates.map((r) => ({
+      actor_ap_id: r.actorApId,
+      last_read_at: r.lastReadAt,
+    })),
+  });
 });
 
 // POST /api/communities/:name/messages - Send a chat message
@@ -196,14 +248,31 @@ messagesRouter.post(
     const db = c.get("db");
     const baseUrl = c.env.APP_URL;
     const apId = resolveCommunityApId(baseUrl, identifier);
-    const body = await c.req.json<{ content: string }>();
+    const body = await c.req.json<{
+      content?: string;
+      attachments?: unknown;
+    }>();
 
-    // Guard non-string content before .trim() (else TypeError → 500).
-    if (typeof body.content !== "string") {
+    const attachmentsResult = validateChatAttachments(body.attachments);
+    if (!attachmentsResult.ok) {
+      return c.json({ error: attachmentsResult.error }, 400);
+    }
+    const attachments = attachmentsResult.attachments;
+
+    // Guard non-string content before .trim() (else TypeError → 500). An
+    // attachment-only message (image send) carries no text.
+    const rawContent = body.content;
+    if (
+      typeof rawContent !== "string" &&
+      !(
+        attachments.length > 0 &&
+        (rawContent === undefined || rawContent === null)
+      )
+    ) {
       return c.json({ error: "Message content is required" }, 400);
     }
-    const content = body.content.trim();
-    if (!content) {
+    const content = typeof rawContent === "string" ? rawContent.trim() : "";
+    if (!content && attachments.length === 0) {
       return c.json({ error: "Message content is required" }, 400);
     }
     if (content.length > MAX_COMMUNITY_MESSAGE_LENGTH) {
@@ -257,6 +326,54 @@ messagesRouter.post(
     const activityId = generateId();
     const activityApIdVal = `${baseUrl}/ap/activities/${activityId}`;
 
+    // Community talk deliberately has no social-inbox row, so its durable push
+    // jobs must commit with the message itself. Resolve only members that own a
+    // Yurume pusher at event time; delivery re-checks membership before egress.
+    const pushRecipients = await db
+      .selectDistinct({ actorApId: notificationPushers.actorApId })
+      .from(notificationPushers)
+      .innerJoin(
+        communityMembers,
+        eq(communityMembers.actorApId, notificationPushers.actorApId),
+      )
+      .where(
+        and(
+          eq(communityMembers.communityApId, community.apId),
+          eq(notificationPushers.product, "yurume"),
+          ne(notificationPushers.actorApId, actor.ap_id),
+        ),
+      );
+    const pushJobStatements: unknown[] = [];
+    // D1 caps bound parameters at 100. Keep each multi-row insert below that
+    // limit while retaining every insert in the same atomic batch.
+    const pushJobBatchSize = 8;
+    for (
+      let offset = 0;
+      offset < pushRecipients.length;
+      offset += pushJobBatchSize
+    ) {
+      pushJobStatements.push(
+        db
+          .insert(notificationPushJobs)
+          .values(
+            pushRecipients
+              .slice(offset, offset + pushJobBatchSize)
+              .map(({ actorApId }) => ({
+                id: `${actorApId}\n${activityApIdVal}`,
+                actorApId,
+                activityApId: activityApIdVal,
+                product: "yurume",
+                status: "pending",
+                attempts: 0,
+                nextAttemptAt: now,
+                createdAt: now,
+                updatedAt: now,
+              })),
+          )
+          .onConflictDoNothing(),
+      );
+    }
+
     // Persist the chat message atomically: the Note, its community-audience
     // recipient row (which the GET-messages reader joins on), the Create
     // activity, and the community's lastMessageAt. D1 has no interactive
@@ -270,6 +387,7 @@ messagesRouter.post(
         type: "Note",
         attributedTo: actor.ap_id,
         content,
+        attachmentsJson: JSON.stringify(attachments),
         toJson,
         audienceJson,
         visibility: "unlisted",
@@ -293,25 +411,57 @@ messagesRouter.post(
         .update(communities)
         .set({ lastMessageAt: now })
         .where(eq(communities.apId, community.apId)),
+      ...pushJobStatements,
     ]);
 
-    return c.json(
-      {
-        message: {
-          id: objectApId,
-          sender: {
-            ap_id: actor.ap_id,
-            username: formatUsername(actor.ap_id),
-            preferred_username: actor.preferred_username,
-            name: actor.name,
-            icon_url: actor.icon_url,
-          },
-          content,
-          created_at: now,
-        },
+    const messagePayload = {
+      id: objectApId,
+      sender: {
+        ap_id: actor.ap_id,
+        username: formatUsername(actor.ap_id),
+        preferred_username: actor.preferred_username,
+        name: actor.name,
+        icon_url: actor.icon_url,
       },
-      201,
-    );
+      content,
+      attachments,
+      created_at: now,
+    };
+
+    // Realtime fanout to LOCAL members (best-effort, after the response).
+    // Community talk has no inbox row, so the shared notification sweep never
+    // sees it — this direct emit is the only realtime path. Membership rows
+    // exist only for local members (remote membership is a follows edge), and
+    // the fanout is capped so a huge community cannot stall the writer.
+    if (isRealtimeAvailable(c.env)) {
+      const communityApIdForEmit = community.apId;
+      await runRealtimeAfterResponse(c, async () => {
+        const members = await db
+          .select({ actorApId: communityMembers.actorApId })
+          .from(communityMembers)
+          .where(eq(communityMembers.communityApId, communityApIdForEmit))
+          .limit(200);
+        await emitRealtimeBestEffort(
+          c.env,
+          members.map(({ actorApId }) => ({
+            actorApId,
+            type: "talk.message",
+            data: {
+              kind: "community",
+              community_ap_id: communityApIdForEmit,
+              message: messagePayload,
+            },
+          })),
+        );
+        await Promise.all(
+          members
+            .filter(({ actorApId }) => actorApId !== actor.ap_id)
+            .map(({ actorApId }) => emitUnreadSnapshot(c.env, actorApId)),
+        );
+      });
+    }
+
+    return c.json({ message: messagePayload }, 201);
   },
 );
 

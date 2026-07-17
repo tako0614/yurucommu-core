@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { MOBILE_PUSH_REGISTRATION_PATH } from "./lib/mobile-contract.ts";
+import { NOTIFICATION_PUSHER_REGISTRATION_PATH } from "./lib/notification-pusher-contract.ts";
 import type { Env, EnvVars, Variables } from "./types.ts";
 import { extractActorFromSession } from "./lib/session-actor.ts";
 import { isBackendPath } from "./lib/backend-paths.ts";
@@ -27,6 +28,10 @@ import recommendationsRoutes from "./routes/recommendations.ts";
 import { moderationRoutes } from "./routes/moderation.ts";
 import { appsApiRoutes, appsServeRoutes } from "./routes/apps.ts";
 import mobileRoutes from "./routes/mobile.ts";
+import notificationPusherRoutes from "./routes/notification-pushers.ts";
+import rtcRoutes from "./routes/rtc/index.ts";
+import realtimeRoutes from "./routes/realtime/index.ts";
+import { sweepRealtimeNotifications } from "./runtime/realtime-hub.ts";
 
 import { rateLimit, RateLimitConfigs } from "./middleware/rate-limit.ts";
 import { csrfProtection } from "./middleware/csrf.ts";
@@ -38,6 +43,7 @@ import {
 import { logger } from "./lib/logger.ts";
 
 const log = logger.child({ component: "backend.index" });
+let lastNotificationPushRecoverySweep = 0;
 import type { MessageBatch } from "@cloudflare/workers-types";
 import type {
   DeliveryDlqMessageV1,
@@ -47,6 +53,7 @@ import {
   handleDeliveryDlqBatch,
   handleDeliveryQueueBatch,
 } from "./lib/delivery/queue.ts";
+import { enqueuePendingNotificationPushJobs } from "./lib/notification-push.ts";
 
 type YurucommuApp = Hono<{ Bindings: Env; Variables: Variables }>;
 
@@ -106,6 +113,7 @@ const DEFAULT_DISCOVERY_OPTIONS = {
     "activitypub.server.v1",
     "client.yurucommu.feed.v1",
     "client.yurume.messages.v1",
+    "notification.pushers.v1",
   ],
 } satisfies Required<YurucommuBackendDiscoveryOptionsV1>;
 
@@ -214,6 +222,7 @@ function buildSocialServerDiscovery(
   appUrl: string,
   issuer: string,
   options: YurucommuBackendDiscoveryOptionsV1 = {},
+  auth: { oidcClientId?: string; passwordEnabled?: boolean } = {},
 ) {
   const discovery = {
     ...DEFAULT_DISCOVERY_OPTIONS,
@@ -233,6 +242,11 @@ function buildSocialServerDiscovery(
     },
     clients: discovery.clients,
     issuer,
+    oidcClientId: auth.oidcClientId,
+    auth: {
+      oidc: Boolean(auth.oidcClientId),
+      password: Boolean(auth.passwordEnabled),
+    },
     apiBaseUrl: appUrl,
     activitypubOrigin: appUrl,
     mediaOrigin: `${appUrl}/media`,
@@ -241,10 +255,15 @@ function buildSocialServerDiscovery(
     endpoints: {
       api: `${appUrl}/api`,
       authProviders: `${appUrl}/api/auth/providers`,
+      mobilePasswordLogin: `${appUrl}/api/auth/mobile/login`,
+      mobileOidcExchange: `${appUrl}/api/auth/mobile/oidc`,
+      mobileLogout: `${appUrl}/api/auth/logout`,
       currentUser: `${appUrl}/api/auth/me`,
       timeline: `${appUrl}/api/timeline`,
       conversations: `${appUrl}/api/dm/contacts`,
       notifications: `${appUrl}/api/notifications`,
+      notificationPushers: `${appUrl}${NOTIFICATION_PUSHER_REGISTRATION_PATH}`,
+      // Retained for older mobile clients. New clients use notificationPushers.
       mobilePushRegistrations: `${appUrl}${MOBILE_PUSH_REGISTRATION_PATH}`,
     },
   };
@@ -324,9 +343,19 @@ function mountReadinessRoutes(
   ) => {
     const appUrl = normalizeOrigin(c.env.APP_URL, c.req.url);
     const issuer = getOidcIssuerUrl(c.env) ?? appUrl;
-    return c.json(buildSocialServerDiscovery(appUrl, issuer, discovery), 200, {
-      "Cache-Control": "public, max-age=300",
-    });
+    const { clientId } = getOidcClientCredentials(c.env);
+    return c.json(
+      buildSocialServerDiscovery(appUrl, issuer, discovery, {
+        oidcClientId: getOidcIssuerUrl(c.env)
+          ? clientId || undefined
+          : undefined,
+        passwordEnabled: Boolean(c.env.AUTH_PASSWORD_HASH?.trim()),
+      }),
+      200,
+      {
+        "Cache-Control": "public, max-age=300",
+      },
+    );
   };
 
   app.get("/.well-known/yurucommu", wellKnownSocialServer);
@@ -481,6 +510,11 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   app.use("*", async (c, next) => {
     await next();
 
+    // A 101 Switching Protocols response carries a WebSocket and immutable
+    // headers (the /api/rtc/socket call upgrade). Mutating it throws and breaks
+    // the upgrade, so skip the security-header pass for it.
+    if (c.res.status === 101) return;
+
     const preserveRouteSecurityHeaders = c.req.path.startsWith("/hosted/");
     const setSecurityHeader = (name: string, value: string) => {
       if (preserveRouteSecurityHeaders && c.res.headers.has(name)) {
@@ -528,9 +562,11 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     setSecurityHeader("X-Content-Type-Options", "nosniff");
     setSecurityHeader("X-Frame-Options", "DENY");
     setSecurityHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    // Allow the app's OWN origin to use camera + microphone (WebRTC calls);
+    // still deny geolocation and deny camera/mic to any cross-origin frame.
     setSecurityHeader(
       "Permissions-Policy",
-      "camera=(), microphone=(), geolocation=()",
+      "camera=(self), microphone=(self), geolocation=()",
     );
     // HSTS: once a client has reached this host over HTTPS, keep it on HTTPS
     // (defeats SSL-strip / downgrade). Sent unconditionally — browsers ignore it
@@ -545,6 +581,47 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   app.use("*", async (c, next) => {
     c.set("db", c.env.DB_INSTANCE);
     await next();
+
+    // Every unread inbox insert is captured by the DB outbox trigger. Flush it
+    // after the request instead of wiring every follow/like/story/DM write path
+    // separately (which is both leak- and duplicate-prone). Queue binding is
+    // optional; when absent this is an immediate no-op and the durable rows stay
+    // pending until a correctly configured runtime handles later traffic.
+    const method = c.req.method.toUpperCase();
+    const now = Date.now();
+    const mutating = !["GET", "HEAD", "OPTIONS"].includes(method);
+    const recoveryDue = now - lastNotificationPushRecoverySweep >= 60_000;
+    if (mutating || recoveryDue) {
+      if (recoveryDue) lastNotificationPushRecoverySweep = now;
+      const sweep = (async () => {
+        try {
+          await enqueuePendingNotificationPushJobs(c.env);
+        } catch (error) {
+          log.error("Failed to enqueue notification push outbox", {
+            event: "notification.push.enqueue_failed",
+            error,
+          });
+        }
+        // Same choke point feeds the realtime stream: the push-jobs the inbox
+        // trigger wrote tell us exactly which users gained a notification.
+        await sweepRealtimeNotifications(c.env);
+      })();
+      // Prefer to run the sweep AFTER the response is sent (waitUntil) so its
+      // 2-4 D1 round-trips never add latency to the request. `executionCtx`
+      // throws when no runtime context exists (tests / plain fetch); fall back
+      // to awaiting inline there.
+      let deferred = false;
+      try {
+        const ctx = c.executionCtx;
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(sweep);
+          deferred = true;
+        }
+      } catch {
+        // No execution context; await inline below.
+      }
+      if (!deferred) await sweep;
+    }
   });
 
   app.use("/api/*", async (c, next) => {
@@ -630,6 +707,11 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     app.use(pattern, rateLimit(RateLimitConfigs.inbox));
   }
 
+  // Cross-instance call signaling ingest is unauthenticated at the network edge
+  // (it verifies an HTTP Signature inside the handler) and can be hit by any
+  // remote instance, so throttle it per-IP like the other federation endpoints.
+  app.use("/ap/rtc/signal", rateLimit(RateLimitConfigs.federationDiscovery));
+
   // Federation discovery endpoints are unauthenticated and can be probed by
   // any remote actor. Throttle them per-IP to mitigate enumeration / DoS.
   app.use(
@@ -690,6 +772,7 @@ function mountCoreRoutes(app: YurucommuApp): void {
   });
 
   app.route("/api/notifications", notificationsRoutes);
+  app.route("/api/notifications/pushers", notificationPusherRoutes);
   app.route("/api/mobile", mobileRoutes);
   app.route("/api/stories", storiesRoutes);
   app.route("/api/search", searchRoutes);
@@ -702,6 +785,10 @@ function mountCoreRoutes(app: YurucommuApp): void {
   app.route("/api/moderation", moderationRoutes);
   app.route("/api/apps", appsApiRoutes);
   app.route("/hosted", appsServeRoutes);
+  // Realtime stream: capability probe + WS ticket + per-user socket upgrade.
+  app.route("/api/realtime", realtimeRoutes);
+  // Call feature: /api/rtc/* (session) + /ap/rtc/signal (server-to-server).
+  app.route("/", rtcRoutes);
   app.route("/", activitypubRoutes);
 }
 
@@ -869,6 +956,14 @@ type WorkerBindings = EnvVars & {
   ASSETS?: Fetcher;
   DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
   DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
+  // Signaling hub Durable Object namespace (call feature). wrapCloudflareBindings
+  // spreads it through untouched (it is not DB/MEDIA/KV/ASSETS) so app code and
+  // the rtc routes read it as c.env.CALL_SIGNALING.
+  CALL_SIGNALING?: DurableObjectNamespace;
+  // Per-user realtime event stream Durable Object namespace. Same pass-through
+  // as CALL_SIGNALING; optional — when unbound the realtime routes answer 503
+  // and clients fall back to polling.
+  REALTIME_STREAM?: DurableObjectNamespace;
 };
 
 export default {

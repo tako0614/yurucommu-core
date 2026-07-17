@@ -16,6 +16,11 @@ export interface SocialServerDiscovery {
     readonly defaultEntry: "feed" | "messages";
   }[];
   readonly issuer: string;
+  readonly oidcClientId?: string;
+  readonly auth?: {
+    readonly oidc: boolean;
+    readonly password: boolean;
+  };
   readonly apiBaseUrl: string;
   readonly activitypubOrigin: string;
   readonly mediaOrigin: string;
@@ -24,10 +29,14 @@ export interface SocialServerDiscovery {
   readonly endpoints: {
     readonly api: string;
     readonly authProviders: string;
+    readonly mobilePasswordLogin: string;
+    readonly mobileOidcExchange: string;
     readonly currentUser: string;
     readonly timeline: string;
     readonly conversations: string;
     readonly notifications: string;
+    readonly notificationPushers: string;
+    /** @deprecated Use notificationPushers. */
     readonly mobilePushRegistrations: string;
   };
 }

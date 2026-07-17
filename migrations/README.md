@@ -69,14 +69,15 @@ file name (not the numeric version) in `yurucommu_migrations`.
    ```
 
    Remote Cloudflare D1 rejects explicit `BEGIN` / `SAVEPOINT` statements through
-   this API, so the Takosumi release path disables transaction wrappers while
+   this API, so the Takosumi lifecycle-action path disables transaction wrappers while
    keeping the local/libSQL path wrapped by default.
 
 4. **Post-apply activation**:
 
-   In the OpenTofu-managed Worker path, the product repo's
-   `takosumi_release.post_apply` runs
-   `bun run takosumi:release -- --migrations-only` as an opaque runner command.
+   In the OpenTofu-managed Worker path, the operator stores a versioned
+   `post_apply` lifecycle action in Takosumi's service-side InstallConfig. It
+   runs `bun run takosumi:release -- --migrations-only` as an opaque runner
+   command; no OpenTofu Output declares or selects it.
    It reads non-secret outputs from `TAKOSUMI_OUTPUTS_JSON`, writes a temporary
    Wrangler config, and applies these core migrations through
    `wrangler d1 execute` without explicit SQL transaction wrappers. Provider
@@ -101,8 +102,8 @@ file name (not the numeric version) in `yurucommu_migrations`.
 ## Product-local ledger note
 
 The `yurucommu_migrations` ledger is yurucommu-family product state. The
-Takosumi-managed path invokes product-owned `takosumi_release.post_apply`
-commands and records activation status/logs; it does not expose a Takosumi DB
+Takosumi-managed path invokes product-owned service-side lifecycle actions and
+records activation status/logs; it does not expose a Takosumi DB
 migration API. A future core migration may add `checksum TEXT` and store
 `sha256:<hex>` per applied migration, but that requires coordination with
 production data in both yurucommu and Yurumeet installations.

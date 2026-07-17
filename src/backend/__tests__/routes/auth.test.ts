@@ -119,9 +119,16 @@ function createAuthTestApp(
     });
     const mockInsert = spy(() => ({ values: mockInsertValues }));
 
-    const mockDeleteWhere = spy(() => ({
-      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
-    }));
+    const capturedDeleteCount = (
+      env as { _capturedDeleteCount?: { value: number } }
+    )._capturedDeleteCount;
+    const mockDeleteWhere = spy(() => {
+      if (capturedDeleteCount) capturedDeleteCount.value += 1;
+      return {
+        then: (resolve: ThenResolve) =>
+          Promise.resolve(undefined).then(resolve),
+      };
+    });
     const mockDelete = spy(() => ({
       where: mockDeleteWhere,
       then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
@@ -338,6 +345,78 @@ test("password login - stores a hashed session id and sets SameSite=Strict cooki
   expect(/SameSite=Strict/i.test(setCookie)).toEqual(true);
   expect(/HttpOnly/i.test(setCookie)).toEqual(true);
   expect(/Secure/i.test(setCookie)).toEqual(true);
+});
+
+test("mobile password login returns a host bearer and does not set a cookie", async () => {
+  const hashedPassword = await hashPassword("correct-password");
+  const inserted: Array<Record<string, unknown>> = [];
+  const { app, env } = createAuthTestApp(hashedPassword, {
+    YURUCOMMU_SESSION_HASH_SALT: "test-salt",
+    _capturedInserts: inserted,
+  });
+
+  const { res, body } = await request(
+    app,
+    env,
+    "/api/auth/mobile/login",
+    { password: "correct-password" },
+    { "CF-Connecting-IP": "198.51.100.41" },
+  );
+
+  expect(res.status).toEqual(200);
+  expect(res.headers.get("set-cookie")).toBeNull();
+  expect(body).toMatchObject({
+    token_type: "Bearer",
+    expires_in: 30 * 24 * 60 * 60,
+  });
+  const token = (body as { access_token?: unknown }).access_token;
+  expect(typeof token).toEqual("string");
+  expect((token as string).startsWith("sha256:")).toEqual(false);
+  expect(inserted[0]?.id).not.toEqual(token);
+});
+
+test("mobile password login preserves leading and trailing whitespace", async () => {
+  const password = " correct password ";
+  const hashedPassword = await hashPassword(password);
+  const { app, env } = createAuthTestApp(hashedPassword);
+
+  const { res } = await request(
+    app,
+    env,
+    "/api/auth/mobile/login",
+    { password },
+    { "CF-Connecting-IP": "198.51.100.42" },
+  );
+
+  expect(res.status).toEqual(200);
+});
+
+test("mobile bearer logout revokes the host session", async () => {
+  const hashedPassword = await hashPassword("correct-password");
+  const deleteCount = { value: 0 };
+  const { app, env } = createAuthTestApp(hashedPassword, {
+    _capturedDeleteCount: deleteCount,
+  });
+  const login = await request(
+    app,
+    env,
+    "/api/auth/mobile/login",
+    { password: "correct-password" },
+    { "CF-Connecting-IP": "198.51.100.43" },
+  );
+  const token = (login.body as { access_token: string }).access_token;
+
+  const logout = await request(
+    app,
+    env,
+    "/api/auth/logout",
+    {},
+    { Authorization: `Bearer ${token}` },
+  );
+
+  expect(logout.res.status).toBe(200);
+  expect(logout.body).toEqual({ success: true });
+  expect(deleteCount.value).toBe(1);
 });
 
 /** Helper: assert value is not null */

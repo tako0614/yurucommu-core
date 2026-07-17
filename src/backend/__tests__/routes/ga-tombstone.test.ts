@@ -48,6 +48,8 @@ const MIGRATIONS = [
   "0007_moderation_reports.sql",
   "0008_actor_fields_aka.sql",
   "0009_object_tags.sql",
+  // Account teardown deletes notification pusher + push-job rows.
+  "0019_notification_push_delivery.sql",
 ];
 
 async function freshDb(): Promise<Database> {

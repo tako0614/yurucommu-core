@@ -47,16 +47,17 @@ export async function getDbSQLite(databasePath: string): Promise<Database> {
   const { drizzle } = await import("drizzle-orm/libsql");
 
   const client = createClient({ url: `file:${databasePath}` });
-  // Foreign keys are explicitly turned OFF so the libsql engine matches
-  // Cloudflare D1, which ignores the FK constraints declared in the
-  // migrations. NOTE: libsql (unlike bun:sqlite / stock SQLite, which default
-  // OFF) defaults foreign_keys ON, so this must be set explicitly — simply
-  // not enabling it is not enough. Remote actors are stored in actor_cache
-  // (never in actors), yet objects.attributed_to / follows.* / likes.* /
-  // announces.* FK-reference actors(ap_id); enforcement would make every
-  // inbound federated activity from a remote actor violate the FK and fail to
-  // insert. Referential cleanup is handled at the app level by
-  // delete-cascade.ts, identically on D1.
+  // Foreign keys are explicitly turned OFF so the libsql engine matches the
+  // MIGRATED production schema. Cloudflare D1 ENFORCES declared FKs (the old
+  // "D1 ignores FK" assumption was wrong — see migrations/0011, which exists
+  // precisely because enforcement broke inbound federation): remote actors
+  // live only in actor_cache, never in actors, so 0010/0011 REBUILT the
+  // affected tables to drop their actors FKs. Post-0011 the schema declares
+  // essentially no FKs and referential cleanup is handled at the app level by
+  // delete-cascade.ts / account-teardown.ts, identically on D1. NOTE: libsql
+  // (unlike bun:sqlite / stock SQLite, which default OFF) defaults
+  // foreign_keys ON, so this must be set explicitly — pre-0010 FKs still
+  // present in older local DB files must not diverge from D1 behavior.
   await client.execute("PRAGMA foreign_keys = OFF");
   sqliteDb = drizzle(client, { schema });
   return sqliteDb;

@@ -6,13 +6,10 @@ import {
   count,
   desc,
   eq,
-  exists,
   inArray,
   isNotNull,
   isNull,
   lt,
-  ne,
-  notExists,
   or,
   type SQL,
 } from "drizzle-orm";
@@ -34,7 +31,14 @@ import { batchLoadActorInfo } from "./communities/membership-shared.ts";
 import { requireActor } from "./actors-helpers.ts";
 import { communityReadableApIds } from "../lib/community-visibility.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
-import { excludeBlockedMutedAuthors } from "../lib/feed-exclude.ts";
+import {
+  NOTIFICATION_ACTIVITY_TYPES,
+  notificationEligibilityWhere,
+} from "../lib/notification-eligibility.ts";
+import {
+  emitUnreadSnapshot,
+  runRealtimeAfterResponse,
+} from "../runtime/realtime-hub.ts";
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -53,7 +57,6 @@ const ARCHIVE_CREATE_BATCH_SIZE = 30;
 // the rest drains on later runs.
 const ARCHIVE_CLEANUP_BATCH = 200;
 const ARCHIVE_ALL_CAP = 1000;
-const NOTIFICATION_ACTIVITY_TYPES = ["Follow", "Like", "Announce", "Create"];
 
 /**
  * Tracks the last cleanup timestamp per actor so cleanup is throttled to one
@@ -233,6 +236,47 @@ function encodeNotifCursor(row: { created_at: string; id: string }): string {
   return `${row.created_at}${NOTIF_CURSOR_SEP}${row.id}`;
 }
 
+function notificationTarget(
+  type: string | null,
+  activityActorApId: string,
+  objectApId: string | null,
+  objectType: string | null,
+): {
+  target_kind: "post" | "story" | "profile" | "notifications";
+  target_id: string | null;
+  // Same-origin in-app path shaped for the yurucommu web client's routing.
+  // Other clients (e.g. yurume's distinct IA) must treat target_kind/target_id
+  // as authoritative and build their own path, not follow target_url blindly.
+  target_url: string;
+} {
+  if (type === "follow" || type === "follow_request") {
+    return {
+      target_kind: "profile",
+      target_id: activityActorApId,
+      target_url: `/profile/${encodeURIComponent(activityActorApId)}`,
+    };
+  }
+  if (objectApId && objectType === "Story") {
+    return {
+      target_kind: "story",
+      target_id: objectApId,
+      target_url: `/?story=${encodeURIComponent(objectApId)}`,
+    };
+  }
+  if (objectApId) {
+    return {
+      target_kind: "post",
+      target_id: objectApId,
+      target_url: `/post/${encodeURIComponent(objectApId)}`,
+    };
+  }
+  return {
+    target_kind: "notifications",
+    target_id: null,
+    target_url: "/notifications",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -267,37 +311,22 @@ notifications.get("/", async (c) => {
       ? typeToActivityType[typeFilter]
       : NOTIFICATION_ACTIVITY_TYPES;
 
-  // Archive partition pushed INTO SQL as a correlated EXISTS / NOT EXISTS, not a
-  // post-query filter. Filtering archived rows out in the result loop made two
-  // bugs: (1) `has_more` under-reported — a page whose limit+1 probe rows were
-  // mostly the wrong archive state returned < limit items yet there were older
-  // pages, so the client stopped loading; (2) every archived id for the actor
-  // was loaded into an unbounded in-memory Set per request. As an SQL predicate
-  // the limit+1 probe counts only rows that actually belong on the page.
-  const archivedCorrelation = and(
-    eq(notificationArchived.actorApId, inboxTable.actorApId),
-    eq(notificationArchived.activityApId, inboxTable.activityApId),
-  );
-  const archivedSubquery = db
-    .select({ activityApId: notificationArchived.activityApId })
-    .from(notificationArchived)
-    .where(archivedCorrelation);
-  const archiveCondition = showArchived
-    ? exists(archivedSubquery)
-    : notExists(archivedSubquery);
-
-  // Build inbox query with JOIN to activities. A direct (DM) Note is delivered
-  // as a `Create` inbox row just like a mention, so without excluding it every
-  // DM would double-surface here as a "mention" (with its body) AND inflate the
-  // unread badge independently of the DM view. LEFT JOIN the object and drop
-  // direct-visibility Creates; the join is LEFT because Follow's object is an
-  // actor (no `objects` row) → NULL visibility must be kept.
+  // Build inbox query with JOIN to activities. Shared eligibility predicate
+  // (lib/notification-eligibility.ts) — the SAME builder used by the unread
+  // badge and push delivery — supplies: not-self, user-facing types, the
+  // archive partition (pushed into SQL as a correlated EXISTS/NOT EXISTS so the
+  // limit+1 probe counts only rows that belong on the page, not a post-query
+  // filter), the direct-DM exclusion (a DM's `Create` inbox row must not
+  // double-surface here as a mention), and block/mute suppression. Direct
+  // Creates are dropped via LEFT JOIN + NULL-visibility keep (Follow's object
+  // is an actor, no `objects` row).
   const conditions = [
     eq(inboxTable.actorApId, actor.ap_id),
-    ne(activities.actorApId, actor.ap_id),
-    inArray(activities.type, activityTypes),
-    or(isNull(objects.visibility), ne(objects.visibility, "direct"))!,
-    archiveCondition,
+    ...notificationEligibilityWhere(db, actor.ap_id, {
+      direct: "exclude",
+      archived: showArchived ? "only" : "exclude",
+      activityTypes,
+    }),
   ];
   // reply vs mention both map to a Create; the split is whether the Create's
   // object is a reply (`inReplyTo` set). Pushed into SQL too so a type-filtered
@@ -310,17 +339,6 @@ notifications.get("/", async (c) => {
   if (before) {
     conditions.push(notifCursorPredicate(decodeNotifCursor(before)));
   }
-  // Suppress notifications whose actor the recipient has blocked or muted. This
-  // is the read-time choke point: mutes are read-only everywhere, and not every
-  // notify WRITE path block-checks, so gating here covers like/repost/follow/
-  // reply/mention (local AND federated) for both blocks and mutes. Keyed on the
-  // activity actor (subquery-scoped → D1-param-safe).
-  const listBlockMute = excludeBlockedMutedAuthors(
-    db,
-    actor.ap_id,
-    activities.actorApId,
-  );
-  if (listBlockMute) conditions.push(listBlockMute);
 
   const inboxEntries = await db
     .select({
@@ -358,6 +376,7 @@ notifications.get("/", async (c) => {
       ? db
           .select({
             apId: objects.apId,
+            type: objects.type,
             content: objects.content,
             inReplyTo: objects.inReplyTo,
             audienceJson: objects.audienceJson,
@@ -438,6 +457,7 @@ notifications.get("/", async (c) => {
     objectRows.map((o) => [
       o.apId,
       {
+        type: o.type,
         content: readableObjectIds.has(o.apId) ? o.content : "",
         inReplyTo: o.inReplyTo,
       },
@@ -464,6 +484,9 @@ notifications.get("/", async (c) => {
       icon_url: string | null;
     };
     object_content: string;
+    target_kind: "post" | "story" | "profile" | "notifications";
+    target_id: string | null;
+    target_url: string;
   }> = [];
 
   for (const entry of inboxEntries) {
@@ -484,6 +507,12 @@ notifications.get("/", async (c) => {
       followStatus,
     );
     const actorInfo = actorMap.get(entry.activityActorApId);
+    const target = notificationTarget(
+      notifType,
+      entry.activityActorApId,
+      entry.activityObjectApId,
+      objectData?.type ?? null,
+    );
 
     notifications_list.push({
       id: entry.activityApId,
@@ -499,6 +528,7 @@ notifications.get("/", async (c) => {
         icon_url: actorInfo?.iconUrl ?? null,
       },
       object_content: objectData?.content ?? "",
+      ...target,
     });
   }
 
@@ -528,23 +558,10 @@ notifications.get("/unread/count", async (c) => {
   const db = c.get("db");
   await maybeCleanupArchivedNotifications(db, actor.ap_id);
 
-  // Mirror the list query's DM exclusion (see GET /): a direct Note's Create
-  // inbox row must not count toward the notification badge — the DM has its own
-  // unread badge, and marking it read never clears this inbox row.
-  // Mirror the default list view's archive exclusion: an archived notification
-  // is hidden from the inbox list, so it must NOT count toward the badge either —
-  // otherwise archiving an UNREAD notification (read stays 0) leaves a phantom
-  // count the client can never clear (its mark-read sweep only touches rows the
-  // inbox view returns, which no longer include the archived one).
-  const archivedSubquery = db
-    .select({ activityApId: notificationArchived.activityApId })
-    .from(notificationArchived)
-    .where(
-      and(
-        eq(notificationArchived.actorApId, inboxTable.actorApId),
-        eq(notificationArchived.activityApId, inboxTable.activityApId),
-      ),
-    );
+  // SAME shared eligibility builder as the list and push delivery: not-self,
+  // user-facing types, archive exclusion (an archived UNREAD notification must
+  // not leave a phantom count the client can never clear), the direct-DM
+  // exclusion (a DM has its own badge), and block/mute suppression.
   const result = await db
     .select({ count: count() })
     .from(inboxTable)
@@ -554,13 +571,7 @@ notifications.get("/unread/count", async (c) => {
       and(
         eq(inboxTable.actorApId, actor.ap_id),
         eq(inboxTable.read, 0),
-        ne(activities.actorApId, actor.ap_id),
-        inArray(activities.type, NOTIFICATION_ACTIVITY_TYPES),
-        or(isNull(objects.visibility), ne(objects.visibility, "direct"))!,
-        notExists(archivedSubquery),
-        // Mirror the list query: don't count notifications from blocked/muted
-        // actors toward the unread badge.
-        excludeBlockedMutedAuthors(db, actor.ap_id, activities.actorApId),
+        ...notificationEligibilityWhere(db, actor.ap_id, { direct: "exclude" }),
       ),
     )
     .get();
@@ -614,6 +625,11 @@ notifications.post("/read", async (c) => {
       400,
     );
   }
+
+  // Sync the reader's OTHER tabs/devices: push the fresh authoritative badge.
+  await runRealtimeAfterResponse(c, () =>
+    emitUnreadSnapshot(c.env, actor.ap_id),
+  );
 
   return c.json({ success: true });
 });
@@ -674,6 +690,11 @@ notifications.post("/archive", async (c) => {
     ARCHIVE_CREATE_BATCH_SIZE,
   );
 
+  // Archiving an unread notification removes it from the badge count.
+  await runRealtimeAfterResponse(c, () =>
+    emitUnreadSnapshot(c.env, actor.ap_id),
+  );
+
   return c.json({ success: true, archived_count });
 });
 
@@ -708,6 +729,11 @@ notifications.delete("/archive", async (c) => {
         inArray(notificationArchived.activityApId, body.ids),
       ),
     );
+
+  // Unarchiving can resurface unread rows into the badge count.
+  await runRealtimeAfterResponse(c, () =>
+    emitUnreadSnapshot(c.env, actor.ap_id),
+  );
 
   return c.json({ success: true });
 });
@@ -751,6 +777,12 @@ notifications.post("/archive/all", async (c) => {
     rows,
     ARCHIVE_CREATE_BATCH_SIZE,
   );
+
+  // Archive-all clears the whole badge; sync the reader's other tabs/devices.
+  await runRealtimeAfterResponse(c, () =>
+    emitUnreadSnapshot(c.env, actor.ap_id),
+  );
+
   return c.json({ success: true, archived_count });
 });
 

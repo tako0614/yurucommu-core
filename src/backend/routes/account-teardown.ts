@@ -19,6 +19,8 @@ import {
   mediaUploads,
   mutes,
   notificationArchived,
+  notificationPushers,
+  notificationPushJobs,
   nowIso,
   objectRecipients,
   objects,
@@ -243,6 +245,17 @@ export async function teardownActor(
   await db
     .delete(notificationArchived)
     .where(eq(notificationArchived.actorApId, apId));
+
+  // Notification push state (no FK cascade — these tables intentionally declare
+  // no actors FK; see migrations/0019). Remove the actor's registered pushers
+  // (their pushkey is an external push endpoint that must stop being woken) and
+  // any durable outbox rows keyed to the actor.
+  await db
+    .delete(notificationPushers)
+    .where(eq(notificationPushers.actorApId, apId));
+  await db
+    .delete(notificationPushJobs)
+    .where(eq(notificationPushJobs.actorApId, apId));
 
   // Media: hard-delete the actor's uploads + best-effort purge backing R2.
   await purgeActorMediaUploads(db, env.MEDIA, apId);

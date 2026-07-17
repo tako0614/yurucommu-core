@@ -74,7 +74,15 @@ class MemoryR2Bucket {
 function createEnv(media: MemoryR2Bucket) {
   return {
     APP_URL: "https://test.local",
-    DB_INSTANCE: {},
+    // extractActorFromSession now consults the session store for a Bearer
+    // credential too (not just the cookie), so the /api middleware performs a
+    // sessions lookup on this bearer-authenticated deploy. A non-session bearer
+    // resolves to "no session" in production; mirror that with a findFirst that
+    // returns undefined. (The post-request push-outbox sweep also touches the
+    // db, but its failure is swallowed by the middleware and never 500s.)
+    DB_INSTANCE: {
+      query: { sessions: { findFirst: async () => undefined } },
+    },
     MEDIA: media,
     OIDC_ISSUER_URL: "https://accounts.example.com",
     OIDC_CLIENT_ID: "takos-client",

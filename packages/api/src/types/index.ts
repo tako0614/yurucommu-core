@@ -1,3 +1,9 @@
+// Call signaling wire contract + browser<->hub frames (voice + video).
+export * from "./call.ts";
+
+// Realtime stream wire contract (per-user event feed + control frames).
+export * from "./realtime.ts";
+
 // ===== Yurucommu AP-Native Types =====
 
 // Actor represents a user (Person) in ActivityPub
@@ -102,6 +108,8 @@ export interface DMMessage {
   id: string;
   sender: DMSender;
   content: string;
+  /** Media attachments (image/video), same shape as post attachments. */
+  attachments?: MediaAttachment[];
   created_at: string;
 }
 
@@ -120,8 +128,54 @@ export interface Notification {
   type: "follow" | "follow_request" | "like" | "announce" | "reply" | "mention";
   actor: NotificationActor;
   object_ap_id: string | null;
+  /**
+   * Navigation target for the notification. OPTIONAL: a server older than
+   * 3.2.0 omits these fields, and `normalizeNotification` then synthesizes them
+   * from `object_ap_id`. Prefer `target_kind` + `target_id` and build your own
+   * in-app path; `target_url` is shaped for the yurucommu web client's routing
+   * and is same-origin only — never treat it as an external URL.
+   */
+  target_kind?: NotificationTargetKind;
+  target_id?: string | null;
+  target_url?: string;
   read: boolean;
   created_at: string;
+}
+
+export type NotificationTargetKind =
+  "post" | "story" | "profile" | "notifications";
+
+export type NotificationPusherProduct = "yurucommu" | "yurume";
+
+export interface NotificationPusherInput {
+  kind: "http";
+  app_id: string;
+  pushkey: string;
+  app_display_name?: string;
+  device_display_name?: string;
+  profile_tag?: string;
+  lang?: string;
+  data: {
+    url: string;
+    format?: "event_id_only" | "full";
+    [key: string]: unknown;
+  };
+}
+
+export interface NotificationPusherRegistration {
+  id: string;
+  kind: "http";
+  app_id: string;
+  app_display_name?: string;
+  device_display_name?: string;
+  profile_tag?: string;
+  lang?: string;
+  data: Record<string, unknown>;
+  gateway_url: string;
+  product: NotificationPusherProduct;
+  scope: string | null;
+  registered_at: string;
+  last_seen_at: string;
 }
 
 // Story attachment (image or video)

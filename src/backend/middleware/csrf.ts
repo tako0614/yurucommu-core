@@ -69,6 +69,16 @@ function isBearerApiRequest(
   return !c.req.header("Cookie");
 }
 
+function isCookieLessNativeAuthRequest(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+) {
+  return (
+    !c.req.header("Cookie") &&
+    (c.req.path === "/api/auth/mobile/login" ||
+      c.req.path === "/api/auth/mobile/oidc")
+  );
+}
+
 /**
  * CSRF protection middleware.
  * Validates Origin/Referer for state-changing requests as defense-in-depth
@@ -82,6 +92,7 @@ export function csrfProtection() {
     if (!STATE_CHANGING_METHODS.has(c.req.method.toUpperCase())) return next();
     if (isActivityPubInbox(c.req.path)) return next();
     if (isBearerApiRequest(c)) return next();
+    if (isCookieLessNativeAuthRequest(c)) return next();
 
     const appUrl = c.env.APP_URL;
     const allowedOrigins = buildAllowedOrigins(c.env);

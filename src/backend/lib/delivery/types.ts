@@ -60,12 +60,24 @@ export type DeliveryReconcileJobMessageV1 = {
   scheduledAt: string; // ISO8601 UTC
 };
 
+/**
+ * Product notification delivery. The queue carries only the durable outbox id;
+ * device pushkeys, gateway URLs, and notification content remain in the DB.
+ */
+export type DeliveryNotificationPushMessageV1 = {
+  version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
+  type: "notification_push";
+  jobId: string;
+  scheduledAt: string; // ISO8601 UTC
+};
+
 export type DeliveryQueueMessageV1 =
   | DeliveryFanoutFollowersMessageV1
   | DeliveryFanoutCommunityMessageV1
   | DeliveryResolveActorMessageV1
   | DeliveryDeliverEndpointMessageV1
-  | DeliveryReconcileJobMessageV1;
+  | DeliveryReconcileJobMessageV1
+  | DeliveryNotificationPushMessageV1;
 
 export type DeliveryDlqMessageV1 = {
   version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
@@ -116,6 +128,8 @@ export function isDeliveryQueueMessageV1(
         typeof v.reconcileAttempt === "number" &&
         typeof v.scheduledAt === "string"
       );
+    case "notification_push":
+      return typeof v.jobId === "string" && typeof v.scheduledAt === "string";
     default:
       return false;
   }

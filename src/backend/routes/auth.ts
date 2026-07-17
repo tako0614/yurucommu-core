@@ -40,6 +40,7 @@ import {
   rotateSession,
 } from "./auth-helpers.ts";
 import { logger } from "../lib/logger.ts";
+import { rawSessionCredential } from "../lib/session-actor.ts";
 
 const log = logger.child({ component: "auth" });
 
@@ -62,6 +63,12 @@ const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
 // abuse even from the legitimate owner session (#23).
 const MAX_SUB_ACCOUNTS = 20;
 
+function parsePassword(value: unknown): string | null {
+  // Passwords are opaque credentials. Trimming changes a valid secret and can
+  // make the native and browser login behavior diverge from the stored hash.
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 // 認証設定取得
 auth.get("/providers", async (c) => {
   const config = getAuthConfig(c.env);
@@ -75,12 +82,20 @@ auth.get("/providers", async (c) => {
   });
 });
 
+function mobileSessionResponse(sessionId: string) {
+  return {
+    access_token: sessionId,
+    token_type: "Bearer",
+    expires_in: 30 * 24 * 60 * 60,
+  };
+}
+
 // 現在のユーザー情報
 auth.get("/me", async (c) => {
   const actor = c.get("actor");
   if (!actor) return c.json({ error: "Not authenticated" }, 401);
 
-  const sessionId = getCookie(c, "session");
+  const sessionId = rawSessionCredential(c);
   let provider: string | null = null;
   let hasTakosAccess = false;
 
@@ -142,7 +157,7 @@ auth.post("/login", async (c) => {
     return c.json({ error: "Invalid request body", code: "BAD_REQUEST" }, 400);
   }
 
-  const password = parseNonEmptyString(body.password);
+  const password = parsePassword(body.password);
   if (!password) {
     return c.json({ error: "password is required", code: "BAD_REQUEST" }, 400);
   }
@@ -204,6 +219,119 @@ auth.post("/login", async (c) => {
   await clearLoginLockout(c.env.KV, lockoutKey);
 
   return c.json({ success: true });
+});
+
+// Native password authentication. The credential is a host-owned session,
+// not the password itself and not a browser cookie, so Tauri/native clients can
+// call the same API safely from any app origin.
+auth.post("/mobile/login", async (c) => {
+  const config = getAuthConfig(c.env);
+  if (!config.passwordEnabled) {
+    return c.json({ error: "Password auth not enabled" }, 400);
+  }
+
+  const clientIp = getClientIP(c);
+  const lockoutKey = `password:${clientIp}`;
+  const lockoutStatus = await getLoginLockoutStatus(c.env.KV, lockoutKey);
+  if (lockoutStatus.locked) {
+    c.header("Retry-After", String(lockoutStatus.retryAfterSeconds));
+    return c.json(lockoutErrorResponse(lockoutStatus.retryAfterSeconds), 429);
+  }
+
+  const body = await parseJsonObject(c);
+  const password = body ? parsePassword(body.password) : null;
+  if (!password) {
+    return c.json({ error: "password is required", code: "BAD_REQUEST" }, 400);
+  }
+  const isValid = c.env.AUTH_PASSWORD_HASH?.trim()
+    ? await verifyBootstrapOrPassword(password, c.env.AUTH_PASSWORD_HASH)
+    : false;
+  if (!isValid) {
+    const failedStatus = await recordFailedLoginAttempt(c.env.KV, lockoutKey);
+    if (failedStatus.locked) {
+      c.header("Retry-After", String(failedStatus.retryAfterSeconds));
+      return c.json(lockoutErrorResponse(failedStatus.retryAfterSeconds), 429);
+    }
+    return c.json({ error: "Invalid password" }, 401);
+  }
+
+  const db = c.get("db");
+  const actorData =
+    (await db
+      .select()
+      .from(actors)
+      .where(and(eq(actors.role, "owner"), notDeleted(actors)))
+      .get()) ??
+    (await createActor(db, c.env, {
+      username: "tako",
+      name: "tako",
+      takosUserId: "password:owner",
+      role: "owner",
+    }));
+  const sessionId = await rotateSession(
+    c,
+    actorData.apId,
+    null,
+    null,
+    c.env.ENCRYPTION_KEY,
+    "mobile password login rotation",
+    { setCookie: false },
+  );
+  await clearLoginLockout(c.env.KV, lockoutKey);
+  return c.json(mobileSessionResponse(sessionId));
+});
+
+// Exchange a verified native OIDC ID token for the same host-owned session
+// used by password login. This keeps product APIs independent from the
+// operator's token format and makes session revocation host-local.
+auth.post("/mobile/oidc", async (c) => {
+  const provider = getProvider(c.env, "takos");
+  if (!provider?.issuer || !provider.jwksUrl) {
+    return c.json({ error: "OIDC auth not enabled" }, 400);
+  }
+  const body = await parseJsonObject(c);
+  const idToken = body ? parseNonEmptyString(body.id_token) : undefined;
+  if (!idToken) {
+    return c.json({ error: "id_token is required", code: "BAD_REQUEST" }, 400);
+  }
+
+  try {
+    const { clientId } = getClientCredentials(c.env, "takos");
+    const claims = await verifyOidcIdToken(idToken, {
+      issuer: provider.issuer,
+      clientId,
+      jwksUrl: provider.jwksUrl,
+    });
+    const actorData = await findOrCreateOAuthActor(
+      c.get("db"),
+      c.env,
+      "takos",
+      {
+        id: claims.sub,
+        name:
+          claims.name ?? claims.preferred_username ?? claims.email ?? "user",
+        email: claims.email,
+        username: claims.preferred_username,
+      },
+    );
+    if (!actorData) return c.json({ error: "actor_creation_failed" }, 403);
+    const sessionId = await rotateSession(
+      c,
+      actorData.apId,
+      "takos",
+      null,
+      c.env.ENCRYPTION_KEY,
+      "mobile oidc login rotation",
+      { setCookie: false },
+    );
+    return c.json(mobileSessionResponse(sessionId));
+  } catch (error) {
+    log.warn("Mobile OIDC exchange failed", {
+      event: "auth.mobile.oidc_exchange_failed",
+      error,
+    });
+    return c.json({ error: "invalid_id_token" }, 401);
+  }
 });
 
 // OAuth: 認証開始
@@ -388,7 +516,7 @@ auth.get("/callback/:provider", async (c) => {
 
 // ログアウト
 auth.post("/logout", async (c) => {
-  const sessionId = getCookie(c, "session");
+  const sessionId = rawSessionCredential(c);
   if (sessionId) {
     await deleteSessionSafely(c.get("db"), c.env, sessionId, "logout");
     deleteCookie(c, "session");
