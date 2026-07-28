@@ -1,12 +1,18 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env, Variables } from "../../types.ts";
-import { and, eq, inArray } from "drizzle-orm";
-import { activities, actorCache, actors, follows } from "../../../db/index.ts";
-import { chunkForInClause } from "../../lib/chunk.ts";
+import { and, eq, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  activities,
+  actorCache,
+  actors,
+  affectedRowCount,
+  inboundActivityClaims,
+} from "../../../db/index.ts";
 import {
   activityApId,
   actorApId,
+  generateId,
   isLocal,
   isSafeRemoteUrl,
 } from "../../federation-helpers.ts";
@@ -20,6 +26,12 @@ import {
   typeIncludes,
 } from "./inbox-types.ts";
 import { findFollowByActivityId } from "./handlers/inbox-shared-helpers.ts";
+import {
+  ACTIVITY_ADDRESSING,
+  isHandledActivityType,
+  resolveAddressedRecipients,
+  type HandledActivityType,
+} from "./inbox-addressing.ts";
 import {
   ActivityPubContractError,
   parseActivity,
@@ -62,6 +74,8 @@ const log = logger.child({ component: "activitypub.inbox" });
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 const MAX_PAYLOAD_BYTES = 512 * 1024;
+const MAX_REMOTE_ACTIVITY_ID_LENGTH = 2_048;
+const INBOUND_DISPATCH_LEASE_MS = 2 * 60 * 1000;
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 type RequestBodyResult =
@@ -183,11 +197,36 @@ export function isActorMismatch(
 
 type ParsedActivity = {
   activity: Activity;
+  /** Origin-bound, fixed-size internal ledger identifier. */
   activityId: string;
+  /** Bounded protocol identifier to echo in Accept/Reject objects. */
+  sourceActivityId: string;
+  /** Original, request-size-bounded envelope retained for audit/debugging. */
+  rawActivityJson: string;
   actor: string;
   activityType: string;
   activityObjectId: string | null;
 };
+
+function isBoundedProtocolActivityId(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= MAX_REMOTE_ACTIVITY_ID_LENGTH &&
+    !/[\u0000-\u001f\u007f]/u.test(value)
+  );
+}
+
+async function internalInboundActivityId(
+  baseUrl: string,
+  actor: string,
+  source: string,
+): Promise<string> {
+  const actorIdentity = normalizeActorUrl(actor) ?? actor;
+  return activityApId(
+    baseUrl,
+    `inbound-${await sha256Hex(`${actorIdentity}\0${source}`)}`,
+  );
+}
 
 /**
  * Shared pipeline for both inbox endpoints: size check, signature verification,
@@ -253,50 +292,41 @@ async function verifyAndParseInbox(
     return c.json({ error: "Invalid activity" }, 400);
   }
 
-  // The activity envelope `id` becomes the dedup ledger key (activities.apId).
-  // Only trust a remote-supplied id when it shares the (signature-bound) actor's
-  // origin and is not a local id; otherwise a remote could set `id` to ANOTHER
-  // instance's namespace and pre-occupy that row (processed=1), silently
-  // black-holing that instance's later legitimate redelivery of the same id
-  // (denial of federation / dedup-ledger poisoning). Mirrors the object-id
-  // origin guard (isObjectIdOriginMismatch) but for the envelope used by dedup.
-  // An untrustworthy id does NOT drop the (validly-signed) activity — it just
-  // gets deduped under a local deterministic synthetic id instead.
+  // A peer controls Activity.id. Never use that unbounded string as our primary
+  // key, queue key, or structured-log identifier. First validate the protocol
+  // id against the signature-bound actor origin, then derive a fixed-size local
+  // id from actor + source. The original envelope remains in rawJson (bounded by
+  // MAX_PAYLOAD_BYTES) for protocol evidence.
   const rawActivityId = typeof activity.id === "string" ? activity.id : null;
   let activityIdTrusted = false;
-  if (rawActivityId !== null && !isLocal(rawActivityId, baseUrl)) {
+  if (
+    rawActivityId !== null &&
+    isBoundedProtocolActivityId(rawActivityId) &&
+    !isLocal(rawActivityId, baseUrl)
+  ) {
     try {
       activityIdTrusted = getDomain(rawActivityId) === getDomain(actor);
     } catch {
       activityIdTrusted = false;
     }
   }
-  const activityId =
+  const sourceActivityId =
     rawActivityId !== null && activityIdTrusted
       ? rawActivityId
-      : activityApId(
-          baseUrl,
-          // Deterministic synthetic id (local namespace) for an id-less OR
-          // untrusted-origin activity: a redelivery of the SAME logical action
-          // then dedups via the activities table instead of minting a fresh
-          // RANDOM id each time (which re-processed it on every retry).
-          // Defense-in-depth — the side-effect handlers are also independently
-          // idempotent.
-          `synthetic-${await sha256Hex(
-            `${actor}|${activityType}|${getActivityObjectId(activity) ?? ""}`,
-          )}`,
-        );
+      : `synthetic:${await sha256Hex(
+          `${actor}\0${activityType}\0${getActivityObjectId(activity) ?? ""}\0${body}`,
+        )}`;
+  const activityId = await internalInboundActivityId(
+    baseUrl,
+    actor,
+    sourceActivityId,
+  );
 
-  // Id-less activity (#8): stamp the deterministic synthetic id onto the envelope
-  // so the per-type handlers — which derive their notification / activities id
-  // from `activity.id` (`activity.id || activityApId(generateId())`) — converge
-  // on the SAME id across a concurrent dual-endpoint delivery or an in-flight
-  // re-claim, instead of each run minting a fresh RANDOM id and inserting
-  // DUPLICATE inbox/notification rows. A present (trusted OR untrusted) id is a
-  // stable string that already dedups, so only the absent-id case needs this.
-  if (rawActivityId === null) {
-    activity.id = activityId;
-  }
+  // Handlers persist activity ids on interaction/follow edges. Stamp the
+  // canonical internal id before dispatch so no remote string escapes into
+  // those internal keys. Undo references are normalized through the same
+  // source-id lookup in the Undo helpers and therefore still resolve.
+  activity.id = activityId;
 
   const signingActor = signingActorFromKeyId(signatureResult.keyId);
   if (isActorMismatch(signingActor, actor)) {
@@ -323,6 +353,8 @@ async function verifyAndParseInbox(
   return {
     activity,
     activityId,
+    sourceActivityId,
+    rawActivityJson: body,
     actor,
     activityType,
     activityObjectId: getActivityObjectId(activity),
@@ -375,8 +407,18 @@ async function isActivityBlocked(
 //   0 = stored, dispatch not yet committed (newly inserted, or a prior dispatch
 //       threw — such a row is RE-DISPATCHABLE so a peer retry completes it)
 //   1 = dispatch effects committed successfully (terminal; suppresses re-dispatch)
+//   2 = UNDELIVERABLE: the activity named no local recipient we could resolve.
+//       Terminal for dedup purposes, but distinguished from 1 so this class of
+//       failure is countable (`SELECT count(*) FROM activities WHERE
+//       processed = 2`) instead of being indistinguishable from a successful
+//       no-op — which is exactly how "every DM from a non-follower is dropped"
+//       stayed invisible. The route answers 422 for these so the peer learns
+//       the delivery failed rather than reading a 202.
+// The column is INTEGER with no CHECK constraint and no value-keyed index, so
+// adding the third value needs no migration.
 const PROCESSED_UNPROCESSED = 0;
 const PROCESSED_DONE = 1;
+const PROCESSED_UNDELIVERABLE = 2;
 
 /**
  * A request that owns dispatch for an inbound activity. After running the
@@ -390,6 +432,7 @@ type ActivityDispatchClaim = {
   activityId: string;
   activityType: string;
   actor: string;
+  processingToken: string;
 };
 
 /**
@@ -422,61 +465,77 @@ async function claimActivityForDispatch(
     activityType,
     actor,
     activityObjectId,
-    activity,
+    rawActivityJson,
   }: ParsedActivity,
 ): Promise<Response | ActivityDispatchClaim> {
   const db = c.get("db");
-  const rawJson = JSON.stringify(activity);
 
-  // Atomic insert-or-skip. A non-null returned row means THIS request created
-  // the dedup row and owns dispatch; a null row means a concurrent or prior
-  // delivery already stored it.
-  const inserted = await db
+  // Persist the dedup ledger and ensure its claim row exists. A crash between
+  // these idempotent inserts is harmless: the next delivery creates whichever
+  // row is absent before attempting the fenced claim.
+  await db
     .insert(activities)
     .values({
       apId: activityId,
       type: activityType,
       actorApId: actor,
       objectApId: activityObjectId,
-      rawJson,
+      rawJson: rawActivityJson,
       direction: "inbound",
       processed: PROCESSED_UNPROCESSED,
     })
-    .onConflictDoNothing()
-    .returning()
-    .get();
+    .onConflictDoNothing();
+  await db
+    .insert(inboundActivityClaims)
+    .values({ activityApId: activityId })
+    .onConflictDoNothing();
 
-  if (inserted) {
-    return { activityId, activityType, actor };
-  }
-
-  // Lost the insert: a row already exists. Suppress ONLY if it was already
-  // dispatched to completion (`processed = 1`). An existing `processed = 0` row
-  // means a prior dispatch threw without committing, so this redelivery must
-  // re-dispatch to finish it — otherwise the dedup row would permanently
-  // suppress re-dispatch of a half-applied activity (bug #9).
   const existing = await db.query.activities.findFirst({
     where: eq(activities.apId, activityId),
     columns: { processed: true },
   });
 
-  if (existing && existing.processed === PROCESSED_UNPROCESSED) {
-    log.info("Re-dispatching previously-uncommitted activity", {
-      event: "ap.activity.redispatch_uncommitted",
+  if (!existing || existing.processed !== PROCESSED_UNPROCESSED) {
+    log.info("Duplicate activity skipped", {
+      event: "ap.activity.duplicate_skipped",
       activityId,
       activityType,
       actor,
     });
-    return { activityId, activityType, actor };
+    return c.body(null, 202);
   }
 
-  log.info("Duplicate activity skipped", {
-    event: "ap.activity.duplicate_skipped",
-    activityId,
-    activityType,
-    actor,
-  });
-  return c.body(null, 202);
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const processingToken = generateId();
+  const leaseExpiresAt = new Date(
+    now.getTime() + INBOUND_DISPATCH_LEASE_MS,
+  ).toISOString();
+  const claimed = await db
+    .update(inboundActivityClaims)
+    .set({
+      processingToken,
+      leaseExpiresAt,
+      updatedAt: nowIso,
+    })
+    .where(
+      and(
+        eq(inboundActivityClaims.activityApId, activityId),
+        or(
+          isNull(inboundActivityClaims.processingToken),
+          lte(inboundActivityClaims.leaseExpiresAt, nowIso),
+        ),
+      ),
+    );
+
+  if (affectedRowCount(claimed) === 0) {
+    // Another delivery is actively dispatching this activity. ACK the duplicate
+    // rather than running the handler concurrently; the owner returns 5xx and
+    // releases the claim if its dispatch fails.
+    return c.body(null, 202);
+  }
+
+  return { activityId, activityType, actor, processingToken };
 }
 
 /**
@@ -486,13 +545,69 @@ async function claimActivityForDispatch(
  */
 async function commitActivityDispatch(
   c: HonoContext,
-  activityId: string,
+  claim: ActivityDispatchClaim,
+  state:
+    typeof PROCESSED_DONE | typeof PROCESSED_UNDELIVERABLE = PROCESSED_DONE,
 ): Promise<void> {
   const db = c.get("db");
-  await db
+  const committed = await db
     .update(activities)
-    .set({ processed: PROCESSED_DONE })
-    .where(eq(activities.apId, activityId));
+    .set({ processed: state })
+    .where(
+      and(
+        eq(activities.apId, claim.activityId),
+        sql`EXISTS (
+          SELECT 1 FROM ${inboundActivityClaims}
+          WHERE ${inboundActivityClaims.activityApId} = ${claim.activityId}
+            AND ${inboundActivityClaims.processingToken} = ${claim.processingToken}
+        )`,
+      ),
+    );
+  if (affectedRowCount(committed) === 0) {
+    throw new Error("Inbound activity dispatch lease was lost before commit");
+  }
+  await db
+    .update(inboundActivityClaims)
+    .set({
+      processingToken: null,
+      leaseExpiresAt: null,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(
+      and(
+        eq(inboundActivityClaims.activityApId, claim.activityId),
+        eq(inboundActivityClaims.processingToken, claim.processingToken),
+      ),
+    );
+}
+
+async function releaseActivityDispatch(
+  c: HonoContext,
+  claim: ActivityDispatchClaim,
+): Promise<void> {
+  await c
+    .get("db")
+    .update(inboundActivityClaims)
+    .set({
+      processingToken: null,
+      leaseExpiresAt: null,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(
+      and(
+        eq(inboundActivityClaims.activityApId, claim.activityId),
+        eq(inboundActivityClaims.processingToken, claim.processingToken),
+      ),
+    );
+}
+
+async function retryableDispatchFailure(
+  c: HonoContext,
+  claim: ActivityDispatchClaim,
+): Promise<Response> {
+  await releaseActivityDispatch(c, claim);
+  c.header("Retry-After", "30");
+  return c.json({ error: "Activity dispatch temporarily failed" }, 503);
 }
 
 // ---------------------------------------------------------------------------
@@ -577,17 +692,25 @@ type UserInboxHandler = {
   recipient: ActorRow;
   actor: string;
   baseUrl: string;
+  sourceActivityId: string;
 };
 
 async function dispatchUserActivity(
   c: HonoContext,
   activityType: string,
   activity: Activity,
-  { recipient, actor, baseUrl }: UserInboxHandler,
+  { recipient, actor, baseUrl, sourceActivityId }: UserInboxHandler,
 ): Promise<void> {
   switch (activityType) {
     case "Follow":
-      await handleFollow(c, activity, recipient, actor, baseUrl);
+      await handleFollow(
+        c,
+        activity,
+        recipient,
+        actor,
+        baseUrl,
+        sourceActivityId,
+      );
       break;
     case "Accept":
       await handleAccept(c, activity, actor);
@@ -596,7 +719,7 @@ async function dispatchUserActivity(
       await handleUndo(c, activity, recipient, actor, baseUrl);
       break;
     case "Like":
-      await handleLike(c, activity, recipient, actor, baseUrl);
+      await handleLike(c, activity, actor, baseUrl);
       break;
     case "Create":
       await handleCreate(c, activity, recipient, actor, baseUrl);
@@ -605,7 +728,7 @@ async function dispatchUserActivity(
       await handleDelete(c, activity);
       break;
     case "Announce":
-      await handleAnnounce(c, activity, recipient, actor, baseUrl);
+      await handleAnnounce(c, activity, actor, baseUrl);
       break;
     case "Update":
       await handleUpdate(c, activity, actor);
@@ -631,6 +754,62 @@ async function dispatchUserActivity(
     default:
       log.warn("Unhandled activity type", {
         event: "ap.activity.unhandled_type",
+        activityType,
+        actor,
+      });
+  }
+}
+
+/**
+ * Dispatch an activity whose handler resolves its own target — no delivery
+ * recipient is involved. This is the ONLY path for the `instance` addressing
+ * class (see inbox-addressing.ts) and it takes no `ActorRow`, so the synthetic
+ * `{ apId: actor } as ActorRow` the shared inbox used to fabricate cannot be
+ * constructed: a handler that genuinely needs a recipient will not typecheck
+ * here.
+ */
+async function dispatchInstanceActivity(
+  c: HonoContext,
+  activityType: HandledActivityType,
+  activity: Activity,
+  actor: string,
+  baseUrl: string,
+): Promise<void> {
+  switch (activityType) {
+    case "Accept":
+      await handleAccept(c, activity, actor);
+      break;
+    case "Delete":
+      await handleDelete(c, activity);
+      break;
+    case "Update":
+      await handleUpdate(c, activity, actor);
+      break;
+    case "Reject":
+      await handleReject(c, activity, actor);
+      break;
+    case "Flag":
+      await handleFlag(c, activity, actor);
+      break;
+    case "Move":
+      await handleMove(c, activity, actor);
+      break;
+    case "Like":
+      await handleLike(c, activity, actor, baseUrl);
+      break;
+    case "Announce":
+      await handleAnnounce(c, activity, actor, baseUrl);
+      break;
+    case "Undo":
+      // Only Undo(Like|Announce) reaches this path: Undo(Follow|Block) is
+      // object-actor-scoped and is dispatched with its resolved target.
+      // `null` is the honest recipient here, and handleUndo refuses the
+      // follow branch without one.
+      await handleUndo(c, activity, null, actor, baseUrl);
+      break;
+    default:
+      log.error("Instance dispatch reached a non-instance activity type", {
+        event: "ap.activity.instance_dispatch_misroute",
         activityType,
         actor,
       });
@@ -720,9 +899,8 @@ ap.post("/ap/actor/inbox", async (c) => {
   // handler is isolated and logged WITHOUT committing, so the row stays
   // `processed = 0` and a peer retry re-dispatches to complete the effect rather
   // than being permanently suppressed by the dedup row (#9). A successful
-  // dispatch commits (processed = 1) so retries are skipped. Either way we ACK
-  // 202 — a 5xx would make the remote retry, and a committed-too-early dedup row
-  // would black-hole the half-applied activity.
+  // dispatch commits (processed = 1) so retries are skipped; failure releases
+  // the fenced claim and returns retryable 503.
   try {
     switch (activityType) {
       case "Follow":
@@ -733,6 +911,7 @@ ap.post("/ap/actor/inbox", async (c) => {
           actor,
           baseUrl,
           result.activityId,
+          result.sourceActivityId,
         );
         break;
       case "Undo":
@@ -742,7 +921,7 @@ ap.post("/ap/actor/inbox", async (c) => {
         await handleGroupCreate(c, activity, instActor, actor, baseUrl);
         break;
     }
-    await commitActivityDispatch(c, claim.activityId);
+    await commitActivityDispatch(c, claim);
   } catch (e) {
     log.error("Actor-inbox dispatch failed", {
       event: "ap.actor_inbox.dispatch_error",
@@ -750,6 +929,7 @@ ap.post("/ap/actor/inbox", async (c) => {
       actor,
       error: e,
     });
+    return retryableDispatchFailure(c, claim);
   }
 
   return c.body(null, 202);
@@ -791,13 +971,14 @@ ap.post("/ap/groups/:name/inbox", async (c) => {
           actor,
           baseUrl,
           result.activityId,
+          result.sourceActivityId,
         );
         break;
       case "Undo":
         await handleGroupUndo(c, activity, community, actor);
         break;
     }
-    await commitActivityDispatch(c, claim.activityId);
+    await commitActivityDispatch(c, claim);
   } catch (e) {
     log.error("Community-inbox dispatch failed", {
       event: "ap.community_inbox.dispatch_error",
@@ -806,6 +987,7 @@ ap.post("/ap/groups/:name/inbox", async (c) => {
       community: community.apId,
       error: e,
     });
+    return retryableDispatchFailure(c, claim);
   }
 
   return c.body(null, 202);
@@ -831,22 +1013,22 @@ ap.post("/ap/users/:username/inbox", async (c) => {
   const claim = await claimActivityForDispatch(c, result);
   if (claim instanceof Response) return claim;
 
-  const { activity, activityType, actor } = result;
-
-  await cacheRemoteActor(c, actor, baseUrl);
+  const { activity, activityType, actor, sourceActivityId } = result;
 
   // The activity row is stored (processed = 0) before dispatch. If a handler
   // throws we leave it uncommitted so a peer retry re-dispatches and completes
   // the effect, instead of the dedup row permanently suppressing it (#9); on
-  // success we commit (processed = 1) so retries are skipped. We ACK 202
-  // regardless so a retry is not provoked into a 5xx loop.
+  // success we commit (processed = 1) so retries are skipped. Failure releases
+  // the fenced claim and returns retryable 503 so the peer can complete it.
   try {
+    await cacheRemoteActor(c, actor, baseUrl);
     await dispatchUserActivity(c, activityType, activity, {
       recipient,
       actor,
       baseUrl,
+      sourceActivityId,
     });
-    await commitActivityDispatch(c, claim.activityId);
+    await commitActivityDispatch(c, claim);
   } catch (e) {
     log.error("User-inbox dispatch failed", {
       event: "ap.user_inbox.dispatch_error",
@@ -855,6 +1037,7 @@ ap.post("/ap/users/:username/inbox", async (c) => {
       recipient: recipient.apId,
       error: e,
     });
+    return retryableDispatchFailure(c, claim);
   }
 
   return c.body(null, 202);
@@ -873,70 +1056,18 @@ ap.post("/ap/users/:username/inbox", async (c) => {
 // the appropriate local recipients, instead of black-holing it with a bare
 // 202.
 //
-// Recipient resolution: the parsed activity envelope does not carry
-// `to`/`cc`/`audience`, so for recipient-scoped activity types we fan out to
-// every LOCAL actor that follows the activity actor (the standard sharedInbox
-// semantic — the sending server delivers once and the receiving server
-// distributes to its own followers). Recipient-independent types (Accept,
-// Delete, Update, Reject, Flag, Move) are dispatched exactly once.
+// Recipient resolution is a total function over the handled activity types:
+// every type DECLARES its addressing class in inbox-addressing.ts and the
+// route dispatches accordingly. There is no "everything else" fallback — the
+// old one fanned out to the sender's local followers, which resolved to ZERO
+// recipients for a DM or a Like from a non-follower and then committed
+// `processed = 1`, silently and permanently dropping it behind a 202.
 
 // Bound on the number of local followers fanned out per shared-inbox activity,
 // so a single delivery cannot trigger an unbounded number of handler runs in
 // one request. Local follower sets are small (this is a single-instance
 // community app), so this ceiling is generous.
 const MAX_SHARED_INBOX_FANOUT = 1000;
-
-// Activity types whose handlers do not depend on the recipient actor; these
-// are dispatched once rather than per local follower.
-const RECIPIENT_INDEPENDENT_TYPES = new Set([
-  "Accept",
-  "Delete",
-  "Update",
-  "Reject",
-  "Flag",
-  "Move",
-]);
-
-/**
- * Resolve the local actor rows that follow `actorApIdValue` (an accepted
- * follow), capped at MAX_SHARED_INBOX_FANOUT. Used to fan a shared-inbox
- * activity out to the local recipients that subscribed to the sending actor.
- */
-async function resolveLocalFollowerRecipients(
-  c: HonoContext,
-  actorApIdValue: string,
-  baseUrl: string,
-): Promise<ActorRow[]> {
-  const db = c.get("db");
-
-  const followerRows = await db
-    .select({
-      followerApId: follows.followerApId,
-    })
-    .from(follows)
-    .where(
-      and(
-        eq(follows.followingApId, actorApIdValue),
-        eq(follows.status, "accepted"),
-      ),
-    )
-    .limit(MAX_SHARED_INBOX_FANOUT);
-
-  const localFollowerApIds = followerRows
-    .map((row) => row.followerApId)
-    .filter((apId) => isLocal(apId, baseUrl));
-  if (localFollowerApIds.length === 0) return [];
-
-  // Chunk the IN(...) lookup: the fan-out is capped at MAX_SHARED_INBOX_FANOUT
-  // (1000) and D1 allows at most 100 bound parameters per query. The id slices
-  // are disjoint, so flattening the per-chunk actor rows is collision-free.
-  const chunks = await Promise.all(
-    chunkForInClause(localFollowerApIds).map((ids) =>
-      db.query.actors.findMany({ where: inArray(actors.apId, ids) }),
-    ),
-  );
-  return chunks.flat();
-}
 
 /**
  * Resolve the LOCAL actor named by `activity.object` (an actor IRI). Used for
@@ -981,16 +1112,28 @@ async function findLocalActorByApId(
  *    the recipient must be the followed actor. Resolve it from the wrapped
  *    activity's object (typed inner) or by looking up the referenced follow edge
  *    (bare-string inner). Undo(Like|Announce) is actor-keyed + idempotent, so it
- *    is NOT actor-scoped and keeps the follower fan-out (`scoped: false`).
+ *    is NOT actor-scoped (`scoped: false`) and is dispatched ONCE as an
+ *    instance activity.
  * `scoped: true` with `target: null` = an actor-scoped activity that names no
  * known LOCAL actor → an honest no-op (do not fan out to the sender's followers).
  */
+type ObjectActorTarget = {
+  scoped: boolean;
+  target: ActorRow | null;
+  /**
+   * A scoped activity with no target that is nonetheless COMPLETE — e.g. an
+   * Undo(Follow) whose edge is already gone. Distinguished from "named a local
+   * actor we do not host", which is undeliverable.
+   */
+  noop?: boolean;
+};
+
 async function resolveObjectActorTarget(
   c: HonoContext,
   activityType: string,
   activity: Activity,
   baseUrl: string,
-): Promise<{ scoped: boolean; target: ActorRow | null }> {
+): Promise<ObjectActorTarget> {
   if (activityType === "Follow" || activityType === "Block") {
     return {
       scoped: true,
@@ -1026,8 +1169,9 @@ async function resolveObjectActorTarget(
     // id, OR a typeless object inner — all mirror the per-user inbox's
     // findFollowByActivityId path). An inner WITHOUT an explicit "Follow" type
     // (bare-string or typeless object) is treated as a POSSIBLE Undo(Follow); if
-    // it resolves no local follow edge it is left to the fan-out, because it may
-    // be an Undo(Like|Announce) by id whose actor-keyed handler must still run.
+    // it resolves no local follow edge it is left UNSCOPED, because it may be
+    // an Undo(Like|Announce) by id whose actor-keyed handler must still run —
+    // as a SINGLE instance dispatch, not a per-follower fan-out.
     if (
       typeIncludes(inner?.type, "Follow") ||
       inner == null ||
@@ -1054,15 +1198,19 @@ async function resolveObjectActorTarget(
         }
       }
       // A typed Follow inner is object-scoped even with an unresolvable edge
-      // (commit a no-op; do NOT fan out to the sender's followers). An inner with
-      // no explicit Follow type that resolved no follow edge keeps the fan-out —
-      // it may be an Undo(Like|Announce) whose decrement the handler must apply.
+      // (do NOT dispatch it against some other actor). An inner with no
+      // explicit Follow type that resolved no follow edge stays unscoped — it
+      // may be an Undo(Like|Announce) whose decrement the handler must apply.
+      // A typed Follow whose edge is already gone is a DUPLICATE Undo, not a
+      // misdirected delivery: nothing is left to undo, so it is a no-op, not
+      // an undeliverable (answering 422 to an idempotent retry would be a
+      // lie).
       return inner?.type === "Follow"
-        ? { scoped: true, target: null }
+        ? { scoped: true, target: null, noop: true }
         : { scoped: false, target: null };
     }
 
-    // Undo(Like|Announce|…) — actor-keyed + idempotent; keep the follower fan-out.
+    // Undo(Like|Announce|…) — actor-keyed + idempotent; instance-dispatched.
     return { scoped: false, target: null };
   }
   return { scoped: false, target: null };
@@ -1070,6 +1218,7 @@ async function resolveObjectActorTarget(
 
 ap.post("/ap/inbox", async (c) => {
   const baseUrl = c.env.APP_URL;
+  const db = c.get("db");
 
   const result = await verifyAndParseInbox(c, baseUrl);
   if (result instanceof Response) return result;
@@ -1080,79 +1229,132 @@ ap.post("/ap/inbox", async (c) => {
   const claim = await claimActivityForDispatch(c, result);
   if (claim instanceof Response) return claim;
 
-  const { activity, activityType, actor } = result;
+  const { activity, activityType, actor, sourceActivityId } = result;
 
-  // The fan-out below may throw before any dispatch runs (e.g. actor cache or
-  // follower resolution faults). On such a failure we leave the row uncommitted
-  // (processed = 0) so a peer retry re-dispatches and completes delivery rather
-  // than being suppressed by the dedup row (#9); we commit it once the fan-out
-  // has run so retries are skipped.
+  // The dispatch below may throw before any handler runs (e.g. actor cache or
+  // recipient resolution faults). On such a failure we leave the row
+  // uncommitted (processed = 0) so a peer retry re-dispatches and completes
+  // delivery rather than being suppressed by the dedup row (#9); we commit it
+  // once dispatch has run so retries are skipped.
   try {
     await cacheRemoteActor(c, actor, baseUrl);
 
-    if (RECIPIENT_INDEPENDENT_TYPES.has(activityType)) {
-      // These handlers ignore the recipient; dispatch once. We pass a synthetic
-      // recipient context derived from the activity actor so the handler
-      // signature is satisfied without implying a specific local target.
-      await dispatchUserActivity(c, activityType, activity, {
-        recipient: { apId: actor } as ActorRow,
+    if (!isHandledActivityType(activityType)) {
+      log.warn("Unhandled activity type", {
+        event: "ap.activity.unhandled_type",
+        activityType,
         actor,
-        baseUrl,
       });
-      await commitActivityDispatch(c, claim.activityId);
+      await commitActivityDispatch(c, claim, PROCESSED_DONE);
       return c.body(null, 202);
     }
 
-    // Object-actor-scoped activities (Follow / Block / Undo(Follow|Block)) are
-    // addressed to the actor NAMED by the activity, NOT to followers of the
-    // sender. Routing them through the follower fan-out below would make the
-    // handler key off the wrong actor (bogus edge / Accept from the wrong actor
-    // / followerCount drift on the wrong actor) or — when the sender has no
-    // local followers — silently DROP the request entirely. Resolve the target
-    // and dispatch once (mirrors the per-user inbox). Correctly-addressed peers
-    // hit /ap/users/:username/inbox; this guards peers that point them here.
-    const objectScoped = await resolveObjectActorTarget(
-      c,
-      activityType,
-      activity,
-      baseUrl,
-    );
-    if (objectScoped.scoped) {
-      if (objectScoped.target) {
+    const declared = ACTIVITY_ADDRESSING[activityType];
+
+    // ---- object-actor: the recipient is the actor NAMED by the activity ----
+    // Follow / Block / Undo(Follow|Block). Routing these through a follower
+    // fan-out would key the handler off the wrong actor (bogus edge / Accept
+    // from the wrong actor / followerCount drift) or drop the request when the
+    // sender has no local followers.
+    if (declared === "object-actor") {
+      const objectScoped = await resolveObjectActorTarget(
+        c,
+        activityType,
+        activity,
+        baseUrl,
+      );
+      if (objectScoped.scoped) {
+        if (!objectScoped.target && objectScoped.noop) {
+          // Idempotent no-op (duplicate Undo of an edge that is already gone).
+          await commitActivityDispatch(c, claim);
+          return c.body(null, 202);
+        }
+        if (!objectScoped.target) {
+          // Named a local actor we do not have (or named none at all). This is
+          // not a completed delivery: mark it undeliverable so it is countable
+          // and answer 422 instead of a 202 the peer would read as success.
+          log.info("Shared-inbox object-actor activity names no local target", {
+            event: "ap.shared_inbox.object_actor_no_target",
+            activityType,
+            actor,
+            object: getActivityObjectId(activity),
+          });
+          await commitActivityDispatch(c, claim, PROCESSED_UNDELIVERABLE);
+          return c.json({ error: "No local recipient for this activity" }, 422);
+        }
         await dispatchUserActivity(c, activityType, activity, {
           recipient: objectScoped.target,
           actor,
           baseUrl,
+          sourceActivityId,
         });
-      } else {
-        log.info("Shared-inbox object-actor activity names no local target", {
-          event: "ap.shared_inbox.object_actor_no_target",
+        await commitActivityDispatch(c, claim);
+        return c.body(null, 202);
+      }
+      // Undo(Like|Announce): actor-keyed and idempotent, with no local actor
+      // target — dispatch ONCE like any other instance-scoped activity. It used
+      // to fall through to the follower fan-out, which ran the handler (and its
+      // whole-table counter recompute) once per local follower.
+      await dispatchInstanceActivity(c, activityType, activity, actor, baseUrl);
+      await commitActivityDispatch(c, claim);
+      return c.body(null, 202);
+    }
+
+    // ---- instance: the handler resolves its own target ----
+    // Accept / Delete / Update / Reject / Flag / Move, plus Like / Announce
+    // (whose handlers take `_recipient` and key off the object's attributedTo).
+    if (declared === "instance") {
+      await dispatchInstanceActivity(c, activityType, activity, actor, baseUrl);
+      await commitActivityDispatch(c, claim);
+      return c.body(null, 202);
+    }
+
+    // ---- addressed: read the activity's own addressing ----
+    const resolution = await resolveAddressedRecipients(
+      db,
+      activity,
+      actor,
+      baseUrl,
+      MAX_SHARED_INBOX_FANOUT,
+    );
+
+    if (resolution.recipients.length === 0) {
+      if (resolution.cls === "audience") {
+        // The activity addressed a COLLECTION (Public / followers) and nobody
+        // here subscribes to the sender. That is a genuine no-op: the peer did
+        // not name us, so there is nothing that failed to arrive. Commit it
+        // done and answer 202.
+        log.info("Shared-inbox audience activity has no local subscribers", {
+          event: "ap.shared_inbox.no_subscribers",
           activityType,
           actor,
-          object: getActivityObjectId(activity),
         });
+        await commitActivityDispatch(c, claim);
+        return c.body(null, 202);
       }
-      await commitActivityDispatch(c, claim.activityId);
-      return c.body(null, 202);
-    }
-
-    // Recipient-scoped: fan out to every local follower of the sending actor.
-    const recipients = await resolveLocalFollowerRecipients(c, actor, baseUrl);
-    if (recipients.length === 0) {
-      // No local subscribers for this actor — an honest no-op delivery. Commit
-      // the claim so the no-op is not retried indefinitely.
-      await commitActivityDispatch(c, claim.activityId);
-      log.info("Shared-inbox activity had no local recipients", {
-        event: "ap.shared_inbox.no_recipients",
+      // The activity named SPECIFIC recipients (or named nobody at all) and
+      // none of them resolved to a local actor. Undeliverable, NOT a no-op:
+      // the previous code committed `processed = 1` here, which made a DM or a
+      // Like from someone the addressee does not follow permanently
+      // unrecoverable — every retry was suppressed by the dedup row behind a
+      // 202. `processed = 2` keeps the two outcomes distinguishable
+      // (`SELECT count(*) FROM activities WHERE processed = 2` is the meter for
+      // this defect class) and 422 tells the peer the delivery failed.
+      log.warn("Shared-inbox activity resolved no local recipients", {
+        event: "ap.shared_inbox.undeliverable",
         activityType,
         actor,
+        addressing: resolution.cls,
+        addresses: resolution.addresses,
       });
-      return c.body(null, 202);
+      await commitActivityDispatch(c, claim, PROCESSED_UNDELIVERABLE);
+      return c.json({ error: "No local recipient for this activity" }, 422);
     }
 
-    for (const recipient of recipients) {
+    let dispatchFailed = false;
+    for (const recipient of resolution.recipients) {
       // Isolate per-recipient failures: a single local recipient whose handler
-      // throws must not abort fan-out to the others or turn the whole shared
+      // throws must not abort delivery to the others or turn the whole shared
       // delivery into a 5xx (which would make the sending peer retry and
       // redeliver to every recipient).
       try {
@@ -1160,8 +1362,10 @@ ap.post("/ap/inbox", async (c) => {
           recipient,
           actor,
           baseUrl,
+          sourceActivityId,
         });
       } catch (e) {
+        dispatchFailed = true;
         log.error("Shared-inbox dispatch failed for one recipient", {
           event: "ap.shared_inbox.dispatch_error",
           activityType,
@@ -1171,11 +1375,11 @@ ap.post("/ap/inbox", async (c) => {
         });
       }
     }
+    if (dispatchFailed) {
+      throw new Error("One or more shared-inbox recipient dispatches failed");
+    }
 
-    // Fan-out attempted for every resolved recipient (per-recipient failures
-    // are isolated above). Commit the claim so a peer retry does not redeliver
-    // to every local follower.
-    await commitActivityDispatch(c, claim.activityId);
+    await commitActivityDispatch(c, claim);
   } catch (e) {
     log.error("Shared-inbox dispatch failed", {
       event: "ap.shared_inbox.dispatch_error",
@@ -1183,6 +1387,7 @@ ap.post("/ap/inbox", async (c) => {
       actor,
       error: e,
     });
+    return retryableDispatchFailure(c, claim);
   }
 
   return c.body(null, 202);

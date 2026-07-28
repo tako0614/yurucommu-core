@@ -167,7 +167,6 @@ test("audit#17 inbound Like from a personally-blocked actor is dropped (no edge,
   await handleLike(
     ctxFor(db),
     likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR),
-    recipientRow(),
     REMOTE_ACTOR,
     APP_URL,
   );
@@ -186,7 +185,6 @@ test("audit#17 inbound Announce from a personally-blocked actor is dropped", asy
   await handleAnnounce(
     ctxFor(db),
     announceActivity(ANNOUNCE_ACTIVITY, REMOTE_ACTOR),
-    recipientRow(),
     REMOTE_ACTOR,
     APP_URL,
   );
@@ -210,7 +208,6 @@ test("audit#17 inbound Like of a followers-only post by a non-follower is droppe
   await handleLike(
     ctxFor(db),
     likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR),
-    recipientRow(),
     REMOTE_ACTOR,
     APP_URL,
   );
@@ -227,7 +224,6 @@ test("audit#17 inbound Like of a followers-only post by a non-follower is droppe
   await handleLike(
     ctxFor(db),
     likeActivity("https://remote.example/activities/like-2", REMOTE_ACTOR_2),
-    recipientRow(),
     REMOTE_ACTOR_2,
     APP_URL,
   );
@@ -240,7 +236,6 @@ test("#7 inbound Like applies the edge + count atomically, exactly once", async 
   await handleLike(
     ctxFor(db),
     likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR),
-    recipientRow(),
     REMOTE_ACTOR,
     APP_URL,
   );
@@ -253,10 +248,10 @@ test("#7 a duplicate (re-dispatched) inbound Like never double-counts", async ()
   const db = await setup();
   const act = likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR);
 
-  await handleLike(ctxFor(db), act, recipientRow(), REMOTE_ACTOR, APP_URL);
+  await handleLike(ctxFor(db), act, REMOTE_ACTOR, APP_URL);
   // Re-dispatch the SAME activity from the SAME actor (wave-8 retry).
-  await handleLike(ctxFor(db), act, recipientRow(), REMOTE_ACTOR, APP_URL);
-  await handleLike(ctxFor(db), act, recipientRow(), REMOTE_ACTOR, APP_URL);
+  await handleLike(ctxFor(db), act, REMOTE_ACTOR, APP_URL);
+  await handleLike(ctxFor(db), act, REMOTE_ACTOR, APP_URL);
 
   expect(await likeEdgeCount(db)).toBe(1); // onConflictDoNothing: still one edge
   expect(await likeCount(db)).toBe(1); // recompute: never inflated
@@ -281,7 +276,6 @@ test("#7 a re-dispatch after an interrupted counter bump CONVERGES (no permanent
   await handleLike(
     ctxFor(db),
     likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR),
-    recipientRow(),
     REMOTE_ACTOR,
     APP_URL,
   );
@@ -296,14 +290,12 @@ test("#7 distinct actors each count once (count tracks the edge set)", async () 
   await handleLike(
     ctxFor(db),
     likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR),
-    recipientRow(),
     REMOTE_ACTOR,
     APP_URL,
   );
   await handleLike(
     ctxFor(db),
     likeActivity("https://remote.example/activities/like-2", REMOTE_ACTOR_2),
-    recipientRow(),
     REMOTE_ACTOR_2,
     APP_URL,
   );
@@ -316,8 +308,8 @@ test("#7 inbound Announce applies + recomputes atomically and idempotently", asy
   const db = await setup();
   const act = announceActivity(ANNOUNCE_ACTIVITY, REMOTE_ACTOR);
 
-  await handleAnnounce(ctxFor(db), act, recipientRow(), REMOTE_ACTOR, APP_URL);
-  await handleAnnounce(ctxFor(db), act, recipientRow(), REMOTE_ACTOR, APP_URL);
+  await handleAnnounce(ctxFor(db), act, REMOTE_ACTOR, APP_URL);
+  await handleAnnounce(ctxFor(db), act, REMOTE_ACTOR, APP_URL);
 
   const announceRows = await db
     .select({ a: announces.actorApId })

@@ -1,88 +1,47 @@
-# AGENTS.md — yurucommu-core
+# AGENTS.md
 
-`yurucommu-core` は yurucommu family の **ActivityPub / API / DB / runtime engine
-library** です。 deploy される product / OpenTofu Capsule ではありません。
-`yurucommu` repo は feed / story / profile 中心の fullstack product、`yurumeet`
-repo は talk-first の fullstack product で、どちらもこの core library を npm package
-として利用して Worker artifact と OpenTofu Capsule を自分のrepoで所有します。
-`yurume` は Yurumeet の client id / 略称として使います。
+> このファイルは `takos-control/engineering.policy.json` と `ecosystem.repos.json` から generator v1 で生成されています。手編集しないでください。
 
-思想は yurucommu family 共通です。個人が自分のドメイン / 自分のデータで立てる
-self-hosted ActivityPub SNS を前提にし、到達範囲 (reach) はコミュニティ単位に保つ。
-federation は目的ではなく、プラットフォーム非依存とコミュニティ・つながりを
-サーバーをまたいで繋ぐための手段です。
+## Repository
 
-## 責務
+- Scope: Shared ActivityPub, API, database, and runtime engine library for the yurucommu product family.
+- Repository kind: `library`
+- Direct sibling dependencies: なし
+- Repository gate: `bun run check`
+- Canonical docs: [README.md](README.md), [migrations/README.md](migrations/README.md), [docs/design/realtime-websocket-fanout.md](docs/design/realtime-websocket-fanout.md), [docs/design/call-feature.md](docs/design/call-feature.md)
 
-### 持つ
+## Ownership
 
-- ActivityPub federation (Mastodon / Misskey 系との相互接続)
-- single-user federated social (self-hosted、 small-community focus)
-- yurucommu social API engine (actor / post / story / DM / community / media / notification)
-- DB schema / migrations / runtime adapters
-- `@takosjp/yurucommu-api` npm package
-- `@takosjp/yurucommu-core` server library exports used by product Worker artifacts
+- Owns: Shared ActivityPub, API, database, and runtime engine / @takosjp/yurucommu-core and @takosjp/yurucommu-api packages / Shared schema, migrations, and runtime adapters
+- Does not own: Deployable Worker or OpenTofu Capsule / Product UI, brand site, or product release / Takosumi federation or Takos chat, agent, and memory
+- Hazards: D1 writes require bounded primitives; libsql alone is insufficient evidence. / yurucommu_migrations is the single migration ledger. / Core and API packages version and publish together.
 
-### 持たない
+## Required workflow
 
-- OpenTofu Capsule module / product deploy ownership
-- product-specific Worker artifact release workflow
-- `yurucommu.com` / `yurumeet.com` UI or brand site ownership
-- Takos core service との直接 implementation 連携 (consumer 側として通常の
-  Capsule install flow を経由)
-- Takosumi platform 層の federation 責任 (federation は yurucommu 自身が
-  ActivityPub で実装する)
-- Takos product 固有の chat / agent / memory primitive
-- Takosumi-owned official client catalog / official app privilege
+- repo固有の挙動・契約・architectureは、このrepo自身のsourceとdocsを正本にします。共通工学ルールをこのrepoで再定義しません。
+- 通常変更はこのrepo内に閉じます。横断変更はtask ledgerに対象repoと順序を宣言し、unrelatedなdirty workを変更・stage・commitしません。
+- handoff前に `bun run check` を実行します。これはread-onlyで、`format-check`, `lint-or-static-analysis`, `type-or-compile`, `portable-tests`, `portable-build` を完全に検証し、未実装項目をskipしてはいけません。
+- formatの書き換えは明示的な `bun run fmt` だけで行い、checkやCIからsourceを書き換えません。
+- task ledgerが必要な条件: The change modifies more than one repository. / The work changes production or release behavior. / The work changes a persisted schema or migrates data. / The work changes security, identity, credentials, authorization, billing, or authority. / The work destructively changes data or repository history.
+- secret、credential、production記録、private keyをrepoへcommitしません。
 
-## 隣接 product との contract
+## Deploy
 
-- **Installable apps**: `yurucommu` / `yurumeet` が Takosumi 上でユーザーが明示的に追加する通常 Capsule
-- **Upstream**: Takosumi Accounts OIDC consumer (operator-owned external
-  publication / OIDC discovery で issuer を解決)、 Takos public API
-- **Downstream**: ActivityPub federated network (他の Mastodon / Misskey
-  instance と相互接続)
-- **Product repos**: `yurucommu` repo は feed-first、 `yurumeet` (`yurume`) repo は talk-first。
-  どちらも core library から actor / DM / community / ActivityPub API を組み込んで、自分の
-  OpenTofu module と Worker artifact を持つ
-- **Client SDK**: client / mobile repo は core repo の内部 path を import せず、
-  `@takosjp/yurucommu-api` と product Capsule outputs / `/.well-known/social-server` を使う
-- **Repo topology**: この repo は deployable repo ではなく、公式 yurucommu product、
-  Yurumeet、mobile shell の source は別 repo に置く
-- **Independence**: Takos core には吸収しない、 product root として独立を保つ
+- このrepoがproduction targetを持つなら、入口は `bun run deploy` 一つです。無ければ作ります。承認待ちの列も、登録する先もありません。entrypointは副作用なしの `--contract` で、自分に立つtriggerと各obligationの果たし方を宣言します。
+- 実行するかどうかはoperatorの判断です。task ledger、branch名、green checkのいずれもdeployを承認しません。逆に、どれも欠けているからといってdeployが禁止されるわけでもありません。
+- どのsurfaceも次のobligationを負います。
 
-## Substitutability / Federation
+  - **provenance**: The published bytes belong to one reviewed commit, are built from that worktree, and the commit and artifact digest are recorded. Whatever validates them must cover those bytes.
+  - **post-conditions**: After publishing, state how you know the thing works for a real user, and confirm it.
+  - **reversal**: State how to get back. If you cannot get back, say so and name the forward-repair plan instead.
+  - **failure-handling**: State what the entrypoint prints on failure and what it refuses to do. Raw diagnostics, no blind retry, and a clear split between failing before and after the target was touched.
 
-- **App-level federation**: yurucommu 自身が ActivityPub で federation
-  を実装する。 Takosumi platform 層で federate する仕組みは持たないため、
-  instance 間の social network 形成は yurucommu の責務。 federation は
-  fediverse 全体へリーチするためではなく、 プラットフォーム非依存と
-  コミュニティ・つながりをサーバーをまたいで繋ぐための手段。
-- **Takos との関係**: Takos と隣接する installable app だが、 Takos 専用化しない。単独でも
-  self-host 可能 (Takos なしで使える)。
+- 次のtriggerが立つと義務が増えます。判別できないものはirreversible扱いです。
 
-## Workflow
+  - **irreversible** (The step leaves the previous artifact unable to serve again: a schema or data migration, a topology change, or anything that rewrites durable state.) → pre-mutation-proof, independent-review
+  - **authority** (The step moves money, identity, authentication, authorization, or the deploy mechanism itself.) → independent-review
+  - **published-identity** (Publication mints a version, digest, or tag that consumers pin.) → no-overwrite
+  - **asynchronous** (Publication completes through an external review or staged delivery the deploy does not control, such as an app store.) → halt
 
-```bash
-cd yurucommu-core
-bun run check
-bun test
-bun run lint
-bun run fmt
-bun run build
-bun run pack:core
-bun run pack:api
-```
-
-## Version discipline
-
-`@takosjp/yurucommu-core` and `@takosjp/yurucommu-api` are published npm
-packages, so version bumps are release decisions, not a side effect of repo
-reshaping. Patch/minor is the default. A future major publish must set
-`YURUCOMMU_ALLOW_MAJOR_VERSION_BUMP=1` and
-`YURUCOMMU_MAJOR_VERSION_REASON=<concrete reason>`; `prepublishOnly` rejects a
-major bump without that explicit override.
-
-## 関連 docs
-
-- [`README.md`](README.md) — product の方向性と self-host instructions
+- 果たし方は各surfaceが自分の言葉で決めます。中央は義務を決め、機構は決めません。宣言を弱められませんが、強める分には自由です。
+- 利用者/operatorが自分の環境へself-host deployすることは別authorityで、このruleの対象外です。

@@ -7,6 +7,7 @@ import {
   fetchUserInfo,
   getAuthConfig,
   getClientCredentials,
+  getMobileOidcAudience,
   getProvider,
 } from "../lib/oauth-providers.ts";
 import { verifyOidcIdToken } from "../lib/oidc-id-token.ts";
@@ -296,7 +297,7 @@ auth.post("/mobile/oidc", async (c) => {
   }
 
   try {
-    const { clientId } = getClientCredentials(c.env, "takos");
+    const clientId = getMobileOidcAudience(c.env);
     const claims = await verifyOidcIdToken(idToken, {
       issuer: provider.issuer,
       clientId,

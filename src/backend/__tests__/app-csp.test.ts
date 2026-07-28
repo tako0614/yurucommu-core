@@ -89,6 +89,32 @@ test("backend sends a conservative HSTS header (no includeSubDomains/preload)", 
   expect(hsts.includes("preload")).toBe(false);
 });
 
+test("backend denies camera and microphone unless the product opts in", async () => {
+  const app = createYurucommuBackendApp();
+  const res = await app.fetch(new Request("https://test.local/"), {
+    APP_URL: "https://test.local",
+    DB_INSTANCE: {},
+  } as never);
+
+  expect(res.headers.get("Permissions-Policy")).toBe(
+    "camera=(), microphone=(), geolocation=()",
+  );
+});
+
+test("backend grants only product-selected browser media capabilities", async () => {
+  const app = createYurucommuBackendApp({
+    browserMedia: { camera: true, microphone: false },
+  });
+  const res = await app.fetch(new Request("https://test.local/"), {
+    APP_URL: "https://test.local",
+    DB_INSTANCE: {},
+  } as never);
+
+  expect(res.headers.get("Permissions-Policy")).toBe(
+    "camera=(self), microphone=(), geolocation=()",
+  );
+});
+
 test("backend healthz reports degraded runtime bindings before DB middleware", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(new Request("https://test.local/healthz"), {

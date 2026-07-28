@@ -7,20 +7,16 @@ import { generateKeyPair, signRequest } from "../federation-helpers.ts";
 
 // Regression coverage for GA-fix cluster INBOX:
 //   #5  inbound activity must NOT be silently lost when a dispatch handler
-//       throws — the route must ACK 202 (not 500) so a peer retry does not
-//       hit the dedup ledger and permanently drop an undispatched activity.
-//   #17 the dedup insert is atomic (onConflictDoNothing + returning + get);
-//       a concurrent/prior delivery (insert returns null) is idempotent 202,
-//       never a 500 primary-key violation.
+//       throws — the route releases its fenced claim and returns retryable 503.
+//   #17 the dedup ledger plus fenced claim is idempotent; a prior terminal
+//       delivery is acknowledged without dispatching it again.
 
 type InsertResult = unknown | null;
 
 /**
- * Build a db mock that models the atomic dedup chain used by the inbox route:
- *   db.insert(activities).values({...}).onConflictDoNothing().returning().get()
- *
- * `insertedRow` controls whether THIS request "won" the insert (non-null row
- * → proceed to dispatch) or lost the race / was a duplicate (null → 202 skip).
+ * Build a db mock for the current dedup ledger and fenced-claim flow.
+ * `insertedRow: null` represents an already-terminal activity; a non-null value
+ * represents a new/unprocessed activity whose claim update succeeds.
  */
 function createInboxDbMock(
   publicKeyPem: string,
@@ -29,11 +25,13 @@ function createInboxDbMock(
     dispatchThrows?: boolean;
   },
 ) {
-  const getSpy = spy(() => Promise.resolve(opts.insertedRow));
-  const insertValues = spy((..._args: unknown[]) => ({
-    onConflictDoNothing: () => ({
-      returning: () => ({ get: getSpy }),
+  const getSpy = spy(() =>
+    Promise.resolve({
+      processed: opts.insertedRow === null ? 1 : 0,
     }),
+  );
+  const insertValues = spy((..._args: unknown[]) => ({
+    onConflictDoNothing: () => Promise.resolve({ rowsAffected: 1 }),
   }));
 
   // Any select/update chain reached during dispatch is made broadly chainable
@@ -71,7 +69,7 @@ function createInboxDbMock(
         ),
       },
       activities: {
-        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+        findFirst: getSpy,
       },
       blockedActors: {
         findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
@@ -82,8 +80,14 @@ function createInboxDbMock(
     },
     insert: spy((..._args: unknown[]) => ({ values: insertValues })),
     update: spy((..._args: unknown[]) => ({
-      set: () => ({ where: () => Promise.resolve(undefined) }),
+      set: () => ({ where: () => Promise.resolve({ rowsAffected: 1 }) }),
     })),
+    batch: spy((..._args: unknown[]) => {
+      if (opts.dispatchThrows) {
+        return Promise.reject(new Error("simulated handler failure"));
+      }
+      return Promise.resolve([]);
+    }),
     select: spy((..._args: unknown[]) => ({
       from: () => ({ where: () => followerWhere }),
     })),
@@ -120,7 +124,7 @@ async function postUserInbox(
   );
 }
 
-test("#5 user inbox ACKs 202 (not 500) when a dispatch handler throws", async () => {
+test("#5 user inbox releases the claim and returns retryable 503 on dispatch failure", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
   // Insert succeeds (row returned → dispatch runs), but the dispatched handler
@@ -145,15 +149,15 @@ test("#5 user inbox ACKs 202 (not 500) when a dispatch handler throws", async ()
     `${actorApId}#main-key`,
   );
 
-  expect(res.status).toEqual(202);
+  expect(res.status).toEqual(503);
+  expect(res.headers.get("retry-after")).toBe("30");
 });
 
-test("#17 user inbox is idempotent 202 when the atomic insert finds a duplicate", async () => {
+test("#17 user inbox is idempotent 202 when the ledger is already terminal", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
-  // Concurrent/prior delivery already stored this activity: onConflictDoNothing
-  // returns no row (get() → null). The route must ACK 202 without 500 and
-  // without re-dispatching.
+  // A prior delivery already committed this activity. The route must ACK 202
+  // without taking a second dispatch claim.
   const { db, getSpy } = createInboxDbMock(publicKeyPem, {
     insertedRow: null,
   });
@@ -173,8 +177,7 @@ test("#17 user inbox is idempotent 202 when the atomic insert finds a duplicate"
   );
 
   expect(res.status).toEqual(202);
-  // The atomic insert chain was exercised exactly once (no separate findFirst
-  // probe before the insert).
+  // The terminal ledger state was read exactly once.
   assertSpyCalls(getSpy, 1);
 });
 

@@ -154,7 +154,7 @@ test("E2E: forged Delete as a same-host victim (signed by alice) is rejected 401
   expect((await res.json()).error).toBe("Actor mismatch");
 });
 
-test("E2E: a normal activity where keyId-owner === actor is accepted (202)", async () => {
+test("E2E: a valid signer reaches recipient validation (422 when unaddressed)", async () => {
   const db = await freshDb();
   const alice = await generateKeyPair();
   await cacheKey(db, ALICE, alice.publicKeyPem);
@@ -176,8 +176,9 @@ test("E2E: a normal activity where keyId-owner === actor is accepted (202)", asy
       },
     },
   );
-  // No local followers of alice → honest no-op, but the binding gate passed.
-  expect(res.status).toBe(202);
+  // The signer binding passed; shared-inbox recipient validation then rejects
+  // this unaddressed Create instead of silently acknowledging a dropped DM.
+  expect(res.status).toBe(422);
 });
 
 test("E2E: a relayed Announce signed by the relaying actor itself is accepted (202)", async () => {

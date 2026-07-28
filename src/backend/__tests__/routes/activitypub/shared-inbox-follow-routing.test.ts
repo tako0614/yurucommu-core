@@ -407,7 +407,7 @@ test("shared-inbox Block targets the blocked actor and severs both follow edges"
   expect(remaining.length).toBe(0);
 });
 
-test("shared-inbox Follow naming a non-local / unknown object creates no edge (202 no-op)", async () => {
+test("shared-inbox Follow naming a non-local object is undeliverable (422)", async () => {
   const db = await freshDb();
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   await db.insert(actorCache).values({
@@ -426,7 +426,7 @@ test("shared-inbox Follow naming a non-local / unknown object creates no edge (2
     privateKeyPem,
     "https://other.example/users/dave",
   );
-  expect(res.status).toBe(202);
+  expect(res.status).toBe(422);
 
   const any = await db
     .select({ followerApId: follows.followerApId })

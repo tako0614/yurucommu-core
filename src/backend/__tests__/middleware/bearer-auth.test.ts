@@ -81,3 +81,40 @@ test("requireBearerAuth introspects against the configured Accounts issuer", asy
     fetchStub.restore();
   }
 });
+
+test("requireBearerAuth bounds a stalled introspection request", async () => {
+  const app = createApp();
+  let observedSignal: AbortSignal | undefined;
+  const fetchImpl = spy(
+    (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      observedSignal = init?.signal ?? undefined;
+      return Promise.reject(
+        Object.assign(new Error("timed out"), { name: "TimeoutError" }),
+      );
+    },
+  );
+  const fetchStub = stub(globalThis, "fetch", fetchImpl);
+
+  try {
+    const res = await app.fetch(
+      new Request("https://test.local/deploy", {
+        method: "POST",
+        headers: { Authorization: "Bearer token" },
+      }),
+      {
+        OIDC_ISSUER_URL: "https://accounts.example.com",
+        OIDC_CLIENT_ID: "takos-client",
+        OIDC_CLIENT_SECRET: "takos-secret",
+      } as never,
+    );
+
+    expect(observedSignal).toBeInstanceOf(AbortSignal);
+    expect(res.status).toEqual(503);
+    expect(await res.json()).toEqual({
+      error: "temporarily_unavailable",
+      error_description: "Introspection request failed",
+    });
+  } finally {
+    fetchStub.restore();
+  }
+});

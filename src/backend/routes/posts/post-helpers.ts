@@ -15,7 +15,10 @@ import {
   communities,
   communityMembers,
   inbox as inboxTable,
+  insertMany,
   objects,
+  runBatch,
+  type D1Statement,
 } from "../../../db/index.ts";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
@@ -666,33 +669,49 @@ export async function processMentions(
   }
 
   if (activitiesToCreate.length > 0) {
+    // A mention notification is one invariant: its activity and inbox edge
+    // either both exist or neither does. Build D1-safe chunked INSERT
+    // statements, then commit each bounded page as one atomic batch. This
+    // avoids both the 100-bind ceiling and the old activity-without-inbox
+    // partial state when the second independent INSERT failed.
+    const MENTION_NOTIFICATION_PAGE_SIZE = 200;
     try {
-      await db.insert(activities).values(activitiesToCreate);
+      for (
+        let offset = 0;
+        offset < activitiesToCreate.length;
+        offset += MENTION_NOTIFICATION_PAGE_SIZE
+      ) {
+        const activityPage = activitiesToCreate.slice(
+          offset,
+          offset + MENTION_NOTIFICATION_PAGE_SIZE,
+        );
+        const inboxPage = inboxEntriesToCreate.slice(
+          offset,
+          offset + MENTION_NOTIFICATION_PAGE_SIZE,
+        );
+        const statements = [
+          ...insertMany(db, activities, activityPage),
+          ...insertMany(db, inboxTable, inboxPage),
+        ];
+        await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
+      }
     } catch (e) {
-      log.error("Failed to persist mention activities", {
-        event: "posts.mention.activity_persist_failed",
+      log.error("Failed to atomically persist mention notifications", {
+        event: "posts.mention.notification_persist_failed",
         error: e,
       });
-      mentionFailures.push({
-        mention: "__batch__",
-        stage: "persist_activity",
-        reason: "mention_activity_persist_failed",
-      });
-    }
-  }
-  if (inboxEntriesToCreate.length > 0) {
-    try {
-      await db.insert(inboxTable).values(inboxEntriesToCreate);
-    } catch (e) {
-      log.error("Failed to persist mention inbox entries", {
-        event: "posts.mention.inbox_persist_failed",
-        error: e,
-      });
-      mentionFailures.push({
-        mention: "__batch__",
-        stage: "persist_inbox",
-        reason: "mention_inbox_persist_failed",
-      });
+      mentionFailures.push(
+        {
+          mention: "__batch__",
+          stage: "persist_activity",
+          reason: "mention_activity_persist_failed",
+        },
+        {
+          mention: "__batch__",
+          stage: "persist_inbox",
+          reason: "mention_inbox_persist_failed",
+        },
+      );
     }
   }
 

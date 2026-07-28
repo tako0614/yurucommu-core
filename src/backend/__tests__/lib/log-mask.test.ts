@@ -1,3 +1,4 @@
+// takos-secret-scan: synthetic — this test exists to prove tokens and key material are masked in logs, so it must contain some.
 import { expect, test } from "bun:test";
 
 import { maskSensitiveData, maskSensitiveString } from "../../lib/log-mask.ts";

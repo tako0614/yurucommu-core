@@ -59,6 +59,7 @@ export async function handleGroupFollow(
   actorApIdStr: string,
   baseUrl: string,
   activityId: string,
+  sourceActivityId: string = activityId,
 ) {
   const db = c.get("db");
   const followerKey = {
@@ -130,7 +131,7 @@ export async function handleGroupFollow(
     where: and(
       eq(activities.type, responseType),
       eq(activities.actorApId, group.apId),
-      eq(activities.objectApId, activityId),
+      eq(activities.objectApId, sourceActivityId),
     ),
   });
   if (existingResponse) {
@@ -144,14 +145,14 @@ export async function handleGroupFollow(
     id: responseId,
     type: responseType,
     actor: group.apId,
-    object: activityId,
+    object: sourceActivityId,
   };
 
   await db.insert(activities).values({
     apId: responseId,
     type: responseType,
     actorApId: group.apId,
-    objectApId: activityId,
+    objectApId: sourceActivityId,
     rawJson: JSON.stringify(responseActivity),
     direction: "outbound",
   });

@@ -78,6 +78,26 @@ test("fetchBookmarks reads the posts + pagination fields", async () => {
   expect(result.nextCursor).toBe("c1");
 });
 
+test("fetchBookmarks surfaces authentication and server failures", async () => {
+  const originalFetch = globalThis.fetch;
+  clearYurucommuApiTransport();
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      Response.json({ error: "session expired" }, { status: 401 }),
+    )) as unknown as typeof fetch;
+
+  try {
+    expect(fetchBookmarks()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 401,
+      message: "session expired",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuApiTransport();
+  }
+});
+
 // Regression: the timeline client must SURFACE the server's composite cursor (so
 // loadMore can echo it back as `before`). It was discarding `next_cursor` and
 // paginating with a post's ap_id instead, which the server decodes as a

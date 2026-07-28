@@ -61,6 +61,15 @@ export function getOidcClientCredentials(env: Env): {
   };
 }
 
+/**
+ * Audience advertised to native clients and accepted by the host exchange.
+ * A Capsule has one public OIDC client with multiple exact redirect URIs; web
+ * and native clients must therefore converge on this same client id.
+ */
+export function getMobileOidcAudience(env: Env): string {
+  return getOidcClientCredentials(env).clientId;
+}
+
 export function issuerEndpoint(issuer: string, path: string): string {
   return `${issuer.replace(/\/$/, "")}${path}`;
 }

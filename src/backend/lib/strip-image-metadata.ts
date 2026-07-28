@@ -10,9 +10,10 @@
  * re-encoding the pixels, so the visible image is unchanged.
  *
  * Pure byte-surgery (no native image library): it walks the container structure
- * and drops only metadata segments/chunks, copying everything else verbatim. It
- * NEVER corrupts: on any structural surprise it returns the original bytes
- * unchanged (the magic-byte validation has already confirmed the declared type).
+ * and drops only metadata segments/chunks, copying everything else verbatim.
+ * Supported containers fail closed on structural surprises: returning their
+ * original bytes would silently publish the metadata the parser failed to
+ * understand.
  *
  * Covered: JPEG (APP1 EXIF/XMP, APP13 IPTC, COM), PNG (tEXt/zTXt/iTXt/eXIf/tIME),
  * WebP (EXIF / XMP chunks). GIF and video are passed through unchanged (GIF
@@ -24,21 +25,20 @@ export function stripImageMetadata(
   bytes: Uint8Array,
   mimeType: string,
 ): Uint8Array {
-  try {
-    switch (mimeType) {
-      case "image/jpeg":
-        return stripJpeg(bytes);
-      case "image/png":
-        return stripPng(bytes);
-      case "image/webp":
-        return stripWebp(bytes);
-      default:
-        return bytes; // gif / video / unknown: unchanged
-    }
-  } catch {
-    // Never let a parsing surprise corrupt or drop the upload.
-    return bytes;
+  switch (mimeType) {
+    case "image/jpeg":
+      return stripJpeg(bytes);
+    case "image/png":
+      return stripPng(bytes);
+    case "image/webp":
+      return stripWebp(bytes);
+    default:
+      return bytes; // gif / video / unknown: unchanged
   }
+}
+
+function malformed(format: "JPEG" | "PNG" | "WebP"): never {
+  throw new Error(`Malformed ${format} image`);
 }
 
 // ---------------------------------------------------------------------------
@@ -47,13 +47,15 @@ export function stripImageMetadata(
 // color transform), the quantization/Huffman tables, and the scan data verbatim.
 // ---------------------------------------------------------------------------
 function stripJpeg(bytes: Uint8Array): Uint8Array {
-  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return bytes;
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+    return malformed("JPEG");
+  }
 
   const out: number[] = [0xff, 0xd8]; // SOI
   let i = 2;
 
   while (i + 1 < bytes.length) {
-    if (bytes[i] !== 0xff) return bytes; // not at a marker — bail unchanged
+    if (bytes[i] !== 0xff) return malformed("JPEG");
     const marker = bytes[i + 1];
 
     // Start of Scan: entropy-coded data runs to EOI — copy the rest verbatim.
@@ -72,9 +74,9 @@ function stripJpeg(bytes: Uint8Array): Uint8Array {
       i += 2;
       continue;
     }
-    if (i + 3 >= bytes.length) return bytes; // truncated length — bail unchanged
+    if (i + 3 >= bytes.length) return malformed("JPEG");
     const len = (bytes[i + 2] << 8) | bytes[i + 3]; // includes the 2 length bytes
-    if (len < 2 || i + 2 + len > bytes.length) return bytes; // malformed — bail
+    if (len < 2 || i + 2 + len > bytes.length) return malformed("JPEG");
 
     const drop =
       marker === 0xe1 || // APP1: EXIF + XMP (the GPS carriers)
@@ -85,7 +87,7 @@ function stripJpeg(bytes: Uint8Array): Uint8Array {
     }
     i += 2 + len;
   }
-  return Uint8Array.from(out);
+  return malformed("JPEG");
 }
 
 // ---------------------------------------------------------------------------
@@ -96,8 +98,10 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const PNG_DROP_CHUNKS = new Set(["tEXt", "zTXt", "iTXt", "eXIf", "tIME"]);
 
 function stripPng(bytes: Uint8Array): Uint8Array {
-  if (bytes.length < 8) return bytes;
-  for (let i = 0; i < 8; i++) if (bytes[i] !== PNG_SIGNATURE[i]) return bytes;
+  if (bytes.length < 8) return malformed("PNG");
+  for (let i = 0; i < 8; i++) {
+    if (bytes[i] !== PNG_SIGNATURE[i]) return malformed("PNG");
+  }
 
   const out: number[] = [...PNG_SIGNATURE];
   let i = 8;
@@ -107,7 +111,7 @@ function stripPng(bytes: Uint8Array): Uint8Array {
       (bytes[i + 1] << 16) |
       (bytes[i + 2] << 8) |
       bytes[i + 3];
-    if (len < 0) return bytes; // overflow / malformed — bail unchanged
+    if (len < 0) return malformed("PNG");
     const type = String.fromCharCode(
       bytes[i + 4],
       bytes[i + 5],
@@ -115,7 +119,7 @@ function stripPng(bytes: Uint8Array): Uint8Array {
       bytes[i + 7],
     );
     const chunkEnd = i + 12 + len; // length(4) + type(4) + data(len) + crc(4)
-    if (chunkEnd > bytes.length) return bytes; // truncated — bail unchanged
+    if (chunkEnd > bytes.length) return malformed("PNG");
 
     if (!PNG_DROP_CHUNKS.has(type)) {
       for (let k = i; k < chunkEnd; k++) out.push(bytes[k]);
@@ -123,7 +127,20 @@ function stripPng(bytes: Uint8Array): Uint8Array {
     i = chunkEnd;
     if (type === "IEND") break;
   }
+  if (i !== bytes.length || !containsPngChunk(out, "IEND")) {
+    return malformed("PNG");
+  }
   return Uint8Array.from(out);
+}
+
+function containsPngChunk(bytes: readonly number[], type: string): boolean {
+  const needle = [...type].map((character) => character.charCodeAt(0));
+  for (let i = 8; i + needle.length <= bytes.length; i++) {
+    if (needle.every((value, offset) => bytes[i + offset] === value)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,8 +159,10 @@ function fourCC(bytes: Uint8Array, off: number): string {
 }
 
 function stripWebp(bytes: Uint8Array): Uint8Array {
-  if (bytes.length < 16) return bytes;
-  if (fourCC(bytes, 0) !== "RIFF" || fourCC(bytes, 8) !== "WEBP") return bytes;
+  if (bytes.length < 16) return malformed("WebP");
+  if (fourCC(bytes, 0) !== "RIFF" || fourCC(bytes, 8) !== "WEBP") {
+    return malformed("WebP");
+  }
 
   const head: number[] = [];
   for (let k = 0; k < 12; k++) head.push(bytes[k]); // RIFF + size + WEBP
@@ -158,10 +177,10 @@ function stripWebp(bytes: Uint8Array): Uint8Array {
       (bytes[i + 5] << 8) |
       (bytes[i + 6] << 16) |
       (bytes[i + 7] << 24);
-    if (size < 0) return bytes; // overflow — bail unchanged
+    if (size < 0) return malformed("WebP");
     const padded = size + (size & 1); // chunks pad to an even length
     const chunkEnd = i + 8 + padded;
-    if (chunkEnd > bytes.length) return bytes; // truncated — bail unchanged
+    if (chunkEnd > bytes.length) return malformed("WebP");
 
     if (cc === "EXIF" || cc === "XMP ") {
       removed = true; // skip this chunk entirely
@@ -170,6 +189,7 @@ function stripWebp(bytes: Uint8Array): Uint8Array {
     }
     i = chunkEnd;
   }
+  if (i !== bytes.length) return malformed("WebP");
   if (!removed) return bytes; // nothing to strip — keep original bytes
 
   // Clear the EXIF (bit 3) / XMP (bit 2) feature flags in a VP8X header so the

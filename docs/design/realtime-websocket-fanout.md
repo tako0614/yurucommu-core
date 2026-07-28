@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Realtime WebSocket fanout — yurucommu / yurumeet トークとアプリ内ポーリング全廃 設計
 
-Status: **実装完了・E2E 検証済み**（2026-07-16、core/api 3.4.0 として npm publish 済み）
+Status: **実装完了・E2E 検証済み**（2026-07-16、core/api 3.4.0 として公開済み）
 Owner: `yurucommu-core`（DO / hub / emit / WS client 本体）
 Consumers: `yurucommu`, `yurumeet`（クライアント配線 + deploy 配線）
 
@@ -202,14 +202,14 @@ WebSocket / SSE は現状**一切存在しない**（意図的にポーリング
    { type = "durable_object_namespace", name = "REALTIME_STREAM", class_name = "RealtimeStreamDO" }
    ```
 5. **compat date 不一致を解消**: `wrangler.jsonc`（`2026-07-16`）と `main.tf` の `worker_compatibility_date` default（`2026-04-01`）を揃える。
-6. direct `wrangler deploy` 経路と OpenTofu Capsule 経路は同一 class 名・同一 storage 種別（sqlite）を宣言（DO migration 状態は Cloudflare 側で一元管理）。
+6. 当時のdirect Worker経路と OpenTofu Capsule 経路は同一 class 名・同一 storage 種別（sqlite）を宣言（DO migration 状態は Cloudflare 側で一元管理）。
 
 ---
 
 ## 8. 移行フェーズ（安全順）
 
 1. **DO + hub + emit + `/api/realtime/ticket` + `/api/realtime/socket` + WS client** を追加。クライアントは購読するが**ポーリングは残したまま**（二重稼働の安全期間）。
-2. LAN dev（`*.takos.test` / `yurucommu.test`）と direct `wrangler deploy` の両方で WS 即時反映を実測（chrome-MCP）。送信→相手タブ反映、typing、未読バッジ、通知一覧の各イベントを確認。
+2. LAN dev（`*.takos.test` / `yurucommu.test`）と当時のdirect Worker環境の両方で WS 即時反映を実測（chrome-MCP）。送信→相手タブ反映、typing、未読バッジ、通知一覧の各イベントを確認。
 3. 確認後、**定常ポーリングのタイマーを撤去**（初回フェッチ + capability-gated フォールバックのみ残す）。
 4. self-host（Bun/Node、DO 無し）で in-process hub 経路とフォールバックが効くことを確認。
 5. gate（`bun test` / `bunx tsc --noEmit` / lint）green を確認して各 repo でコミット。

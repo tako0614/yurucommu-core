@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
@@ -41,6 +41,8 @@ const ACTIVITY_AP_ID = "https://remote.example/activities/like-1";
 // handler is a no-op; the route only needs these names to exist.
 let likeCallCount = 0;
 let throwOnNextLike = false;
+let likeGate: Promise<void> | null = null;
+let onLikeStarted: (() => void) | null = null;
 
 const HANDLERS_MODULE =
   "../../routes/activitypub/handlers/user-inbox-handlers.ts";
@@ -83,6 +85,8 @@ mock.module(HANDLERS_MODULE, () => {
         // mid-flight before its writes commit.
         throw new Error("simulated mid-effect handler failure");
       }
+      onLikeStarted?.();
+      if (likeGate) await likeGate;
       const db = c.get("db") as Database;
       await db
         .update(objects)
@@ -110,6 +114,7 @@ async function freshDb(): Promise<Database> {
     "0004_blocklist.sql",
     "0008_actor_fields_aka.sql",
     "0009_object_tags.sql",
+    "0022_inbound_dispatch_claims.sql",
   ]) {
     const migration = await readFile(new URL(file, root), "utf8");
     await client.executeMultiple(migration);
@@ -166,6 +171,8 @@ async function postUserInbox(
 afterEach(() => {
   likeCallCount = 0;
   throwOnNextLike = false;
+  likeGate = null;
+  onLikeStarted = null;
 });
 
 async function setup() {
@@ -221,7 +228,12 @@ async function processedFlag(db: Database): Promise<number | null | undefined> {
   const row = await db
     .select({ processed: activities.processed })
     .from(activities)
-    .where(eq(activities.apId, ACTIVITY_AP_ID))
+    .where(
+      and(
+        eq(activities.actorApId, REMOTE_ACTOR),
+        eq(activities.direction, "inbound"),
+      ),
+    )
     .get();
   return row?.processed;
 }
@@ -231,12 +243,13 @@ test("#9 a dispatch that throws once then succeeds on retry applies the effect e
   const app = appWith(db);
   const keyId = `${REMOTE_ACTOR}#main-key`;
 
-  // First delivery: handler throws mid-effect. The route must ACK 202 (no 500
-  // that would trigger an aggressive retry) and must NOT commit the dedup row,
-  // so the effect is not yet applied and the row stays re-dispatchable.
+  // First delivery: a retryable internal failure must be visible as 503 so the
+  // sending server retries. The claim is released and the dedup row remains
+  // uncommitted.
   throwOnNextLike = true;
   const first = await postUserInbox(app, body, privateKeyPem, keyId);
-  expect(first.status).toEqual(202);
+  expect(first.status).toEqual(503);
+  expect(first.headers.get("retry-after")).toEqual("30");
   expect(likeCallCount).toEqual(1);
   expect(await likeCount(db)).toEqual(0); // effect NOT applied (handler threw)
   expect(await processedFlag(db)).toEqual(0); // NOT suppressed — retriable
@@ -275,4 +288,59 @@ test("#9 a duplicate delivery after a successful dispatch is suppressed (idempot
   expect(dup.status).toEqual(202);
   expect(likeCallCount).toEqual(1);
   expect(await likeCount(db)).toEqual(1);
+});
+
+test("an active dispatch lease fences a concurrent duplicate", async () => {
+  const { db, body, privateKeyPem } = await setup();
+  const app = appWith(db);
+  const keyId = `${REMOTE_ACTOR}#main-key`;
+
+  let release!: () => void;
+  likeGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let started!: () => void;
+  const startedPromise = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  onLikeStarted = started;
+
+  const owner = postUserInbox(app, body, privateKeyPem, keyId);
+  await startedPromise;
+
+  const duplicate = await postUserInbox(app, body, privateKeyPem, keyId);
+  expect(duplicate.status).toEqual(202);
+  expect(likeCallCount).toEqual(1);
+  expect(await likeCount(db)).toEqual(0);
+
+  release();
+  expect((await owner).status).toEqual(202);
+  expect(await likeCount(db)).toEqual(1);
+  expect(await processedFlag(db)).toEqual(1);
+});
+
+test("remote Activity.id is retained only in bounded raw metadata, not internal keys", async () => {
+  const { db, body, privateKeyPem } = await setup();
+  const app = appWith(db);
+  const keyId = `${REMOTE_ACTOR}#main-key`;
+
+  expect((await postUserInbox(app, body, privateKeyPem, keyId)).status).toEqual(
+    202,
+  );
+  const row = await db
+    .select({ apId: activities.apId, rawJson: activities.rawJson })
+    .from(activities)
+    .where(
+      and(
+        eq(activities.actorApId, REMOTE_ACTOR),
+        eq(activities.direction, "inbound"),
+      ),
+    )
+    .get();
+
+  expect(row?.apId).not.toEqual(ACTIVITY_AP_ID);
+  expect(row?.apId).toMatch(
+    /^https:\/\/yuru\.test\/ap\/activities\/inbound-[0-9a-f]{64}$/u,
+  );
+  expect(JSON.parse(row?.rawJson ?? "{}").id).toEqual(ACTIVITY_AP_ID);
 });

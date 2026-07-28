@@ -5,6 +5,8 @@ export type DeliveryFanoutFollowersMessageV1 = {
   type: "fanout_followers";
   activityId: string;
   followeeApId: string;
+  /** Stable keyset cursor used when a large graph spans queue invocations. */
+  cursor?: string;
   scheduledAt: string; // ISO8601 UTC
 };
 
@@ -24,6 +26,10 @@ export type DeliveryFanoutCommunityMessageV1 = {
   // receive `activityId`. Absent for non-Create activities (edit/delete relay
   // the activity directly).
   announceActivityId?: string;
+  /** Current bounded fan-out phase; absent means start with local members. */
+  stage?: "local_members" | "remote_members" | "remote_followers";
+  /** Stable actor-id keyset cursor within `stage`. */
+  cursor?: string;
   scheduledAt: string; // ISO8601 UTC
 };
 
@@ -106,12 +112,18 @@ export function isDeliveryQueueMessageV1(
       return (
         typeof v.activityId === "string" &&
         typeof v.followeeApId === "string" &&
+        (v.cursor === undefined || typeof v.cursor === "string") &&
         typeof v.scheduledAt === "string"
       );
     case "fanout_community":
       return (
         typeof v.activityId === "string" &&
         typeof v.communityApId === "string" &&
+        (v.stage === undefined ||
+          v.stage === "local_members" ||
+          v.stage === "remote_members" ||
+          v.stage === "remote_followers") &&
+        (v.cursor === undefined || typeof v.cursor === "string") &&
         typeof v.scheduledAt === "string"
       );
     case "resolve_actor":

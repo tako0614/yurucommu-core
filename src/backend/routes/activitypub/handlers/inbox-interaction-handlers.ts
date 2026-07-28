@@ -20,7 +20,9 @@ import {
   getActivityObjectId,
 } from "../inbox-types.ts";
 import { notifyLocalObjectOwner } from "./inbox-shared-helpers.ts";
+import { fetchAndPersistAnnouncedNote } from "./inbox-content-handlers.ts";
 import { isLocal } from "../../../lib/ap-ids.ts";
+import { notDeleted } from "../../../../db/index.ts";
 import {
   actorIsBlockedBy,
   canViewerReadObjectFull,
@@ -174,10 +176,15 @@ async function handleInteraction(
 // Like handler
 // ---------------------------------------------------------------------------
 
+/**
+ * A Like is INSTANCE-scoped: the affected object (and the local owner to
+ * notify) is resolved from `activity.object`, never from a delivery recipient.
+ * The recipient argument was already ignored; removing it is what stops the
+ * shared inbox from being able to run this once per local follower.
+ */
 export async function handleLike(
   c: ActivityContext,
   activity: Activity,
-  _recipient: ActorRow,
   actor: string,
   baseUrl: string,
 ) {
@@ -188,13 +195,70 @@ export async function handleLike(
 // Announce handler (repost/boost)
 // ---------------------------------------------------------------------------
 
+/**
+ * Does at least one (non-tombstoned) LOCAL actor have an accepted follow of
+ * `actorApId`? The fetch-and-store path below is gated on this so an arbitrary
+ * remote cannot use our inbox as an open relay: only a boost from someone a
+ * local user chose to follow may trigger an outbound object fetch.
+ */
+async function actorHasLocalFollowers(
+  db: Database,
+  actorApId: string,
+): Promise<boolean> {
+  const row = await db
+    .select({ followerApId: follows.followerApId })
+    .from(follows)
+    .innerJoin(
+      actors,
+      and(eq(actors.apId, follows.followerApId), notDeleted(actors)),
+    )
+    .where(
+      and(eq(follows.followingApId, actorApId), eq(follows.status, "accepted")),
+    )
+    .limit(1)
+    .get();
+  return Boolean(row);
+}
+
+/** Instance-scoped, exactly like {@link handleLike}. */
 export async function handleAnnounce(
   c: ActivityContext,
   activity: Activity,
-  _recipient: ActorRow,
   actor: string,
   baseUrl: string,
 ) {
+  // Fetch-and-store an UNKNOWN boosted remote object before recording the
+  // announce, so a followed remote's boost of a post this instance never saw
+  // still surfaces in feeds (previously the Announce only left a dangling
+  // announce edge + a counter no-op). Strictly gated: the target must be
+  // remote and unknown, and the booster must have at least one local follower
+  // (no open-relay amplification). On any fetch/validation failure the
+  // Announce degrades to exactly the old behavior — handleInteraction records
+  // the edge idempotently and the counter recompute no-ops on the absent row,
+  // so a later Create of the same object retroactively completes the boost.
+  const db = c.get("db");
+  const objectId = getActivityObjectId(activity);
+  if (objectId && !isLocal(objectId, baseUrl)) {
+    const known = await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, objectId))
+      .get();
+    if (!known && (await actorHasLocalFollowers(db, actor))) {
+      const persisted = await fetchAndPersistAnnouncedNote(
+        db,
+        objectId,
+        baseUrl,
+      );
+      if (!persisted) {
+        log.debug("Announce target fetch skipped or failed", {
+          event: "ap.announce.object_fetch_failed",
+          actor,
+          objectId,
+        });
+      }
+    }
+  }
   await handleInteraction("announce", c, activity, actor, baseUrl);
 }
 

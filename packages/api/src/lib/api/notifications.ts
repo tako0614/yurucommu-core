@@ -39,6 +39,7 @@ export async function fetchNotifications(options?: {
 
 export async function fetchUnreadCount(): Promise<number> {
   const res = await apiFetch("/api/notifications/unread/count");
+  await assertOk(res, "Failed to load unread notification count");
   const data = (await res.json()) as { count?: number };
   return data.count || 0;
 }

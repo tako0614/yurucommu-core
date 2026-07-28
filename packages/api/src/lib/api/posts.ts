@@ -169,6 +169,7 @@ export async function fetchBookmarks(options?: {
   if (options?.before) params.set("before", options.before);
   const query = params.toString() ? `?${params}` : "";
   const res = await apiFetch(`/api/bookmarks${query}`);
+  await assertOk(res, "Failed to load bookmarks");
   const data = (await res.json()) as PostListResponse & {
     next_cursor?: string | null;
     has_more?: boolean;

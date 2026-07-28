@@ -6,6 +6,7 @@ import { extractActorFromSession } from "./lib/session-actor.ts";
 import { isBackendPath } from "./lib/backend-paths.ts";
 import { wrapCloudflareBindings } from "./runtime/cloudflare.ts";
 import {
+  getMobileOidcAudience,
   getOidcClientCredentials,
   getOidcIssuerUrl,
 } from "./lib/oauth-providers.ts";
@@ -74,6 +75,14 @@ export interface YurucommuBackendPluginV1 {
 export interface CreateYurucommuBackendAppOptionsV1 {
   plugins?: YurucommuBackendPluginV1[];
   discovery?: YurucommuBackendDiscoveryOptionsV1;
+  /**
+   * Browser capture capabilities required by this product shell. Both default
+   * to denied; a product must opt in to each capability it actually uses.
+   */
+  browserMedia?: {
+    camera?: boolean;
+    microphone?: boolean;
+  };
 }
 
 export interface YurucommuBackendDiscoveryClientV1 {
@@ -343,7 +352,7 @@ function mountReadinessRoutes(
   ) => {
     const appUrl = normalizeOrigin(c.env.APP_URL, c.req.url);
     const issuer = getOidcIssuerUrl(c.env) ?? appUrl;
-    const { clientId } = getOidcClientCredentials(c.env);
+    const clientId = getMobileOidcAudience(c.env);
     return c.json(
       buildSocialServerDiscovery(appUrl, issuer, discovery, {
         oidcClientId: getOidcIssuerUrl(c.env)
@@ -504,7 +513,12 @@ function applyBodyLimits(app: YurucommuApp): void {
   });
 }
 
-function applyGlobalMiddleware(app: YurucommuApp): void {
+function applyGlobalMiddleware(
+  app: YurucommuApp,
+  browserMedia: NonNullable<
+    CreateYurucommuBackendAppOptionsV1["browserMedia"]
+  > = {},
+): void {
   app.onError(createErrorMiddleware());
 
   app.use("*", async (c, next) => {
@@ -562,11 +576,14 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     setSecurityHeader("X-Content-Type-Options", "nosniff");
     setSecurityHeader("X-Frame-Options", "DENY");
     setSecurityHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-    // Allow the app's OWN origin to use camera + microphone (WebRTC calls);
-    // still deny geolocation and deny camera/mic to any cross-origin frame.
+    // Browser capture is product-specific and denied by default. Even when a
+    // capability is enabled, only this origin may use it; cross-origin frames
+    // and geolocation remain denied.
+    const camera = browserMedia.camera === true ? "(self)" : "()";
+    const microphone = browserMedia.microphone === true ? "(self)" : "()";
     setSecurityHeader(
       "Permissions-Policy",
-      "camera=(self), microphone=(self), geolocation=()",
+      `camera=${camera}, microphone=${microphone}, geolocation=()`,
     );
     // HSTS: once a client has reached this host over HTTPS, keep it on HTTPS
     // (defeats SSL-strip / downgrade). Sent unconditionally — browsers ignore it
@@ -901,7 +918,7 @@ export function createYurucommuBackendApp(
   // /healthz and /readyz stay reachable even when payload validation
   // misbehaves.
   applyBodyLimits(app);
-  applyGlobalMiddleware(app);
+  applyGlobalMiddleware(app, options.browserMedia);
   for (const plugin of plugins) {
     plugin.setup?.(pluginContext);
   }

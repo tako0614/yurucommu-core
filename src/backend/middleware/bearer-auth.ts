@@ -6,6 +6,8 @@ import {
   issuerEndpoint,
 } from "../lib/oauth-providers.ts";
 
+const INTROSPECTION_TIMEOUT_MS = 5_000;
+
 export function requireBearerAuth(
   requiredScope: string,
 ): MiddlewareHandler<{ Bindings: Env; Variables: Variables }> {
@@ -27,15 +29,28 @@ export function requireBearerAuth(
       );
     }
 
-    const res = await fetch(issuerEndpoint(issuer, "/oauth/introspect"), {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        token,
-        client_id: clientId,
-        client_secret: clientSecret,
-      }).toString(),
-    });
+    let res: Response;
+    try {
+      res = await fetch(issuerEndpoint(issuer, "/oauth/introspect"), {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          token,
+          client_id: clientId,
+          client_secret: clientSecret,
+        }).toString(),
+        signal: AbortSignal.timeout(INTROSPECTION_TIMEOUT_MS),
+      });
+    } catch {
+      c.header("Retry-After", "5");
+      return c.json(
+        {
+          error: "temporarily_unavailable",
+          error_description: "Introspection request failed",
+        },
+        503,
+      );
+    }
     if (!res.ok) {
       return c.json(
         {

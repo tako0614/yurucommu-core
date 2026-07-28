@@ -23,18 +23,13 @@ import type { Activity } from "../inbox-types.ts";
 // ---------------------------------------------------------------------------
 
 type BatchStatement = BatchItem<"sqlite">;
-interface BatchableDb {
-  batch(
-    statements: readonly [BatchStatement, ...BatchStatement[]],
-  ): Promise<unknown>;
-}
 
-export async function runBatch(
-  db: Database,
-  statements: readonly [BatchStatement, ...BatchStatement[]],
-): Promise<void> {
-  await (db as unknown as BatchableDb).batch(statements);
-}
+// The batch primitive lives with the other D1 write primitives (src/db/
+// d1-write.ts) so the atomicity rule and the parameter-budget rule cannot
+// drift apart. Re-exported here because the inbox handlers are its heaviest
+// caller and this is the import path they already use.
+export { runBatch } from "../../../../db/d1-write.ts";
+import { runBatch } from "../../../../db/d1-write.ts";
 
 // ---------------------------------------------------------------------------
 // Shared helpers used by multiple inbox handler files
@@ -97,7 +92,7 @@ export async function findFollowByActivityId(
   followingApId: string;
   status: string;
 } | null> {
-  const row = await db
+  let row = await db
     .select({
       followerApId: follows.followerApId,
       followingApId: follows.followingApId,
@@ -106,6 +101,34 @@ export async function findFollowByActivityId(
     .from(follows)
     .where(eq(follows.activityApId, activityApIdValue))
     .get();
+  if (!row) {
+    // Inbound envelopes use an origin-bound internal activities.apId. Undo
+    // carries the peer's protocol id, so resolve that bounded raw-json id back
+    // to the internal row before looking up the follow edge. The direct lookup
+    // above preserves compatibility with legacy rows.
+    const source = await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(
+        and(
+          eq(activities.direction, "inbound"),
+          sql`json_extract(${activities.rawJson}, '$.id') = ${activityApIdValue}`,
+        ),
+      )
+      .limit(2);
+    for (const candidate of source) {
+      row = await db
+        .select({
+          followerApId: follows.followerApId,
+          followingApId: follows.followingApId,
+          status: follows.status,
+        })
+        .from(follows)
+        .where(eq(follows.activityApId, candidate.apId))
+        .get();
+      if (row) break;
+    }
+  }
   return row ?? null;
 }
 

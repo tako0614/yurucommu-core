@@ -133,10 +133,17 @@ test("WebP: EXIF / XMP chunks are removed; VP8 image data is kept", () => {
   expect(newSize).toBe(out.length - 8);
 });
 
-test("GIF and malformed input are passed through unchanged", () => {
+test("GIF is passed through; malformed declared raster input fails closed", () => {
   const gif = Uint8Array.from(ascii("GIF89a-some-bytes"));
   expect(stripImageMetadata(gif, "image/gif")).toBe(gif);
-  // A "JPEG" that does not start with SOI is returned unchanged (never corrupt).
+  // Returning the original bytes for a malformed supported container can leak
+  // arbitrary EXIF/XMP data that the parser failed to understand. Refuse the
+  // upload instead.
   const notJpeg = Uint8Array.from([0x00, 0x01, 0x02, 0x03]);
-  expect(stripImageMetadata(notJpeg, "image/jpeg")).toBe(notJpeg);
+  expect(() => stripImageMetadata(notJpeg, "image/jpeg")).toThrow(
+    "Malformed JPEG",
+  );
+  expect(() =>
+    stripImageMetadata(Uint8Array.from([0x89, 0x50, 0x4e, 0x47]), "image/png"),
+  ).toThrow("Malformed PNG");
 });

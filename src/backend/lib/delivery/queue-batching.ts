@@ -117,12 +117,17 @@ export async function enqueueFollowerEndpointDeliveries(
   baseUrl: string,
   activityId: string,
   followeeApId: string,
-): Promise<{ processed: number; capped: boolean }> {
+  startCursor: string | null = null,
+): Promise<{
+  processed: number;
+  capped: boolean;
+  nextCursor: string | null;
+}> {
   // Page through accepted followers with a keyset cursor instead of loading
   // every row into memory at once. Each page is planned and dispatched in
   // ≤100-message chunks before the next page is read, bounding both memory
   // and per-call batch size.
-  let cursor: string | null = null;
+  let cursor: string | null = startCursor;
   let processed = 0;
   let capped = false;
 
@@ -184,7 +189,7 @@ export async function enqueueFollowerEndpointDeliveries(
     }
   }
 
-  return { processed, capped };
+  return { processed, capped, nextCursor: capped ? cursor : null };
 }
 
 /**
@@ -215,21 +220,27 @@ export async function snapshotAndEnqueueFollowerDeliveries(
     return;
   }
 
-  const { processed, capped } = await enqueueFollowerEndpointDeliveries(
-    db,
-    queue,
-    env.APP_URL,
-    activityId,
-    followeeApId,
-  );
+  let cursor: string | null = null;
+  let processed = 0;
+  do {
+    const page = await enqueueFollowerEndpointDeliveries(
+      db,
+      queue,
+      env.APP_URL,
+      activityId,
+      followeeApId,
+      cursor,
+    );
+    processed += page.processed;
+    cursor = page.nextCursor;
+  } while (cursor !== null);
 
-  if (capped) {
-    log.warn("Follower snapshot delivery capped at max followers", {
-      event: "delivery.fanout.snapshot_capped",
+  if (processed > FANOUT_MAX_FOLLOWERS) {
+    log.info("Follower snapshot continued across bounded pages", {
+      event: "delivery.fanout.snapshot_continued",
       followee: followeeApId,
       activityId,
       processed,
-      max: FANOUT_MAX_FOLLOWERS,
     });
   }
 }
@@ -243,27 +254,33 @@ export async function processFanoutFollowers(
   if (!requireQueue(env, "fanout", message)) return;
   const queueEnv = env as QueueEnv;
 
-  const { processed, capped } = await enqueueFollowerEndpointDeliveries(
-    db,
-    queueEnv.DELIVERY_QUEUE,
-    env.APP_URL,
-    msg.activityId,
-    msg.followeeApId,
-  );
+  const { processed, capped, nextCursor } =
+    await enqueueFollowerEndpointDeliveries(
+      db,
+      queueEnv.DELIVERY_QUEUE,
+      env.APP_URL,
+      msg.activityId,
+      msg.followeeApId,
+      msg.cursor ?? null,
+    );
 
-  if (capped) {
-    // Extremely large follower sets are capped per invocation to keep the
-    // Worker within CPU/time limits. Endpoint-deduped delivery jobs are
-    // idempotent (computeDeliveryJobId + upsertDeliveryJob), and the planner
-    // re-enqueues any still-unknown recipients on the next fanout, so capped
-    // followers are re-planned on the actor's next delivery rather than lost
-    // silently.
-    log.warn("Fanout capped at max followers for one invocation", {
-      event: "delivery.fanout.capped",
+  if (capped && nextCursor !== null) {
+    // Send the continuation before ACK. If this send fails, Cloudflare retries
+    // the current message; deterministic endpoint job ids make that safe.
+    await sendQueueMessage(env, {
+      version: DELIVERY_QUEUE_MESSAGE_VERSION,
+      type: "fanout_followers",
+      activityId: msg.activityId,
+      followeeApId: msg.followeeApId,
+      cursor: nextCursor,
+      scheduledAt: nowIso(),
+    });
+    log.info("Follower fanout continued from stable cursor", {
+      event: "delivery.fanout.continued",
       followee: msg.followeeApId,
       activityId: msg.activityId,
       processed,
-      max: FANOUT_MAX_FOLLOWERS,
+      cursor: nextCursor,
     });
   }
 

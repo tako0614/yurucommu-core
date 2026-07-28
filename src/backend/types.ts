@@ -34,8 +34,14 @@ export interface EnvVars {
   // Pins the OIDC/OAuth subject allowed to take the single owner slot. When set,
   // only a first-login whose subject equals this value becomes `owner`; any other
   // first-login is refused. Prevents an owner-slot race on an OIDC-seeded Capsule.
+  // Accepts either the bare issuer subject or the namespaced `<provider>:<sub>`.
   OIDC_OWNER_SUB?: string;
   TAKOSUMI_ACCOUNTS_OWNER_SUB?: string;
+  // Explicit opt-in to let an UNPINNED first OAuth/OIDC login take the owner
+  // slot. Without a pin and without this flag, owner creation over OAuth is
+  // refused. It exists because a pairwise subject cannot be known before the
+  // first login: enable it, sign in, then pin OIDC_OWNER_SUB and clear it.
+  ALLOW_UNPINNED_OWNER_CLAIM?: string;
   // Comma-separated allowlist of OAuth/OIDC subjects permitted to auto-provision
   // a NON-owner (member) account. Empty/unset = member auto-provisioning is
   // CLOSED (single-user default): once the owner exists, no new external subject

@@ -1,12 +1,6 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
-import {
-  activities,
-  actors,
-  follows,
-  likes,
-  objects,
-} from "../../../../db/index.ts";
+import { and, eq, gt, or, sql } from "drizzle-orm";
+import { activities, actors, follows } from "../../../../db/index.ts";
 import {
   activityApId,
   generateId,
@@ -43,6 +37,7 @@ export async function handleFollow(
   recipient: ActorRow,
   actor: string,
   baseUrl: string,
+  sourceActivityId: string = activity.id || "",
 ) {
   const db = c.get("db");
 
@@ -152,7 +147,9 @@ export async function handleFollow(
       id: acceptId,
       type: "Accept",
       actor: recipient.apId,
-      object: activityId,
+      // Echo the peer's bounded protocol id, not our origin-bound internal
+      // ledger id. Remote servers match Accept.object to their Follow id.
+      object: sourceActivityId || activityId,
     };
 
     // Store accept activity before enqueue.
@@ -160,7 +157,7 @@ export async function handleFollow(
       apId: acceptId,
       type: "Accept",
       actorApId: recipient.apId,
-      objectApId: activityId,
+      objectApId: sourceActivityId || activityId,
       rawJson: JSON.stringify(acceptActivity),
       direction: "outbound",
     });
@@ -294,10 +291,20 @@ export async function handleReject(
 // Undo handler
 // ---------------------------------------------------------------------------
 
+/**
+ * `recipient` is null when the Undo arrived at the shared inbox as an
+ * INSTANCE-scoped activity — i.e. Undo(Like|Announce), which is actor-keyed
+ * and idempotent and names no local actor. Undo(Follow|Block) is object-actor
+ * scoped and always dispatched with its resolved target, so a null recipient
+ * on a follow branch means the target could not be resolved; that is logged
+ * and refused rather than guessed at. The previous code guessed: it fell back
+ * to deleting the signer's likes across EVERY object the "recipient" had
+ * authored and rewriting every one of that actor's `objects` rows.
+ */
 export async function handleUndo(
   c: ActivityContext,
   activity: Activity,
-  recipient: ActorRow,
+  recipient: ActorRow | null,
   actor: string,
   _baseUrl: string,
 ) {
@@ -318,9 +325,17 @@ export async function handleUndo(
   }
 
   if (typeIncludes(objectType, "Follow")) {
+    if (!recipient) {
+      log.warn("Undo(Follow) without a resolved local target", {
+        event: "ap.undo.follow.no_recipient",
+        actor,
+        activityId: activity.id,
+      });
+      return;
+    }
     await undoFollow(db, objectId, actor, recipient);
   } else if (typeIncludes(objectType, "Like")) {
-    await undoLike(db, objectId, activityObject, actor, recipient);
+    await undoLike(db, objectId, activityObject, actor);
   } else if (typeIncludes(objectType, "Announce")) {
     await undoAnnounce(db, objectId, activityObject, actor);
   }
@@ -339,16 +354,25 @@ async function resolveUndoByActivityId(
   db: Database,
   objectId: string,
   actor: string,
-  recipient: ActorRow,
+  recipient: ActorRow | null,
 ): Promise<boolean> {
   const originalActivity = await db
     .select({
+      apId: activities.apId,
       type: activities.type,
       objectApId: activities.objectApId,
       actorApId: activities.actorApId,
     })
     .from(activities)
-    .where(eq(activities.apId, objectId))
+    .where(
+      or(
+        eq(activities.apId, objectId),
+        and(
+          eq(activities.direction, "inbound"),
+          sql`json_extract(${activities.rawJson}, '$.id') = ${objectId}`,
+        ),
+      ),
+    )
     .get();
   if (!originalActivity) return false;
 
@@ -363,7 +387,17 @@ async function resolveUndoByActivityId(
   }
 
   if (originalActivity.type === "Follow") {
-    const follow = await findFollowByActivityId(db, objectId);
+    // The followerCount decrement is keyed on the followed actor, so an
+    // instance-dispatched Undo (no resolved local target) must not run it.
+    if (!recipient) {
+      log.warn("Undo(Follow) by activity id without a resolved local target", {
+        event: "ap.undo.follow.no_recipient",
+        actor,
+        activityId: objectId,
+      });
+      return true;
+    }
+    const follow = await findFollowByActivityId(db, originalActivity.apId);
     if (follow) {
       await undoFollowEdge(
         db,
@@ -391,7 +425,14 @@ async function resolveUndoByActivityId(
     // A crash-then-retry converges (the recompute is idempotent against the true
     // edge set) instead of permanently over-counting on the retry's no-op
     // delete. The actor-mismatch guard above still constrains who may undo.
-    await undoInteraction(db, kind, countField, undefined, objectId, actor);
+    await undoInteraction(
+      db,
+      kind,
+      countField,
+      undefined,
+      originalActivity.apId,
+      actor,
+    );
     return true;
   }
 
@@ -476,12 +517,26 @@ async function undoFollow(
   await undoFollowEdge(db, followerApId, followingApId, recipient.apId);
 }
 
+/**
+ * Undo(Like).
+ *
+ * If the like edge cannot be identified — from the inner object's `object`, or
+ * from the referenced Like activity id — there is NOTHING to undo and we say
+ * so. There used to be a "last resort" here that deleted every like the signer
+ * held on ANY object authored by the delivery recipient and then recomputed
+ * `likeCount` for EVERY one of that actor's `objects` rows. It was reachable
+ * from a malformed `{type:'Undo', object:{type:'Like', id:...}}` with no inner
+ * `object` (and from the actor-mismatch branch), and under the shared inbox it
+ * ran once per local follower, so a single non-conformant peer could both wipe
+ * a user's likes across an author's whole timeline and amplify a full-table
+ * UPDATE by the follower count. Nothing about the activity authorised that
+ * scope: the only thing it identified was the signer.
+ */
 async function undoLike(
   db: Database,
   objectId: string | null,
   activityObject: ReturnType<typeof getActivityObject>,
   actor: string,
-  recipient: ActorRow,
 ): Promise<void> {
   const handled = await undoInteraction(
     db,
@@ -493,43 +548,13 @@ async function undoLike(
   );
   if (handled) return;
 
-  // Last resort: delete any like from this actor for the recipient's objects.
-  // #COUNTER-SYM: co-commit the edge delete and a COUNT(*) recompute of likeCount
-  // in one atomic batch (mirrors the primary undoInteraction path). Previously
-  // the delete committed first and the count was decremented (`- 1`) in a
-  // SEPARATE statement; a crash between them, then a peer retry whose delete
-  // matches 0 rows, permanently SKIPPED the decrement → a like OVER-count.
-  // Deriving each affected object's likeCount from COUNT(*) of the remaining like
-  // rows makes the fallback idempotent so a crash-then-retry CONVERGES instead of
-  // drifting.
-  // The recipient (local user) can have authored thousands of objects; splicing
-  // every id into an `IN (...)` would blow D1's 100-bound-parameter ceiling.
-  // Express the affected set as a SUBQUERY (delete) and a direct predicate
-  // (update) so no per-object parameter is bound. An empty set is a harmless
-  // no-op batch, so the previous early-return is unnecessary.
-  const recipientObjectsSubquery = db
-    .select({ apId: objects.apId })
-    .from(objects)
-    .where(eq(objects.attributedTo, recipient.apId));
-
-  await runBatch(db, [
-    db
-      .delete(likes)
-      .where(
-        and(
-          eq(likes.actorApId, actor),
-          inArray(likes.objectApId, recipientObjectsSubquery),
-        ),
-      ),
-    db
-      .update(objects)
-      .set({
-        likeCount: sql`(SELECT COUNT(*) FROM ${likes} WHERE ${likes.objectApId} = ${objects.apId})`,
-      })
-      .where(eq(objects.attributedTo, recipient.apId)),
-  ]);
+  log.warn("Undo(Like) names no resolvable like edge; ignoring", {
+    event: "ap.undo.like.unresolved",
+    actor,
+    activityId: objectId,
+    object: activityObject?.object,
+  });
 }
-
 async function undoAnnounce(
   db: Database,
   objectId: string | null,

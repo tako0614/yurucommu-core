@@ -1,16 +1,17 @@
 import { expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 
 import { assertSpyCalls, spy } from "#test/mock";
+import { createTestDb } from "../../helpers/d1-semantics.ts";
+import { activities, actorCache, actors } from "../../../../db/index.ts";
 import inboxRoutes from "../../../routes/activitypub/inbox.ts";
 import { generateKeyPair, signRequest } from "../../../federation-helpers.ts";
 
 function createDbMock(publicKeyPem: string) {
-  // The inbound-activity store is now a single atomic
-  // `insert(activities).values(...).onConflictDoNothing().returning().get()`.
-  // A non-null `.get()` row means THIS delivery won the insert and must
-  // proceed to dispatch; null means a concurrent/prior delivery already stored
-  // it. Return a non-null row so the store-and-dispatch path runs.
+  // Parse-rejection tests never reach the persistence layer. Keep this narrow
+  // mock for those cases; successful inbox behavior is covered against the
+  // real D1-semantics harness below.
   const insertValues = spy((..._args: unknown[]) => ({
     onConflictDoNothing: () => ({
       returning: () => ({
@@ -81,7 +82,41 @@ async function signedInboxRequest(
 test("activitypub inbox - accepts signed object activities and stores them once", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
-  const { db, insertValues } = createDbMock(publicKeyPem);
+  const { db } = await createTestDb();
+  await db.insert(actors).values([
+    {
+      apId: "https://test.local/ap/users/bob",
+      type: "Person",
+      preferredUsername: "bob",
+      inbox: "https://test.local/ap/users/bob/inbox",
+      outbox: "https://test.local/ap/users/bob/outbox",
+      followersUrl: "https://test.local/ap/users/bob/followers",
+      followingUrl: "https://test.local/ap/users/bob/following",
+      publicKeyPem: "local-public",
+      privateKeyPem: "local-private",
+    },
+    {
+      apId: actorApId,
+      type: "Person",
+      preferredUsername: "alice",
+      inbox: `${actorApId}/inbox`,
+      outbox: `${actorApId}/outbox`,
+      followersUrl: `${actorApId}/followers`,
+      followingUrl: `${actorApId}/following`,
+      publicKeyPem,
+      privateKeyPem: "remote-private-unused",
+    },
+  ]);
+  await db.insert(actorCache).values({
+    apId: actorApId,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${actorApId}/inbox`,
+    publicKeyId: `${actorApId}#main-key`,
+    publicKeyPem,
+    rawJson: "{}",
+    lastFetchedAt: new Date().toISOString(),
+  });
   const app = new Hono();
 
   app.use("*", async (c, next) => {
@@ -106,11 +141,30 @@ test("activitypub inbox - accepts signed object activities and stores them once"
   );
 
   expect(res.status).toEqual(202);
-  // The atomic insert-or-skip path replaces the prior read-then-insert, so the
-  // store no longer issues a separate `activities.findFirst` read; idempotency
-  // is now enforced by `onConflictDoNothing().returning().get()`.
-  assertSpyCalls(db.query.activities.findFirst, 0);
-  assertSpyCalls(insertValues, 1);
+
+  const duplicate = await app.fetch(
+    await signedInboxRequest(body, privateKeyPem, `${actorApId}#main-key`),
+    { APP_URL: "https://test.local" },
+  );
+  expect(duplicate.status).toEqual(202);
+
+  const stored = await db
+    .select({
+      apId: activities.apId,
+      rawJson: activities.rawJson,
+      processed: activities.processed,
+    })
+    .from(activities)
+    .where(eq(activities.actorApId, actorApId))
+    .all();
+  expect(stored).toHaveLength(1);
+  expect(stored[0]?.apId).toMatch(
+    /^https:\/\/test\.local\/ap\/activities\/inbound-[a-f0-9]{64}$/,
+  );
+  expect(JSON.parse(stored[0]?.rawJson ?? "{}").id).toBe(
+    "https://remote.example/activities/one",
+  );
+  expect(stored[0]?.processed).toBe(1);
 });
 
 function createBlocklistDbMock(publicKeyPem: string, blockedActorApId: string) {
@@ -227,18 +281,10 @@ function createSharedInboxDbMock(
   publicKeyPem: string,
   localFollowerApIds: string[],
 ) {
-  // The inbound-activity store is now a single atomic
-  // `insert(activities).values(...).onConflictDoNothing().returning().get()`,
-  // and the Like dispatch issues further chained inserts. Return an object
-  // that is chainable (→ a non-null row, so the store reports "won the insert"
-  // and the route proceeds to fan-out instead of treating it as a duplicate
-  // and short-circuiting) and also awaitable for any non-chaining call site.
+  // The inbound ledger and claim inserts are idempotent. Like dispatch issues
+  // further chained inserts, so keep the test double broadly awaitable.
   const insertChain = {
-    onConflictDoNothing: () => ({
-      returning: () => ({
-        get: () => Promise.resolve({ apId: "https://remote.example/inserted" }),
-      }),
-    }),
+    onConflictDoNothing: () => Promise.resolve({ rowsAffected: 1 }),
     then: (resolve: (value: undefined) => void) => resolve(undefined),
   };
   const insertValues = spy((..._args: unknown[]) => insertChain);
@@ -265,7 +311,9 @@ function createSharedInboxDbMock(
     get: () => Promise.resolve(null),
     then: (resolve: (rows: unknown[]) => void) => resolve([]),
   };
-  const chainableSet = { where: () => Promise.resolve(undefined) };
+  const chainableSet = {
+    where: () => Promise.resolve({ rowsAffected: 1 }),
+  };
   const db = {
     query: {
       actors: {
@@ -284,7 +332,9 @@ function createSharedInboxDbMock(
         ),
       },
       activities: {
-        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+        findFirst: spy((..._args: unknown[]) =>
+          Promise.resolve({ processed: 0 }),
+        ),
       },
       blockedActors: {
         findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
@@ -297,6 +347,7 @@ function createSharedInboxDbMock(
       values: insertValues,
     })),
     update: spy((..._args: unknown[]) => ({ set: () => chainableSet })),
+    batch: spy((..._args: unknown[]) => Promise.resolve([])),
     select: spy((..._args: unknown[]) => ({
       from: () => ({ where: () => followerWhere }),
     })),
@@ -305,7 +356,7 @@ function createSharedInboxDbMock(
   return { db, insertValues, limit, findMany };
 }
 
-test("activitypub shared inbox - verifies, stores, and fans out to local followers (not black-holed)", async () => {
+test("activitypub shared inbox verifies, stores, and instance-dispatches Like once", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
   const { db, insertValues, limit, findMany } = createSharedInboxDbMock(
@@ -348,15 +399,12 @@ test("activitypub shared inbox - verifies, stores, and fans out to local followe
   );
 
   expect(res.status).toEqual(202);
-  // The activity was deduped/stored via the atomic insert-or-skip path (proves
-  // it ran the real pipeline, not the old bare-202 black hole). The store no
-  // longer issues a separate `activities.findFirst` read — idempotency comes
-  // from `onConflictDoNothing().returning().get()` — so the insert running and
-  // returning a "won" row is the evidence the store executed.
-  assertSpyCalls(db.query.activities.findFirst, 0);
-  // Local followers of the sending actor were resolved and loaded for fan-out.
-  assertSpyCalls(limit, 1);
-  assertSpyCalls(findMany, 1);
+  // Claim resolution reads the unprocessed ledger exactly once.
+  assertSpyCalls(db.query.activities.findFirst, 1);
+  // Like is instance-scoped: its handler resolves the affected object itself.
+  // It must not be duplicated once per local follower.
+  assertSpyCalls(limit, 0);
+  assertSpyCalls(findMany, 0);
   // At least the inbound activity insert ran.
   expect(insertValues.calls.length >= 1).toEqual(true);
 });

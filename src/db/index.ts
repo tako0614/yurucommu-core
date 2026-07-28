@@ -96,3 +96,20 @@ export function notDeleted(
 
 export { nowIso } from "./schema.ts";
 export * from "./schema.ts";
+
+// D1-safe write primitives. Re-exported here so a writer reaching for the DB
+// module finds the chunking/batch surface without knowing the file name.
+export {
+  D1_MAX_BATCH_STATEMENTS,
+  D1_SAFE_PARAM_BUDGET,
+  D1BatchTooLargeError,
+  D1BatchUnsupportedError,
+  D1WriteShapeError,
+  inChunks,
+  insertMany,
+  notInSubquery,
+  replaceSet,
+  runBatch,
+  unsafeUnchunkedStatement,
+  type D1Statement,
+} from "./d1-write.ts";

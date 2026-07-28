@@ -157,13 +157,7 @@ test("userInboxHandlers hardening - handleLike writes like/count/inbox in a sing
     object: objectApId,
   };
 
-  await handleLike(
-    context,
-    activity,
-    {} as unknown as ActorRow,
-    actorApId,
-    "https://example.com",
-  );
+  await handleLike(context, activity, actorApId, "https://example.com");
 
   // Three selects: the audit#17 gate's target lookup + actorIsBlockedBy lookup
   // (canViewerReadObjectFull short-circuits on a public, non-community object
@@ -213,7 +207,6 @@ test("userInboxHandlers hardening - handleLike treats unique conflicts as idempo
   await handleLike(
     context,
     activity,
-    {} as unknown as ActorRow,
     "https://example.com/ap/users/alice",
     "https://example.com",
   );

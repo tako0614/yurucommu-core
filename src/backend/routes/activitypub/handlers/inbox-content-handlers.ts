@@ -1,5 +1,15 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, count, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
@@ -8,6 +18,7 @@ import {
   announces,
   blocks,
   bookmarks,
+  communities,
   follows,
   inbox as inboxTable,
   likes,
@@ -45,6 +56,8 @@ import {
   fetchAndUpsertActorCache,
   getInstanceFetchSignerByDb,
 } from "../../../lib/activitypub-actor-cache.ts";
+import { fetchWithTimeout } from "../../../lib/federation-fetch.ts";
+import { signRequest } from "../../../lib/ap-signing.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { destinationDeclaresAlias } from "../../../lib/account-migration.ts";
 import { chunkForInClause } from "../../../lib/chunk.ts";
@@ -132,13 +145,13 @@ function isActorTypeUpdate(type: string | string[] | undefined): boolean {
 
 // The ActivityStreams public-collection magic value, including the legacy
 // short forms some implementations still emit.
-const PUBLIC_COLLECTION = new Set([
+export const PUBLIC_COLLECTION = new Set([
   "https://www.w3.org/ns/activitystreams#Public",
   "as:Public",
   "Public",
 ]);
 
-function addressesPublic(addresses: string[]): boolean {
+export function addressesPublic(addresses: string[]): boolean {
   return addresses.some((a) => PUBLIC_COLLECTION.has(a));
 }
 
@@ -146,7 +159,7 @@ function addressesPublic(addresses: string[]): boolean {
 // and NOT to Public is a followers-only post. We match any `/followers`
 // collection by suffix (mirrors isDirectNote), which covers the author's
 // collection without needing to resolve it.
-function addressesFollowers(addresses: string[]): boolean {
+export function addressesFollowers(addresses: string[]): boolean {
   return addresses.some((a) => a.endsWith("/followers"));
 }
 
@@ -194,7 +207,7 @@ function isDirectShapedNote(object: { to?: string[]; cc?: string[] }): boolean {
 // Cap persisted addressing arrays so a remote cannot bloat a row with a huge
 // to/cc list; 64 entries is far beyond any real audience and keeps the explicit-
 // recipient (mention) gate working.
-const MAX_ADDRESS_ENTRIES = 64;
+export const MAX_ADDRESS_ENTRIES = 64;
 function boundAddressJson(addresses: string[] | undefined): string {
   if (!Array.isArray(addresses) || addresses.length === 0) return "[]";
   return JSON.stringify(
@@ -202,6 +215,21 @@ function boundAddressJson(addresses: string[] | undefined): string {
       .filter((a) => typeof a === "string")
       .slice(0, MAX_ADDRESS_ENTRIES),
   );
+}
+
+/**
+ * Normalize an AS2 addressing field (`to` / `cc` / `audience`) to a bounded list
+ * of strings. The field may be absent, a bare string, or an array mixing
+ * strings and embedded objects; only the string forms are usable as a
+ * collection id, and the same 64-entry cap applies so a remote cannot force a
+ * huge `IN (...)` lookup.
+ */
+function addressList(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((a): a is string => typeof a === "string")
+    .slice(0, MAX_ADDRESS_ENTRIES);
 }
 
 /**
@@ -888,6 +916,35 @@ export async function handleCreateStory(
     storyDataJson = JSON.stringify({ ...attachmentData, overlays: undefined });
   }
 
+  // Carry the community scope across the federation boundary. A story that
+  // arrived through community fanout is addressed to the community's followers
+  // collection, not the author's; storing it with no scope made the local read
+  // gate treat it as a personal story and serve it to every local follower of
+  // the author, member or not. Resolve the addressed collection against the
+  // communities this instance actually knows and only then mark the scope —
+  // an unresolvable audience is left unscoped rather than trusted, and the
+  // membership gate is still evaluated locally against `community_members`.
+  const addressedCollections = [
+    ...addressList((activity as { audience?: unknown }).audience),
+    ...addressList(object.to),
+    ...addressList((object as { audience?: unknown }).audience),
+  ];
+  const community = addressedCollections.length
+    ? await db
+        .select({ apId: communities.apId })
+        .from(communities)
+        .where(
+          and(
+            or(
+              inArray(communities.followersUrl, addressedCollections),
+              inArray(communities.apId, addressedCollections),
+            ),
+            isNull(communities.deletedAt),
+          ),
+        )
+        .get()
+    : undefined;
+
   const inserted = await db
     .insert(objects)
     .values({
@@ -896,6 +953,12 @@ export async function handleCreateStory(
       attributedTo: actor,
       content: "",
       attachmentsJson: storyDataJson,
+      ...(community
+        ? {
+            communityApId: community.apId,
+            audienceJson: JSON.stringify([community.apId]),
+          }
+        : {}),
       endTime,
       published: publishedAt,
       isLocal: 0,
@@ -905,6 +968,142 @@ export async function handleCreateStory(
     .get();
 
   if (!inserted) return; // duplicate
+}
+
+// ---------------------------------------------------------------------------
+// Announce target resolution (fetch-and-store a boosted remote Note)
+// ---------------------------------------------------------------------------
+
+// Upper bound on the fetch of a boosted remote object. Mirrors the actor-cache
+// fetch timeout; the body size is already capped by fetchWithTimeout's wrapper.
+const ANNOUNCED_OBJECT_FETCH_TIMEOUT_MS = 15_000;
+
+/**
+ * Resolve an inbound Announce whose target this instance has never seen: fetch
+ * the boosted object from its origin, validate it, and persist it as a remote
+ * Note so the announce edge recorded by handleAnnounce surfaces in feeds
+ * ("reposted by X") instead of dangling on an unknown ap_id.
+ *
+ * Reuses the SSRF-guarded federation fetch discipline end to end:
+ * `fetchWithTimeout` (resolver-pinned DNS validation, no redirects, capped +
+ * time-bounded body) with the GET signed as the instance actor so a
+ * secure-mode remote serves the document (mirrors fetchAndUpsertActorCache).
+ *
+ * Validation mirrors the inbound Create(Note) gates:
+ *   - the document's `id` must equal the fetched URL (no id squatting);
+ *   - `attributedTo` must be same-origin with the object id (a remote author
+ *     may only own objects under its own host — mirrors
+ *     isObjectIdOriginMismatch, and a local-origin object is never fetched);
+ *   - type must include "Note"; direct/DM-shaped addressing is refused;
+ *   - only world-readable classifications (public / unlisted) are persisted —
+ *     a boost must never widen a followers-only/direct object's audience, and
+ *     this instance cannot verify a remote author's follower audience.
+ *
+ * Depth cap: the object's `inReplyTo` is stored verbatim but NEVER resolved —
+ * a single Announce triggers at most one object fetch (plus a best-effort
+ * author-profile cache fill), not a thread walk.
+ *
+ * Best-effort by contract: every failure returns false and the Announce is
+ * dropped exactly as it was before this path existed.
+ */
+export async function fetchAndPersistAnnouncedNote(
+  db: Database,
+  objectId: string,
+  baseUrl: string,
+): Promise<boolean> {
+  // Never fetch a local id (a local object that does not exist is just gone)
+  // and never fetch an unsafe URL (non-http(s), credentials, blocked host…).
+  if (isLocal(objectId, baseUrl) || !isSafeRemoteUrl(objectId)) return false;
+
+  let note: ActivityObject & { attributedTo?: unknown };
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/activity+json, application/ld+json",
+    };
+    const signer = await getInstanceFetchSignerByDb(db);
+    if (signer) {
+      Object.assign(
+        headers,
+        await signRequest(signer.privateKeyPem, signer.keyId, "GET", objectId),
+      );
+    }
+    const res = await fetchWithTimeout(objectId, {
+      headers,
+      timeout: ANNOUNCED_OBJECT_FETCH_TIMEOUT_MS,
+    });
+    if (!res.ok) return false;
+    const raw: unknown = await res.json();
+    if (!raw || typeof raw !== "object") return false;
+    note = raw as ActivityObject & { attributedTo?: unknown };
+  } catch {
+    // Unresolvable / oversized / timed-out fetch: drop silently (the caller
+    // logs at debug level), matching the pre-existing unknown-object behavior.
+    return false;
+  }
+
+  if (note.id !== objectId) return false;
+  if (!typeIncludes(note.type, "Note")) return false;
+
+  const attributedTo =
+    typeof note.attributedTo === "string" ? note.attributedTo : null;
+  if (!attributedTo || !isSafeRemoteUrl(attributedTo)) return false;
+  try {
+    if (getDomain(attributedTo) !== getDomain(objectId)) return false;
+  } catch {
+    return false;
+  }
+
+  // Addressing gates: a DM-shaped object must never be stored world-readable,
+  // and a non-public classification is refused outright (see doc comment).
+  if (isDirectShapedNote(note)) return false;
+  const visibility = classifyInboundNoteVisibility(note);
+  if (visibility !== "public" && visibility !== "unlisted") return false;
+
+  // Best-effort author profile fill so the surfaced boost renders with the
+  // author's name/icon. Cache-when-absent; a failure never blocks the persist.
+  const cachedAuthor = await db
+    .select({ apId: actorCache.apId })
+    .from(actorCache)
+    .where(eq(actorCache.apId, attributedTo))
+    .get();
+  if (!cachedAuthor) {
+    try {
+      await fetchAndUpsertActorCache(db, attributedTo, {
+        timeout: ANNOUNCED_OBJECT_FETCH_TIMEOUT_MS,
+        mode: "insert",
+        signer: (await getInstanceFetchSignerByDb(db)) ?? undefined,
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  const attachments = note.attachment ? JSON.stringify(note.attachment) : "[]";
+  await db
+    .insert(objects)
+    .values({
+      apId: objectId,
+      type: "Note",
+      attributedTo,
+      content: boundInboundContent(note.content),
+      summary: boundInboundSummary(note.summary),
+      attachmentsJson: boundAttachmentsJson(attachments),
+      // Stored verbatim, never resolved (depth cap): a boosted reply keeps its
+      // honest thread link even though the parent may stay unknown here.
+      inReplyTo: note.inReplyTo || null,
+      visibility,
+      toJson: boundAddressJson(note.to),
+      ccJson: boundAddressJson(note.cc),
+      communityApId: null,
+      published: normalizeInboundTimestamp(
+        note.published,
+        new Date().toISOString(),
+      ),
+      isLocal: 0,
+    })
+    .onConflictDoNothing();
+
+  return true;
 }
 
 // ---------------------------------------------------------------------------

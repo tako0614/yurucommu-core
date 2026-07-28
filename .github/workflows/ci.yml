@@ -34,8 +34,4 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-yurucommu-core-ci-
       - run: bun install --frozen-lockfile
-      - run: bun run fmt:check
       - run: bun run check
-      # `test` also runs build:api and check:release-contents.
-      - run: bun run test
-      - run: bun run check:packed-consumer

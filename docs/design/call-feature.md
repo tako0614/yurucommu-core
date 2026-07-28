@@ -145,7 +145,7 @@ env は `EnvVars`（`types.ts`）に追加済み。secret（`_TURN_SECRET`/`_SFU
 - **gates**: core `tsc` 0 / api `tsc` 0 / api build OK / `bun run check` 0 / `check:release-contents` 0 / core full suite 848/848。
 
 **DONE — release + Phase 2（session 2）**:
-1. **`@takosjp/yurucommu-core@3.3.0` + `@takosjp/yurucommu-api@3.3.0` を npm に publish 済み**（publish-package-resumable、integrity 検証込み）。両 product deps `^3.3.0` に bump + install 済み。
+1. **`@takosjp/yurucommu-core@3.3.0` + `@takosjp/yurucommu-api@3.3.0` を npm に publish 済み**（当時の integrity 検証付き公開手順）。両 product deps `^3.3.0` に bump + install 済み。
 2. **Phase 2 UI 実装済み（両 product）**: yurumeet = `src/lib/call-context.tsx` (`CallProvider`/`useCall`) + `src/components/CallOverlay.tsx` + `ChatPane.tsx` header の音声/ビデオボタン + `styles.css` `.p-call*`、main.tsx に mount。yurucommu = `src/lib/call-context.tsx`（jotai toast 連携）+ `src/components/call/CallOverlay.tsx`（Tailwind dark）+ `DMChatPanel.tsx` header ボタン + i18n `call.*` keys（ja/en parity test green）、`App.tsx` AppShell に mount。※両 product とも wrapper は Solid context に統一（jotai は toast のみ）。
 3. **deploy 配線済み（両 product）**: `wrangler.jsonc`（`durable_objects.bindings` CALL_SIGNALING + `migrations` tag `calls-v1` new_sqlite_classes）/ `scripts/build-*-worker.ts` の生成 entry に DO re-export + `CALL_SIGNALING` binding 型 / `main.tf`（DO migrations + `durable_object_namespace` binding + `rtc_ice_servers`/`rtc_turn_uris`/`rtc_turn_secret`(sensitive)/`rtc_turn_ttl` variables + 条件付き bindings + turn_uris⇔turn_secret precondition）。**`tofu validate` 両 product green**。
 4. **検証**: 生成 worker entry を installed 3.3.0 で bundle し `CallSignalingDurableObject` の top-level export を両 product で直接確認。call 関連ファイルは両 product とも tsc clean。

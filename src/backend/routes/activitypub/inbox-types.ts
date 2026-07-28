@@ -29,6 +29,14 @@ export type Activity = {
   object?: string | ActivityObject;
   target?: string | ActivityObject;
   room?: string;
+  // Envelope addressing, preserved by parseActivity. Shared-inbox routing is
+  // derived from these (inbox-addressing.ts); before they were parsed the
+  // route had to guess the recipients from the sender's follower graph.
+  to?: string[];
+  cc?: string[];
+  bto?: string[];
+  bcc?: string[];
+  audience?: string[];
 };
 
 export type RemoteActor = {

@@ -4,6 +4,7 @@ import type { Notification } from "../../types/index.ts";
 import {
   fetchNotificationPusherPublicConfig,
   fetchNotifications,
+  fetchUnreadCount,
   registerNotificationPusher,
   unregisterNotificationPusher,
 } from "./notifications.ts";
@@ -37,7 +38,7 @@ async function withMockFetch<T>(
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
-    )) as typeof fetch;
+    )) as unknown as typeof fetch;
   try {
     return await fn();
   } finally {
@@ -65,6 +66,26 @@ test("fetchNotifications defaults hasMore to false when the server omits it", as
 
   expect(result.notifications).toEqual([]);
   expect(result.hasMore).toBe(false);
+});
+
+test("fetchUnreadCount does not turn authentication failures into zero", async () => {
+  const originalFetch = globalThis.fetch;
+  clearYurucommuApiTransport();
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      Response.json({ error: "session expired" }, { status: 401 }),
+    )) as unknown as typeof fetch;
+
+  try {
+    expect(fetchUnreadCount()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 401,
+      message: "session expired",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuApiTransport();
+  }
 });
 
 test("notification pusher public config derives enabled only from both public values", async () => {

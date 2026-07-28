@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { createYurucommuBackendApp } from "../index.ts";
-import { getAuthConfig } from "../lib/oauth-providers.ts";
+import {
+  getAuthConfig,
+  getMobileOidcAudience,
+} from "../lib/oauth-providers.ts";
 import type { Env } from "../types.ts";
 
 // Wave-4 WIRING cluster regression coverage for src/backend/index.ts.
@@ -196,6 +199,27 @@ test("well-known social-server aliases the Yurucommu server discovery payload", 
   expect(body.endpoints.conversations).toEqual(
     "https://test.local/api/dm/contacts",
   );
+});
+
+test("well-known and native OIDC exchange converge on the Capsule public client id", async () => {
+  const env = {
+    ...freshInstallEnv,
+    TAKOSUMI_ACCOUNTS_ISSUER_URL: "https://app.takosumi.test",
+    TAKOSUMI_ACCOUNTS_CLIENT_ID: "capsule-public-client",
+  } as never;
+  const app = createYurucommuBackendApp();
+  const res = await app.fetch(
+    new Request("https://test.local/.well-known/yurucommu"),
+    env,
+  );
+  expect(res.status).toBe(200);
+  const discovery = (await res.json()) as { oidcClientId?: string };
+
+  // `/api/auth/mobile/oidc` uses this same resolver for ID-token audience
+  // verification. One Capsule client owns both the exact web callback and
+  // native custom-scheme callback; no shadow mobile client/env may drift.
+  expect(discovery.oidcClientId).toBe("capsule-public-client");
+  expect(getMobileOidcAudience(env)).toBe(discovery.oidcClientId!);
 });
 
 test("the standard notification-pusher route is mounted behind actor auth", async () => {
