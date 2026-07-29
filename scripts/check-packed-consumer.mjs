@@ -71,6 +71,10 @@ import {
   getBrowserNotificationPushState,
   refreshBrowserNotificationPush,
 } from "@takosjp/yurucommu-api";
+import {
+  createManagedRuntimeKeyValueStore,
+  createManagedRuntimeObjectStorage,
+} from "@takosjp/yurucommu-core/server";
 import { applyMigrations } from "@takosjp/yurucommu-core/migrations";
 
 const coreEntry = Bun.resolveSync("@takosjp/yurucommu-core", import.meta.dir);
@@ -81,6 +85,8 @@ if (!existsSync(join(coreRoot, "migrations/0019_notification_push_delivery.sql")
 for (const [name, value] of Object.entries({
   applyMigrations,
   clearBrowserNotificationPush,
+  createManagedRuntimeKeyValueStore,
+  createManagedRuntimeObjectStorage,
   disableBrowserNotificationPush,
   enableBrowserNotificationPush,
   fetchNotificationPusherPublicConfig,

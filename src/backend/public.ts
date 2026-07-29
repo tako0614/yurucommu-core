@@ -19,7 +19,10 @@ export {
 } from "./runtime/cloudflare.ts";
 export {
   ManagedRuntimeGatewayError,
+  createManagedRuntimeKeyValueStore,
+  createManagedRuntimeObjectStorage,
   createManagedRuntimeQueueProducer,
+  type ManagedRuntimeDataAdapterOptions,
   type ManagedRuntimeGateway,
   type ManagedRuntimeQueueProducerOptions,
 } from "./runtime/managed-runtime.ts";
@@ -27,6 +30,13 @@ export {
   createManagedRelationalDatabase,
   type ManagedRelationalDatabaseOptions,
 } from "./runtime/managed-relational.ts";
+export type {
+  IKeyValueStore,
+  IObjectStorage,
+  ListObjectsResult,
+  ObjectMetadata,
+  StorageObject,
+} from "./runtime/types.ts";
 export type {
   IQueueBatch,
   IQueueMessage,
