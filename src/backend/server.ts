@@ -19,7 +19,6 @@
  *   TAKOS_URL       - Optional Takos API base URL for proxy/tool integration
  */
 
-import type { Message, MessageBatch, Queue } from "@cloudflare/workers-types";
 import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import process from "node:process";
 import { and, inArray, lt, or } from "drizzle-orm";
@@ -33,6 +32,13 @@ import type {
 import { buildDeliverEndpointMessage } from "./lib/delivery/queue.ts";
 import { deliveryQueue, getDbSQLite } from "../db/index.ts";
 import { logger } from "./lib/logger.ts";
+import type {
+  IQueueBatch,
+  IQueueMessage,
+  IQueueProducer,
+  QueueBatchItem,
+  QueueSendOptions,
+} from "./runtime/queue.ts";
 
 const log = logger.child({ component: "server.bootstrap" });
 
@@ -111,21 +117,12 @@ function isTruthyEnv(value: string | undefined): boolean {
 
 type LocalQueueBody = DeliveryQueueMessageV1 | DeliveryDlqMessageV1;
 
-type LocalQueueSendOptions = {
-  delaySeconds?: number;
-};
-
-type LocalQueueBatchItem<T> = {
-  body: T;
-  delaySeconds?: number;
-};
-
 function createLocalMessageBatch<T extends LocalQueueBody>(
   queueName: string,
   bodies: T[],
   requeue: (body: T, delaySeconds?: number) => void,
-): MessageBatch<T> {
-  const messages = bodies.map((body): Message<T> => {
+): IQueueBatch<T> {
+  const messages = bodies.map((body): IQueueMessage<T> => {
     let settled = false;
     return {
       id: crypto.randomUUID(),
@@ -140,7 +137,7 @@ function createLocalMessageBatch<T extends LocalQueueBody>(
         settled = true;
         requeue(body, options?.delaySeconds);
       },
-    } as Message<T>;
+    };
   });
 
   return {
@@ -152,13 +149,13 @@ function createLocalMessageBatch<T extends LocalQueueBody>(
     retryAll: (options?: { delaySeconds?: number }) => {
       for (const message of messages) message.retry(options);
     },
-  } as unknown as MessageBatch<T>;
+  };
 }
 
 function createLocalQueue<T extends LocalQueueBody>(
   env: LocalServerEnv,
   queueName: string,
-): Queue<T> {
+): IQueueProducer<T> {
   const pending: T[] = [];
   let draining = false;
   let drainScheduled = false;
@@ -206,15 +203,15 @@ function createLocalQueue<T extends LocalQueueBody>(
   }
 
   return {
-    send: async (body: T, options?: LocalQueueSendOptions) => {
+    send: async (body: T, options?: QueueSendOptions) => {
       enqueue(body, options?.delaySeconds);
     },
-    sendBatch: async (messages: Array<LocalQueueBatchItem<T>>) => {
+    sendBatch: async (messages: readonly QueueBatchItem<T>[]) => {
       for (const message of messages) {
         enqueue(message.body, message.delaySeconds);
       }
     },
-  } as unknown as Queue<T>;
+  };
 }
 
 function attachLocalDeliveryQueues(env: LocalServerEnv): void {

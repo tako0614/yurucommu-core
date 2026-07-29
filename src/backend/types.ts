@@ -4,6 +4,7 @@ import type {
   IObjectStorage,
   IStaticAssets,
 } from "./runtime/types.ts";
+import type { IQueueProducer } from "./runtime/queue.ts";
 import type {
   DeliveryDlqMessageV1,
   DeliveryQueueMessageV1,
@@ -147,8 +148,8 @@ export type Env = {
   MEDIA?: IObjectStorage;
   KV: IKeyValueStore;
   ASSETS?: IStaticAssets;
-  DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
-  DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
+  DELIVERY_QUEUE?: IQueueProducer<DeliveryQueueMessageV1>;
+  DELIVERY_DLQ?: IQueueProducer<DeliveryDlqMessageV1>;
   // Signaling hub for the call feature. Passes through wrapCloudflareBindings
   // untouched (it is not one of DB/MEDIA/KV/ASSETS). Optional: when unbound the
   // call routes 503 and the rest of the app serves normally.

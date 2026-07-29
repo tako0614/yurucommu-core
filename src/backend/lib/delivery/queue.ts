@@ -3,8 +3,12 @@
  * and the batch handler that dispatches to sub-modules.
  */
 
-import type { Message, MessageBatch, Queue } from "@cloudflare/workers-types";
 import type { Env } from "../../types.ts";
+import type {
+  IQueueBatch,
+  IQueueMessage,
+  IQueueProducer,
+} from "../../runtime/queue.ts";
 import type { Database } from "../../../db/index.ts";
 import { and, eq, notInArray, or, sql } from "drizzle-orm";
 import { actorCache, deliveryQueue } from "../../../db/index.ts";
@@ -119,8 +123,8 @@ export function nowIso(): string {
 }
 
 export type QueueEnv = Env & {
-  DELIVERY_QUEUE: Queue<DeliveryQueueMessageV1>;
-  DELIVERY_DLQ: Queue<DeliveryDlqMessageV1>;
+  DELIVERY_QUEUE: IQueueProducer<DeliveryQueueMessageV1>;
+  DELIVERY_DLQ: IQueueProducer<DeliveryDlqMessageV1>;
 };
 
 function queueAvailable(env: Env): env is QueueEnv {
@@ -130,7 +134,7 @@ function queueAvailable(env: Env): env is QueueEnv {
 export function requireQueue(
   env: Env,
   label: string,
-  message: Message<DeliveryQueueMessageV1>,
+  message: IQueueMessage<DeliveryQueueMessageV1>,
 ): env is QueueEnv {
   if (queueAvailable(env)) return true;
   log.warn("Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings; dropping job", {
@@ -426,7 +430,7 @@ export async function enqueueFanoutToCommunity(
 // ---------------------------------------------------------------------------
 
 export async function handleDeliveryQueueBatch(
-  batch: MessageBatch<DeliveryQueueMessageV1>,
+  batch: IQueueBatch<DeliveryQueueMessageV1>,
   env: Env,
 ): Promise<void> {
   const db = env.DB_INSTANCE;
@@ -494,13 +498,13 @@ export async function handleDeliveryQueueBatch(
 
   // Deliver endpoint messages with bulkhead+concurrency.
   const deliveryMessages = batch.messages.filter(
-    (m: Message<DeliveryQueueMessageV1>) =>
+    (m: IQueueMessage<DeliveryQueueMessageV1>) =>
       isDeliveryQueueMessageV1(m.body) && m.body.type === "deliver_endpoint",
-  ) as Array<Message<DeliveryQueueMessageV1>>;
+  ) as Array<IQueueMessage<DeliveryQueueMessageV1>>;
   await runWithConcurrency(
     deliveryMessages,
     BULKHEAD_GLOBAL_CONCURRENCY,
-    async (m: Message<DeliveryQueueMessageV1>) => {
+    async (m: IQueueMessage<DeliveryQueueMessageV1>) => {
       try {
         await processDeliverEndpoint(
           db,
@@ -538,7 +542,7 @@ export async function handleDeliveryQueueBatch(
 }
 
 export async function handleDeliveryDlqBatch(
-  batch: MessageBatch<DeliveryDlqMessageV1>,
+  batch: IQueueBatch<DeliveryDlqMessageV1>,
   env: Env,
 ): Promise<void> {
   for (const message of batch.messages) {

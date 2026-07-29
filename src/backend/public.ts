@@ -12,7 +12,28 @@ export {
 export { default } from "./index.ts";
 export { default as app } from "./index.ts";
 export { type Database, getDb, getDbSQLite } from "../db/index.ts";
-export { wrapCloudflareBindings } from "./runtime/cloudflare.ts";
+export {
+  wrapCloudflareBindings,
+  wrapCloudflareMessageBatch,
+  wrapCloudflareQueue,
+} from "./runtime/cloudflare.ts";
+export {
+  ManagedRuntimeGatewayError,
+  createManagedRuntimeQueueProducer,
+  type ManagedRuntimeGateway,
+  type ManagedRuntimeQueueProducerOptions,
+} from "./runtime/managed-runtime.ts";
+export {
+  createManagedRelationalDatabase,
+  type ManagedRelationalDatabaseOptions,
+} from "./runtime/managed-relational.ts";
+export type {
+  IQueueBatch,
+  IQueueMessage,
+  IQueueProducer,
+  QueueBatchItem,
+  QueueSendOptions,
+} from "./runtime/queue.ts";
 // Call feature: the signaling Durable Object class each product's generated
 // worker entry must re-export so Wrangler can bind CALL_SIGNALING to it.
 export { CallSignalingDurableObject } from "./runtime/call-signaling-do.ts";

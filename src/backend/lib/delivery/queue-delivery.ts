@@ -3,7 +3,7 @@
  * Includes signing, circuit breaker checks, retry logic, and dead-letter handling.
  */
 
-import type { Message } from "@cloudflare/workers-types";
+import type { IQueueMessage } from "../../runtime/queue.ts";
 import type { Env } from "../../types.ts";
 import type { Database } from "../../../db/index.ts";
 import { and, eq, lt, notInArray, or, sql } from "drizzle-orm";
@@ -186,7 +186,7 @@ async function failJob(
   db: Database,
   jobId: string,
   error: string,
-  message: Message<DeliveryQueueMessageV1>,
+  message: IQueueMessage<DeliveryQueueMessageV1>,
 ): Promise<void> {
   await db
     .update(deliveryQueue)
@@ -286,7 +286,7 @@ export async function processDeliverEndpoint(
   db: Database,
   env: Env,
   msg: DeliveryDeliverEndpointMessageV1,
-  message: Message<DeliveryQueueMessageV1>,
+  message: IQueueMessage<DeliveryQueueMessageV1>,
   bulkhead: Bulkhead,
 ): Promise<void> {
   if (!requireQueue(env, "deliver_endpoint", message)) return;

@@ -4,7 +4,10 @@ import { NOTIFICATION_PUSHER_REGISTRATION_PATH } from "./lib/notification-pusher
 import type { Env, EnvVars, Variables } from "./types.ts";
 import { extractActorFromSession } from "./lib/session-actor.ts";
 import { isBackendPath } from "./lib/backend-paths.ts";
-import { wrapCloudflareBindings } from "./runtime/cloudflare.ts";
+import {
+  wrapCloudflareBindings,
+  wrapCloudflareMessageBatch,
+} from "./runtime/cloudflare.ts";
 import {
   getMobileOidcAudience,
   getOidcClientCredentials,
@@ -45,7 +48,15 @@ import { logger } from "./lib/logger.ts";
 
 const log = logger.child({ component: "backend.index" });
 let lastNotificationPushRecoverySweep = 0;
-import type { MessageBatch } from "@cloudflare/workers-types";
+import type { IQueueBatch } from "./runtime/queue.ts";
+import type {
+  D1Database,
+  Fetcher,
+  KVNamespace,
+  MessageBatch,
+  Queue,
+  R2Bucket,
+} from "@cloudflare/workers-types";
 import type {
   DeliveryDlqMessageV1,
   DeliveryQueueMessageV1,
@@ -940,7 +951,7 @@ const app = createYurucommuBackendApp();
 export const backendApp = app;
 
 export async function handleYurucommuQueueBatch(
-  batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
+  batch: IQueueBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
   env: Env,
 ): Promise<void> {
   const deliveryQueueName = env.DELIVERY_QUEUE_NAME ?? "yurucommu-delivery";
@@ -948,13 +959,13 @@ export async function handleYurucommuQueueBatch(
 
   if (batch.queue === deliveryQueueName) {
     return handleDeliveryQueueBatch(
-      batch as MessageBatch<DeliveryQueueMessageV1>,
+      batch as IQueueBatch<DeliveryQueueMessageV1>,
       env,
     );
   }
   if (batch.queue === deliveryDlqName) {
     return handleDeliveryDlqBatch(
-      batch as MessageBatch<DeliveryDlqMessageV1>,
+      batch as IQueueBatch<DeliveryDlqMessageV1>,
       env,
     );
   }
@@ -996,6 +1007,9 @@ export default {
     batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
     bindings: WorkerBindings,
   ): Promise<void> {
-    return handleYurucommuQueueBatch(batch, wrapCloudflareBindings(bindings));
+    return handleYurucommuQueueBatch(
+      wrapCloudflareMessageBatch(batch),
+      wrapCloudflareBindings(bindings),
+    );
   },
 };

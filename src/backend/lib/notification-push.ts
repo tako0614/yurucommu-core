@@ -1,4 +1,4 @@
-import type { Message } from "@cloudflare/workers-types";
+import type { IQueueMessage } from "../runtime/queue.ts";
 import { and, asc, eq, exists, inArray, lte, ne, sql } from "drizzle-orm";
 
 import {
@@ -501,7 +501,7 @@ export async function purgeExpiredNotificationPushJobs(
 export async function processNotificationPushJob(
   env: Env,
   body: DeliveryNotificationPushMessageV1,
-  message: Message<DeliveryQueueMessageV1>,
+  message: IQueueMessage<DeliveryQueueMessageV1>,
 ): Promise<void> {
   const db = env.DB_INSTANCE;
   let job = await db

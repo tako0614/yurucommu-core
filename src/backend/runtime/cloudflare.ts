@@ -8,6 +8,8 @@ import type {
   D1Database,
   Fetcher,
   KVNamespace,
+  MessageBatch,
+  Queue,
   R2Bucket,
   R2Object,
 } from "@cloudflare/workers-types";
@@ -20,6 +22,13 @@ import type {
   ObjectMetadata,
   StorageObject,
 } from "./types.ts";
+import type {
+  IQueueBatch,
+  IQueueMessage,
+  IQueueProducer,
+  QueueBatchItem,
+  QueueSendOptions,
+} from "./queue.ts";
 
 /**
  * Cloudflare R2 Storage Adapter
@@ -170,6 +179,46 @@ class CloudflareAssets implements IStaticAssets {
   }
 }
 
+class CloudflareQueueProducer<T> implements IQueueProducer<T> {
+  constructor(private readonly queue: Queue<T>) {}
+
+  async send(body: T, options?: QueueSendOptions): Promise<void> {
+    await this.queue.send(body, options);
+  }
+
+  async sendBatch(
+    messages: readonly QueueBatchItem<T>[],
+    options?: QueueSendOptions,
+  ): Promise<void> {
+    await this.queue.sendBatch([...messages], options);
+  }
+}
+
+export function wrapCloudflareQueue<T>(queue: Queue<T>): IQueueProducer<T> {
+  return new CloudflareQueueProducer(queue);
+}
+
+export function wrapCloudflareMessageBatch<T>(
+  batch: MessageBatch<T>,
+): IQueueBatch<T> {
+  const messages: readonly IQueueMessage<T>[] = batch.messages.map(
+    (message) => ({
+      id: message.id,
+      timestamp: message.timestamp,
+      body: message.body,
+      attempts: message.attempts,
+      ack: () => message.ack(),
+      retry: (options) => message.retry(options),
+    }),
+  );
+  return {
+    queue: batch.queue,
+    messages,
+    ackAll: () => batch.ackAll(),
+    retryAll: (options) => batch.retryAll(options),
+  };
+}
+
 /**
  * Wrap a native Cloudflare Workers binding env into the app's runtime
  * `Env` shape. The Hono app and all helper functions speak the runtime
@@ -182,21 +231,33 @@ export function wrapCloudflareBindings<
     MEDIA?: R2Bucket;
     KV: KVNamespace;
     ASSETS?: Fetcher;
+    DELIVERY_QUEUE?: Queue<unknown>;
+    DELIVERY_DLQ?: Queue<unknown>;
   },
 >(
   bindings: T,
-): Omit<T, "DB" | "MEDIA" | "KV" | "ASSETS"> & {
+): Omit<
+  T,
+  "DB" | "MEDIA" | "KV" | "ASSETS" | "DELIVERY_QUEUE" | "DELIVERY_DLQ"
+> & {
   DB_INSTANCE: ReturnType<typeof getDb>;
   MEDIA?: IObjectStorage;
   KV: IKeyValueStore;
   ASSETS?: IStaticAssets;
+  DELIVERY_QUEUE?: IQueueProducer<unknown>;
+  DELIVERY_DLQ?: IQueueProducer<unknown>;
 } {
-  const { DB, MEDIA, KV, ASSETS, ...rest } = bindings;
+  const { DB, MEDIA, KV, ASSETS, DELIVERY_QUEUE, DELIVERY_DLQ, ...rest } =
+    bindings;
   return {
     ...rest,
     DB_INSTANCE: getDb(DB),
     MEDIA: MEDIA ? new CloudflareStorage(MEDIA) : undefined,
     KV: new CloudflareKV(KV),
     ASSETS: ASSETS ? new CloudflareAssets(ASSETS) : undefined,
+    DELIVERY_QUEUE: DELIVERY_QUEUE
+      ? wrapCloudflareQueue(DELIVERY_QUEUE)
+      : undefined,
+    DELIVERY_DLQ: DELIVERY_DLQ ? wrapCloudflareQueue(DELIVERY_DLQ) : undefined,
   };
 }

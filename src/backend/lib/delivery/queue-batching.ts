@@ -3,8 +3,8 @@
  * and batch dispatch of delivery messages.
  */
 
-import type { Message, MessageBatch } from "@cloudflare/workers-types";
 import type { Env } from "../../types.ts";
+import type { IQueueMessage } from "../../runtime/queue.ts";
 import type { Database } from "../../../db/index.ts";
 import { and, eq, or, sql } from "drizzle-orm";
 import {
@@ -249,7 +249,7 @@ export async function processFanoutFollowers(
   db: Database,
   env: Env,
   msg: DeliveryFanoutFollowersMessageV1,
-  message: Message<DeliveryQueueMessageV1>,
+  message: IQueueMessage<DeliveryQueueMessageV1>,
 ): Promise<void> {
   if (!requireQueue(env, "fanout", message)) return;
   const queueEnv = env as QueueEnv;
@@ -305,7 +305,7 @@ export async function processFanoutCommunity(
   db: Database,
   env: Env,
   msg: DeliveryFanoutCommunityMessageV1,
-  message: Message<DeliveryQueueMessageV1>,
+  message: IQueueMessage<DeliveryQueueMessageV1>,
 ): Promise<void> {
   const baseUrl = env.APP_URL;
 
@@ -473,7 +473,7 @@ export async function processResolveActor(
   db: Database,
   env: Env,
   msg: DeliveryResolveActorMessageV1,
-  message: Message<DeliveryQueueMessageV1>,
+  message: IQueueMessage<DeliveryQueueMessageV1>,
 ): Promise<void> {
   if (!requireQueue(env, "resolve_actor", message)) return;
 
@@ -571,7 +571,7 @@ export async function processReconcileJob(
   db: Database,
   env: Env,
   msg: DeliveryReconcileJobMessageV1,
-  message: Message<DeliveryQueueMessageV1>,
+  message: IQueueMessage<DeliveryQueueMessageV1>,
 ): Promise<void> {
   if (!requireQueue(env, "reconcile", message)) return;
 

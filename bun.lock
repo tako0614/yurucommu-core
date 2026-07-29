@@ -7,6 +7,7 @@
       "dependencies": {
         "@aws-sdk/client-s3": "^3.971.0",
         "@libsql/client": "^0.17.0",
+        "@takosjp/takosumi-contract": "^1.0.0",
         "better-sqlite3": "^12.4.1",
         "drizzle-orm": "^0.45.1",
         "fdir": "^6.5.0",
@@ -25,7 +26,7 @@
     },
     "packages/api": {
       "name": "@takosjp/yurucommu-api",
-      "version": "3.1.0",
+      "version": "3.4.0",
       "devDependencies": {
         "typescript": "^5.7.0",
       },
@@ -201,6 +202,8 @@
     "@smithy/util-buffer-from": ["@smithy/util-buffer-from@2.2.0", "", { "dependencies": { "@smithy/is-array-buffer": "^2.2.0", "tslib": "^2.6.2" } }, "sha512-IJdWBbTcMQ6DA0gdNhh/BwrLkDR+ADW5Kr1aZmd4k3DIF6ezMV4R2NIAmT08wQJ3yUK82thHWmC/TnK/wpMMIA=="],
 
     "@smithy/util-utf8": ["@smithy/util-utf8@2.3.0", "", { "dependencies": { "@smithy/util-buffer-from": "^2.2.0", "tslib": "^2.6.2" } }, "sha512-R8Rdn8Hy72KKcebgLiv8jQcQkXoLMOGGv5uI1/k0l+snqkOzQ1R0ChUBCxWMlBsFMekWjq0wRudIweFs7sKT5A=="],
+
+    "@takosjp/takosumi-contract": ["@takosjp/takosumi-contract@1.0.0", "", {}, "sha512-WfXEi14+mKSoZJxYYcb9CcYQ9A0MyQquG2nFRyT8nO3v+nxHtkA3LfXdTRcgBd2+T0lVsG2TM1o3V9XcbRYZOg=="],
 
     "@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@workspace:packages/api"],
 
