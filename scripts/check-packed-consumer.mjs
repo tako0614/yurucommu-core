@@ -74,7 +74,9 @@ import {
 import {
   createManagedRuntimeKeyValueStore,
   createManagedRuntimeObjectStorage,
+  runYurucommuRetention,
 } from "@takosjp/yurucommu-core/server";
+import yurucommuCoreWorker from "@takosjp/yurucommu-core/server";
 import { applyMigrations } from "@takosjp/yurucommu-core/migrations";
 
 const coreEntry = Bun.resolveSync("@takosjp/yurucommu-core", import.meta.dir);
@@ -87,6 +89,7 @@ for (const [name, value] of Object.entries({
   clearBrowserNotificationPush,
   createManagedRuntimeKeyValueStore,
   createManagedRuntimeObjectStorage,
+  runYurucommuRetention,
   disableBrowserNotificationPush,
   enableBrowserNotificationPush,
   fetchNotificationPusherPublicConfig,
@@ -94,6 +97,9 @@ for (const [name, value] of Object.entries({
   refreshBrowserNotificationPush,
 })) {
   if (typeof value !== "function") throw new Error(name + " is not exported");
+}
+if (typeof yurucommuCoreWorker.scheduled !== "function") {
+  throw new Error("core default export has no scheduled retention handler");
 }
 console.log("packed core/API consumer verified");
 `,

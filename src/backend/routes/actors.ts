@@ -286,11 +286,11 @@ export async function cancelTombstoneDelete(
   return deleteActivityIds.length;
 }
 
-// Best-effort, opportunistic tombstone reaping on the read path. This Worker
-// has no `scheduled` handler, so (mirroring maybeCleanupExpiredStories) the
-// sweep is triggered probabilistically and guarded so at most one runs per
-// isolate at a time. Tombstones are already excluded from every serving query,
-// so a missed sweep only delays storage/key-material reclamation.
+// Best-effort, opportunistic tombstone reaping on the read path. The public
+// Worker has a scheduled retention handler too; this remains as a fallback for
+// self-hosted runtimes without cron. It is guarded so at most one pass runs per
+// isolate. Tombstones are already excluded from every serving query, so a
+// missed sweep only delays storage/key-material reclamation.
 let tombstoneReapInFlight = false;
 
 export function maybeReapDrainedTombstones(db: Database): void {

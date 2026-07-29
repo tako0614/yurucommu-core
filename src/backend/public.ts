@@ -9,6 +9,12 @@ export {
   type YurucommuBackendDiscoveryOptionsV1,
   type YurucommuBackendPluginV1,
 } from "./index.ts";
+export {
+  runYurucommuRetention,
+  YurucommuRetentionError,
+  type YurucommuRetentionResult,
+  type YurucommuRetentionStep,
+} from "./retention.ts";
 export { default } from "./index.ts";
 export { default as app } from "./index.ts";
 export { type Database, getDb, getDbSQLite } from "../db/index.ts";
