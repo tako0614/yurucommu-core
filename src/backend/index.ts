@@ -56,6 +56,7 @@ import type {
   MessageBatch,
   Queue,
   R2Bucket,
+  ScheduledController,
 } from "@cloudflare/workers-types";
 import type {
   DeliveryDlqMessageV1,
@@ -66,6 +67,7 @@ import {
   handleDeliveryQueueBatch,
 } from "./lib/delivery/queue.ts";
 import { enqueuePendingNotificationPushJobs } from "./lib/notification-push.ts";
+import { runYurucommuRetention } from "./retention.ts";
 
 type YurucommuApp = Hono<{ Bindings: Env; Variables: Variables }>;
 
@@ -994,6 +996,12 @@ type WorkerBindings = EnvVars & {
   REALTIME_STREAM?: DurableObjectNamespace;
 };
 
+function isMaterializedRuntimeEnv(
+  bindings: WorkerBindings | Env,
+): bindings is Env {
+  return "DB_INSTANCE" in bindings && !!bindings.DB_INSTANCE;
+}
+
 export default {
   async fetch(
     request: Request,
@@ -1011,5 +1019,16 @@ export default {
       wrapCloudflareMessageBatch(batch),
       wrapCloudflareBindings(bindings),
     );
+  },
+
+  async scheduled(
+    _controller: ScheduledController,
+    bindings: WorkerBindings | Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    const env = isMaterializedRuntimeEnv(bindings)
+      ? bindings
+      : wrapCloudflareBindings(bindings);
+    await runYurucommuRetention(env);
   },
 };

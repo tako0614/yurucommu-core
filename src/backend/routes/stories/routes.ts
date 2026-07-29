@@ -62,13 +62,11 @@ const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // Best-effort, opportunistic retention of expired stories.
 //
-// This is NOT a substitute for a scheduled job: this Worker has no `scheduled`
-// handler / cron trigger, so expiry cleanup is triggered probabilistically on
-// the read path. Expired stories are already excluded from every read query
-// (the feed/single-story handlers filter on `endTime`), so the only impact of
-// a missed sweep is storage growth, not stale data leaking to users. The guard
-// below ensures at most one sweep runs at a time per isolate, so a burst of
-// feed requests cannot kick off several concurrent full-table delete sweeps.
+// The public Worker also exposes a scheduled retention handler. Keep this
+// probabilistic read-path pass as a self-hosting fallback for runtimes that do
+// not configure a cron trigger. Expired stories are already excluded from every
+// read query, so a missed sweep affects storage only. The guard below ensures
+// at most one fallback pass runs at a time per isolate.
 let expiredStoryCleanupInFlight = false;
 
 function maybeCleanupExpiredStories(
