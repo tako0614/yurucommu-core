@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
   actors,
@@ -33,15 +34,31 @@ import type { Database } from "../../db/index.ts";
 import type { Env } from "../types.ts";
 import type { IObjectStorage } from "../runtime/types.ts";
 import { activityApId, generateId } from "../federation-helpers.ts";
+import { chunkForInClause } from "../lib/chunk.ts";
 import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "actors" });
 
+// D1 has no interactive transactions, but both the D1 and libsql drivers
+// expose an atomic `db.batch([...])` surface. Keep follow-edge removal and its
+// counter reconciliation in one batch so a retry can never observe counters
+// updated while the edge is still present.
+type BatchStatement = BatchItem<"sqlite">;
+interface BatchableDb {
+  batch(
+    statements: readonly [BatchStatement, ...BatchStatement[]],
+  ): Promise<unknown>;
+}
+
 /**
- * Hard-delete an actor's media uploads and best-effort purge the backing R2
- * objects. The DB rows are removed regardless of whether the object-store
- * delete succeeds; account teardown is never blocked on storage availability.
+ * Hard-delete an actor's media uploads after purging the backing R2 objects.
+ *
+ * The media row is the durable retry/GC identity (`r2_key`). When a configured
+ * object store rejects a delete, keep that row and propagate the error so the
+ * account route reports failure and a later retry can attempt the same key.
+ * Without a MEDIA binding there is no external delete to fail, so metadata can
+ * still be removed.
  * Shared by the owner teardown (routes/actors.ts POST /me/delete) and each
  * sub-account teardown in {@link teardownActor}.
  */
@@ -70,9 +87,71 @@ export async function purgeActorMediaUploads(
         count: keys.length,
         error: err,
       });
+      // Do not discard the only durable identity from which a later retry or
+      // GC pass can recover the object. The caller must return a non-success
+      // response while the metadata remains available for retry.
+      throw err;
     }
   }
   await db.delete(mediaUploads).where(eq(mediaUploads.uploaderApId, apId));
+}
+
+/**
+ * Tombstone and scrub an actor after every owner/sub-account teardown step has
+ * succeeded. Keeping this finalization separate lets the owner route retain a
+ * live actor/session while a sub-account still needs a retry.
+ */
+export async function finalizeActorDeletion(
+  db: Database,
+  apId: string,
+): Promise<void> {
+  await actorDeletionUpdate(db, apId);
+}
+
+function actorDeletionUpdate(db: Database, apId: string): BatchStatement {
+  return db
+    .update(actors)
+    .set({
+      preferredUsername: `deleted-${generateId()}`,
+      name: null,
+      summary: null,
+      iconUrl: null,
+      headerUrl: null,
+      takosUserId: null,
+      followerCount: 0,
+      followingCount: 0,
+      postCount: 0,
+      fieldsJson: "[]",
+      alsoKnownAsJson: "[]",
+      movedTo: null,
+      ownerActorApId: null,
+      role: "member",
+      deletedAt: nowIso(),
+    })
+    .where(eq(actors.apId, apId)) as unknown as BatchStatement;
+}
+
+/**
+ * Commit the owner's final tombstone and every owner/sub-account session
+ * deletion together. If either operation fails, D1/libsql rolls the whole
+ * batch back so the live owner session can retry the incomplete cascade.
+ */
+export async function finalizeActorDeletionAndSessions(
+  db: Database,
+  apId: string,
+  sessionActorIds: string[],
+): Promise<void> {
+  const statements: BatchStatement[] = [actorDeletionUpdate(db, apId)];
+  for (const chunk of chunkForInClause(sessionActorIds)) {
+    statements.push(
+      db
+        .delete(sessions)
+        .where(inArray(sessions.memberId, chunk)) as unknown as BatchStatement,
+    );
+  }
+  await (db as unknown as BatchableDb).batch(
+    statements as [BatchStatement, ...BatchStatement[]],
+  );
 }
 
 /**
@@ -92,6 +171,8 @@ export async function purgeActorMediaUploads(
  * (POST /me/delete) — keep the two in sync.
  *
  * `followersUrl` is the actor's followers collection (used as the Delete's cc).
+ * `options.finalizeActor = false` leaves the actor live for a parent owner
+ * route to finalize after every sub-account has completed.
  */
 export async function teardownActor(
   db: Database,
@@ -99,6 +180,7 @@ export async function teardownActor(
   baseUrl: string,
   apId: string,
   followersUrl: string,
+  options: { finalizeActor?: boolean } = {},
 ): Promise<void> {
   // Federate the Delete BEFORE local teardown, snapshotting follower inboxes
   // into delivery jobs while the follower graph + activity row still exist. The
@@ -134,54 +216,58 @@ export async function teardownActor(
     });
   }
 
-  await db.delete(sessions).where(eq(sessions.memberId, apId));
-
   // Reconcile counterparties' follower/following counts BEFORE dropping edges.
   // Only ACCEPTED edges ever incremented a counter; gt(...,0) guards underflow.
-  await db
-    .update(actors)
-    .set({ followerCount: sql`${actors.followerCount} - 1` })
-    .where(
-      and(
-        inArray(
-          actors.apId,
-          db
-            .select({ id: follows.followingApId })
-            .from(follows)
-            .where(
-              and(
-                eq(follows.followerApId, apId),
-                eq(follows.status, "accepted"),
+  // Keep both updates and the edge delete in one atomic batch. If a later
+  // teardown step fails, a retry sees either the original edge+counts or the
+  // fully removed edge+reconciled counts — never a half-applied decrement.
+  await (db as unknown as BatchableDb).batch([
+    db
+      .update(actors)
+      .set({ followerCount: sql`${actors.followerCount} - 1` })
+      .where(
+        and(
+          inArray(
+            actors.apId,
+            db
+              .select({ id: follows.followingApId })
+              .from(follows)
+              .where(
+                and(
+                  eq(follows.followerApId, apId),
+                  eq(follows.status, "accepted"),
+                ),
               ),
-            ),
+          ),
+          gt(actors.followerCount, 0),
         ),
-        gt(actors.followerCount, 0),
       ),
-    );
-  await db
-    .update(actors)
-    .set({ followingCount: sql`${actors.followingCount} - 1` })
-    .where(
-      and(
-        inArray(
-          actors.apId,
-          db
-            .select({ id: follows.followerApId })
-            .from(follows)
-            .where(
-              and(
-                eq(follows.followingApId, apId),
-                eq(follows.status, "accepted"),
+    db
+      .update(actors)
+      .set({ followingCount: sql`${actors.followingCount} - 1` })
+      .where(
+        and(
+          inArray(
+            actors.apId,
+            db
+              .select({ id: follows.followerApId })
+              .from(follows)
+              .where(
+                and(
+                  eq(follows.followingApId, apId),
+                  eq(follows.status, "accepted"),
+                ),
               ),
-            ),
+          ),
+          gt(actors.followingCount, 0),
         ),
-        gt(actors.followingCount, 0),
       ),
-    );
-
-  await db
-    .delete(follows)
-    .where(or(eq(follows.followerApId, apId), eq(follows.followingApId, apId)));
+    db
+      .delete(follows)
+      .where(
+        or(eq(follows.followerApId, apId), eq(follows.followingApId, apId)),
+      ),
+  ]);
   await db
     .delete(blocks)
     .where(or(eq(blocks.blockerApId, apId), eq(blocks.blockedApId, apId)));
@@ -257,7 +343,8 @@ export async function teardownActor(
     .delete(notificationPushJobs)
     .where(eq(notificationPushJobs.actorApId, apId));
 
-  // Media: hard-delete the actor's uploads + best-effort purge backing R2.
+  // Media: purge backing R2 first, then remove the durable upload metadata.
+  // A storage failure propagates and leaves the row for the retry path.
   await purgeActorMediaUploads(db, env.MEDIA, apId);
 
   // Story interactions the actor performed on OTHER/remote stories.
@@ -418,26 +505,10 @@ export async function teardownActor(
 
   await db.delete(objects).where(eq(objects.attributedTo, apId));
 
-  // Tombstone + scrub the actor row (keep only the delivery signer's key
-  // material; free the unique handle by renaming it to a sentinel).
-  await db
-    .update(actors)
-    .set({
-      preferredUsername: `deleted-${generateId()}`,
-      name: null,
-      summary: null,
-      iconUrl: null,
-      headerUrl: null,
-      takosUserId: null,
-      followerCount: 0,
-      followingCount: 0,
-      postCount: 0,
-      fieldsJson: "[]",
-      alsoKnownAsJson: "[]",
-      movedTo: null,
-      ownerActorApId: null,
-      role: "member",
-      deletedAt: nowIso(),
-    })
-    .where(eq(actors.apId, apId));
+  // Tombstone + scrub the actor row only when the caller asks for immediate
+  // finalization. The owner route defers this final step until every
+  // sub-account has completed, retaining a live retry authority on failure.
+  if (options.finalizeActor !== false) {
+    await finalizeActorDeletion(db, apId);
+  }
 }

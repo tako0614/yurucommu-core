@@ -48,7 +48,10 @@ import {
 } from "../lib/account-migration.ts";
 import { getInstanceFetchSigner } from "./activitypub/query-helpers.ts";
 import { severFollowEdge } from "./activitypub/handlers/inbox-interaction-handlers.ts";
-import { teardownActor } from "./account-teardown.ts";
+import {
+  finalizeActorDeletionAndSessions,
+  teardownActor,
+} from "./account-teardown.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import {
   actorExists,
@@ -509,17 +512,29 @@ actorsRoute.post("/me/delete", async (c) => {
     // Delete(Actor) (snapshotting follower inboxes before the graph is dropped),
     // reconciles every counterparty's denormalized counters, deletes the actor's
     // edges / interactions / memberships / media / DM state, hands off sole-owned
-    // communities to an heir, hard-deletes its authored objects, and
-    // tombstones+scrubs the actor row. This is the EXACT cascade teardownActor
-    // applies to each sub-account below — one chokepoint instead of a ~440-line
-    // hand-rolled copy that had to be kept in sync.
-    await teardownActor(db, c.env, baseUrl, actorApIdVal, actor.followers_url);
+    // communities to an heir, and hard-deletes its authored objects. The owner
+    // tombstone is finalized below after all sub-accounts succeed. This is the
+    // EXACT cascade teardownActor applies to each sub-account below — one
+    // chokepoint instead of a ~440-line hand-rolled copy that had to be kept in
+    // sync.
+    // Defer the owner's tombstone until every sub-account has completed. If a
+    // later media/DB step fails, the owner row and session remain live so the
+    // same authenticated request can retry the incomplete cascade.
+    await teardownActor(db, c.env, baseUrl, actorApIdVal, actor.followers_url, {
+      finalizeActor: false,
+    });
     // Now fully tear down each sub-account (same cascade the owner just received)
     // so no "deleted" sub-account content / edge / counter / membership / sole
     // ownership survives, and each federates its own Delete(Actor).
     for (const sub of subAccounts) {
       await teardownActor(db, c.env, baseUrl, sub.apId, sub.followersUrl);
     }
+
+    // Finalize the owner only after all owner/sub-account teardown work has
+    // succeeded. Sessions are removed last so a failure above cannot discard
+    // the retry authority. Tombstoned actors fail closed in session-actor.ts.
+    const sessionActorIds = [actorApIdVal, ...subAccounts.map((s) => s.apId)];
+    await finalizeActorDeletionAndSessions(db, actorApIdVal, sessionActorIds);
 
     deleteCookie(c, "session");
 

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile, readdir } from "node:fs/promises";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import { Hono } from "hono";
@@ -19,12 +19,14 @@ import {
   dmTyping,
   follows,
   likes,
+  mediaUploads,
   objectRecipients,
   objects,
   sessions,
   storyShares,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
+import type { IObjectStorage } from "../../runtime/types.ts";
 import actorsRoute from "../../routes/actors.ts";
 
 /**
@@ -97,7 +99,7 @@ function ownerActor(apId: string): Actor {
   };
 }
 
-function envFor(db: Database): Env {
+function envFor(db: Database, media?: IObjectStorage): Env {
   const q = {
     send: () => Promise.resolve(),
     sendBatch: () => Promise.resolve(),
@@ -105,9 +107,36 @@ function envFor(db: Database): Env {
   return {
     APP_URL,
     DB_INSTANCE: db,
+    MEDIA: media,
     DELIVERY_QUEUE: q,
     DELIVERY_DLQ: { send: () => Promise.resolve() },
   } as unknown as Env;
+}
+
+function failureInjectingStorage(): {
+  storage: IObjectStorage;
+  setFailing: (failing: boolean) => void;
+  deleted: string[];
+} {
+  let failing = true;
+  const deleted: string[] = [];
+  const storage = {
+    async put() {},
+    async get() {
+      return null;
+    },
+    async delete(key: string | string[]) {
+      if (failing) throw new Error("simulated R2 outage");
+      deleted.push(...(Array.isArray(key) ? key : [key]));
+    },
+    async list() {
+      return { objects: [], truncated: false } as never;
+    },
+    async head() {
+      return null;
+    },
+  } as unknown as IObjectStorage;
+  return { storage, setFailing: (value) => (failing = value), deleted };
 }
 
 async function follow(db: Database, follower: string, following: string) {
@@ -194,6 +223,228 @@ test("account deletion does NOT decrement a counterparty for a PENDING (never-co
 
   // alice keeps her true count (1) — the pending edge must not have decremented it.
   expect((await countOf(db, alice))?.followerCount).toBe(1);
+});
+
+test("account deletion keeps media metadata and retry authority when R2 purge fails", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako");
+  const r2Key = "uploads/tako-retry.jpg";
+  await db.insert(mediaUploads).values({
+    id: "media-tako-retry",
+    r2Key,
+    uploaderApId: tako,
+    contentType: "image/jpeg",
+    size: 1,
+  });
+  await db.insert(sessions).values({
+    id: "sess-tako-retry",
+    memberId: tako,
+    accessToken: "tok-tako-retry",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+  });
+
+  const { storage, setFailing, deleted } = failureInjectingStorage();
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const failed = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db, storage),
+  );
+  expect(failed.status).toBe(500);
+  expect(
+    await db
+      .select({ id: mediaUploads.id })
+      .from(mediaUploads)
+      .where(eq(mediaUploads.r2Key, r2Key))
+      .get(),
+  ).toBeDefined();
+  expect(
+    await db
+      .select({ deletedAt: actors.deletedAt })
+      .from(actors)
+      .where(eq(actors.apId, tako))
+      .get(),
+  ).toMatchObject({ deletedAt: null });
+  expect(
+    await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.memberId, tako))
+      .get(),
+  ).toBeDefined();
+
+  // A retry with the same durable media identity completes the cascade and
+  // only then removes the session/retry authority.
+  setFailing(false);
+  const retried = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db, storage),
+  );
+  expect(retried.status).toBe(200);
+  expect(deleted).toContain(r2Key);
+  expect(
+    await db
+      .select({ id: mediaUploads.id })
+      .from(mediaUploads)
+      .where(eq(mediaUploads.r2Key, r2Key))
+      .get(),
+  ).toBeUndefined();
+  expect(
+    await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.memberId, tako))
+      .get(),
+  ).toBeUndefined();
+});
+
+test("account deletion retry does not double-decrement follow counters after a mid-cascade R2 failure", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako");
+  const alice = await insertActor(db, "alice", { followerCount: 1 });
+  const bob = await insertActor(db, "bob", { followingCount: 1 });
+  await follow(db, tako, alice);
+  await follow(db, bob, tako);
+  await db.insert(mediaUploads).values({
+    id: "media-counter-retry",
+    r2Key: "uploads/counter-retry.jpg",
+    uploaderApId: tako,
+    contentType: "image/jpeg",
+    size: 1,
+  });
+
+  const { storage, setFailing } = failureInjectingStorage();
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const failed = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db, storage),
+  );
+  expect(failed.status).toBe(500);
+  expect((await countOf(db, alice))?.followerCount).toBe(0);
+  expect((await countOf(db, bob))?.followingCount).toBe(0);
+  expect(
+    await db
+      .select({ followerApId: follows.followerApId })
+      .from(follows)
+      .where(
+        or(eq(follows.followerApId, tako), eq(follows.followingApId, tako)),
+      ),
+  ).toHaveLength(0);
+
+  // The edge/counter batch is already complete; retrying the rest must not
+  // apply another -1 to either counter.
+  setFailing(false);
+  const retried = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db, storage),
+  );
+  expect(retried.status).toBe(200);
+  expect((await countOf(db, alice))?.followerCount).toBe(0);
+  expect((await countOf(db, bob))?.followingCount).toBe(0);
+});
+
+test("owner retry authority survives a sub-account teardown failure", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako");
+  const sub = localApId("tako-alt");
+  await db.insert(actors).values({
+    apId: sub,
+    type: "Person",
+    preferredUsername: "tako-alt",
+    inbox: `${sub}/inbox`,
+    outbox: `${sub}/outbox`,
+    followersUrl: `${sub}/followers`,
+    followingUrl: `${sub}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    ownerActorApId: tako,
+  });
+  await db.insert(mediaUploads).values({
+    id: "media-sub-retry",
+    r2Key: "uploads/sub-retry.jpg",
+    uploaderApId: sub,
+    contentType: "image/jpeg",
+    size: 1,
+  });
+  await db.insert(sessions).values([
+    {
+      id: "sess-owner-sub-retry",
+      memberId: tako,
+      accessToken: "tok-owner-sub-retry",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    },
+    {
+      id: "sess-sub-retry",
+      memberId: sub,
+      accessToken: "tok-sub-retry",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    },
+  ]);
+
+  const { storage, setFailing } = failureInjectingStorage();
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const failed = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db, storage),
+  );
+  expect(failed.status).toBe(500);
+  expect(
+    await db
+      .select({ deletedAt: actors.deletedAt })
+      .from(actors)
+      .where(eq(actors.apId, tako))
+      .get(),
+  ).toMatchObject({ deletedAt: null });
+  expect(
+    await db
+      .select({ deletedAt: actors.deletedAt })
+      .from(actors)
+      .where(eq(actors.apId, sub))
+      .get(),
+  ).toMatchObject({ deletedAt: null });
+  expect(await db.select().from(sessions)).toHaveLength(2);
+
+  setFailing(false);
+  const retried = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db, storage),
+  );
+  expect(retried.status).toBe(200);
+  expect(await db.select().from(sessions)).toHaveLength(0);
+  expect(
+    await db
+      .select({ deletedAt: actors.deletedAt })
+      .from(actors)
+      .where(eq(actors.apId, tako))
+      .get(),
+  ).toMatchObject({ deletedAt: expect.any(String) });
+  expect(
+    await db
+      .select({ deletedAt: actors.deletedAt })
+      .from(actors)
+      .where(eq(actors.apId, sub))
+      .get(),
+  ).toMatchObject({ deletedAt: expect.any(String) });
 });
 
 async function insertPost(
