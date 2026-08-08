@@ -16,6 +16,7 @@ import {
   isSafeRemoteUrl,
 } from "../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../lib/delivery/queue.ts";
+import { getDomain } from "../lib/ap-ids.ts";
 import {
   isUniqueConstraintError,
   parseJsonObject,
@@ -148,6 +149,71 @@ export async function createAndDeliverActivity(
   await enqueueDeliveryToActor(env, id, recipientApId);
 }
 
+// Mirrors the inbox's MAX_REMOTE_ACTIVITY_ID_LENGTH bound for ids we echo
+// back out to a peer.
+const MAX_PEER_ACTIVITY_ID_LENGTH = 2_048;
+
+/**
+ * Resolve the peer-facing id for a follow edge's stored activity id.
+ *
+ * Inbound follow edges persist the origin-bound INTERNAL activity id (the
+ * inbox stamps `activity.id` before dispatch so no remote string escapes into
+ * internal keys). An Accept/Reject crosses the boundary in the OTHER
+ * direction: the remote peer matches `object` against the Follow id IT
+ * minted, so echoing our internal `.../inbound-<hash>` id leaves the peer's
+ * edge pending forever. The original envelope survives in
+ * activities.raw_json — echo its id, but only when it is a bounded id on the
+ * requester's own origin (the same trust rule the inbox applies on the way
+ * in). Anything else falls back to the stored id, which is already correct
+ * for local requesters and for the outbound-follow edges we minted ourselves.
+ */
+export async function resolvePeerFollowActivityId(
+  db: Database,
+  requesterApId: string,
+  storedActivityApId: string | null,
+): Promise<string | null> {
+  if (!storedActivityApId) return storedActivityApId;
+  let rawJson: string | null | undefined;
+  try {
+    const row = await db
+      .select({ rawJson: activities.rawJson })
+      .from(activities)
+      .where(eq(activities.apId, storedActivityApId))
+      .get();
+    rawJson = row?.rawJson;
+  } catch {
+    return storedActivityApId;
+  }
+  if (!rawJson) return storedActivityApId;
+  let wireId: string;
+  try {
+    const parsed: unknown = JSON.parse(rawJson);
+    const candidate =
+      parsed && typeof parsed === "object"
+        ? (parsed as { id?: unknown }).id
+        : undefined;
+    if (typeof candidate !== "string") return storedActivityApId;
+    wireId = candidate;
+  } catch {
+    return storedActivityApId;
+  }
+  if (
+    wireId.length === 0 ||
+    wireId.length > MAX_PEER_ACTIVITY_ID_LENGTH ||
+    /[\u0000-\u001f\u007f]/u.test(wireId)
+  ) {
+    return storedActivityApId;
+  }
+  try {
+    if (getDomain(wireId) !== getDomain(requesterApId)) {
+      return storedActivityApId;
+    }
+  } catch {
+    return storedActivityApId;
+  }
+  return wireId;
+}
+
 /**
  * Delivers an Accept or Reject activity to a remote requester.
  * No-op if the requester is local.
@@ -162,15 +228,20 @@ export async function deliverResponseIfRemote(
   originalActivityApId: string | null,
 ): Promise<void> {
   if (isLocal(requesterApId, baseUrl)) return;
+  const peerActivityApId = await resolvePeerFollowActivityId(
+    db,
+    requesterApId,
+    originalActivityApId,
+  );
   await createAndDeliverActivity(
     env,
     db,
     baseUrl,
     type,
     actorId,
-    originalActivityApId,
+    peerActivityApId,
     requesterApId,
-    originalActivityApId,
+    peerActivityApId,
   );
 }
 

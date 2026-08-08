@@ -15,6 +15,7 @@ import {
   isLocal,
 } from "../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import { resolvePeerFollowActivityId } from "../follow-helpers.ts";
 import {
   addMemberAtomic,
   batchLoadActorInfo,
@@ -199,19 +200,27 @@ export function registerMembershipRequestRoutes(
             ),
           );
         if (pendingEdge?.activityApId) {
+          // The pending edge stores the origin-bound INTERNAL activity id; the
+          // remote matches Accept.object against the Follow id IT minted, so
+          // resolve the peer-facing id from the stored envelope first.
+          const peerFollowApId = await resolvePeerFollowActivityId(
+            db,
+            body.actor_ap_id,
+            pendingEdge.activityApId,
+          );
           const acceptId = activityApId(c.env.APP_URL, generateId());
           const acceptActivity = {
             "@context": AS_CONTEXT,
             id: acceptId,
             type: "Accept",
             actor: community.apId,
-            object: pendingEdge.activityApId,
+            object: peerFollowApId,
           };
           await db.insert(activities).values({
             apId: acceptId,
             type: "Accept",
             actorApId: community.apId,
-            objectApId: pendingEdge.activityApId,
+            objectApId: peerFollowApId,
             rawJson: JSON.stringify(acceptActivity),
             direction: "outbound",
           });

@@ -22,6 +22,7 @@ import {
   buildApActivity,
   createAndDeliverActivity,
   deliverResponseIfRemote,
+  resolvePeerFollowActivityId,
   findPendingFollow,
   handleLocalFollow,
   handleRemoteFollow,
@@ -384,11 +385,16 @@ follow.post("/accept/batch", async (c) => {
       if (requesterIsLocal) {
         // local follower's followingCount already bumped in the batch above
       } else if (isSafeRemoteUrl(requesterApId)) {
+        const peerFollowApId = await resolvePeerFollowActivityId(
+          db,
+          requesterApId,
+          pendingFollow.activityApId,
+        );
         const id = activityApId(baseUrl, generateId());
         const activity = buildApActivity(
           "Accept",
           actor.ap_id,
-          pendingFollow.activityApId,
+          peerFollowApId,
           id,
         );
 
@@ -396,7 +402,7 @@ follow.post("/accept/batch", async (c) => {
           apId: id,
           type: "Accept",
           actorApId: actor.ap_id,
-          objectApId: pendingFollow.activityApId || undefined,
+          objectApId: peerFollowApId || undefined,
           rawJson: JSON.stringify(activity),
           direction: "outbound",
         });
