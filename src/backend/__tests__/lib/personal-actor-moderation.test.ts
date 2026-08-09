@@ -9,6 +9,7 @@ import {
   runBatch,
 } from "../../../db/index.ts";
 import { excludeBlockedMutedAuthors } from "../../lib/feed-exclude.ts";
+import { blockActorAndSeverFollowPair } from "../../lib/follow-edge-mutations.ts";
 import {
   anyOwnerSuppressesInboundActor,
   canonicalPersonalModerationActorId,
@@ -17,6 +18,8 @@ import {
   LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT,
   personalActorIsBlockedBy,
   personalActorIsSuppressedBy,
+  resolveRetainedPersonalBlockTarget,
+  resolveRetainedPersonalMuteTarget,
 } from "../../lib/personal-actor-moderation.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
@@ -118,6 +121,87 @@ test("moderation decisions do not forget a cosmetic relation behind the legacy m
       anyOwnerSuppressesInboundActor(db, MUTED_ACTOR),
     ]),
   ).toEqual([true, true, true, true, true]);
+});
+
+test("personal moderation mutations retain and remove cosmetic relations older than the legacy scan bound", async () => {
+  const { db } = await createTestDb();
+  await runBatch(
+    db,
+    insertMany(db, blocks, [
+      {
+        blockerApId: OWNER,
+        blockedApId: COSMETIC_ACTOR,
+        createdAt: "2020-01-01T00:00:00.000Z",
+      },
+      ...Array.from(
+        { length: LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT },
+        (_, index) => ({
+          blockerApId: OWNER,
+          blockedApId: `https://block-decoy-${index}.example/users/actor`,
+          createdAt: "2026-08-09T00:00:00.000Z",
+        }),
+      ),
+    ]) as [D1Statement, ...D1Statement[]],
+  );
+  await runBatch(
+    db,
+    insertMany(db, mutes, [
+      {
+        muterApId: OWNER,
+        mutedApId: COSMETIC_MUTED_ACTOR,
+        createdAt: "2020-01-01T00:00:00.000Z",
+      },
+      ...Array.from(
+        { length: LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT },
+        (_, index) => ({
+          muterApId: OWNER,
+          mutedApId: `https://mute-decoy-${index}.example/users/actor`,
+          createdAt: "2026-08-09T00:00:00.000Z",
+        }),
+      ),
+    ]) as [D1Statement, ...D1Statement[]],
+  );
+
+  expect(await resolveRetainedPersonalBlockTarget(db, OWNER, ACTOR)).toBe(
+    COSMETIC_ACTOR,
+  );
+  expect(await resolveRetainedPersonalMuteTarget(db, OWNER, MUTED_ACTOR)).toBe(
+    COSMETIC_MUTED_ACTOR,
+  );
+
+  await blockActorAndSeverFollowPair(db, OWNER, ACTOR);
+  const retainedMute = await resolveRetainedPersonalMuteTarget(
+    db,
+    OWNER,
+    MUTED_ACTOR,
+  );
+  await db
+    .insert(mutes)
+    .values({ muterApId: OWNER, mutedApId: retainedMute ?? MUTED_ACTOR })
+    .onConflictDoNothing();
+
+  expect(
+    (await db.select().from(blocks)).filter((row) =>
+      [ACTOR, COSMETIC_ACTOR].includes(row.blockedApId),
+    ),
+  ).toHaveLength(1);
+  expect(
+    (await db.select().from(mutes)).filter((row) =>
+      [MUTED_ACTOR, COSMETIC_MUTED_ACTOR].includes(row.mutedApId),
+    ),
+  ).toHaveLength(1);
+
+  await deletePersonalActorBlock(db, OWNER, ACTOR);
+  await deletePersonalActorMute(db, OWNER, MUTED_ACTOR);
+
+  expect(await personalActorIsBlockedBy(db, OWNER, ACTOR)).toBe(false);
+  expect(await personalActorIsSuppressedBy(db, OWNER, MUTED_ACTOR)).toBe(false);
+  expect(await db.select().from(blocks)).toHaveLength(
+    LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT,
+  );
+  expect(await db.select().from(mutes)).toHaveLength(
+    LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT,
+  );
 });
 
 test("read exclusion expands cosmetic identities but keeps path, query, and credential siblings distinct", async () => {

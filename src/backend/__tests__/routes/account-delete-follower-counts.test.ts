@@ -28,6 +28,7 @@ import {
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
+import { MAX_RELATIONS_PER_ACTOR } from "../../routes/actors-helpers.ts";
 import actorsRoute from "../../routes/actors.ts";
 
 /**
@@ -843,6 +844,84 @@ test("personal block/mute routes retain one presented identity and remove equiva
     envFor(db),
   );
   expect(selfBlock.status).toBe(400);
+});
+
+test("personal moderation cap permits an existing identity but rejects a new relation", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako");
+  const cosmeticBlock = "https://REMOTE.example:443/users/alice/#profile";
+  const canonicalBlock = "https://remote.example/users/alice";
+  const cosmeticMute = "https://REMOTE.example:443/users/bob/#profile";
+  const canonicalMute = "https://remote.example/users/bob";
+
+  await db.run(sql`
+    WITH digits(d) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+    numbers(n) AS (
+      SELECT a.d + b.d * 10 + c.d * 100 + d.d * 1000
+      FROM digits a CROSS JOIN digits b CROSS JOIN digits c CROSS JOIN digits d
+    )
+    INSERT INTO blocks (blocker_ap_id, blocked_ap_id, created_at)
+    SELECT ${tako}, ${cosmeticBlock}, '2020-01-01T00:00:00.000Z'
+    UNION ALL
+    SELECT ${tako}, 'https://block-decoy-' || n || '.example/users/actor',
+      '2026-08-09T00:00:00.000Z'
+    FROM numbers WHERE n < ${MAX_RELATIONS_PER_ACTOR - 1}
+  `);
+  await db.run(sql`
+    WITH digits(d) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+    numbers(n) AS (
+      SELECT a.d + b.d * 10 + c.d * 100 + d.d * 1000
+      FROM digits a CROSS JOIN digits b CROSS JOIN digits c CROSS JOIN digits d
+    )
+    INSERT INTO mutes (muter_ap_id, muted_ap_id, created_at)
+    SELECT ${tako}, ${cosmeticMute}, '2020-01-01T00:00:00.000Z'
+    UNION ALL
+    SELECT ${tako}, 'https://mute-decoy-' || n || '.example/users/actor',
+      '2026-08-09T00:00:00.000Z'
+    FROM numbers WHERE n < ${MAX_RELATIONS_PER_ACTOR - 1}
+  `);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  for (const [relation, existingTarget] of [
+    ["blocked", canonicalBlock],
+    ["muted", canonicalMute],
+  ] as const) {
+    const existing = await app.fetch(
+      new Request(`${APP_URL}/me/${relation}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ap_id: existingTarget }),
+      }),
+      envFor(db),
+    );
+    expect(existing.status).toBe(200);
+
+    const fresh = await app.fetch(
+      new Request(`${APP_URL}/me/${relation}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ap_id: `https://new-${relation}.example/users/actor`,
+        }),
+      }),
+      envFor(db),
+    );
+    expect(fresh.status).toBe(429);
+  }
+
+  expect(await rowCount(db, db.select().from(blocks))).toBe(
+    MAX_RELATIONS_PER_ACTOR,
+  );
+  expect(await rowCount(db, db.select().from(mutes))).toBe(
+    MAX_RELATIONS_PER_ACTOR,
+  );
 });
 
 test("POST /me/blocked rolls back the block and both follow removals when the second edge delete fails", async () => {

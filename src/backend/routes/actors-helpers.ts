@@ -354,6 +354,11 @@ export async function createRelation(
     targetApId: string,
   ) => Promise<unknown>,
   countExisting: (db: Database, actorApIdVal: string) => Promise<number>,
+  relationExists: (
+    db: Database,
+    actorApIdVal: string,
+    targetApId: string,
+  ) => Promise<boolean>,
 ): Promise<Response> {
   const result = requireActor(c);
   if (result instanceof Response) return result;
@@ -368,9 +373,14 @@ export async function createRelation(
 
   const db = c.get("db");
   // Bound the per-actor relation set (soft cap; a small concurrent overshoot is
-  // harmless). onConflictDoNothing means re-blocking an existing target is a
-  // no-op, so this only rejects genuinely-new rows past the limit.
-  if ((await countExisting(db, actor.ap_id)) >= MAX_RELATIONS_PER_ACTOR) {
+  // harmless). Existing identities remain idempotent at the cap, including a
+  // legacy raw spelling that is cosmetically equivalent to the presented ID.
+  // Check identity only on the full-cap path so ordinary creates retain the
+  // existing one-count + one-upsert query shape.
+  if (
+    (await countExisting(db, actor.ap_id)) >= MAX_RELATIONS_PER_ACTOR &&
+    !(await relationExists(db, actor.ap_id, body.ap_id))
+  ) {
     return c.json({ error: `${verb} limit reached` }, 429);
   }
   // Retain the exact actor spelling the user acted on. Feed queries expand

@@ -1,20 +1,16 @@
-import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 
 import type { Database } from "../../db/index.ts";
 import { blocks, mutes } from "../../db/index.ts";
-import { runBatch } from "../../db/d1-write.ts";
+import { normalizeActivityPubActorId } from "./activitypub-actor-identity.ts";
 import {
-  isSameActivityPubActor,
-  normalizeActivityPubActorId,
-} from "./activitypub-actor-identity.ts";
-import { activityPubActorIdentitySetSql } from "./activitypub-actor-identity-sql.ts";
-import { chunkForInClause } from "./chunk.ts";
+  activityPubActorIdentityMatchesSql,
+  activityPubActorIdentitySetSql,
+} from "./activitypub-actor-identity-sql.ts";
 
-// Relation mutation needs the retained raw spelling, so its compatibility scan
-// stays bounded: an API write is not a migration pass. Authorization and read
-// decisions below never use this bound; they ask the SQL identity set, which
-// covers the complete per-actor relation cap without adding one parameter per
-// relation.
+// Historical regression boundary retained for fixtures: mutation compatibility
+// used to inspect only the newest 512 rows. Production mutation queries no
+// longer use this value; they match the complete SQL identity set.
 export const LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT = 512;
 
 export function canonicalPersonalModerationActorId(actorApId: string): string {
@@ -54,17 +50,21 @@ export async function resolveRetainedPersonalBlockTarget(
     .get();
   if (exact) return exact.actorApId;
 
-  const candidates = await db
-    .select({ actorApId: blocks.blockedApId })
-    .from(blocks)
-    .where(eq(blocks.blockerApId, blockerApId))
-    .orderBy(desc(blocks.createdAt), desc(blocks.blockedApId))
-    .limit(LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT);
-  return (
-    candidates.find((candidate) =>
-      isSameActivityPubActor(candidate.actorApId, blockedApId),
-    )?.actorApId ?? null
+  const matches = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${blocks.blockedApId}
+      FROM ${blocks}
+      WHERE ${blocks.blockerApId} = ${blockerApId}
+    `,
+    blockedApId,
   );
+  // BaseSQLiteDatabase.get() normalizes a missing libsql row as an object and
+  // throws before returning. A scalar subquery always yields one row and uses
+  // NULL for the normal "no retained spelling" case on both libsql and D1.
+  const retained = (await db.get(sql`
+    SELECT (${matches}) AS actor_id
+  `)) as { actor_id: string | null } | undefined;
+  return retained?.actor_id ?? null;
 }
 
 export async function resolveRetainedPersonalMuteTarget(
@@ -79,17 +79,18 @@ export async function resolveRetainedPersonalMuteTarget(
     .get();
   if (exact) return exact.actorApId;
 
-  const candidates = await db
-    .select({ actorApId: mutes.mutedApId })
-    .from(mutes)
-    .where(eq(mutes.muterApId, muterApId))
-    .orderBy(desc(mutes.createdAt), desc(mutes.mutedApId))
-    .limit(LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT);
-  return (
-    candidates.find((candidate) =>
-      isSameActivityPubActor(candidate.actorApId, mutedApId),
-    )?.actorApId ?? null
+  const matches = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${mutes.mutedApId}
+      FROM ${mutes}
+      WHERE ${mutes.muterApId} = ${muterApId}
+    `,
+    mutedApId,
   );
+  const retained = (await db.get(sql`
+    SELECT (${matches}) AS actor_id
+  `)) as { actor_id: string | null } | undefined;
+  return retained?.actor_id ?? null;
 }
 
 export async function personalActorIsBlockedBy(
@@ -196,47 +197,22 @@ export async function deletePersonalActorBlock(
   blockerApId: string,
   blockedApId: string,
 ): Promise<void> {
-  const [exact, candidates] = await Promise.all([
-    db
-      .select({ actorApId: blocks.blockedApId })
-      .from(blocks)
-      .where(
-        and(
-          eq(blocks.blockerApId, blockerApId),
-          eq(blocks.blockedApId, blockedApId),
-        ),
-      )
-      .get(),
-    db
-      .select({ actorApId: blocks.blockedApId })
-      .from(blocks)
-      .where(eq(blocks.blockerApId, blockerApId))
-      .orderBy(desc(blocks.createdAt), desc(blocks.blockedApId))
-      .limit(LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT),
-  ]);
-  const retained = [
-    ...new Set([
-      ...(exact ? [exact.actorApId] : []),
-      ...candidates
-        .filter((candidate) =>
-          isSameActivityPubActor(candidate.actorApId, blockedApId),
-        )
-        .map((candidate) => candidate.actorApId),
-    ]),
-  ];
-  const statements = chunkForInClause(retained).map((chunk) =>
-    db
-      .delete(blocks)
-      .where(
-        and(
-          eq(blocks.blockerApId, blockerApId),
-          inArray(blocks.blockedApId, chunk),
-        ),
-      ),
+  const matches = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${blocks.blockedApId}
+      FROM ${blocks}
+      WHERE ${blocks.blockerApId} = ${blockerApId}
+    `,
+    blockedApId,
   );
-  const [first, ...rest] = statements;
-  if (!first) return;
-  await runBatch(db, [first, ...rest]);
+  await db
+    .delete(blocks)
+    .where(
+      and(
+        eq(blocks.blockerApId, blockerApId),
+        sql`${blocks.blockedApId} IN (${matches})`,
+      ),
+    );
 }
 
 export async function deletePersonalActorMute(
@@ -244,39 +220,20 @@ export async function deletePersonalActorMute(
   muterApId: string,
   mutedApId: string,
 ): Promise<void> {
-  const [exact, candidates] = await Promise.all([
-    db
-      .select({ actorApId: mutes.mutedApId })
-      .from(mutes)
-      .where(
-        and(eq(mutes.muterApId, muterApId), eq(mutes.mutedApId, mutedApId)),
-      )
-      .get(),
-    db
-      .select({ actorApId: mutes.mutedApId })
-      .from(mutes)
-      .where(eq(mutes.muterApId, muterApId))
-      .orderBy(desc(mutes.createdAt), desc(mutes.mutedApId))
-      .limit(LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT),
-  ]);
-  const retained = [
-    ...new Set([
-      ...(exact ? [exact.actorApId] : []),
-      ...candidates
-        .filter((candidate) =>
-          isSameActivityPubActor(candidate.actorApId, mutedApId),
-        )
-        .map((candidate) => candidate.actorApId),
-    ]),
-  ];
-  const statements = chunkForInClause(retained).map((chunk) =>
-    db
-      .delete(mutes)
-      .where(
-        and(eq(mutes.muterApId, muterApId), inArray(mutes.mutedApId, chunk)),
-      ),
+  const matches = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${mutes.mutedApId}
+      FROM ${mutes}
+      WHERE ${mutes.muterApId} = ${muterApId}
+    `,
+    mutedApId,
   );
-  const [first, ...rest] = statements;
-  if (!first) return;
-  await runBatch(db, [first, ...rest]);
+  await db
+    .delete(mutes)
+    .where(
+      and(
+        eq(mutes.muterApId, muterApId),
+        sql`${mutes.mutedApId} IN (${matches})`,
+      ),
+    );
 }

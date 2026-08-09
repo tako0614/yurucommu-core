@@ -51,6 +51,7 @@ import { blockActorAndSeverFollowPair } from "../lib/follow-edge-mutations.ts";
 import {
   deletePersonalActorBlock,
   deletePersonalActorMute,
+  personalActorIsBlockedBy,
   resolveRetainedPersonalMuteTarget,
 } from "../lib/personal-actor-moderation.ts";
 import {
@@ -417,6 +418,7 @@ actorsRoute.post("/me/blocked", async (c) => {
           .where(eq(blocks.blockerApId, actorId))
           .get()
       )?.n ?? 0,
+    (db, actorId, targetId) => personalActorIsBlockedBy(db, actorId, targetId),
   );
 });
 
@@ -476,6 +478,8 @@ actorsRoute.post("/me/muted", async (c) => {
           .where(eq(mutes.muterApId, actorId))
           .get()
       )?.n ?? 0,
+    async (db, actorId, targetId) =>
+      Boolean(await resolveRetainedPersonalMuteTarget(db, actorId, targetId)),
   );
 });
 
