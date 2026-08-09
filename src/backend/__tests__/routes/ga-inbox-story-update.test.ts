@@ -237,6 +237,19 @@ test("handleCreateStory dedups a redelivered remote story (onConflictDoNothing)"
   expect(rows[0]?.type).toBe("Story");
 });
 
+test("Create(Story) without a remote object id never mints a local-origin id", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  const activity = storyActivity();
+  delete (activity.object as { id?: string }).id;
+
+  await handleCreateStory(ctx(db), activity, ALICE, "https://yuru.test");
+
+  expect(await db.select({ apId: objects.apId }).from(objects).all()).toEqual(
+    [],
+  );
+});
+
 test("a Story arriving after an indexed reply reconstructs and repairs replyCount", async () => {
   const db = await freshDb();
   await seedAlice(db);

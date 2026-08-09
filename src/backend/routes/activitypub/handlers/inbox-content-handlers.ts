@@ -33,6 +33,10 @@ import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import { resolveInboundCommunityScope } from "./inbound-community-scope.ts";
 import {
+  MAX_INBOUND_OBJECT_ID_LENGTH,
+  validateInboundObjectIdentity,
+} from "./inbound-object-identity.ts";
+import {
   buildInboundStoryCreateProjection,
   buildInboundStoryUpdateProjection,
   declaresStoryAddressing,
@@ -54,10 +58,8 @@ import {
 import {
   activityApId,
   generateId,
-  getDomain,
   isLocal,
   isSafeRemoteUrl,
-  objectApId,
 } from "../../../federation-helpers.ts";
 import { getConversationId } from "../../dm/query-helpers.ts";
 import {
@@ -347,29 +349,6 @@ function normalizedObjectAudience(
 }
 
 /**
- * Reject an inbound object whose `object.id` is asserted under a host the
- * delivering actor does not control (object-ID squatting / cross-origin
- * injection). A remote actor may only Create objects under its own origin, and
- * never under the local domain. Returns true when the object id must be
- * rejected. Mirrors the ownership checks already enforced for Delete/Update.
- */
-function isObjectIdOriginMismatch(
-  objectId: string | undefined,
-  actor: string,
-  baseUrl: string,
-): boolean {
-  if (!objectId) return false;
-  // A remote actor must never assert a local-domain object id.
-  if (isLocal(objectId, baseUrl)) return true;
-  try {
-    return getDomain(objectId) !== getDomain(actor);
-  } catch {
-    // Unparseable object id: treat as a mismatch (reject) rather than insert.
-    return true;
-  }
-}
-
-/**
  * Extract the `href` of every `Mention` tag on an inbound object. AS2 `tag` may
  * be an array, a single object, or absent; each Mention carries the mentioned
  * actor's id in `href`. Used to fan-in mention notifications for federated posts
@@ -577,15 +556,13 @@ export async function handleCreate(
   // Handle Note type (a remote may send `type` as a string or an array)
   if (!typeIncludes(object.type, "Note")) return;
 
-  // Same-origin guard: a remote actor may only Create objects under its own
-  // origin, never under another host or the local domain. This closes the
-  // object-ID squatting / cross-origin injection vector and mirrors the
-  // ownership checks already enforced for Delete/Update.
-  if (isObjectIdOriginMismatch(object.id, actor, baseUrl)) {
-    log.warn("Create rejected: object id origin does not match actor", {
-      event: "ap.create.object_origin_mismatch",
+  const identity = validateInboundObjectIdentity(object.id, actor, baseUrl);
+  if (!identity.ok) {
+    log.warn("Create rejected: invalid remote object identity", {
+      event: "ap.create.object_identity_invalid",
       actor,
       objectId: object.id,
+      reason: identity.reason,
     });
     return;
   }
@@ -673,7 +650,7 @@ export async function handleCreate(
     return;
   }
 
-  const objectId = object.id || objectApId(baseUrl, generateId());
+  const objectId = identity.objectId;
 
   // Was the object already present BEFORE this dispatch? This is read ONCE and
   // used only to gate the one-shot side effects (parent notification) below; it
@@ -868,18 +845,18 @@ export async function handleCreateStory(
   const object = getActivityObject(activity);
   if (!object) return;
 
-  // Same-origin guard: reject a story whose object id is squatted under another
-  // host or the local domain (see handleCreate for rationale).
-  if (isObjectIdOriginMismatch(object.id, actor, baseUrl)) {
-    log.warn("Create(Story) rejected: object id origin does not match actor", {
-      event: "ap.story.object_origin_mismatch",
+  const identity = validateInboundObjectIdentity(object.id, actor, baseUrl);
+  if (!identity.ok) {
+    log.warn("Create(Story) rejected: invalid remote object identity", {
+      event: "ap.story.object_identity_invalid",
       actor,
       objectId: object.id,
+      reason: identity.reason,
     });
     return;
   }
 
-  const objectId = object.id || objectApId(baseUrl, generateId());
+  const objectId = identity.objectId;
 
   // Per-user block: drop a Story from an actor the local owner has blocked,
   // mirroring the inbound DM blockedBySigner drop + the inbound Like/Announce/
@@ -1067,7 +1044,13 @@ export async function fetchAndPersistAnnouncedNote(
 ): Promise<boolean> {
   // Never fetch a local id (a local object that does not exist is just gone)
   // and never fetch an unsafe URL (non-http(s), credentials, blocked host…).
-  if (isLocal(objectId, baseUrl) || !isSafeRemoteUrl(objectId)) return false;
+  if (
+    objectId.length > MAX_INBOUND_OBJECT_ID_LENGTH ||
+    isLocal(objectId, baseUrl) ||
+    !isSafeRemoteUrl(objectId)
+  ) {
+    return false;
+  }
 
   let note: ActivityObject & { attributedTo?: unknown };
   try {
@@ -1101,9 +1084,7 @@ export async function fetchAndPersistAnnouncedNote(
   const attributedTo =
     typeof note.attributedTo === "string" ? note.attributedTo : null;
   if (!attributedTo || !isSafeRemoteUrl(attributedTo)) return false;
-  try {
-    if (getDomain(attributedTo) !== getDomain(objectId)) return false;
-  } catch {
+  if (!validateInboundObjectIdentity(objectId, attributedTo, baseUrl).ok) {
     return false;
   }
 

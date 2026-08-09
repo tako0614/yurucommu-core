@@ -9,9 +9,7 @@ import {
 import {
   activityApId,
   generateId,
-  getDomain,
   isLocal,
-  objectApId,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { isMemberBanned } from "../../communities/membership-shared.ts";
@@ -23,6 +21,7 @@ import {
 } from "../../posts/transformers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import { canActorPostToInboundCommunity } from "./inbound-community-scope.ts";
+import { validateInboundObjectIdentity } from "./inbound-object-identity.ts";
 import { runBatch } from "./inbox-shared-helpers.ts";
 import type { InstanceActorResult } from "../query-helpers.ts";
 import {
@@ -226,18 +225,12 @@ export async function handleGroupCreate(
   const object = getActivityObject(activity);
   if (!object || !typeIncludes(object.type, "Note")) return;
 
-  if (object.id) {
-    try {
-      if (
-        isLocal(object.id, baseUrl) ||
-        getDomain(object.id) !== getDomain(actorApIdStr)
-      ) {
-        return;
-      }
-    } catch {
-      return;
-    }
-  }
+  const identity = validateInboundObjectIdentity(
+    object.id,
+    actorApIdStr,
+    baseUrl,
+  );
+  if (!identity.ok) return;
 
   const roomUrl = object.room || activity.room;
   if (!roomUrl || typeof roomUrl !== "string") return;
@@ -278,7 +271,7 @@ export async function handleGroupCreate(
     return;
   }
 
-  const newObjectId = object.id || objectApId(baseUrl, generateId());
+  const newObjectId = identity.objectId;
   const audienceJson = JSON.stringify([community.apId]);
 
   // Clamp + normalize the remote-controlled `published` exactly like the other

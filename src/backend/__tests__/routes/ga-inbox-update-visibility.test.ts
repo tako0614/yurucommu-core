@@ -691,6 +691,67 @@ test("inbound Create caps attachment and tag arrays before persistence", async (
   expect(JSON.parse(row!.tagsJson)).toHaveLength(64);
 });
 
+test("inbound Create(Note) without a remote object id never mints a local-origin id", async () => {
+  const db = await setup();
+  const create = parseActivity({
+    id: "https://remote.example/activities/create-without-object-id",
+    type: "Create",
+    actor: REMOTE,
+    object: {
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "must not acquire a yuru.test id",
+      to: [PUBLIC],
+      cc: [],
+    },
+  }) as Activity;
+
+  await handleCreate(ctxFor(db), create, recipient(LOCAL_BOB), REMOTE, APP_URL);
+
+  expect(await db.select({ apId: objects.apId }).from(objects).all()).toEqual(
+    [],
+  );
+});
+
+test("inbound Create(Note) rejects unsafe remote object ids", async () => {
+  const db = await setup();
+  const unsafeIds: unknown[] = [
+    "ftp://remote.example/objects/unsafe-scheme",
+    "https://user:pass@remote.example/objects/credentials",
+    "http://remote.example/objects/scheme-downgrade",
+    `https://remote.example/objects/${"x".repeat(2050)}`,
+    42,
+    { href: "https://remote.example/objects/not-a-string" },
+  ];
+
+  for (const [index, id] of unsafeIds.entries()) {
+    const create = parseActivity({
+      id: `https://remote.example/activities/unsafe-object-id-${index}`,
+      type: "Create",
+      actor: REMOTE,
+      object: {
+        id,
+        type: "Note",
+        attributedTo: REMOTE,
+        content: "must not be retained",
+        to: [PUBLIC],
+        cc: [],
+      },
+    }) as Activity;
+    await handleCreate(
+      ctxFor(db),
+      create,
+      recipient(LOCAL_BOB),
+      REMOTE,
+      APP_URL,
+    );
+  }
+
+  expect(await db.select({ apId: objects.apId }).from(objects).all()).toEqual(
+    [],
+  );
+});
+
 test("inbound public Create(Note) from a muted actor is dropped at write time", async () => {
   const db = await setup();
   const id = "https://remote.example/objects/muted-public-create";

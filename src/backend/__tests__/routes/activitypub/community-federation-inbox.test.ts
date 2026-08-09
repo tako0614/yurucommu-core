@@ -378,6 +378,21 @@ test("an ACCEPTED member's group Create IS inserted + audience-linked to the com
   expect(audience[0]?.objectApId).toBe("https://remote.example/notes/1");
 });
 
+test("an accepted member's group Create without an object id never mints a local-origin id", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "id-required", "open");
+  await acceptMember(db, apId);
+  const activity = groupCreate(apId, "must not acquire a yuru.test id");
+  delete (activity.object as { id?: string }).id;
+
+  await handleGroupCreate(ctx(db), activity, INSTANCE_ACTOR, REMOTE, APP_URL);
+
+  expect(await db.select({ apId: objects.apId }).from(objects).all()).toEqual(
+    [],
+  );
+  expect(await chatMessages(db, apId)).toEqual([]);
+});
+
 test("a retried group Create repairs an audience link missing after a partial commit", async () => {
   const db = await freshDb();
   const apId = await insertCommunity(db, "club", "open");
