@@ -23,6 +23,7 @@ import {
   boundInboundSummary,
 } from "../../posts/transformers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
+import { runBatch } from "./inbox-shared-helpers.ts";
 import type { InstanceActorResult } from "../query-helpers.ts";
 import {
   type Activity,
@@ -299,10 +300,7 @@ export async function handleGroupCreate(
   if (policy === "owners" && role !== "owner") return;
 
   const newObjectId = object.id || objectApId(baseUrl, generateId());
-  const existingObj = await db.query.objects.findFirst({
-    where: eq(objects.apId, newObjectId),
-  });
-  if (existingObj) return;
+  const audienceJson = JSON.stringify([community.apId]);
 
   const attachments = object.attachment
     ? JSON.stringify(object.attachment)
@@ -325,31 +323,60 @@ export async function handleGroupCreate(
   // from the feed object-set (which carries `communityApId`). Leave
   // `communityApId` NULL here so the message surfaces in the group chat and
   // unread count rather than being misrouted into the community feed.
-  await db.insert(objects).values({
-    apId: newObjectId,
-    type: "Note",
-    attributedTo: actorApIdStr,
-    content: boundInboundContent(object.content),
-    summary: boundInboundSummary(object.summary),
-    attachmentsJson: boundAttachmentsJson(attachments),
-    visibility: "group",
-    // Record the community in audienceJson too (not just the object_recipients
-    // row): the canonical single-object read-gate (canViewerReadObject) keys on
-    // audienceJson/communityApId and does NOT consult object_recipients, so
-    // without this a federated chat message in a PRIVATE community was served to
-    // ANY (even anonymous) caller via GET /api/posts/:id. The local chat POST sets
-    // this for the same reason. Safe for the chat reader (joins on
-    // object_recipients + communityApId IS NULL, not audienceJson) and the feed
-    // (audienceJson != "[]" already excludes it).
-    audienceJson: JSON.stringify([community.apId]),
-    communityApId: null,
-    published: now,
-    isLocal: 0,
-  });
-
-  // Using raw SQL with INSERT OR IGNORE since ObjectRecipient FK expects Actor, not Community
-  await db.run(sql`
-    INSERT OR IGNORE INTO object_recipients (object_ap_id, recipient_ap_id, type, created_at)
-    VALUES (${newObjectId}, ${community.apId}, 'audience', ${now})
-  `);
+  // The object and its audience membership are one logical message. Commit
+  // them atomically so an isolate failure cannot leave an invisible object;
+  // both statements are idempotent so a retry also repairs partial rows left by
+  // older deployments. Migration 0010 deliberately removed the incorrect
+  // object_recipients -> actors FK, so a community ap_id is valid here.
+  await runBatch(db, [
+    db
+      .insert(objects)
+      .values({
+        apId: newObjectId,
+        type: "Note",
+        attributedTo: actorApIdStr,
+        content: boundInboundContent(object.content),
+        summary: boundInboundSummary(object.summary),
+        attachmentsJson: boundAttachmentsJson(attachments),
+        visibility: "group",
+        // Record the community in audienceJson too (not just the
+        // object_recipients row): the canonical single-object read-gate
+        // (canViewerReadObject) keys on audienceJson/communityApId and does NOT
+        // consult object_recipients, so without this a federated chat message in
+        // a PRIVATE community was served to ANY caller via GET /api/posts/:id.
+        audienceJson,
+        communityApId: null,
+        published: now,
+        isLocal: 0,
+      })
+      .onConflictDoNothing(),
+    db
+      .insert(objectRecipients)
+      // Select from the object that ACTUALLY exists after the preceding insert,
+      // rather than trusting the attempted values. This closes the concurrent
+      // id-reuse race: if another community won the object-id insert, its
+      // different audience shape cannot be linked into this room.
+      .select(
+        db
+          .select({
+            objectApId: objects.apId,
+            recipientApId: sql<string>`${community.apId}`.as("recipient_ap_id"),
+            type: sql<string>`'audience'`.as("type"),
+            createdAt: sql<string>`${now}`.as("created_at"),
+          })
+          .from(objects)
+          .where(
+            and(
+              eq(objects.apId, newObjectId),
+              eq(objects.type, "Note"),
+              eq(objects.attributedTo, actorApIdStr),
+              eq(objects.visibility, "group"),
+              eq(objects.audienceJson, audienceJson),
+              isNull(objects.communityApId),
+              eq(objects.isLocal, 0),
+            ),
+          ),
+      )
+      .onConflictDoNothing(),
+  ]);
 }

@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile, readdir } from "node:fs/promises";
-import { and, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
+import { and, eq, sql } from "drizzle-orm";
 
 import * as schema from "../../../../db/schema.ts";
 import type { Database } from "../../../../db/index.ts";
@@ -26,18 +23,13 @@ import type {
   ActivityContext,
   Activity,
 } from "../../../routes/activitypub/inbox-types.ts";
+import { createTestDb } from "../../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
 const REMOTE = "https://remote.example/users/alice";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../../migrations/", import.meta.url);
-  const files = (await readdir(root)).filter((f) => f.endsWith(".sql")).sort();
-  for (const file of files) {
-    await client.executeMultiple(await readFile(new URL(file, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function insertCommunity(
@@ -384,6 +376,98 @@ test("an ACCEPTED member's group Create IS inserted + audience-linked to the com
   const audience = await chatMessages(db, apId);
   expect(audience.length).toBe(1);
   expect(audience[0]?.objectApId).toBe("https://remote.example/notes/1");
+});
+
+test("a retried group Create repairs an audience link missing after a partial commit", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "club", "open");
+  await acceptMember(db, apId);
+
+  // Reproduce the durable state left when the object INSERT committed but the
+  // following object_recipients INSERT failed or the isolate was evicted. The
+  // delivery retry must repair this exact row rather than treating it as a
+  // successfully completed duplicate.
+  await db.insert(objects).values({
+    apId: "https://remote.example/notes/1",
+    type: "Note",
+    attributedTo: REMOTE,
+    content: "legit member msg",
+    attachmentsJson: "[]",
+    visibility: "group",
+    audienceJson: JSON.stringify([apId]),
+    communityApId: null,
+    published: new Date().toISOString(),
+    isLocal: 0,
+  });
+
+  await handleGroupCreate(
+    ctx(db),
+    groupCreate(apId, "legit member msg"),
+    INSTANCE_ACTOR,
+    REMOTE,
+    APP_URL,
+  );
+
+  expect(await chatMessages(db, apId)).toEqual([
+    { objectApId: "https://remote.example/notes/1" },
+  ]);
+});
+
+test("a group Create rolls back its object when the audience link cannot commit", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "club", "open");
+  await acceptMember(db, apId);
+  await db.run(sql`
+    CREATE TRIGGER reject_group_audience
+    BEFORE INSERT ON object_recipients
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated audience-link failure');
+    END
+  `);
+
+  await expect(
+    handleGroupCreate(
+      ctx(db),
+      groupCreate(apId, "must be atomic"),
+      INSTANCE_ACTOR,
+      REMOTE,
+      APP_URL,
+    ),
+  ).rejects.toThrow("simulated audience-link failure");
+
+  expect(
+    await db.query.objects.findFirst({
+      where: eq(objects.apId, "https://remote.example/notes/1"),
+    }),
+  ).toBeUndefined();
+});
+
+test("a group Create never attaches an unrelated existing object with the same id", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "club", "open");
+  await acceptMember(db, apId);
+  await db.insert(objects).values({
+    apId: "https://remote.example/notes/1",
+    type: "Note",
+    attributedTo: REMOTE,
+    content: "an unrelated public post",
+    attachmentsJson: "[]",
+    visibility: "public",
+    audienceJson: "[]",
+    communityApId: null,
+    published: new Date().toISOString(),
+    isLocal: 0,
+  });
+
+  await handleGroupCreate(
+    ctx(db),
+    groupCreate(apId, "attempted room reuse"),
+    INSTANCE_ACTOR,
+    REMOTE,
+    APP_URL,
+  );
+
+  expect(await chatMessages(db, apId)).toEqual([]);
 });
 
 test("a federated group-chat message in a PRIVATE community is read-gated (anon + non-member denied, local member allowed)", async () => {
