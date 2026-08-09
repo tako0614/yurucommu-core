@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile, readdir } from "node:fs/promises";
-import { eq, or, sql } from "drizzle-orm";
+import { eq, inArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import { Hono } from "hono";
@@ -782,13 +782,14 @@ test("POST /me/blocked severs both follow edges and decrements both counters", a
   expect((await countOf(db, mallory))?.followingCount).toBe(0);
 });
 
-test("POST /me/blocked severs cosmetic follow edges behind 64 sibling relations", async () => {
+test("POST /me/blocked severs every cosmetic follow edge behind 64 sibling relations", async () => {
   const db = await freshDb();
   const tako = await insertActor(db, "tako", {
-    followerCount: 65,
-    followingCount: 65,
+    followerCount: 66,
+    followingCount: 66,
   });
-  const cosmetic = "https://zz-remote.example:443/users/victim/#profile";
+  const cosmeticA = "https://zz-remote.example:443/users/victim/#profile";
+  const cosmeticB = "https://ZZ-REMOTE.example/users/victim/";
   const canonical = "https://zz-remote.example/users/victim";
   await db.run(sql`
     WITH digits(d) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
@@ -807,10 +808,16 @@ test("POST /me/blocked severs cosmetic follow edges behind 64 sibling relations"
       'accepted', '2026-08-09T00:00:00.000Z', '2026-08-09T00:00:00.000Z'
     FROM numbers WHERE n < 64
     UNION ALL
-    SELECT ${tako}, ${cosmetic}, 'accepted',
+    SELECT ${tako}, ${cosmeticA}, 'accepted',
       '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z'
     UNION ALL
-    SELECT ${cosmetic}, ${tako}, 'accepted',
+    SELECT ${tako}, ${cosmeticB}, 'accepted',
+      '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z'
+    UNION ALL
+    SELECT ${cosmeticA}, ${tako}, 'accepted',
+      '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z'
+    UNION ALL
+    SELECT ${cosmeticB}, ${tako}, 'accepted',
       '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z'
   `);
 
@@ -837,8 +844,8 @@ test("POST /me/blocked severs cosmetic follow edges behind 64 sibling relations"
       .from(follows)
       .where(
         or(
-          eq(follows.followerApId, cosmetic),
-          eq(follows.followingApId, cosmetic),
+          inArray(follows.followerApId, [cosmeticA, cosmeticB]),
+          inArray(follows.followingApId, [cosmeticA, cosmeticB]),
         ),
       ),
   ).toEqual([]);

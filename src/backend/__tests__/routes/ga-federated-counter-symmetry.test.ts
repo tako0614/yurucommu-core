@@ -15,6 +15,7 @@ import {
 } from "../../../db/index.ts";
 import {
   handleAccept,
+  handleReject,
   handleUndo,
 } from "../../routes/activitypub/handlers/inbox-follow-handlers.ts";
 import {
@@ -60,6 +61,8 @@ const LOCAL_BOB = `${APP_URL}/ap/users/bob`;
 const LOCAL_CAROL = `${APP_URL}/ap/users/carol`;
 const REMOTE_ALICE = "https://remote.example/users/alice";
 const REMOTE_ALICE_COSMETIC = "https://REMOTE.example/users/alice/";
+const REMOTE_ALICE_COSMETIC_2 =
+  "https://remote.example:443/users/alice/#profile";
 const SAME_HOST_MALLORY = "https://remote.example/users/mallory";
 const OBJECT_AP_ID = `${APP_URL}/ap/objects/post-1`;
 
@@ -527,6 +530,86 @@ test("actor identity: cosmetic followee spelling can Accept but a sibling actor 
   expect(await followingCount(db, LOCAL_BOB)).toBe(1);
 });
 
+test("actor identity: Accept collapses equivalent pending followee edges into one accepted edge", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob");
+  const followId = `${APP_URL}/ap/activities/follow-cosmetic-accept-all`;
+  await db.insert(follows).values([
+    {
+      followerApId: LOCAL_BOB,
+      followingApId: REMOTE_ALICE_COSMETIC,
+      status: "pending",
+      activityApId: followId,
+    },
+    {
+      followerApId: LOCAL_BOB,
+      followingApId: REMOTE_ALICE_COSMETIC_2,
+      status: "pending",
+      activityApId: followId,
+    },
+  ]);
+
+  await handleAccept(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/accept-cosmetic-all",
+      type: "Accept",
+      actor: REMOTE_ALICE,
+      object: followId,
+    } as unknown as Activity,
+    REMOTE_ALICE,
+  );
+
+  const retained = await db
+    .select({ status: follows.status })
+    .from(follows)
+    .where(eq(follows.followerApId, LOCAL_BOB))
+    .all();
+  expect(retained).toHaveLength(1);
+  expect(retained[0]?.status).toBe("accepted");
+  expect(await followingCount(db, LOCAL_BOB)).toBe(1);
+});
+
+test("actor identity: Reject removes every equivalent accepted followee edge", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob", { followingCount: 2 });
+  const followId = `${APP_URL}/ap/activities/follow-cosmetic-reject`;
+  await db.insert(follows).values([
+    {
+      followerApId: LOCAL_BOB,
+      followingApId: REMOTE_ALICE_COSMETIC,
+      status: "accepted",
+      activityApId: followId,
+    },
+    {
+      followerApId: LOCAL_BOB,
+      followingApId: REMOTE_ALICE_COSMETIC_2,
+      status: "accepted",
+      activityApId: followId,
+    },
+  ]);
+
+  await handleReject(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/reject-cosmetic",
+      type: "Reject",
+      actor: REMOTE_ALICE,
+      object: followId,
+    } as unknown as Activity,
+    REMOTE_ALICE,
+  );
+
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(eq(follows.followerApId, LOCAL_BOB))
+      .all(),
+  ).toHaveLength(0);
+  expect(await followingCount(db, LOCAL_BOB)).toBe(0);
+});
+
 // ---------------------------------------------------------------------------
 // undo Follow — co-committed delete + decrement (no permanent OVER-count)
 // ---------------------------------------------------------------------------
@@ -727,6 +810,48 @@ test("actor identity: cosmetic follower spelling can Undo its own Follow", async
   expect(await followerCount(db, LOCAL_BOB)).toBe(0);
 });
 
+test("actor identity: Undo(Follow) removes every equivalent accepted follower edge", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob", { followerCount: 2 });
+  const followId = "https://remote.example/activities/follow-cosmetic-undo-all";
+  await db.insert(follows).values([
+    {
+      followerApId: REMOTE_ALICE_COSMETIC,
+      followingApId: LOCAL_BOB,
+      status: "accepted",
+      activityApId: followId,
+    },
+    {
+      followerApId: REMOTE_ALICE_COSMETIC_2,
+      followingApId: LOCAL_BOB,
+      status: "accepted",
+      activityApId: followId,
+    },
+  ]);
+
+  await handleUndo(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/undo-follow-cosmetic-all",
+      type: "Undo",
+      actor: REMOTE_ALICE,
+      object: { type: "Follow", id: followId },
+    } as unknown as Activity,
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(eq(follows.followingApId, LOCAL_BOB))
+      .all(),
+  ).toHaveLength(0);
+  expect(await followerCount(db, LOCAL_BOB)).toBe(0);
+});
+
 // ---------------------------------------------------------------------------
 // handleAdd / handleRemove — collection membership counter symmetry
 // ---------------------------------------------------------------------------
@@ -804,6 +929,84 @@ test("actor identity: Add and Remove use the retained cosmetic followee key", as
   ).toBeNull();
   expect(await followingCount(db, LOCAL_BOB)).toBe(0);
   expect(await followerCount(db, REMOTE_ALICE_COSMETIC)).toBe(0);
+});
+
+test("actor identity: Add collapses duplicate accepted followee edges and repairs the count", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob", { followingCount: 2 });
+  await db.insert(follows).values([
+    {
+      followerApId: LOCAL_BOB,
+      followingApId: REMOTE_ALICE,
+      status: "accepted",
+    },
+    {
+      followerApId: LOCAL_BOB,
+      followingApId: REMOTE_ALICE_COSMETIC,
+      status: "accepted",
+    },
+  ]);
+
+  await handleAdd(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/add-cosmetic-dedupe",
+      type: "Add",
+      actor: REMOTE_ALICE,
+      object: LOCAL_BOB,
+      target: `${REMOTE_ALICE}/followers`,
+    } as unknown as Activity,
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+  );
+
+  const retained = await db
+    .select({ status: follows.status })
+    .from(follows)
+    .where(eq(follows.followerApId, LOCAL_BOB))
+    .all();
+  expect(retained).toHaveLength(1);
+  expect(retained[0]?.status).toBe("accepted");
+  expect(await followingCount(db, LOCAL_BOB)).toBe(1);
+});
+
+test("actor identity: Remove deletes every equivalent accepted followee edge", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob", { followingCount: 2 });
+  await db.insert(follows).values([
+    {
+      followerApId: LOCAL_BOB,
+      followingApId: REMOTE_ALICE_COSMETIC,
+      status: "accepted",
+    },
+    {
+      followerApId: LOCAL_BOB,
+      followingApId: REMOTE_ALICE_COSMETIC_2,
+      status: "accepted",
+    },
+  ]);
+
+  await handleRemove(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/remove-cosmetic-all",
+      type: "Remove",
+      actor: REMOTE_ALICE,
+      object: LOCAL_BOB,
+      target: `${REMOTE_ALICE}/followers`,
+    } as unknown as Activity,
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+  );
+
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(eq(follows.followerApId, LOCAL_BOB))
+      .all(),
+  ).toHaveLength(0);
+  expect(await followingCount(db, LOCAL_BOB)).toBe(0);
 });
 
 test("SECURITY: an unsolicited Add (no prior Follow) cannot forge an accepted follow", async () => {

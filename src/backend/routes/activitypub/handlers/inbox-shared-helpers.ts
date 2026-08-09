@@ -368,38 +368,14 @@ export async function undoInteraction(
   const cf = countField ?? COUNT_FIELDS[kind];
 
   if (directObjectId) {
-    const exact = await db
-      .select({ actorApId: table.actorApId })
-      .from(table)
-      .where(
-        and(eq(table.actorApId, actor), eq(table.objectApId, directObjectId)),
-      )
-      .get();
-    let retainedActorApId = exact?.actorApId ?? null;
-    if (!retainedActorApId) {
-      const retainedActors = activityPubActorIdentityMatchesSql(
-        sql`
-          SELECT ${table.actorApId}
-          FROM ${table}
-          WHERE ${table.objectApId} = ${directObjectId}
-        `,
-        actor,
-      );
-      retainedActorApId =
-        (
-          await db
-            .select({ actorApId: table.actorApId })
-            .from(table)
-            .where(
-              and(
-                eq(table.objectApId, directObjectId),
-                sql`${table.actorApId} IN (${retainedActors})`,
-              ),
-            )
-            .limit(1)
-            .get()
-        )?.actorApId ?? null;
-    }
+    const retainedActors = activityPubActorIdentityMatchesSql(
+      sql`
+        SELECT ${table.actorApId}
+        FROM ${table}
+        WHERE ${table.objectApId} = ${directObjectId}
+      `,
+      actor,
+    );
 
     // Delete the edge and recompute the counter from the remaining edge rows
     // atomically. A duplicate Undo (or an Undo of an interaction we never
@@ -410,8 +386,8 @@ export async function undoInteraction(
         .delete(table)
         .where(
           and(
-            eq(table.actorApId, retainedActorApId ?? actor),
             eq(table.objectApId, directObjectId),
+            sql`${table.actorApId} IN (${retainedActors})`,
           ),
         ),
       db
@@ -466,13 +442,21 @@ export async function undoInteraction(
     // (a remote attacker undoing someone else's like/announce by id). The
     // directObjectId branch above already keys its delete on `actor`; mirror it.
     if (!isSameActivityPubActor(record.actorApId, actor)) return false;
+    const retainedActors = activityPubActorIdentityMatchesSql(
+      sql`
+        SELECT ${table.actorApId}
+        FROM ${table}
+        WHERE ${table.objectApId} = ${record.objectApId}
+      `,
+      actor,
+    );
     await runBatch(db, [
       db
         .delete(table)
         .where(
           and(
-            eq(table.actorApId, record.actorApId),
             eq(table.objectApId, record.objectApId),
+            sql`${table.actorApId} IN (${retainedActors})`,
           ),
         ),
       db

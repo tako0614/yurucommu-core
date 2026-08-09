@@ -13,6 +13,7 @@ import {
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
+import { severFollowDirection } from "../../../lib/follow-edge-mutations.ts";
 import { isMemberBanned } from "../../communities/membership-shared.ts";
 import {
   boundInboundContent,
@@ -194,14 +195,7 @@ export async function handleGroupUndo(
     // victim's follow/membership edge — the same cross-actor forgery already
     // guarded in the user-inbox undoFollow handler.
     if (!isSameActivityPubActor(follow.followerApId, actorApIdStr)) return;
-    await db
-      .delete(follows)
-      .where(
-        and(
-          eq(follows.followerApId, follow.followerApId),
-          eq(follows.followingApId, follow.followingApId),
-        ),
-      );
+    await severFollowDirection(db, follow.followerApId, follow.followingApId);
     return;
   }
 
@@ -215,14 +209,11 @@ export async function handleGroupUndo(
     group.apId,
   );
   if (!retainedFollow) return;
-  await db
-    .delete(follows)
-    .where(
-      and(
-        eq(follows.followerApId, retainedFollow.followerApId),
-        eq(follows.followingApId, retainedFollow.followingApId),
-      ),
-    );
+  await severFollowDirection(
+    db,
+    retainedFollow.followerApId,
+    retainedFollow.followingApId,
+  );
 }
 
 export async function handleGroupCreate(

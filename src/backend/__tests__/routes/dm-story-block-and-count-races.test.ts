@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 
 import { Hono } from "hono";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
@@ -551,7 +551,8 @@ test("actor-owned follow lookup reaches a cosmetic edge behind 64 reused activit
 test("Undo reaches cosmetic interaction edges behind 64 sibling relations", async () => {
   const db = await freshDb();
   const authorApId = await insertLocalActor(db, "undo-author");
-  const cosmetic = "https://ZZ-remote.example:443/users/alice/#profile";
+  const cosmeticA = "https://ZZ-remote.example:443/users/alice/#profile";
+  const cosmeticB = "https://zz-REMOTE.example/users/alice/";
   const canonical = "https://zz-remote.example/users/alice";
   const directObject = `${APP_URL}/ap/objects/direct-undo`;
   const activityObject = `${APP_URL}/ap/objects/activity-undo`;
@@ -564,14 +565,14 @@ test("Undo reaches cosmetic interaction edges behind 64 sibling relations", asyn
       type: "Note",
       attributedTo: authorApId,
       visibility: "public",
-      likeCount: 65,
+      likeCount: 66,
     },
     {
       apId: activityObject,
       type: "Note",
       attributedTo: authorApId,
       visibility: "public",
-      likeCount: 65,
+      likeCount: 66,
     },
   ]);
   await db.run(sql`
@@ -589,7 +590,9 @@ test("Undo reaches cosmetic interaction edges behind 64 sibling relations", asyn
         'undo-activity-' || n
       FROM numbers WHERE n < 64
       UNION ALL
-      SELECT ${cosmetic}, 'undo-cosmetic'
+      SELECT ${cosmeticA}, 'undo-cosmetic-a'
+      UNION ALL
+      SELECT ${cosmeticB}, 'undo-cosmetic-b'
     )
     INSERT INTO actors (
       ap_id, preferred_username, inbox, outbox, followers_url, following_url,
@@ -614,8 +617,12 @@ test("Undo reaches cosmetic interaction edges behind 64 sibling relations", asyn
       '2026-08-09T00:00:00.000Z'
     FROM numbers WHERE n < 64
     UNION ALL
-    SELECT ${cosmetic}, ${directObject},
+    SELECT ${cosmeticA}, ${directObject},
       'https://remote.example/activities/cosmetic-direct',
+      '2020-01-01T00:00:00.000Z'
+    UNION ALL
+    SELECT ${cosmeticB}, ${directObject},
+      'https://remote.example/activities/cosmetic-direct-2',
       '2020-01-01T00:00:00.000Z'
     UNION ALL
     SELECT 'https://a-activity-' || n || '.example/users/actor',
@@ -623,7 +630,10 @@ test("Undo reaches cosmetic interaction edges behind 64 sibling relations", asyn
       '2026-08-09T00:00:00.000Z'
     FROM numbers WHERE n < 64
     UNION ALL
-    SELECT ${cosmetic}, ${activityObject}, ${reusedActivityId},
+    SELECT ${cosmeticA}, ${activityObject}, ${reusedActivityId},
+      '2020-01-01T00:00:00.000Z'
+    UNION ALL
+    SELECT ${cosmeticB}, ${activityObject}, ${reusedActivityId},
       '2020-01-01T00:00:00.000Z'
   `);
 
@@ -651,7 +661,7 @@ test("Undo reaches cosmetic interaction edges behind 64 sibling relations", asyn
   const retainedTargets = await db
     .select()
     .from(likes)
-    .where(eq(likes.actorApId, cosmetic));
+    .where(inArray(likes.actorApId, [cosmeticA, cosmeticB]));
   expect(retainedTargets).toEqual([]);
   expect(
     await db

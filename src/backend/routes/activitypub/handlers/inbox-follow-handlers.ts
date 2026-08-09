@@ -1,5 +1,5 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { activities, actors, follows } from "../../../../db/index.ts";
 import {
   activityApId,
@@ -11,6 +11,10 @@ import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.
 import { actorSuppressesInteractionFrom } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
 import { resolveInboundActivityReference } from "../inbound-activity-reference.ts";
+import {
+  acceptRetainedFollowDirection,
+  severFollowDirection,
+} from "../../../lib/follow-edge-mutations.ts";
 import {
   type Activity,
   type ActivityContext,
@@ -209,7 +213,12 @@ export async function handleAccept(
   if (!followId) return;
 
   const follow = await findFollowByActivityId(db, followId);
-  if (!follow || follow.status === "accepted") return;
+  if (
+    !follow ||
+    (follow.status !== "pending" && follow.status !== "accepted")
+  ) {
+    return;
+  }
 
   // Only the followed party may Accept the follow. The signing actor is bound to
   // its domain upstream, so without this a different-domain actor that learned
@@ -218,44 +227,16 @@ export async function handleAccept(
 
   const now = new Date().toISOString();
 
-  // #COUNTER-SYM (crash-retry convergence): the pending->accepted flip and
-  // both +1s MUST commit together. Previously the flip committed first and the
-  // increments were SEPARATE statements; a crash between them left the edge
-  // 'accepted' while the counts were un-bumped, and the peer's retry saw an
-  // already-accepted edge (the early-return above) so the increments were
-  // SKIPPED → a permanent UNDER-count. Co-commit the flip and the increments
-  // in one atomic batch so the whole transition is all-or-nothing.
-  //
-  // The two increments run BEFORE the flip and are each guarded by a
-  // correlated `EXISTS(... status='pending')` subquery, so they fire only when
-  // THIS batch is the one performing the transition (the still-pending edge is
-  // observed in pre-flip state). A concurrent duplicate Accept, or a retry
-  // after the flip already committed, sees a non-pending edge → both guards
-  // are false and the flip's `status='pending'` predicate is a no-op, so the
-  // counts can neither double-bump nor (on retry) under-count.
-  // Storage failures must escape to the fenced inbox dispatch so it can release
-  // the claim and return a retryable response instead of committing the ledger.
-  const pendingEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${follow.followerApId} AND ${follows.followingApId} = ${follow.followingApId} AND ${follows.status} = 'pending')`;
-  await runBatch(db, [
-    db
-      .update(actors)
-      .set({ followingCount: sql`${actors.followingCount} + 1` })
-      .where(and(eq(actors.apId, follow.followerApId), pendingEdgeExists)),
-    db
-      .update(actors)
-      .set({ followerCount: sql`${actors.followerCount} + 1` })
-      .where(and(eq(actors.apId, follow.followingApId), pendingEdgeExists)),
-    db
-      .update(follows)
-      .set({ status: "accepted", acceptedAt: now })
-      .where(
-        and(
-          eq(follows.followerApId, follow.followerApId),
-          eq(follows.followingApId, follow.followingApId),
-          eq(follows.status, "pending"),
-        ),
-      ),
-  ]);
+  // Converge legacy cosmetic duplicates to one logical accepted relation. The
+  // shared mutation derives the counter delta from the accepted rows that
+  // actually exist, so pending->accepted adds one, a retry adds zero, and two
+  // accepted spellings repair back to one in the same atomic batch.
+  await acceptRetainedFollowDirection(
+    db,
+    follow.followerApId,
+    follow.followingApId,
+    now,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -278,36 +259,12 @@ export async function handleReject(
   if (!isSameActivityPubActor(follow.followingApId, actor)) return;
 
   // A remote followee can Reject an ALREADY-ACCEPTED follow to terminate it
-  // (Mastodon does this on lock + remove-follower). handleAccept incremented the
-  // local follower's followingCount when the edge became accepted, so a Reject of
-  // an accepted edge MUST decrement it — otherwise the follower's following_count
-  // stays permanently +1 over its true value (the edge IS correctly deleted, only
-  // the denormalized count drifts). Co-commit the accepted-gated decrement with
-  // the delete, mirroring undoFollowEdge: a pending (never-counted) reject and a
-  // duplicate are no-ops via the EXISTS(... status='accepted') + gt(>0) guards.
-  // (followingApId — the rejecting followee — is the remote signer with no local
-  // actors row, so only the local follower's followingCount is reconciled.)
-  const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${follow.followerApId} AND ${follows.followingApId} = ${follow.followingApId} AND ${follows.status} = 'accepted')`;
-  await runBatch(db, [
-    db
-      .update(actors)
-      .set({ followingCount: sql`${actors.followingCount} - 1` })
-      .where(
-        and(
-          eq(actors.apId, follow.followerApId),
-          gt(actors.followingCount, 0),
-          acceptedEdgeExists,
-        ),
-      ),
-    db
-      .delete(follows)
-      .where(
-        and(
-          eq(follows.followerApId, follow.followerApId),
-          eq(follows.followingApId, follow.followingApId),
-        ),
-      ),
-  ]);
+  // (Mastodon does this on lock + remove-follower). Remove every cosmetically
+  // equivalent retained edge: deleting only the first activity-id match left a
+  // second row authorized to receive posts. The shared mutation subtracts the
+  // number of accepted rows and deletes them atomically; pending and duplicate
+  // Reject deliveries remain counter-safe no-ops.
+  await severFollowDirection(db, follow.followerApId, follow.followingApId);
 }
 
 // ---------------------------------------------------------------------------
@@ -430,12 +387,7 @@ async function resolveUndoByActivityId(
       if (!authorizesFollowUndo(follow, actor, recipient.apId, objectId)) {
         return true;
       }
-      await undoFollowEdge(
-        db,
-        follow.followerApId,
-        follow.followingApId,
-        recipient.apId,
-      );
+      await undoFollowEdge(db, follow.followerApId, follow.followingApId);
     }
     return true;
   }
@@ -488,29 +440,8 @@ async function undoFollowEdge(
   db: Database,
   followerApId: string,
   followingApId: string,
-  recipientApId: string,
 ): Promise<void> {
-  const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${followerApId} AND ${follows.followingApId} = ${followingApId} AND ${follows.status} = 'accepted')`;
-  await runBatch(db, [
-    db
-      .update(actors)
-      .set({ followerCount: sql`${actors.followerCount} - 1` })
-      .where(
-        and(
-          eq(actors.apId, recipientApId),
-          gt(actors.followerCount, 0),
-          acceptedEdgeExists,
-        ),
-      ),
-    db
-      .delete(follows)
-      .where(
-        and(
-          eq(follows.followerApId, followerApId),
-          eq(follows.followingApId, followingApId),
-        ),
-      ),
-  ]);
+  await severFollowDirection(db, followerApId, followingApId);
 }
 
 async function undoFollow(
@@ -548,7 +479,7 @@ async function undoFollow(
   // of permanently over-counting.
   const followerApId = follow ? follow.followerApId : actor;
   const followingApId = follow ? follow.followingApId : recipient.apId;
-  await undoFollowEdge(db, followerApId, followingApId, recipient.apId);
+  await undoFollowEdge(db, followerApId, followingApId);
 }
 
 /**

@@ -34,6 +34,7 @@ import { createTestDb } from "../../helpers/d1-semantics.ts";
 const APP_URL = "https://yuru.test";
 const REMOTE = "https://remote.example/users/alice";
 const REMOTE_COSMETIC = "https://REMOTE.example/users/alice/";
+const REMOTE_COSMETIC_2 = "https://remote.example:443/users/alice/#profile";
 const REMOTE_SIBLING = "https://remote.example/users/mallory";
 
 async function freshDb(): Promise<Database> {
@@ -368,6 +369,46 @@ test("cosmetic actor spelling preserves one community edge and sibling isolation
       postPolicy: "anyone",
     }),
   ).toBe(true);
+});
+
+test("Undo(Follow) removes every equivalent cosmetic community membership edge", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "cosmetic-undo-all", "open");
+  const activityId =
+    "https://remote.example/activities/follow-cosmetic-group-all";
+  await db.insert(follows).values([
+    {
+      followerApId: REMOTE_COSMETIC,
+      followingApId: apId,
+      status: "accepted",
+      activityApId: activityId,
+    },
+    {
+      followerApId: REMOTE_COSMETIC_2,
+      followingApId: apId,
+      status: "accepted",
+      activityApId: activityId,
+    },
+  ]);
+
+  await handleGroupUndo(
+    ctx(db),
+    {
+      type: "Undo",
+      actor: REMOTE,
+      object: { type: "Follow", id: activityId },
+    } as unknown as Activity,
+    { apId, joinPolicy: "open" },
+    REMOTE,
+  );
+
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(eq(follows.followingApId, apId))
+      .all(),
+  ).toHaveLength(0);
 });
 
 test("a bare peer Follow id resolves through the inbound ledger and removes group membership", async () => {

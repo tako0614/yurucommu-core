@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import {
   actors,
@@ -34,7 +34,11 @@ import {
 import { logger } from "../../../lib/logger.ts";
 import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
 import { MAX_ACTIVITY_OBJECT_IDS } from "../../../lib/activitypub-validators.ts";
-import { severFollowPair } from "../../../lib/follow-edge-mutations.ts";
+import {
+  acceptRetainedFollowDirection,
+  severFollowDirection,
+  severFollowPair,
+} from "../../../lib/follow-edge-mutations.ts";
 
 type ActorRow = typeof actors.$inferSelect;
 
@@ -298,13 +302,18 @@ export async function handleAdd(
 
   const db = c.get("db");
   const now = new Date().toISOString();
-  const pendingEdge = await findFollowByFollowingIdentity(
+  const retainedEdge = await findFollowByFollowingIdentity(
     db,
     recipient.apId,
     followingApId,
   );
-  if (!pendingEdge || pendingEdge.status !== "pending") return;
-  const retainedFollowingApId = pendingEdge.followingApId;
+  if (
+    !retainedEdge ||
+    (retainedEdge.status !== "pending" && retainedEdge.status !== "accepted")
+  ) {
+    return;
+  }
+  const retainedFollowingApId = retainedEdge.followingApId;
 
   // SECURITY (consent — federated follow-graph forgery): an `Add <local user>
   // to <remote>/followers` is the remote CONFIRMING the local user's OWN Follow
@@ -317,32 +326,16 @@ export async function handleAdd(
   // inflating the victim's followingCount and routing the sender's posts into
   // the victim's home feed — all without the victim ever following anyone.
   //
-  // #COUNTER-SYM: like handleAccept, the two +1s run BEFORE the flip, each
-  // guarded by a correlated `EXISTS(... status='pending')` subquery, and the
-  // flip's own `status='pending'` predicate makes a duplicate/already-accepted
-  // (or absent) edge a total no-op — so counters can neither double-bump,
-  // under-count on retry, nor bump for an edge that was never pending.
-  const pendingEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${recipient.apId} AND ${follows.followingApId} = ${retainedFollowingApId} AND ${follows.status} = 'pending')`;
-  await runBatch(db, [
-    db
-      .update(actors)
-      .set({ followingCount: sql`${actors.followingCount} + 1` })
-      .where(and(eq(actors.apId, recipient.apId), pendingEdgeExists)),
-    db
-      .update(actors)
-      .set({ followerCount: sql`${actors.followerCount} + 1` })
-      .where(and(eq(actors.apId, retainedFollowingApId), pendingEdgeExists)),
-    db
-      .update(follows)
-      .set({ status: "accepted", acceptedAt: now })
-      .where(
-        and(
-          eq(follows.followerApId, recipient.apId),
-          eq(follows.followingApId, retainedFollowingApId),
-          eq(follows.status, "pending"),
-        ),
-      ),
-  ]);
+  // Like Accept, collapse cosmetic duplicates and derive the counter delta from
+  // the retained accepted-row set. This preserves the consent requirement (an
+  // existing pending/accepted edge is mandatory) while making retries and
+  // legacy duplicate rows converge to one logical relation.
+  await acceptRetainedFollowDirection(
+    db,
+    recipient.apId,
+    retainedFollowingApId,
+    now,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -367,48 +360,11 @@ export async function handleRemove(
   if (!retainedEdge) return;
   const retainedFollowingApId = retainedEdge.followingApId;
 
-  // #COUNTER-SYM (crash-retry convergence): the edge delete and both -1s MUST
-  // commit together. Previously the delete committed first and the decrements
-  // were SEPARATE statements; a crash between them left the edge gone but the
-  // counts un-decremented, and the peer's retry matched 0 rows so the decrements
-  // were SKIPPED → a permanent OVER-count. Co-commit them in one atomic batch.
-  //
-  // The two decrements run BEFORE the delete and are each guarded by a
-  // correlated `EXISTS(... status='accepted')` subquery (so a pending /
-  // never-counted edge, a duplicate Remove, or an unknown edge does not drift
-  // the counts) plus a `count > 0` underflow guard (mirrors the local API delete
-  // paths in posts/interactions.ts which batch + guard both sides).
-  const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${recipient.apId} AND ${follows.followingApId} = ${retainedFollowingApId} AND ${follows.status} = 'accepted')`;
-  await runBatch(db, [
-    db
-      .update(actors)
-      .set({ followingCount: sql`${actors.followingCount} - 1` })
-      .where(
-        and(
-          eq(actors.apId, recipient.apId),
-          gt(actors.followingCount, 0),
-          acceptedEdgeExists,
-        ),
-      ),
-    db
-      .update(actors)
-      .set({ followerCount: sql`${actors.followerCount} - 1` })
-      .where(
-        and(
-          eq(actors.apId, retainedFollowingApId),
-          gt(actors.followerCount, 0),
-          acceptedEdgeExists,
-        ),
-      ),
-    db
-      .delete(follows)
-      .where(
-        and(
-          eq(follows.followerApId, recipient.apId),
-          eq(follows.followingApId, retainedFollowingApId),
-        ),
-      ),
-  ]);
+  // Remove every retained spelling of this logical edge. The shared mutation
+  // co-commits deletion with count reconciliation and remains bounded to the
+  // exact local follower, so a cosmetic duplicate cannot keep feed-delivery
+  // authority after the remote collection removes the member.
+  await severFollowDirection(db, recipient.apId, retainedFollowingApId);
 }
 
 // ---------------------------------------------------------------------------
