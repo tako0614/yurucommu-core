@@ -1,6 +1,16 @@
 export const DELIVERY_QUEUE_MESSAGE_VERSION = 1 as const;
 
-export type DeliveryFanoutFollowersMessageV1 = {
+/**
+ * Bounded generation for a MAIN-queue message that exhausted Cloudflare's
+ * retries, reached the DLQ as its raw body, and was sent back to the MAIN
+ * queue. Optional keeps existing v1 producers and in-flight messages wire-
+ * compatible; absent means no prior redrive.
+ */
+export type DeliveryAutoDlqStateV1 = {
+  autoDlqAttempt?: number;
+};
+
+export type DeliveryFanoutFollowersMessageV1 = DeliveryAutoDlqStateV1 & {
   version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
   type: "fanout_followers";
   activityId: string;
@@ -15,7 +25,7 @@ export type DeliveryFanoutFollowersMessageV1 = {
  * followers) rather than the author's personal follower graph. Used for
  * community-scoped posts so reach == community, not author-followers.
  */
-export type DeliveryFanoutCommunityMessageV1 = {
+export type DeliveryFanoutCommunityMessageV1 = DeliveryAutoDlqStateV1 & {
   version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
   type: "fanout_community";
   activityId: string;
@@ -33,7 +43,7 @@ export type DeliveryFanoutCommunityMessageV1 = {
   scheduledAt: string; // ISO8601 UTC
 };
 
-export type DeliveryResolveActorMessageV1 = {
+export type DeliveryResolveActorMessageV1 = DeliveryAutoDlqStateV1 & {
   version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
   type: "resolve_actor";
   activityId: string;
@@ -46,7 +56,7 @@ export type DeliveryResolveActorMessageV1 = {
   scheduledAt: string; // ISO8601 UTC
 };
 
-export type DeliveryDeliverEndpointMessageV1 = {
+export type DeliveryDeliverEndpointMessageV1 = DeliveryAutoDlqStateV1 & {
   version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
   type: "deliver_endpoint";
   jobId: string;
@@ -58,7 +68,7 @@ export type DeliveryDeliverEndpointMessageV1 = {
   scheduledAt: string; // ISO8601 UTC
 };
 
-export type DeliveryReconcileJobMessageV1 = {
+export type DeliveryReconcileJobMessageV1 = DeliveryAutoDlqStateV1 & {
   version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
   type: "reconcile_job";
   jobId: string;
@@ -70,7 +80,7 @@ export type DeliveryReconcileJobMessageV1 = {
  * Product notification delivery. The queue carries only the durable outbox id;
  * device pushkeys, gateway URLs, and notification content remain in the DB.
  */
-export type DeliveryNotificationPushMessageV1 = {
+export type DeliveryNotificationPushMessageV1 = DeliveryAutoDlqStateV1 & {
   version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
   type: "notification_push";
   jobId: string;
@@ -106,6 +116,7 @@ export function isDeliveryQueueMessageV1(
   const v = value as Record<string, unknown>;
   if (v.version !== DELIVERY_QUEUE_MESSAGE_VERSION) return false;
   if (typeof v.type !== "string") return false;
+  if (!isOptionalNonNegativeInteger(v.autoDlqAttempt)) return false;
 
   switch (v.type) {
     case "fanout_followers":
@@ -130,10 +141,15 @@ export function isDeliveryQueueMessageV1(
       return (
         typeof v.activityId === "string" &&
         typeof v.recipientActorApId === "string" &&
+        isOptionalNonNegativeInteger(v.attempts) &&
         typeof v.scheduledAt === "string"
       );
     case "deliver_endpoint":
-      return typeof v.jobId === "string" && typeof v.scheduledAt === "string";
+      return (
+        typeof v.jobId === "string" &&
+        isOptionalNonNegativeInteger(v.reconcileAttempt) &&
+        typeof v.scheduledAt === "string"
+      );
     case "reconcile_job":
       return (
         typeof v.jobId === "string" &&
@@ -145,6 +161,13 @@ export function isDeliveryQueueMessageV1(
     default:
       return false;
   }
+}
+
+function isOptionalNonNegativeInteger(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (typeof value === "number" && Number.isInteger(value) && value >= 0)
+  );
 }
 
 export function isDeliveryDlqMessageV1(
@@ -160,6 +183,7 @@ export function isDeliveryDlqMessageV1(
     typeof v.endpoint === "string" &&
     typeof v.attempts === "number" &&
     (v.lastError === null || typeof v.lastError === "string") &&
+    isOptionalNonNegativeInteger(v.reconcileAttempt) &&
     typeof v.deadLetteredAt === "string"
   );
 }

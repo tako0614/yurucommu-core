@@ -165,6 +165,24 @@ export async function sendQueueMessage(
   );
 }
 
+/**
+ * DLQ recovery cannot use the ordinary best-effort producer contract: a
+ * missing binding must keep the DLQ message retryable rather than look like a
+ * successful redrive and get ACKed. Runtime send failures already throw; make
+ * binding drift do the same while preserving the shared alert/metric.
+ */
+async function sendQueueMessageRequired(
+  env: Env,
+  body: DeliveryQueueMessageV1,
+  delaySeconds?: number,
+): Promise<void> {
+  if (!queueAvailable(env)) {
+    reportProducerUnavailable("sendQueueMessageRequired");
+    throw new Error("DELIVERY_QUEUE and DELIVERY_DLQ bindings are required");
+  }
+  await sendQueueMessage(env, body, delaySeconds);
+}
+
 export async function sendDlqMessage(
   env: Env,
   payload: DeliveryDlqMessageV1,
@@ -183,6 +201,12 @@ export async function sendDlqMessage(
 // queue forever. Exported so the DLQ consumer (handleDeliveryDlqBatch) and the
 // reconcile worker (processReconcileJob) share one source of truth.
 export const MAX_RECONCILE_ATTEMPTS = 5;
+
+// Cloudflare puts the raw MAIN-queue body onto the DLQ after transport/runtime
+// retries are exhausted. Redrive idempotent delivery work a few times so one
+// infrastructure incident does not become permanent data loss, while keeping
+// a poison message or persistent code failure from cycling MAIN -> DLQ forever.
+export const MAX_AUTO_DLQ_REDRIVES = 3;
 
 export function buildDeliverEndpointMessage(
   jobId: string,
@@ -546,7 +570,11 @@ export async function handleDeliveryDlqBatch(
   env: Env,
 ): Promise<void> {
   for (const message of batch.messages) {
-    const body = message.body;
+    // The configured DLQ receives both app-built DeliveryDlqMessageV1 bodies
+    // and Cloudflare's raw original MAIN-queue bodies. The batch generic can
+    // express only one of those at a time, so narrow the runtime union from
+    // unknown through the two wire validators below.
+    const body: unknown = message.body;
     if (!isDeliveryDlqMessageV1(body)) {
       // Not an app-built `dlq` message. Cloudflare Queues also delivers here
       // the RAW original body of any MAIN-queue message that exhausted its
@@ -557,10 +585,17 @@ export async function handleDeliveryDlqBatch(
         try {
           await handleAutoDeadLetteredMessage(env, body);
           message.ack();
-        } catch {
-          // The recovery helper already emitted the failure log + metric. Keep
-          // the raw DLQ message alive until its durable repair succeeds instead
-          // of ACKing a still-stranded notification outbox row.
+        } catch (error) {
+          log.warn("Failed to recover auto-dead-lettered message", {
+            event: "delivery.dlq.auto_recovery_failed",
+            messageType: body.type,
+            error,
+          });
+          emitMetric("delivery.dlq.auto_recovery_failed", 1, {
+            message_type: body.type,
+          });
+          // Keep the raw DLQ message alive until its durable repair or bounded
+          // MAIN-queue redrive succeeds.
           message.retry({ delaySeconds: 60 });
         }
         continue;
@@ -603,7 +638,7 @@ export async function handleDeliveryDlqBatch(
       continue;
     }
     try {
-      await sendQueueMessage(
+      await sendQueueMessageRequired(
         env,
         buildReconcileJobMessage(body.jobId, reconcileAttempt + 1),
         6 * 60 * 60,
@@ -632,7 +667,7 @@ export async function handleDeliveryDlqBatch(
  * Recover / account for a MAIN-queue message that Cloudflare auto-dead-lettered
  * (retries exhausted with the raw body). `notification_push` rows are durable,
  * so reset the job to retry through the outbox instead of stranding it;
- * everything else is logged with an alerting metric rather than swallowed.
+ * idempotent federation work is sent back to MAIN with a bounded generation.
  */
 async function handleAutoDeadLetteredMessage(
   env: Env,
@@ -662,12 +697,36 @@ async function handleAutoDeadLetteredMessage(
     return;
   }
 
-  // fanout_*/resolve_actor/deliver_endpoint/reconcile_job: no durable ledger to
-  // rewind here, but make the loss explicit (alertable) rather than a silent
-  // "invalid message" ack.
-  log.error("Delivery message auto-dead-lettered; dropping", {
-    event: "delivery.dlq.auto_dead_lettered",
+  const autoDlqAttempt = body.autoDlqAttempt ?? 0;
+  if (autoDlqAttempt >= MAX_AUTO_DLQ_REDRIVES) {
+    log.error("Delivery message exhausted automatic DLQ redrives; dropping", {
+      event: "delivery.dlq.auto_redrive_exhausted",
+      messageType: body.type,
+      autoDlqAttempt,
+    });
+    emitMetric("delivery.dlq.auto_redrive_exhausted", 1, {
+      message_type: body.type,
+    });
+    return;
+  }
+
+  // Fanout pages preserve their cursor/stage, resolve preserves its own fetch
+  // attempt, and deliver/reconcile preserve the durable job generation. Their
+  // handlers are idempotent (stable inbox/job keys plus CAS), so replay the
+  // exact semantic position with only the transport-redrive generation and
+  // schedule timestamp changed.
+  const redriven = {
+    ...body,
+    autoDlqAttempt: autoDlqAttempt + 1,
+    scheduledAt: nowIso(),
+  } as DeliveryQueueMessageV1;
+  await sendQueueMessageRequired(env, redriven, 60);
+  log.error("Delivery message auto-dead-lettered; bounded redrive scheduled", {
+    event: "delivery.dlq.auto_redrive_scheduled",
     messageType: body.type,
+    autoDlqAttempt: autoDlqAttempt + 1,
   });
-  emitMetric("delivery.dlq.auto_dead_lettered", 1, { message_type: body.type });
+  emitMetric("delivery.dlq.auto_redrive_scheduled", 1, {
+    message_type: body.type,
+  });
 }
