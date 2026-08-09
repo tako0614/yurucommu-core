@@ -4,7 +4,7 @@ import { Hono } from "hono";
 
 import { assertSpyCalls, spy } from "#test/mock";
 import { createTestDb } from "../../helpers/d1-semantics.ts";
-import { activities, actorCache, actors } from "../../../../db/index.ts";
+import { activities, actorCache, actors, likes } from "../../../../db/index.ts";
 import inboxRoutes from "../../../routes/activitypub/inbox.ts";
 import { generateKeyPair, signRequest } from "../../../federation-helpers.ts";
 
@@ -275,6 +275,63 @@ test("activitypub inbox - silently discards a blocked actor's Like", async () =>
   expect(res.status).toEqual(202);
   assertSpyCalls(insertValues, 0);
   assertSpyCalls(db.query.activities.findFirst, 0);
+});
+
+test("activitypub inbox - ACKs an unknown-target Like without retaining a dangling edge", async () => {
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const actorApId = "https://remote.example/users/alice";
+  const unknownObject = "https://unknown.example/objects/attacker-chosen";
+  const { db } = await createTestDb();
+  await db.insert(actors).values({
+    apId: "https://test.local/ap/users/bob",
+    type: "Person",
+    preferredUsername: "bob",
+    inbox: "https://test.local/ap/users/bob/inbox",
+    outbox: "https://test.local/ap/users/bob/outbox",
+    followersUrl: "https://test.local/ap/users/bob/followers",
+    followingUrl: "https://test.local/ap/users/bob/following",
+    publicKeyPem: "local-public",
+    privateKeyPem: "local-private",
+  });
+  await db.insert(actorCache).values({
+    apId: actorApId,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${actorApId}/inbox`,
+    publicKeyId: `${actorApId}#main-key`,
+    publicKeyPem,
+    rawJson: "{}",
+    lastFetchedAt: new Date().toISOString(),
+  });
+
+  const app = new Hono();
+  app.use("*", async (c, next) => {
+    (c as unknown as { set: (key: string, value: unknown) => void }).set(
+      "db",
+      db,
+    );
+    await next();
+  });
+  app.route("/", inboxRoutes);
+
+  const body = JSON.stringify({
+    id: "https://remote.example/activities/unknown-like",
+    type: "Like",
+    actor: actorApId,
+    object: unknownObject,
+  });
+  const res = await app.fetch(
+    await signedInboxRequest(body, privateKeyPem, `${actorApId}#main-key`),
+    { APP_URL: "https://test.local" },
+  );
+
+  expect(res.status).toEqual(202);
+  expect(
+    await db
+      .select({ actorApId: likes.actorApId })
+      .from(likes)
+      .where(eq(likes.objectApId, unknownObject)),
+  ).toHaveLength(0);
 });
 
 function createSharedInboxDbMock(

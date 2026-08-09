@@ -39,10 +39,29 @@ function createInboxDbMock(
   const throwingThen = () => {
     throw new Error("simulated handler failure");
   };
+  let dispatchSelectReads = 0;
   const followerWhere = {
     orderBy: () => ({ limit: () => Promise.resolve([]) }),
     limit: () => Promise.resolve([]),
-    get: () => Promise.resolve(null),
+    // The first handler SELECT resolves the named object as a live public
+    // target. Unknown targets are now intentionally dropped before db.batch;
+    // this fixture must reach the batch to exercise claim-release behavior.
+    // The second SELECT is the existing-interaction lookup and remains absent.
+    get: () =>
+      Promise.resolve(
+        dispatchSelectReads++ === 0
+          ? {
+              attributedTo: "https://origin.example/users/author",
+              visibility: "public",
+              toJson: "[]",
+              ccJson: "[]",
+              audienceJson: "[]",
+              communityApId: null,
+              type: "Note",
+              endTime: null,
+            }
+          : null,
+      ),
     then: opts.dispatchThrows
       ? throwingThen
       : (resolve: (rows: unknown[]) => void) => resolve([]),

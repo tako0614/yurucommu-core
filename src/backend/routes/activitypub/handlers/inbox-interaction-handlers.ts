@@ -109,17 +109,26 @@ async function handleInteraction(
       endTime: objects.endTime,
     })
     .from(objects)
-    .where(eq(objects.apId, objectId))
+    .where(and(eq(objects.apId, objectId), notDeleted(objects)))
     .get();
-  if (target) {
-    if (
-      isLocal(target.attributedTo, baseUrl) &&
-      (await actorIsBlockedBy(db, target.attributedTo, actor))
-    ) {
-      return;
-    }
-    if (!(await canViewerReadObjectFull(db, target, actor))) return;
+  // Never retain a relationship to an object this instance does not currently
+  // retain as live. With no D1 FK (remote identities/relationships are
+  // intentionally app-managed), the old path inserted one permanent edge for
+  // every attacker-chosen object id even though the counter update matched no
+  // row. A signer could therefore grow likes/announces without bound, and a
+  // soft-deleted object could accumulate fresh interactions. An unknown
+  // Announce from a followed actor still gets its one bounded, validated fetch
+  // in handleAnnounce BEFORE reaching this guard; only a successfully persisted
+  // public/unlisted Note proceeds.
+  if (!target) return;
+
+  if (
+    isLocal(target.attributedTo, baseUrl) &&
+    (await actorIsBlockedBy(db, target.attributedTo, actor))
+  ) {
+    return;
   }
+  if (!(await canViewerReadObjectFull(db, target, actor))) return;
 
   const { table, countField, activityType } = INTERACTION_CONFIG[kind];
   const activityId = activity.id || activityApId(baseUrl, generateId());
@@ -236,10 +245,9 @@ export async function handleAnnounce(
   // still surfaces in feeds (previously the Announce only left a dangling
   // announce edge + a counter no-op). Strictly gated: the target must be
   // remote and unknown, and the booster must have at least one local follower
-  // (no open-relay amplification). On any fetch/validation failure the
-  // Announce degrades to exactly the old behavior — handleInteraction records
-  // the edge idempotently and the counter recompute no-ops on the absent row,
-  // so a later Create of the same object retroactively completes the boost.
+  // (no open-relay amplification). On any fetch/validation failure,
+  // handleInteraction drops the Announce because there is no live retained
+  // target; it must not create a dangling edge for an attacker-chosen id.
   const db = c.get("db");
   const objectId = getActivityObjectId(activity);
   if (objectId && !isLocal(objectId, baseUrl)) {

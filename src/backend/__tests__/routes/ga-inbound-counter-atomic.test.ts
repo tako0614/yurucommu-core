@@ -37,8 +37,8 @@ import { createTestDb } from "../helpers/d1-semantics.ts";
 //     3. a re-dispatch after an interrupted bump CONVERGES the count instead
 //        of leaving it permanently under-counted.
 //
-//   These tests run the REAL handlers against a real in-memory libsql DB
-//   (which exposes the same atomic `db.batch` surface as D1).
+//   These tests run the REAL handlers through the shared D1-semantics harness,
+//   including the current zero-FK relationship schema and atomic `db.batch`.
 // ---------------------------------------------------------------------------
 
 const APP_URL = "https://yuru.test";
@@ -47,6 +47,8 @@ const REMOTE_ACTOR_2 = "https://remote.example/users/carol";
 const REMOTE_PARENT = "https://parent.example/users/pat";
 const OBJECT_AP_ID = `${APP_URL}/ap/objects/post-1`;
 const REMOTE_DIRECT_OBJECT = "https://parent.example/objects/direct-1";
+const UNKNOWN_OBJECT = "https://unknown.example/objects/not-retained";
+const DELETED_OBJECT = `${APP_URL}/ap/objects/deleted`;
 const LIKE_ACTIVITY = "https://remote.example/activities/like-1";
 const ANNOUNCE_ACTIVITY = "https://remote.example/activities/announce-1";
 
@@ -144,12 +146,16 @@ const likeActivity = (
     object: objectApId,
   }) as unknown as Activity;
 
-const announceActivity = (id: string, actor: string): Activity =>
+const announceActivity = (
+  id: string,
+  actor: string,
+  objectApId: string = OBJECT_AP_ID,
+): Activity =>
   ({
     id,
     type: "Announce",
     actor,
-    object: OBJECT_AP_ID,
+    object: objectApId,
   }) as unknown as Activity;
 
 // Audit #17: inbound Like/Announce must honor the per-user block + the object's
@@ -272,6 +278,78 @@ test("audit#17 inbound Like cannot target a remote-authored direct object the si
   );
   expect(await likeEdgeCount(db, REMOTE_DIRECT_OBJECT)).toBe(1);
   expect(await likeCount(db, REMOTE_DIRECT_OBJECT)).toBe(1);
+});
+
+test("audit#17 unknown or deleted Like and Announce targets create no dangling interaction rows", async () => {
+  const db = await setup();
+  await db.insert(objects).values({
+    apId: DELETED_OBJECT,
+    type: "Note",
+    attributedTo: `${APP_URL}/ap/users/bob`,
+    content: "gone",
+    deletedAt: new Date().toISOString(),
+  });
+
+  await handleLike(
+    ctxFor(db),
+    likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR, UNKNOWN_OBJECT),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  await handleAnnounce(
+    ctxFor(db),
+    announceActivity(ANNOUNCE_ACTIVITY, REMOTE_ACTOR, UNKNOWN_OBJECT),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  await handleLike(
+    ctxFor(db),
+    likeActivity(
+      "https://remote.example/activities/like-deleted",
+      REMOTE_ACTOR,
+      DELETED_OBJECT,
+    ),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  await handleAnnounce(
+    ctxFor(db),
+    announceActivity(
+      "https://remote.example/activities/announce-deleted",
+      REMOTE_ACTOR,
+      DELETED_OBJECT,
+    ),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+
+  const danglingLikes = await db
+    .select({ actor: likes.actorApId })
+    .from(likes)
+    .where(eq(likes.objectApId, UNKNOWN_OBJECT));
+  const danglingAnnounces = await db
+    .select({ actor: announces.actorApId })
+    .from(announces)
+    .where(eq(announces.objectApId, UNKNOWN_OBJECT));
+  const deletedLikes = await db
+    .select({ actor: likes.actorApId })
+    .from(likes)
+    .where(eq(likes.objectApId, DELETED_OBJECT));
+  const deletedAnnounces = await db
+    .select({ actor: announces.actorApId })
+    .from(announces)
+    .where(eq(announces.objectApId, DELETED_OBJECT));
+  expect({
+    danglingLikes: danglingLikes.length,
+    danglingAnnounces: danglingAnnounces.length,
+    deletedLikes: deletedLikes.length,
+    deletedAnnounces: deletedAnnounces.length,
+  }).toEqual({
+    danglingLikes: 0,
+    danglingAnnounces: 0,
+    deletedLikes: 0,
+    deletedAnnounces: 0,
+  });
 });
 
 test("#7 inbound Like applies the edge + count atomically, exactly once", async () => {
