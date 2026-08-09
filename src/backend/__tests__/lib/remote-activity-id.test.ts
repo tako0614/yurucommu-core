@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  isBoundedHttpActivityId,
   isTrustedRemoteActivityId,
   MAX_REMOTE_ACTIVITY_ID_LENGTH,
 } from "../../lib/remote-activity-id.ts";
@@ -41,5 +42,18 @@ test("does not trust an id in the receiving server's local namespace", () => {
       "https://local.example/ap/users/claimed-local-actor",
       "https://local.example",
     ),
+  ).toBeFalse();
+});
+
+test("bounded HTTP Activity ids permit local lookup IRIs but reject unsafe spellings", () => {
+  expect(
+    isBoundedHttpActivityId("http://localhost:8787/ap/activities/inbound-1"),
+  ).toBeTrue();
+  expect(
+    isBoundedHttpActivityId("https://user:secret@peer.example/activities/1"),
+  ).toBeFalse();
+  expect(isBoundedHttpActivityId("urn:activity:1")).toBeFalse();
+  expect(
+    isBoundedHttpActivityId(`https://peer.example/${"x".repeat(2048)}`),
   ).toBeFalse();
 });

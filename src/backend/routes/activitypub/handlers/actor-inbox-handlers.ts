@@ -22,7 +22,7 @@ import {
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import { canActorPostToInboundCommunity } from "./inbound-community-scope.ts";
 import { validateInboundObjectIdentity } from "./inbound-object-identity.ts";
-import { runBatch } from "./inbox-shared-helpers.ts";
+import { findFollowByActivityId, runBatch } from "./inbox-shared-helpers.ts";
 import type { InstanceActorResult } from "../query-helpers.ts";
 import {
   type Activity,
@@ -173,15 +173,16 @@ export async function handleGroupUndo(
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
-  // Try exact match by activity AP ID first.
-  const follow = await db.query.follows.findFirst({
-    where: and(
-      eq(follows.activityApId, objectId),
-      eq(follows.followingApId, group.apId),
-    ),
+  // Resolve either the retained local ledger IRI or the peer's wire id within
+  // the verified signer. This also makes a bare-string Undo(Follow) work for a
+  // Group instead of requiring an embedded typed Follow object.
+  const follow = await findFollowByActivityId(db, objectId, {
+    actorApId: actorApIdStr,
+    localBaseUrl: c.env.APP_URL,
   });
 
   if (follow) {
+    if (follow.followingApId !== group.apId) return;
     // Bind to the VERIFIED signer: only the follow's own follower may undo it.
     // The activity id is public (it appears in the follower's outbox), so
     // without this check a remote attacker who signs an Undo as any actor on

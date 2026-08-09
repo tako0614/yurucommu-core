@@ -1174,7 +1174,15 @@ async function resolveObjectActorTarget(
       }
       const innerId = getActivityObjectId(activity);
       if (innerId) {
-        const follow = await findFollowByActivityId(c.get("db"), innerId);
+        const sourceActor =
+          typeof activity.actor === "string" ? activity.actor : null;
+        const follow = await findFollowByActivityId(
+          c.get("db"),
+          innerId,
+          sourceActor
+            ? { actorApId: sourceActor, localBaseUrl: baseUrl }
+            : undefined,
+        );
         if (follow && isLocal(follow.followingApId, baseUrl)) {
           return {
             scoped: true,

@@ -10,6 +10,8 @@ import {
   objects,
 } from "../../../../db/index.ts";
 import { isLocal } from "../../../federation-helpers.ts";
+import { isBoundedHttpActivityId } from "../../../lib/remote-activity-id.ts";
+import { resolveInboundActivityReference } from "../inbound-activity-reference.ts";
 import type { Activity } from "../inbox-types.ts";
 
 // ---------------------------------------------------------------------------
@@ -83,15 +85,21 @@ const INTERACTION_TABLES: Record<"like" | "announce", InteractionTable> = {
   announce: announces,
 };
 
-/** Find a follow by activityApId and return it (or null). */
+/**
+ * Find a follow by its retained activity IRI. When `source` is present, a peer
+ * wire ID may also resolve through that verified actor's inbound ledger row.
+ */
 export async function findFollowByActivityId(
   db: Database,
   activityApIdValue: string,
+  source?: { actorApId: string; localBaseUrl: string },
 ): Promise<{
   followerApId: string;
   followingApId: string;
   status: string;
 } | null> {
+  if (!isBoundedHttpActivityId(activityApIdValue)) return null;
+
   let row = await db
     .select({
       followerApId: follows.followerApId,
@@ -99,24 +107,27 @@ export async function findFollowByActivityId(
       status: follows.status,
     })
     .from(follows)
-    .where(eq(follows.activityApId, activityApIdValue))
+    .where(
+      source
+        ? and(
+            eq(follows.activityApId, activityApIdValue),
+            eq(follows.followerApId, source.actorApId),
+          )
+        : eq(follows.activityApId, activityApIdValue),
+    )
     .get();
-  if (!row) {
+  if (!row && source) {
     // Inbound envelopes use an origin-bound internal activities.apId. Undo
     // carries the peer's protocol id, so resolve that bounded raw-json id back
     // to the internal row before looking up the follow edge. The direct lookup
     // above preserves compatibility with legacy rows.
-    const source = await db
-      .select({ apId: activities.apId })
-      .from(activities)
-      .where(
-        and(
-          eq(activities.direction, "inbound"),
-          sql`json_extract(${activities.rawJson}, '$.id') = ${activityApIdValue}`,
-        ),
-      )
-      .limit(2);
-    for (const candidate of source) {
+    const internalActivityApId = await resolveInboundActivityReference(
+      db,
+      activityApIdValue,
+      source.actorApId,
+      source.localBaseUrl,
+    );
+    if (internalActivityApId) {
       row = await db
         .select({
           followerApId: follows.followerApId,
@@ -124,9 +135,13 @@ export async function findFollowByActivityId(
           status: follows.status,
         })
         .from(follows)
-        .where(eq(follows.activityApId, candidate.apId))
+        .where(
+          and(
+            eq(follows.activityApId, internalActivityApId),
+            eq(follows.followerApId, source.actorApId),
+          ),
+        )
         .get();
-      if (row) break;
     }
   }
   return row ?? null;

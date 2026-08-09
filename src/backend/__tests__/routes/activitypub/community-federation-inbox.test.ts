@@ -277,6 +277,53 @@ test("Undo(Follow) removes the community membership", async () => {
   ).toBeUndefined();
 });
 
+test("a bare peer Follow id resolves through the inbound ledger and removes group membership", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "bare-undo", "open");
+  const wireId = "https://remote.example/activities/follow-bare-group";
+  const internalId = `${APP_URL}/ap/activities/inbound-bare-group`;
+  await db.insert(activities).values({
+    apId: internalId,
+    type: "Follow",
+    actorApId: REMOTE,
+    objectApId: apId,
+    rawJson: JSON.stringify({
+      id: wireId,
+      type: "Follow",
+      actor: REMOTE,
+      object: apId,
+    }),
+    direction: "inbound",
+  });
+  await db.insert(follows).values({
+    followerApId: REMOTE,
+    followingApId: apId,
+    status: "accepted",
+    activityApId: internalId,
+    acceptedAt: new Date().toISOString(),
+  });
+
+  await handleGroupUndo(
+    ctx(db),
+    {
+      type: "Undo",
+      actor: REMOTE,
+      object: wireId,
+    } as unknown as Activity,
+    { apId, joinPolicy: "open" },
+    REMOTE,
+  );
+
+  expect(
+    await db.query.follows.findFirst({
+      where: and(
+        eq(follows.followerApId, REMOTE),
+        eq(follows.followingApId, apId),
+      ),
+    }),
+  ).toBeUndefined();
+});
+
 test("a forged Undo from a DIFFERENT actor cannot sever a victim's follow", async () => {
   const db = await freshDb();
   const apId = await insertCommunity(db, "club", "open");

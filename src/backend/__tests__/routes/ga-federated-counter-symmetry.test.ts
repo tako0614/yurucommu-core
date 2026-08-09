@@ -57,6 +57,7 @@ import type {
 
 const APP_URL = "https://yuru.test";
 const LOCAL_BOB = `${APP_URL}/ap/users/bob`;
+const LOCAL_CAROL = `${APP_URL}/ap/users/carol`;
 const REMOTE_ALICE = "https://remote.example/users/alice";
 const SAME_HOST_MALLORY = "https://remote.example/users/mallory";
 const OBJECT_AP_ID = `${APP_URL}/ap/objects/post-1`;
@@ -307,6 +308,79 @@ test("COUNTER-SYM: bare-id Undo Like resolves via activity row and recomputes", 
   expect(await likeCount(db)).toBe(0);
 });
 
+test("bare-id Undo resolves a colliding same-origin wire id only within the signing actor", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob");
+  await seedActor(db, REMOTE_ALICE, "alice");
+  await seedActor(db, SAME_HOST_MALLORY, "mallory");
+  await db.insert(objects).values({
+    apId: OBJECT_AP_ID,
+    type: "Note",
+    attributedTo: LOCAL_BOB,
+    content: "hi",
+    likeCount: 2,
+  });
+
+  // Activity ids are origin-owned, so two actors on one remote host can send
+  // the same wire id. Their internal ledger ids remain distinct because the
+  // signer identity participates in the hash. The reverse lookup must retain
+  // that actor scope instead of accepting whichever raw-json row SQLite finds
+  // first.
+  const sharedWireId = "https://remote.example/activities/colliding-like";
+  const malloryInternalId = `${APP_URL}/ap/activities/inbound-000-mallory`;
+  const aliceInternalId = `${APP_URL}/ap/activities/inbound-fff-alice`;
+  await db.insert(schema.activities).values([
+    {
+      apId: malloryInternalId,
+      type: "Like",
+      actorApId: SAME_HOST_MALLORY,
+      objectApId: OBJECT_AP_ID,
+      rawJson: JSON.stringify({ id: sharedWireId, type: "Like" }),
+      direction: "inbound",
+    },
+    {
+      apId: aliceInternalId,
+      type: "Like",
+      actorApId: REMOTE_ALICE,
+      objectApId: OBJECT_AP_ID,
+      rawJson: JSON.stringify({ id: sharedWireId, type: "Like" }),
+      direction: "inbound",
+    },
+  ]);
+  await db.insert(likes).values([
+    {
+      actorApId: SAME_HOST_MALLORY,
+      objectApId: OBJECT_AP_ID,
+      activityApId: malloryInternalId,
+    },
+    {
+      actorApId: REMOTE_ALICE,
+      objectApId: OBJECT_AP_ID,
+      activityApId: aliceInternalId,
+    },
+  ]);
+
+  await handleUndo(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/undo-colliding-like",
+      type: "Undo",
+      actor: REMOTE_ALICE,
+      object: sharedWireId,
+    } as unknown as Activity,
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+
+  const remaining = await db
+    .select({ actorApId: likes.actorApId })
+    .from(likes)
+    .where(eq(likes.objectApId, OBJECT_AP_ID));
+  expect(remaining.map((row) => row.actorApId)).toEqual([SAME_HOST_MALLORY]);
+  expect(await likeCount(db)).toBe(1);
+});
+
 // ---------------------------------------------------------------------------
 // handleAccept — co-committed flip + increments (no permanent UNDER-count)
 // ---------------------------------------------------------------------------
@@ -454,6 +528,93 @@ test("COUNTER-SYM: undo of a pending Follow never decrements (was never counted)
   );
   expect(await followEdgeStatus(db, REMOTE_ALICE, LOCAL_BOB)).toBeNull();
   expect(await followerCount(db, LOCAL_BOB)).toBe(0); // no negative drift
+});
+
+test("typed Undo(Follow) cannot delete one target's edge while decrementing another recipient", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob", { followerCount: 1 });
+  await seedActor(db, LOCAL_CAROL, "carol", { followerCount: 1 });
+  await seedActor(db, REMOTE_ALICE, "alice");
+  const carolFollowId = "https://remote.example/activities/follow-carol";
+  await db.insert(follows).values({
+    followerApId: REMOTE_ALICE,
+    followingApId: LOCAL_CAROL,
+    status: "accepted",
+    activityApId: carolFollowId,
+  });
+
+  // The inner id names Alice's follow of Carol, while the embedded target and
+  // delivery recipient claim Bob. Applying the id edge with Bob's counter key
+  // would tear the edge/counter invariant across two local actors.
+  await handleUndo(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/undo-target-conflict",
+      type: "Undo",
+      actor: REMOTE_ALICE,
+      object: {
+        type: "Follow",
+        id: carolFollowId,
+        actor: REMOTE_ALICE,
+        object: LOCAL_BOB,
+      },
+    } as unknown as Activity,
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+
+  expect(await followEdgeStatus(db, REMOTE_ALICE, LOCAL_CAROL)).toBe(
+    "accepted",
+  );
+  expect(await followerCount(db, LOCAL_BOB)).toBe(1);
+  expect(await followerCount(db, LOCAL_CAROL)).toBe(1);
+});
+
+test("bare-id Undo(Follow) delivered to the wrong recipient leaves edge and counters intact", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob", { followerCount: 1 });
+  await seedActor(db, LOCAL_CAROL, "carol", { followerCount: 1 });
+  await seedActor(db, REMOTE_ALICE, "alice");
+  const carolFollowId = "https://remote.example/activities/follow-carol-bare";
+  await db.insert(follows).values({
+    followerApId: REMOTE_ALICE,
+    followingApId: LOCAL_CAROL,
+    status: "accepted",
+    activityApId: carolFollowId,
+  });
+  await db.insert(schema.activities).values({
+    apId: carolFollowId,
+    type: "Follow",
+    actorApId: REMOTE_ALICE,
+    objectApId: LOCAL_CAROL,
+    rawJson: JSON.stringify({
+      id: carolFollowId,
+      type: "Follow",
+      actor: REMOTE_ALICE,
+      object: LOCAL_CAROL,
+    }),
+    direction: "inbound",
+  });
+
+  await handleUndo(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/undo-bare-wrong-target",
+      type: "Undo",
+      actor: REMOTE_ALICE,
+      object: carolFollowId,
+    } as unknown as Activity,
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+
+  expect(await followEdgeStatus(db, REMOTE_ALICE, LOCAL_CAROL)).toBe(
+    "accepted",
+  );
+  expect(await followerCount(db, LOCAL_BOB)).toBe(1);
+  expect(await followerCount(db, LOCAL_CAROL)).toBe(1);
 });
 
 // ---------------------------------------------------------------------------

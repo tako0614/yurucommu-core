@@ -1,5 +1,5 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, eq, gt, or, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { activities, actors, follows } from "../../../../db/index.ts";
 import {
   activityApId,
@@ -9,6 +9,7 @@ import {
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { actorSuppressesInteractionFrom } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
+import { resolveInboundActivityReference } from "../inbound-activity-reference.ts";
 import {
   type Activity,
   type ActivityContext,
@@ -24,8 +25,41 @@ import {
 } from "./inbox-shared-helpers.ts";
 
 type ActorRow = typeof actors.$inferSelect;
+type FollowReference = {
+  followerApId: string;
+  followingApId: string;
+  status: string;
+};
 
 const log = logger.child({ component: "activitypub.inbox.follow" });
+
+function authorizesFollowUndo(
+  follow: FollowReference,
+  actor: string,
+  recipientApId: string,
+  activityId: string | null,
+): boolean {
+  if (follow.followerApId !== actor) {
+    log.warn("Undo(Follow) actor mismatch", {
+      event: "ap.undo.follow.actor_mismatch",
+      actor,
+      followOwner: follow.followerApId,
+      activityId,
+    });
+    return false;
+  }
+  if (follow.followingApId !== recipientApId) {
+    log.warn("Undo(Follow) recipient mismatch", {
+      event: "ap.undo.follow.recipient_mismatch",
+      actor,
+      recipient: recipientApId,
+      followedActor: follow.followingApId,
+      activityId,
+    });
+    return false;
+  }
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // Follow handler
@@ -301,7 +335,7 @@ export async function handleUndo(
   activity: Activity,
   recipient: ActorRow | null,
   actor: string,
-  _baseUrl: string,
+  baseUrl: string,
 ) {
   const db = c.get("db");
   const activityObject = getActivityObject(activity);
@@ -315,6 +349,7 @@ export async function handleUndo(
       objectId,
       actor,
       recipient,
+      baseUrl,
     );
     if (resolved) return;
   }
@@ -328,7 +363,7 @@ export async function handleUndo(
       });
       return;
     }
-    await undoFollow(db, objectId, actor, recipient);
+    await undoFollow(db, objectId, actor, recipient, baseUrl);
   } else if (typeIncludes(objectType, "Like")) {
     await undoLike(db, objectId, activityObject, actor);
   } else if (typeIncludes(objectType, "Announce")) {
@@ -350,7 +385,16 @@ async function resolveUndoByActivityId(
   objectId: string,
   actor: string,
   recipient: ActorRow | null,
+  baseUrl: string,
 ): Promise<boolean> {
+  const resolvedActivityId = await resolveInboundActivityReference(
+    db,
+    objectId,
+    actor,
+    baseUrl,
+  );
+  if (!resolvedActivityId) return false;
+
   const originalActivity = await db
     .select({
       apId: activities.apId,
@@ -359,15 +403,7 @@ async function resolveUndoByActivityId(
       actorApId: activities.actorApId,
     })
     .from(activities)
-    .where(
-      or(
-        eq(activities.apId, objectId),
-        and(
-          eq(activities.direction, "inbound"),
-          sql`json_extract(${activities.rawJson}, '$.id') = ${objectId}`,
-        ),
-      ),
-    )
+    .where(eq(activities.apId, resolvedActivityId))
     .get();
   if (!originalActivity) return false;
 
@@ -394,6 +430,9 @@ async function resolveUndoByActivityId(
     }
     const follow = await findFollowByActivityId(db, originalActivity.apId);
     if (follow) {
+      if (!authorizesFollowUndo(follow, actor, recipient.apId, objectId)) {
+        return true;
+      }
       await undoFollowEdge(
         db,
         follow.followerApId,
@@ -482,8 +521,14 @@ async function undoFollow(
   objectId: string | null,
   actor: string,
   recipient: ActorRow,
+  baseUrl: string,
 ): Promise<void> {
-  const follow = objectId ? await findFollowByActivityId(db, objectId) : null;
+  const follow = objectId
+    ? await findFollowByActivityId(db, objectId, {
+        actorApId: actor,
+        localBaseUrl: baseUrl,
+      })
+    : null;
 
   // Bind the undo to the VERIFIED signer: an Undo(Follow) may only remove the
   // SIGNER's own follow edge. The activity id is public (it appears in the
@@ -491,13 +536,10 @@ async function undoFollow(
   // cross-actor forgery — an attacker severing a victim's follow + decrementing
   // their followerCount. The bare-string Undo path already enforces this via
   // resolveUndoByActivityId; the typed-object path must too.
-  if (follow && follow.followerApId !== actor) {
-    log.warn("Undo(Follow) actor mismatch", {
-      event: "ap.undo.follow.actor_mismatch",
-      actor,
-      followOwner: follow.followerApId,
-      activityId: objectId,
-    });
+  if (
+    follow &&
+    !authorizesFollowUndo(follow, actor, recipient.apId, objectId)
+  ) {
     return;
   }
 
