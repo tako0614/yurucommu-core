@@ -27,6 +27,7 @@ import {
   communityMembers,
   follows,
   mediaUploads,
+  objectRecipients,
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -275,6 +276,35 @@ test("private (followers-only) media is served to an accepted follower and to th
 
   const authorRes = await getMedia(db, env, fakeActor(author, "alice"));
   expect(authorRes.status).toEqual(200);
+});
+
+test("direct media is served to a hidden bto/bcc recipient without to/cc disclosure", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const author = await insertLocalActor(db, "alice");
+  const recipient = await insertLocalActor(db, "bob");
+  const stranger = await insertLocalActor(db, "mallory");
+  await seedUpload(db, env, author);
+  await insertObject(db, {
+    id: "hidden-direct",
+    author,
+    visibility: "direct",
+    to: [],
+    attachments: [{ type: "Image", url: MEDIA_URL, r2_key: R2_KEY }],
+  });
+  const objectApId = `${APP_URL}/ap/objects/hidden-direct`;
+  await db.insert(objectRecipients).values({
+    objectApId,
+    recipientApId: recipient,
+    type: "to",
+  });
+
+  const allowed = await getMedia(db, env, fakeActor(recipient, "bob"));
+  expect(allowed.status).toBe(200);
+  expect(allowed.headers.get("Cache-Control")).toContain("private");
+  expect((await getMedia(db, env, fakeActor(stranger, "mallory"))).status).toBe(
+    403,
+  );
 });
 
 test("PRIVATE-community story media is members-only (stored visibility=public is not enough)", async () => {

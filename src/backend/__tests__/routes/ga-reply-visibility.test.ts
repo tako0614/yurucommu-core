@@ -18,7 +18,12 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, follows, objects } from "../../../db/index.ts";
+import {
+  actors,
+  follows,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import postsRoutes from "../../routes/posts/routes.ts";
 
@@ -170,6 +175,7 @@ test("replies listing hides followers/direct replies from a non-follower and rev
   const follower = await insertLocalActor(db, "follower"); // accepted follower
   const stranger = await insertLocalActor(db, "stranger"); // no relationship
   const dmTarget = await insertLocalActor(db, "dmtarget"); // direct recipient
+  const hiddenTarget = await insertLocalActor(db, "hidden-target");
 
   // Accepted follow: follower -> author.
   await db.insert(follows).values({
@@ -215,12 +221,25 @@ test("replies listing hides followers/direct replies from a non-follower and rev
     to: [dmTarget],
     published: "2026-01-01T00:00:03.000Z",
   });
+  const hiddenDirectReply = await insertReply(db, {
+    id: "rhidden-direct",
+    author,
+    parentApId,
+    visibility: "direct",
+    published: "2026-01-01T00:00:04.000Z",
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: hiddenDirectReply,
+    recipientApId: hiddenTarget,
+    type: "to",
+  });
 
   // (a) Anonymous viewer: only the public reply.
   const anon = await fetchReplyIds(db, null, parentApId);
   expect(anon).toContain(publicReply);
   expect(anon).not.toContain(followersReply);
   expect(anon).not.toContain(directReply);
+  expect(anon).not.toContain(hiddenDirectReply);
 
   // (b) Stranger (no follow, not addressed): only the public reply.
   const strangerView = await fetchReplyIds(
@@ -231,6 +250,7 @@ test("replies listing hides followers/direct replies from a non-follower and rev
   expect(strangerView).toContain(publicReply);
   expect(strangerView).not.toContain(followersReply);
   expect(strangerView).not.toContain(directReply);
+  expect(strangerView).not.toContain(hiddenDirectReply);
 
   // (c) Author of the replies: sees all of their own replies.
   const authorView = await fetchReplyIds(
@@ -241,6 +261,7 @@ test("replies listing hides followers/direct replies from a non-follower and rev
   expect(authorView).toContain(publicReply);
   expect(authorView).toContain(followersReply);
   expect(authorView).toContain(directReply);
+  expect(authorView).toContain(hiddenDirectReply);
 
   // (d) Accepted follower: sees the followers-only reply, NOT the direct one.
   const followerView = await fetchReplyIds(
@@ -251,6 +272,7 @@ test("replies listing hides followers/direct replies from a non-follower and rev
   expect(followerView).toContain(publicReply);
   expect(followerView).toContain(followersReply);
   expect(followerView).not.toContain(directReply);
+  expect(followerView).not.toContain(hiddenDirectReply);
 
   // (e) DM recipient: sees the direct reply (addressed), NOT the followers-only
   //     reply (no accepted follow edge).
@@ -262,6 +284,18 @@ test("replies listing hides followers/direct replies from a non-follower and rev
   expect(dmView).toContain(publicReply);
   expect(dmView).toContain(directReply);
   expect(dmView).not.toContain(followersReply);
+  expect(dmView).not.toContain(hiddenDirectReply);
+
+  // (f) bto/bcc recipient: the hidden recipient projection grants access even
+  // though their identity is deliberately absent from to_json / cc_json.
+  const hiddenView = await fetchReplyIds(
+    db,
+    fakeActor(hiddenTarget, "hidden-target"),
+    parentApId,
+  );
+  expect(hiddenView).toContain(publicReply);
+  expect(hiddenView).toContain(hiddenDirectReply);
+  expect(hiddenView).not.toContain(directReply);
 });
 
 async function fetchRepliesPage(

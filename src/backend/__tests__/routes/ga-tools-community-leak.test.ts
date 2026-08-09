@@ -29,7 +29,14 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, blocks, follows, likes, objects } from "../../../db/index.ts";
+import {
+  actors,
+  blocks,
+  follows,
+  likes,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
 import {
   handleSearchPosts,
   handleGetTrending,
@@ -40,6 +47,11 @@ import {
   handleLikePost,
 } from "../../routes/takos-tools/posts.ts";
 import { handleFollowUser } from "../../routes/takos-tools/follows.ts";
+import {
+  handleGetDmMessages,
+  handleGetDmThreads,
+} from "../../routes/takos-tools/dm.ts";
+import { getConversationId } from "../../routes/dm/query-helpers.ts";
 
 const APP_URL = "https://yuru.test";
 const MIGRATIONS = [
@@ -463,4 +475,53 @@ test("agent create_post reply is read-gated (cannot reply to an unreadable paren
     (await db.select().from(objects).where(eq(objects.inReplyTo, parent)).all())
       .length,
   ).toBe(1);
+});
+
+test("agent DM tools retain a bto/bcc-addressed thread without to_json disclosure", async () => {
+  const db = await freshDb();
+  const sender = await insertLocalActor(db, "hidden-sender");
+  const recipient = await insertLocalActor(db, "hidden-recipient");
+  const apId = `${APP_URL}/ap/objects/hidden-tool-dm`;
+  const conversation = getConversationId(APP_URL, sender, recipient);
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: sender,
+    content: "hidden tool message",
+    visibility: "direct",
+    toJson: "[]",
+    ccJson: "[]",
+    audienceJson: "[]",
+    conversation,
+    published: isoMinutesAgo(1),
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: apId,
+    recipientApId: recipient,
+    type: "to",
+  });
+
+  const threadsResult = (await handleGetDmThreads(
+    ctxFor(db),
+    {},
+    { ap_id: recipient },
+  )) as unknown as {
+    __body: { data: { threads: Array<{ partner: string }> } };
+  };
+  expect(threadsResult.__body.data.threads).toEqual([
+    expect.objectContaining({ partner: sender }),
+  ]);
+
+  const messagesResult = (await handleGetDmMessages(
+    ctxFor(db),
+    { thread_id: sender },
+    { ap_id: recipient },
+  )) as unknown as {
+    __body: {
+      data: { messages: Array<{ ap_id: string; content: string }> };
+    };
+  };
+  expect(messagesResult.__body.data.messages).toEqual([
+    expect.objectContaining({ ap_id: apId, content: "hidden tool message" }),
+  ]);
 });

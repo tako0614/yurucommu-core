@@ -24,6 +24,7 @@ import type {
   ActivityContext,
 } from "../../routes/activitypub/inbox-types.ts";
 import dmContactRoutes from "../../routes/dm/conversations.ts";
+import dmMessageRoutes from "../../routes/dm/messages.ts";
 import { getConversationId } from "../../routes/dm/query-helpers.ts";
 import postsRoutes from "../../routes/posts/routes.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
@@ -130,6 +131,17 @@ function dmContactsApp(db: Database, actor: Actor | null) {
   return app;
 }
 
+function dmMessagesApp(db: Database, actor: Actor | null) {
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", actor);
+    await next();
+  });
+  app.route("/", dmMessageRoutes);
+  return app;
+}
+
 async function getPostStatus(
   db: Database,
   actor: Actor | null,
@@ -186,6 +198,23 @@ async function getContacts(
   );
   expect(response.status).toBe(200);
   return (await response.json()) as ContactsResponse;
+}
+
+async function getMessages(
+  db: Database,
+  actor: Actor,
+  otherApId: string,
+): Promise<{ messages: Array<{ id: string; content: string }> }> {
+  const response = await dmMessagesApp(db, actor).fetch(
+    new Request(`${APP_URL}/user/${encodeURIComponent(otherApId)}/messages`, {
+      method: "GET",
+    }),
+    envFor(db),
+  );
+  expect(response.status).toBe(200);
+  return (await response.json()) as {
+    messages: Array<{ id: string; content: string }>;
+  };
 }
 
 async function insertRemoteNote(
@@ -300,7 +329,12 @@ function recipient(apId: string) {
 function updateNote(
   id: string,
   content: string,
-  addressing?: { to: string[]; cc: string[] },
+  addressing?: Partial<{
+    to: string[];
+    cc: string[];
+    bto: string[];
+    bcc: string[];
+  }>,
 ): Activity {
   return parseActivity({
     id: `${id}/updates/1`,
@@ -1024,6 +1058,104 @@ test("readdressing a direct Note revokes the old recipient's contact preview ato
   expect(links).toEqual([{ recipientApId: LOCAL_CAROL }]);
 });
 
+test("a bcc-only Update moves private content to the hidden recipient and revokes the old one", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/readdress-hidden-bcc";
+  const oldConversation = getConversationId(APP_URL, REMOTE, LOCAL_BOB);
+  const newConversation = getConversationId(APP_URL, REMOTE, LOCAL_CAROL);
+  await insertRemoteNote(db, id, {
+    visibility: "direct",
+    to: [LOCAL_BOB],
+    conversation: oldConversation,
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: id,
+    recipientApId: LOCAL_BOB,
+    type: "to",
+  });
+
+  await handleUpdate(
+    ctxFor(db),
+    updateNote(id, "hidden carol secret", { bcc: [LOCAL_CAROL] }),
+    REMOTE,
+  );
+
+  expect(await reachRow(db, id)).toMatchObject({
+    content: "hidden carol secret",
+    visibility: "direct",
+    toJson: "[]",
+    ccJson: "[]",
+  });
+  expect(await getPostStatus(db, fakeActor(LOCAL_BOB, "bob"), id)).toBe(404);
+  expect(await getPostStatus(db, fakeActor(LOCAL_CAROL, "carol"), id)).toBe(
+    200,
+  );
+  expect(
+    (await getContacts(db, fakeActor(LOCAL_BOB, "bob"))).request_count,
+  ).toBe(0);
+  expect(
+    (await getContacts(db, fakeActor(LOCAL_CAROL, "carol"))).mutual_followers,
+  ).toEqual([
+    expect.objectContaining({
+      conversation_id: newConversation,
+      last_message: { content: "hidden carol secret", is_mine: false },
+    }),
+  ]);
+  expect(
+    (await getMessages(db, fakeActor(LOCAL_CAROL, "carol"), REMOTE)).messages,
+  ).toEqual([expect.objectContaining({ id, content: "hidden carol secret" })]);
+  expect(
+    await db
+      .select({ recipientApId: objectRecipients.recipientApId })
+      .from(objectRecipients)
+      .where(eq(objectRecipients.objectApId, id)),
+  ).toEqual([{ recipientApId: LOCAL_CAROL }]);
+});
+
+test("an explicit empty bcc Update clears stale direct-recipient authority", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/clear-hidden-reach";
+  await insertRemoteNote(db, id, {
+    visibility: "direct",
+    to: [LOCAL_BOB],
+    conversation: getConversationId(APP_URL, REMOTE, LOCAL_BOB),
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: id,
+    recipientApId: LOCAL_BOB,
+    type: "to",
+  });
+
+  await handleUpdate(
+    ctxFor(db),
+    updateNote(id, "no recipient remains", { bcc: [] }),
+    REMOTE,
+  );
+
+  expect(await reachRow(db, id)).toMatchObject({
+    content: "no recipient remains",
+    visibility: "direct",
+    toJson: "[]",
+    ccJson: "[]",
+  });
+  expect(await getPostStatus(db, fakeActor(LOCAL_BOB, "bob"), id)).toBe(404);
+  expect(
+    await db
+      .select({ recipientApId: objectRecipients.recipientApId })
+      .from(objectRecipients)
+      .where(eq(objectRecipients.objectApId, id)),
+  ).toEqual([]);
+  expect(
+    (
+      await db
+        .select({ conversation: objects.conversation })
+        .from(objects)
+        .where(eq(objects.apId, id))
+        .get()
+    )?.conversation,
+  ).toBeNull();
+});
+
 test("widening a direct Note to public removes its old DM projection", async () => {
   const db = await setup();
   const id = "https://remote.example/objects/direct-to-public";
@@ -1122,6 +1254,53 @@ test("a recipient projection failure rolls back the Note body, reach, conversati
     .from(objectRecipients)
     .where(eq(objectRecipients.objectApId, id));
   expect(links).toEqual([{ recipientApId: LOCAL_BOB }]);
+});
+
+test("a hidden-recipient projection failure rolls back content and the old private reach", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/readdress-hidden-rollback";
+  const oldConversation = getConversationId(APP_URL, REMOTE, LOCAL_BOB);
+  await insertRemoteNote(db, id, {
+    visibility: "direct",
+    to: [LOCAL_BOB],
+    conversation: oldConversation,
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: id,
+    recipientApId: LOCAL_BOB,
+    type: "to",
+  });
+  await db.run(
+    sql.raw(`
+      CREATE TRIGGER reject_hidden_readdress_recipient
+      BEFORE INSERT ON object_recipients
+      WHEN NEW.recipient_ap_id = '${LOCAL_CAROL}'
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated hidden recipient failure');
+      END
+    `),
+  );
+
+  await expect(
+    handleUpdate(
+      ctxFor(db),
+      updateNote(id, "must not reach bob", { bto: [LOCAL_CAROL] }),
+      REMOTE,
+    ),
+  ).rejects.toThrow("simulated hidden recipient failure");
+
+  expect(await reachRow(db, id)).toMatchObject({
+    content: "old body",
+    visibility: "direct",
+    toJson: JSON.stringify([LOCAL_BOB]),
+    ccJson: "[]",
+  });
+  expect(
+    await db
+      .select({ recipientApId: objectRecipients.recipientApId })
+      .from(objectRecipients)
+      .where(eq(objectRecipients.objectApId, id)),
+  ).toEqual([{ recipientApId: LOCAL_BOB }]);
 });
 
 test("a 64-recipient direct Update stays within D1 parameter and batch ceilings", async () => {

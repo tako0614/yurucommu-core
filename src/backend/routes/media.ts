@@ -6,13 +6,12 @@ import {
   actors,
   communities,
   communityMembers,
-  follows,
   mediaUploads,
   objects,
 } from "../../db/index.ts";
-import { generateId, safeJsonParse } from "../federation-helpers.ts";
+import { generateId } from "../federation-helpers.ts";
 import { canViewerReadObject } from "../lib/community-visibility.ts";
-import { isExplicitRecipient } from "../lib/post-visibility.ts";
+import { canViewerReadObjectFull } from "../lib/post-visibility.ts";
 import { stripImageMetadata } from "../lib/strip-image-metadata.ts";
 import { logger } from "../lib/logger.ts";
 
@@ -311,6 +310,7 @@ type ReferencingObject = {
   visibility: string;
   toJson: string;
   ccJson: string;
+  audienceJson: string;
   communityApId: string | null;
   endTime: string | null;
 };
@@ -364,6 +364,7 @@ async function findReferencingObject(
       visibility: objects.visibility,
       toJson: objects.toJson,
       ccJson: objects.ccJson,
+      audienceJson: objects.audienceJson,
       communityApId: objects.communityApId,
       endTime: objects.endTime,
       attachmentsJson: objects.attachmentsJson,
@@ -389,6 +390,7 @@ async function findReferencingObject(
         visibility: row.visibility,
         toJson: row.toJson,
         ccJson: row.ccJson,
+        audienceJson: row.audienceJson,
         communityApId: row.communityApId,
         endTime: row.endTime,
       };
@@ -518,102 +520,26 @@ async function checkMediaAuthorization(
     return ALLOW_PRIVATE;
   }
 
-  // Stories are ephemeral (24h endTime). Once expired, the blob must not be
-  // served to anyone but the author (handled just above) — mirror the feed /
-  // single-object gates (gt(endTime, now)) so the media lifetime matches the
-  // content lifetime instead of lingering until the best-effort reap fires.
-  if (
-    obj.type === "Story" &&
-    obj.endTime &&
-    obj.endTime <= new Date().toISOString()
-  ) {
+  // Delegate object reach to the same gate used by post detail, replies,
+  // interactions and ActivityPub object reads. This includes community scope,
+  // Story expiry, accepted follows, visible to/cc recipients, and private
+  // bto/bcc recipient projections. Keeping one authority prevents the post body
+  // and its attachment from disagreeing about who may read them.
+  if (!(await canViewerReadObjectFull(db, obj, currentActorApId))) {
     return currentActorApId ? DENY_NOT_AUTHORIZED : DENY_AUTH_REQUIRED;
   }
 
-  // Community-scoped media (a Story / community post is stored
-  // `visibility = "public"` but addressed to a community): a PRIVATE community's
-  // blob must stay members-only, so the world-readable `ALLOW_PUBLIC` below
-  // would leak it. `canViewerReadObject` short-circuits to true for
-  // public / non-community objects (never widening access) and gates a private
-  // community on membership. Served PRIVATE (no shared cache) so a
-  // member-fetched private blob is never replayed to a non-member from CDN cache.
-  if (obj.communityApId) {
-    const allowed = await canViewerReadObject(
-      db,
-      { communityApId: obj.communityApId },
-      currentActorApId,
-    );
-    if (!allowed) {
-      return currentActorApId ? DENY_NOT_AUTHORIZED : DENY_AUTH_REQUIRED;
-    }
-    // Community membership is necessary but NOT sufficient: a community post
-    // created with visibility=followers/direct must ALSO pass that per-post gate
-    // so this blob matches the post-detail / outbox / feed gates (which all
-    // follower-gate such a post). Public / unlisted / Story community posts are
-    // member-readable; followers/direct fall through to the gates below.
-    if (obj.visibility !== "followers" && obj.visibility !== "direct") {
-      return ALLOW_PRIVATE;
-    }
-  }
-
-  // A personal Story is stored visibility="public" but its REACH is the author's
-  // followers (addressed to=<actor>/followers; it only surfaces in followers'
-  // story feed). The public short-circuit below would make its media blob
-  // world-readable to anyone with the URL, so gate it on follower status like a
-  // followers-only post. (Community stories were gated by the branch above; the
-  // author by the branch above that.)
-  if (obj.type === "Story") {
-    if (!currentActorApId) return DENY_AUTH_REQUIRED;
-    const follow = await db
-      .select()
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerApId, currentActorApId),
-          eq(follows.followingApId, obj.attributedTo),
-          eq(follows.status, "accepted"),
-        ),
-      )
-      .get();
-    return follow ? ALLOW_PRIVATE : DENY_NOT_AUTHORIZED;
-  }
-
-  if (obj.visibility === "public" || obj.visibility === "unlisted") {
+  // Only ordinary world-readable objects may use shared/public caching.
+  // Community content and Stories remain private-cache responses even when the
+  // canonical gate admits the current viewer.
+  if (
+    !obj.communityApId &&
+    obj.type !== "Story" &&
+    (obj.visibility === "public" || obj.visibility === "unlisted")
+  ) {
     return ALLOW_PUBLIC;
   }
-
-  // Non-public content requires authentication
-  if (!currentActorApId) return DENY_AUTH_REQUIRED;
-
-  if (obj.visibility === "followers") {
-    // An explicitly-addressed (to/cc) recipient — e.g. a mention — reads it even
-    // without a follow edge, matching the canonical canViewerReadObjectFull gate
-    // (this branch previously ignored to/cc and 403'd the blob for a legit
-    // recipient the post-detail view showed).
-    if (isExplicitRecipient(obj, currentActorApId)) return ALLOW_PRIVATE;
-    const follow = await db
-      .select()
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerApId, currentActorApId),
-          eq(follows.followingApId, obj.attributedTo),
-          eq(follows.status, "accepted"),
-        ),
-      )
-      .get();
-    return follow ? ALLOW_PRIVATE : DENY_NOT_AUTHORIZED;
-  }
-
-  if (obj.visibility === "direct") {
-    // Check both to AND cc (the canonical gate does), not toJson alone.
-    return isExplicitRecipient(obj, currentActorApId)
-      ? ALLOW_PRIVATE
-      : DENY_NOT_AUTHORIZED;
-  }
-
-  // Unknown visibility - deny by default
-  return DENY_NOT_AUTHORIZED;
+  return ALLOW_PRIVATE;
 }
 
 async function serveMediaByR2Key(c: MediaContext, r2Key: string) {

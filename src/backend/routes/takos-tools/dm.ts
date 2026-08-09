@@ -5,7 +5,7 @@
  *          yurucommu_get_dm_messages
  */
 
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import {
   activities,
   actors,
@@ -18,7 +18,6 @@ import {
   activityApId,
   generateId,
   objectApId,
-  safeJsonParse,
 } from "../../federation-helpers.ts";
 import {
   MAX_DM_CONTENT_LENGTH,
@@ -30,10 +29,14 @@ import {
   errRequired,
   ok,
   requireString,
-  resolveDmPartner,
   toolLimit,
   type ToolResponse,
 } from "../takos-tools-response.ts";
+import {
+  dmWhereForActor,
+  getOtherParticipant,
+  recipientObjectIds,
+} from "../dm/conversations-helpers.ts";
 import type { Input, ToolContext } from "./types.ts";
 
 // `.batch` lives only on the concrete D1/libsql subclasses; reach it through a
@@ -165,13 +168,7 @@ export async function handleGetDmThreads(
       content: objects.content,
     })
     .from(objects)
-    .where(
-      and(
-        eq(objects.visibility, "direct"),
-        eq(objects.type, "Note"),
-        isNotNull(objects.conversation),
-      ),
-    )
+    .where(dmWhereForActor(db, actor.ap_id))
     .orderBy(desc(objects.published))
     .limit(2000);
 
@@ -182,7 +179,7 @@ export async function handleGetDmThreads(
   > = {};
 
   for (const dm of dms) {
-    const partner = resolveDmPartner(dm, actor.ap_id);
+    const partner = getOtherParticipant(dm, actor.ap_id);
     if (partner && !threads[partner]) {
       threads[partner] = {
         partner,
@@ -225,19 +222,18 @@ export async function handleGetDmMessages(
         eq(objects.visibility, "direct"),
         eq(objects.type, "Note"),
         eq(objects.conversation, conversationId),
+        or(
+          eq(objects.attributedTo, actor.ap_id),
+          inArray(objects.apId, recipientObjectIds(db, actor.ap_id)),
+        ),
       ),
     )
     .orderBy(desc(objects.published))
     .limit(limit);
 
-  const filtered = messages.filter((m) => {
-    if (m.attributedTo === actor.ap_id) return true;
-    return safeJsonParse<string[]>(m.toJson, []).includes(actor.ap_id);
-  });
-
   return c.json(
     ok({
-      messages: filtered.map((m) => ({
+      messages: messages.map((m) => ({
         ap_id: m.apId,
         content: m.content,
         from: m.attributedTo,

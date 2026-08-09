@@ -65,6 +65,7 @@ export async function handleCreatePost(
   if (inReplyTo) {
     const parent = await db
       .select({
+        apId: objects.apId,
         attributedTo: objects.attributedTo,
         visibility: objects.visibility,
         toJson: objects.toJson,

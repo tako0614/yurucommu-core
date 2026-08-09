@@ -12,6 +12,9 @@ import {
   actors,
   actorCache,
   follows,
+  inbox,
+  objectRecipients,
+  objects,
 } from "../../../../db/index.ts";
 import inboxRoutes from "../../../routes/activitypub/inbox.ts";
 import { generateKeyPair, signRequest } from "../../../federation-helpers.ts";
@@ -433,4 +436,103 @@ test("shared-inbox Follow naming a non-local object is undeliverable (422)", asy
     .from(follows)
     .all();
   expect(any.length).toBe(0);
+});
+
+test("shared-inbox Create routes a bcc-only DM without disclosing its hidden recipient", async () => {
+  const db = await freshDb();
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const bob = await seedLocalActor(db, "bob");
+  await seedAlice(db, publicKeyPem);
+
+  const objectId = "https://remote.example/objects/hidden-dm";
+  const activityId = "https://remote.example/activities/hidden-dm";
+  const env = { APP_URL, DB_INSTANCE: db, KV: new MockKV() };
+  const response = await postSigned(appFor(db), env, privateKeyPem, {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: activityId,
+    type: "Create",
+    actor: ALICE,
+    object: {
+      id: objectId,
+      type: "Note",
+      attributedTo: ALICE,
+      content: "secret for bob",
+      bcc: [bob],
+    },
+  });
+
+  expect(response.status).toBe(202);
+  expect(
+    await db
+      .select({
+        visibility: objects.visibility,
+        toJson: objects.toJson,
+        ccJson: objects.ccJson,
+      })
+      .from(objects)
+      .where(eq(objects.apId, objectId))
+      .get(),
+  ).toMatchObject({ visibility: "direct", toJson: "[]", ccJson: "[]" });
+  expect(
+    await db
+      .select({ recipientApId: objectRecipients.recipientApId })
+      .from(objectRecipients)
+      .where(eq(objectRecipients.objectApId, objectId)),
+  ).toEqual([{ recipientApId: bob }]);
+  expect(
+    await db
+      .select({ actorApId: inbox.actorApId })
+      .from(inbox)
+      .where(eq(inbox.actorApId, bob))
+      .get(),
+  ).toEqual({ actorApId: bob });
+});
+
+test("shared-inbox hidden group delivery records every local recipient", async () => {
+  const db = await freshDb();
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const bob = await seedLocalActor(db, "bob");
+  const carol = await seedLocalActor(db, "carol");
+  await seedAlice(db, publicKeyPem);
+
+  const objectId = "https://remote.example/objects/hidden-group";
+  const env = { APP_URL, DB_INSTANCE: db, KV: new MockKV() };
+  const response = await postSigned(appFor(db), env, privateKeyPem, {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: "https://remote.example/activities/hidden-group",
+    type: "Create",
+    actor: ALICE,
+    object: {
+      id: objectId,
+      type: "Note",
+      attributedTo: ALICE,
+      content: "hidden group secret",
+      bto: [bob],
+      bcc: [carol],
+    },
+  });
+
+  expect(response.status).toBe(202);
+  expect(
+    await db
+      .select({ recipientApId: objectRecipients.recipientApId })
+      .from(objectRecipients)
+      .where(eq(objectRecipients.objectApId, objectId)),
+  ).toEqual(
+    expect.arrayContaining([{ recipientApId: bob }, { recipientApId: carol }]),
+  );
+  expect(await db.select({ actorApId: inbox.actorApId }).from(inbox)).toEqual(
+    expect.arrayContaining([{ actorApId: bob }, { actorApId: carol }]),
+  );
+  expect(
+    await db
+      .select({
+        toJson: objects.toJson,
+        ccJson: objects.ccJson,
+        conversation: objects.conversation,
+      })
+      .from(objects)
+      .where(eq(objects.apId, objectId))
+      .get(),
+  ).toMatchObject({ toJson: "[]", ccJson: "[]", conversation: null });
 });

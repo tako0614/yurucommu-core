@@ -8,11 +8,18 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "../../db/index.ts";
-import { actors, blocks, follows, mutes } from "../../db/index.ts";
+import {
+  actors,
+  blocks,
+  follows,
+  mutes,
+  objectRecipients,
+} from "../../db/index.ts";
 import { canViewerReadObject } from "./community-visibility.ts";
 import { safeJsonParse } from "../federation-helpers.ts";
 
 export type ReadGateObject = {
+  apId?: string;
   visibility: string;
   attributedTo: string;
   toJson: string;
@@ -65,6 +72,26 @@ async function hasAcceptedFollow(
   return Boolean(row);
 }
 
+/** Resolve a private bto/bcc recipient without exposing that identity in JSON. */
+async function hasProjectedRecipient(
+  db: Database,
+  objectApId: string,
+  viewerApId: string,
+): Promise<boolean> {
+  const row = await db
+    .select({ objectApId: objectRecipients.objectApId })
+    .from(objectRecipients)
+    .where(
+      and(
+        eq(objectRecipients.objectApId, objectApId),
+        eq(objectRecipients.recipientApId, viewerApId),
+        eq(objectRecipients.type, "to"),
+      ),
+    )
+    .get();
+  return Boolean(row);
+}
+
 /**
  * Per-post visibility decision EXCLUDING the private-community membership gate.
  * This is the single source of truth for the public / unlisted / followers /
@@ -83,6 +110,7 @@ export function passesPostVisibilitySync(
   obj: ReadGateObject,
   viewerApId: string | null | undefined,
   isAcceptedFollower: (authorApId: string) => boolean,
+  isProjectedRecipient: (objectApId: string) => boolean = () => false,
   now: string = new Date().toISOString(),
 ): boolean {
   // A Story's stored visibility ("public") does NOT encode its reach: a personal
@@ -99,17 +127,21 @@ export function passesPostVisibilitySync(
   if (obj.visibility === "direct") {
     if (!viewerApId) return false;
     if (obj.attributedTo === viewerApId) return true;
-    return isExplicitRecipient(obj, viewerApId);
+    return (
+      isExplicitRecipient(obj, viewerApId) ||
+      (!!obj.apId && isProjectedRecipient(obj.apId))
+    );
   }
 
   if (obj.visibility === "followers") {
     if (!viewerApId) return false;
     if (obj.attributedTo === viewerApId) return true;
     if (isExplicitRecipient(obj, viewerApId)) return true;
+    if (obj.apId && isProjectedRecipient(obj.apId)) return true;
     return isAcceptedFollower(obj.attributedTo);
   }
 
-  return true; // public / unlisted
+  return obj.visibility === "public" || obj.visibility === "unlisted";
 }
 
 /**
@@ -150,18 +182,36 @@ export async function canViewerReadObjectFull(
   // Resolve the single accepted-follow edge only when a follower-gated branch
   // actually needs it (personal story, or a followers-only post with no explicit
   // to/cc recipient), then defer to the shared per-post predicate.
+  const needsProjection =
+    !!viewerApId &&
+    !!obj.apId &&
+    obj.attributedTo !== viewerApId &&
+    obj.type !== "Story" &&
+    (obj.visibility === "direct" || obj.visibility === "followers") &&
+    !isExplicitRecipient(obj, viewerApId);
+  const projectedRecipient = needsProjection
+    ? await hasProjectedRecipient(db, obj.apId!, viewerApId!)
+    : false;
+
   const needsFollow =
     !!viewerApId &&
     obj.attributedTo !== viewerApId &&
     ((obj.type === "Story" && !obj.communityApId) ||
       (obj.type !== "Story" &&
         obj.visibility === "followers" &&
-        !isExplicitRecipient(obj, viewerApId)));
+        !isExplicitRecipient(obj, viewerApId) &&
+        !projectedRecipient));
   const following = needsFollow
     ? await hasAcceptedFollow(db, viewerApId, obj.attributedTo)
     : false;
 
-  return passesPostVisibilitySync(obj, viewerApId, () => following, now);
+  return passesPostVisibilitySync(
+    obj,
+    viewerApId,
+    () => following,
+    () => projectedRecipient,
+    now,
+  );
 }
 
 /**

@@ -5,7 +5,12 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, follows } from "../../../db/index.ts";
+import {
+  actors,
+  follows,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
 import {
   canViewerReadObjectFull,
   type ReadGateObject,
@@ -29,6 +34,7 @@ async function freshDb(): Promise<Database> {
     "0001_init.sql",
     "0002_social_remote_actor_edges.sql",
     "0008_actor_fields_aka.sql",
+    "0009_object_tags.sql",
   ]) {
     await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
   }
@@ -112,6 +118,40 @@ test("direct post: a cc-addressed recipient can read it", async () => {
     attributedTo: AUTHOR,
     toJson: "[]",
     ccJson: JSON.stringify([VIEWER]),
+    audienceJson: "[]",
+    communityApId: null,
+  };
+  expect(await canViewerReadObjectFull(db, obj, VIEWER)).toBe(true);
+});
+
+test("direct post: a hidden recipient projection grants access without to/cc disclosure", async () => {
+  const db = await freshDb();
+  await seedActor(db, AUTHOR, "author");
+  await seedActor(db, VIEWER, "viewer");
+  const apId = `${APP_URL}/ap/objects/hidden-direct`;
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: AUTHOR,
+    content: "hidden",
+    visibility: "direct",
+    toJson: "[]",
+    ccJson: "[]",
+    audienceJson: "[]",
+    published: new Date().toISOString(),
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: apId,
+    recipientApId: VIEWER,
+    type: "to",
+  });
+
+  const obj: ReadGateObject = {
+    apId,
+    visibility: "direct",
+    attributedTo: AUTHOR,
+    toJson: "[]",
+    ccJson: "[]",
     audienceJson: "[]",
     communityApId: null,
   };

@@ -103,6 +103,7 @@ async function handleInteraction(
   // object's author is local.
   const target = await db
     .select({
+      apId: objects.apId,
       attributedTo: objects.attributedTo,
       visibility: objects.visibility,
       toJson: objects.toJson,

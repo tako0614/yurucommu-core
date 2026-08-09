@@ -6,7 +6,13 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, bookmarks, follows, objects } from "../../../db/index.ts";
+import {
+  actors,
+  bookmarks,
+  follows,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import interactionsRoutes from "../../routes/posts/interactions.ts";
 
@@ -175,4 +181,40 @@ test("POST /:id/bookmark allows a personal Story for an accepted follower", asyn
     { APP_URL } as never,
   );
   expect(res.status).toBe(200);
+});
+
+test("a bto/bcc recipient can create and retain a bookmark without exposing to/cc", async () => {
+  const db = await freshDb();
+  const author = await insertActor(db, "author");
+  const viewer = await insertActor(db, "viewer");
+  const apId = `${APP_URL}/ap/objects/hidden-direct`;
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: author,
+    content: "private bookmark",
+    visibility: "direct",
+    toJson: "[]",
+    ccJson: "[]",
+    audienceJson: "[]",
+    published: new Date().toISOString(),
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: apId,
+    recipientApId: viewer,
+    type: "to",
+  });
+
+  const app = appFor(db, viewer);
+  const created = await app.request(
+    `${APP_URL}/posts/hidden-direct/bookmark`,
+    { method: "POST" },
+    { APP_URL } as never,
+  );
+  expect(created.status).toBe(200);
+
+  const listed = await app.request(`${APP_URL}/posts/bookmarks`);
+  expect(listed.status).toBe(200);
+  const body = (await listed.json()) as { posts: { ap_id: string }[] };
+  expect(body.posts.map((post) => post.ap_id)).toContain(apId);
 });

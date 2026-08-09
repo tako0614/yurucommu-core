@@ -110,6 +110,7 @@ const note = (id: string, to: string[], cc: string[] = []): Activity =>
 async function rowOf(db: Database, apId: string) {
   return db
     .select({
+      apId: objects.apId,
       visibility: objects.visibility,
       toJson: objects.toJson,
       ccJson: objects.ccJson,
@@ -120,6 +121,26 @@ async function rowOf(db: Database, apId: string) {
     .from(objects)
     .where(eq(objects.apId, apId))
     .get();
+}
+
+function hiddenNote(
+  id: string,
+  hidden: { bto?: string[]; bcc?: string[] },
+  envelope: { bto?: string[]; bcc?: string[] } = {},
+): Activity {
+  return {
+    id: `${id}/activity`,
+    type: "Create",
+    actor: REMOTE,
+    ...envelope,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "hidden secret",
+      ...hidden,
+    },
+  } as Activity;
 }
 
 async function countOf(db: Database, apId: string): Promise<number> {
@@ -279,4 +300,59 @@ test("a DM addressed to the inbox owner is stored as visibility=direct (DM path)
     )
     .get();
   expect(recipientLink?.type).toBe("to");
+});
+
+test("an inbound bto-only DM grants the hidden recipient access without persisting their identity", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/dm-hidden-bto";
+
+  await handleCreate(
+    ctxFor(db),
+    hiddenNote(id, { bto: [LOCAL_BOB] }),
+    recipient(LOCAL_BOB),
+    REMOTE,
+    APP_URL,
+  );
+
+  const row = await rowOf(db, id);
+  expect(row).toMatchObject({
+    visibility: "direct",
+    toJson: "[]",
+    ccJson: "[]",
+  });
+  expect(await canViewerReadObjectFull(db, row!, LOCAL_BOB)).toBe(true);
+  expect(await canViewerReadObjectFull(db, row!, LOCAL_CAROL)).toBe(false);
+  expect(
+    await db
+      .select({ recipientApId: objectRecipients.recipientApId })
+      .from(objectRecipients)
+      .where(eq(objectRecipients.objectApId, id)),
+  ).toEqual([{ recipientApId: LOCAL_BOB }]);
+});
+
+test("Create falls back to envelope bcc when the embedded Note declares no addressing", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/dm-envelope-bcc";
+
+  await handleCreate(
+    ctxFor(db),
+    hiddenNote(id, {}, { bcc: [LOCAL_BOB] }),
+    recipient(LOCAL_BOB),
+    REMOTE,
+    APP_URL,
+  );
+
+  const row = await rowOf(db, id);
+  expect(row).toMatchObject({
+    visibility: "direct",
+    toJson: "[]",
+    ccJson: "[]",
+  });
+  expect(await canViewerReadObjectFull(db, row!, LOCAL_BOB)).toBe(true);
+  expect(
+    await db
+      .select({ recipientApId: objectRecipients.recipientApId })
+      .from(objectRecipients)
+      .where(eq(objectRecipients.objectApId, id)),
+  ).toEqual([{ recipientApId: LOCAL_BOB }]);
 });

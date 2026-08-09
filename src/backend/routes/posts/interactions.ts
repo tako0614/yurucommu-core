@@ -11,6 +11,7 @@ import {
   follows,
   inbox as inboxTable,
   likes,
+  objectRecipients,
   objects,
 } from "../../../db/index.ts";
 import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
@@ -700,11 +701,43 @@ posts.get("/bookmarks", async (c) => {
         )
       : new Set<string>();
 
+  // Hidden bto/bcc identities cannot live in to_json/cc_json. Resolve the
+  // indexed recipient projection once for this page so a hidden recipient who
+  // successfully bookmarked a readable post does not lose it on list refresh.
+  const projectedCandidateIds = allBookmarkRows
+    .filter(
+      (b) =>
+        b.object.attributedTo !== actor.ap_id &&
+        (b.object.visibility === "direct" ||
+          b.object.visibility === "followers"),
+    )
+    .map((b) => b.object.apId);
+  const projectedRecipientIds =
+    projectedCandidateIds.length > 0
+      ? new Set(
+          (
+            await db
+              .select({ objectApId: objectRecipients.objectApId })
+              .from(objectRecipients)
+              .where(
+                and(
+                  eq(objectRecipients.recipientApId, actor.ap_id),
+                  eq(objectRecipients.type, "to"),
+                  inArray(objectRecipients.objectApId, projectedCandidateIds),
+                ),
+              )
+          ).map((row) => row.objectApId),
+        )
+      : new Set<string>();
+
   // Sync visibility-gate first, then ONE batched community read-gate over the
   // survivors (2 queries instead of 1-2 per bookmarked post).
   const visibilityOk = allBookmarkRows.filter((b) =>
-    passesPostVisibilitySync(b.object, actor.ap_id, (a) =>
-      followedAuthors.has(a),
+    passesPostVisibilitySync(
+      b.object,
+      actor.ap_id,
+      (a) => followedAuthors.has(a),
+      (objectApId) => projectedRecipientIds.has(objectApId),
     ),
   );
   const communityReadable = await communityReadableApIds(

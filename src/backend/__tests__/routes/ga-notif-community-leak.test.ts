@@ -33,6 +33,7 @@ import {
   inbox as inboxTable,
   mutes,
   notificationArchived,
+  objectRecipients,
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -313,6 +314,54 @@ test("followers-only Create notification does NOT leak post body to a non-follow
   const followerRow = followerNotifs.find((n) => n.object_ap_id === objectApId);
   expect(followerRow).toBeDefined();
   expect(followerRow!.object_content).toBe(FOLLOWERS_BODY);
+});
+
+test("followers-only notification exposes content to a hidden bto/bcc recipient", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "hidden-author");
+  const recipient = await insertLocalActor(db, "hidden-recipient");
+  const objectApId = `${APP_URL}/ap/objects/hidden-follower-note`;
+  const body = "private hidden-recipient body";
+  await db.insert(objects).values({
+    apId: objectApId,
+    type: "Note",
+    attributedTo: author,
+    content: body,
+    visibility: "followers",
+    toJson: JSON.stringify([`${author}/followers`]),
+    ccJson: "[]",
+    audienceJson: "[]",
+    published: "2026-01-03T00:00:00.000Z",
+    isLocal: 1,
+  });
+  await db.insert(objectRecipients).values({
+    objectApId,
+    recipientApId: recipient,
+    type: "to",
+  });
+  const activityApId = `${APP_URL}/ap/activities/create-hidden-follower-note`;
+  await db.insert(activities).values({
+    apId: activityApId,
+    type: "Create",
+    actorApId: author,
+    objectApId,
+    rawJson: "{}",
+    createdAt: "2026-01-03T00:00:00.000Z",
+  });
+  await db.insert(inboxTable).values({
+    actorApId: recipient,
+    activityApId,
+    read: 0,
+    createdAt: "2026-01-03T00:00:00.000Z",
+  });
+
+  const rows = await fetchNotifications(
+    db,
+    fakeActor(recipient, "hidden-recipient"),
+  );
+  expect(
+    rows.find((row) => row.object_ap_id === objectApId)?.object_content,
+  ).toBe(body);
 });
 
 test("non-community Create notification still exposes its content (gate never narrows public reach)", async () => {

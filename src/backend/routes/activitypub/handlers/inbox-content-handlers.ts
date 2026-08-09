@@ -144,6 +144,78 @@ export function addressesFollowers(addresses: string[]): boolean {
   return addresses.some((a) => a.endsWith("/followers"));
 }
 
+type NoteAddressing = {
+  readonly to: string[];
+  readonly cc: string[];
+  readonly bto: string[];
+  readonly bcc: string[];
+};
+
+type AddressingSource = Pick<Activity, "to" | "cc" | "bto" | "bcc">;
+
+function declaresAddressing(source: AddressingSource): boolean {
+  return (
+    source.to !== undefined ||
+    source.cc !== undefined ||
+    source.bto !== undefined ||
+    source.bcc !== undefined
+  );
+}
+
+function noteAddressing(source: AddressingSource): NoteAddressing {
+  return {
+    to: addressList(source.to),
+    cc: addressList(source.cc),
+    bto: addressList(source.bto),
+    bcc: addressList(source.bcc),
+  };
+}
+
+/**
+ * Resolve the Note reach carried by a Create. The embedded object is the
+ * durable object projection when it declares any addressing field (including
+ * an explicit empty array); peers that put all addressing on the Create
+ * envelope remain compatible through the fallback.
+ */
+function createNoteAddressing(
+  activity: Activity,
+  object: ActivityObject,
+): NoteAddressing {
+  return noteAddressing(declaresAddressing(object) ? object : activity);
+}
+
+function allNoteAddresses(addressing: NoteAddressing): string[] {
+  return [
+    ...addressing.to,
+    ...addressing.cc,
+    ...addressing.bto,
+    ...addressing.bcc,
+  ];
+}
+
+/**
+ * Bounded actor/specific-object recipients, excluding collection reach. These
+ * become indexed object_recipients authority. `bto`/`bcc` values never enter
+ * the public to_json/cc_json projections.
+ */
+function specificRecipientAddresses(addressing: NoteAddressing): string[] {
+  return [...new Set(allNoteAddresses(addressing))]
+    .filter(
+      (address) =>
+        !addressesPublic([address]) && !address.endsWith("/followers"),
+    )
+    .slice(0, MAX_ADDRESS_ENTRIES);
+}
+
+function hiddenRecipientAddresses(addressing: NoteAddressing): string[] {
+  return [...new Set([...addressing.bto, ...addressing.bcc])]
+    .filter(
+      (address) =>
+        !addressesPublic([address]) && !address.endsWith("/followers"),
+    )
+    .slice(0, MAX_ADDRESS_ENTRIES);
+}
+
 /**
  * Recipient-INDEPENDENT visibility classification for an inbound generic Note,
  * mirroring the local outbound addressing contract. CRITICAL invariant: a
@@ -158,15 +230,16 @@ export function addressesFollowers(addresses: string[]): boolean {
  * Previously this was derived solely from `to.includes(Public)`, so a remote
  * followers-only post (Public absent) was silently downgraded to "unlisted" and
  * became world-readable. */
-function classifyInboundNoteVisibility(object: {
-  to?: string[];
-  cc?: string[];
-}): "public" | "unlisted" | "followers" | "direct" {
-  const to = object.to ?? [];
-  const cc = object.cc ?? [];
+function classifyInboundNoteVisibility(
+  addressing: NoteAddressing,
+): "public" | "unlisted" | "followers" | "direct" {
+  const { to, cc, bto, bcc } = addressing;
   if (addressesPublic(to)) return "public";
   if (addressesPublic(cc)) return "unlisted";
-  if (addressesFollowers([...to, ...cc])) return "followers";
+  // Hidden fields are still audience authority. They are considered for reach
+  // classification but are never copied into visible addressing projections.
+  if (addressesPublic([...bto, ...bcc])) return "public";
+  if (addressesFollowers([...to, ...cc, ...bto, ...bcc])) return "followers";
   return "direct";
 }
 
@@ -178,8 +251,8 @@ function classifyInboundNoteVisibility(object: {
  * insertDirectNote. Recipient-independent (keyed on the activity's own
  * addressing), unlike isDirectNote.
  */
-function isDirectShapedNote(object: { to?: string[]; cc?: string[] }): boolean {
-  const all = [...(object.to ?? []), ...(object.cc ?? [])];
+function isDirectShapedNote(addressing: NoteAddressing): boolean {
+  const all = allNoteAddresses(addressing);
   if (all.length === 0) return false;
   if (addressesPublic(all)) return false;
   if (addressesFollowers(all)) return false;
@@ -282,19 +355,18 @@ function extractMentionHrefs(tag: unknown): string[] {
 }
 
 /**
- * Detect an inbound direct (DM) Note: it is addressed (in `to`/`cc`) to one or
- * more recipients but NOT to the Public collection and NOT to a followers
- * collection. The local addressed recipient is the inbox owner (`recipient`),
- * who is necessarily a known local actor row. Mirrors the outbound DM contract
- * in dm/messages.ts (visibility="direct", to=[recipient]).
+ * Detect an inbound direct (DM) Note: it is addressed (in
+ * `to`/`cc`/`bto`/`bcc`) to one or more recipients but NOT to the Public
+ * collection and NOT to a followers collection. The local addressed recipient
+ * is the inbox owner (`recipient`), who is necessarily a known local actor row.
+ * Mirrors the outbound DM contract in dm/messages.ts (visibility="direct",
+ * to=[recipient]).
  */
 function isDirectNote(
-  object: { to?: string[]; cc?: string[] },
+  addressing: NoteAddressing,
   recipient: ActorRow,
 ): boolean {
-  const to = object.to ?? [];
-  const cc = object.cc ?? [];
-  const all = [...to, ...cc];
+  const all = allNoteAddresses(addressing);
   if (all.length === 0) return false;
   // Direct notes are never addressed to the Public collection...
   if (addressesPublic(all)) return false;
@@ -303,9 +375,10 @@ function isDirectNote(
   if (recipient.followersUrl && all.includes(recipient.followersUrl)) {
     return false;
   }
-  // The inbox owner must be explicitly addressed in `to` (the recipient set
-  // that defines a DM); a mere `cc` mention is not treated as a DM.
-  return to.includes(recipient.apId);
+  // Every AS2 audience field names recipients. `bto`/`bcc` are private, not
+  // non-authoritative; dropping them here makes a correctly routed hidden DM
+  // persist without recipient authority and therefore disappear from the UX.
+  return all.includes(recipient.apId);
 }
 
 /**
@@ -314,10 +387,10 @@ function isDirectNote(
  * dm/messages.ts: a direct-visibility Note row, an objectRecipients row, a
  * stored inbound Create activity, and an inbox row so it surfaces.
  *
- * Scope: a single local recipient (the inbox owner). The outbound DM model is
- * strictly 1:1 (to=[otherApId]) and `objects.conversation` is a single column,
- * so multi-recipient / group direct Notes are intentionally out of scope and
- * fall back to the generic Note insert.
+ * Each invocation records delivery for one local inbox owner. The outbound DM
+ * UX remains strictly 1:1 (to=[otherApId]), so only single-recipient direct
+ * Notes receive an `objects.conversation` id; multi-recipient delivery keeps
+ * recipient authority without pretending that it belongs to a 1:1 thread.
  */
 async function insertDirectNote(
   db: Database,
@@ -327,19 +400,20 @@ async function insertDirectNote(
   actor: string,
   recipient: ActorRow,
   baseUrl: string,
+  addressing: NoteAddressing,
 ): Promise<void> {
   // Derive the conversation. Honour a sender-supplied `object.conversation`
   // only when it matches the value yurucommu itself would compute for this
   // (sender, localRecipient) pair — otherwise a remote actor could force a
   // message into an arbitrary thread (spoof a reply context). Fall back to the
   // computed id for foreign-origin DMs that carry no/invalid conversation.
-  const computedConversation = getConversationId(
-    baseUrl,
-    actor,
-    recipient.apId,
-  );
+  const directRecipients = specificRecipientAddresses(addressing);
+  const computedConversation =
+    directRecipients.length === 1
+      ? getConversationId(baseUrl, actor, directRecipients[0])
+      : null;
   const conversationId =
-    object.conversation === computedConversation
+    computedConversation && object.conversation === computedConversation
       ? object.conversation
       : computedConversation;
 
@@ -347,18 +421,6 @@ async function insertDirectNote(
     object.published,
     new Date().toISOString(),
   );
-  const toJson = JSON.stringify([recipient.apId]);
-
-  // Was the object already present BEFORE this dispatch? This decides whether
-  // this delivery is the one that creates the row (and therefore the one that
-  // owns the postCount +1 and the inbox surfacing). It is read once here and
-  // used only to gate the post-commit side effects; the counter itself is made
-  // crash-/retry-safe by the in-batch NOT-EXISTS guard below.
-  const existingObject = await db
-    .select({ apId: objects.apId })
-    .from(objects)
-    .where(eq(objects.apId, objectId))
-    .get();
 
   // #3 (atomicity + idempotency): the object insert and the author postCount
   // bump MUST commit together. Previously the row was inserted
@@ -389,7 +451,11 @@ async function insertDirectNote(
         tagsJson: boundInboundTagsJson(object.tag),
         inReplyTo: object.inReplyTo || null,
         visibility: "direct",
-        toJson,
+        // Only visible audience fields are serialized. Hidden `bto` / `bcc`
+        // recipients live exclusively in object_recipients and must never be
+        // disclosed through object JSON or the post API.
+        toJson: boundAddressJson(addressing.to),
+        ccJson: boundAddressJson(addressing.cc),
         conversation: conversationId,
         communityApId: null,
         published: publishedAt,
@@ -416,10 +482,10 @@ async function insertDirectNote(
       .onConflictDoNothing(),
   ]);
 
-  if (existingObject) return; // duplicate: no inbox surfacing, no double count
-
   // Store the inbound Create and surface it in the recipient's inbox so the DM
-  // appears in the conversation / message-requests view.
+  // appears in the conversation / message-requests view. Both inserts are
+  // idempotent, so every local recipient in a shared-inbox fan-out gets its own
+  // inbox row and a retry repairs a missing side effect safely.
   const activityId = activity.id || activityApId(baseUrl, generateId());
   await upsertActivityAndNotify(
     db,
@@ -472,7 +538,8 @@ export async function handleCreate(
   // Direct (DM) Note routing: a Note addressed to the local inbox owner that
   // is neither public nor follower-only belongs in the recipient's DM inbox /
   // message-request flow rather than the generic public Note insert.
-  if (object.id && isDirectNote(object, recipient)) {
+  const addressing = createNoteAddressing(activity, object);
+  if (object.id && isDirectNote(addressing, recipient)) {
     // A remote actor personally blocked OR muted by the local recipient must not
     // inject a DM row or inbox notification. `actor` is the HTTP-signature-
     // verified signer. The inbox already ACKs, so dropping here causes no retry
@@ -485,12 +552,6 @@ export async function handleCreate(
       });
       return;
     }
-    const existing = await db
-      .select({ apId: objects.apId })
-      .from(objects)
-      .where(eq(objects.apId, object.id))
-      .get();
-    if (existing) return;
     await insertDirectNote(
       db,
       activity,
@@ -499,6 +560,7 @@ export async function handleCreate(
       actor,
       recipient,
       baseUrl,
+      addressing,
     );
     return;
   }
@@ -509,7 +571,7 @@ export async function handleCreate(
   // addressed to actor A is also dispatched for an unrelated follower B. We must
   // NOT store it as a world-readable generic Note for B — the addressed actor's
   // own delivery handles it via insertDirectNote above. Skip it here.
-  if (isDirectShapedNote(object)) {
+  if (isDirectShapedNote(addressing)) {
     log.warn("Skipping direct Note not addressed to this recipient", {
       event: "ap.create.direct_note_not_addressed",
       actor,
@@ -548,6 +610,7 @@ export async function handleCreate(
   const parentObj = object.inReplyTo
     ? await db
         .select({
+          apId: objects.apId,
           attributedTo: objects.attributedTo,
           visibility: objects.visibility,
           toJson: objects.toJson,
@@ -617,11 +680,11 @@ export async function handleCreate(
       // Recipient-independent classification: a non-public Note is never stored
       // as world-readable "unlisted". A followers-only post → "followers" (gated
       // by the accepted-follow edge), preserving the remote author's audience.
-      visibility: classifyInboundNoteVisibility(object),
+      visibility: classifyInboundNoteVisibility(addressing),
       // Persist the addressing so the explicit-recipient (mention) gate in
       // canViewerReadObjectFull / the post-detail route can evaluate.
-      toJson: boundAddressJson(object.to),
-      ccJson: boundAddressJson(object.cc),
+      toJson: boundAddressJson(addressing.to),
+      ccJson: boundAddressJson(addressing.cc),
       audienceJson: JSON.stringify(audience),
       communityApId: communityScope.communityApId,
       published: publishedAt,
@@ -634,11 +697,28 @@ export async function handleCreate(
     .set({ postCount: sql`${actors.postCount} + 1` })
     .where(and(eq(actors.apId, actor), objectAbsent));
 
+  // Persist hidden bto/bcc recipients as indexed authority projections on the
+  // generic path. Visible to/cc recipients already remain authoritative in the
+  // JSON projection; duplicating them here is unnecessary and would turn an
+  // ordinary remote @mention into a recipient-table dependency. The canonical
+  // read gate combines both representations without revealing hidden reach.
+  const recipientProjectionStatements = insertMany(
+    db,
+    objectRecipients,
+    hiddenRecipientAddresses(addressing).map((recipientApId) => ({
+      objectApId: objectId,
+      recipientApId,
+      type: "to",
+    })),
+    { conflict: "ignore" },
+  );
+
   if (object.inReplyTo) {
     const parentId = object.inReplyTo;
     await runBatch(db, [
       bumpPostCount,
       insertObject,
+      ...recipientProjectionStatements,
       db
         .update(objects)
         .set({
@@ -647,7 +727,11 @@ export async function handleCreate(
         .where(eq(objects.apId, parentId)),
     ]);
   } else {
-    await runBatch(db, [bumpPostCount, insertObject]);
+    await runBatch(db, [
+      bumpPostCount,
+      insertObject,
+      ...recipientProjectionStatements,
+    ]);
   }
 
   if (existingBeforeInsert) return; // duplicate: no double notification
@@ -1040,8 +1124,9 @@ export async function fetchAndPersistAnnouncedNote(
 
   // Addressing gates: a DM-shaped object must never be stored world-readable,
   // and a non-public classification is refused outright (see doc comment).
-  if (isDirectShapedNote(note)) return false;
-  const visibility = classifyInboundNoteVisibility(note);
+  const addressing = noteAddressing(note);
+  if (isDirectShapedNote(addressing)) return false;
+  const visibility = classifyInboundNoteVisibility(addressing);
   if (visibility !== "public" && visibility !== "unlisted") return false;
 
   const audience = addressList(note.audience);
@@ -1469,8 +1554,10 @@ export async function handleUpdate(
     // field as a complete reach update (an omitted counterpart is empty), while
     // preserving both old fields for peers that send a legacy content-only
     // partial Update.
-    const hasAddressingUpdate =
-      object.to !== undefined || object.cc !== undefined;
+    const hasAddressingUpdate = declaresAddressing(object);
+    const updatedAddressing = hasAddressingUpdate
+      ? noteAddressing(object)
+      : undefined;
     const hasAudienceUpdate = object.audience !== undefined;
     const updatedAudience = hasAudienceUpdate
       ? normalizedObjectAudience(activity, object)
@@ -1500,6 +1587,7 @@ export async function handleUpdate(
     if (updatedParentId) {
       const parent = await db
         .select({
+          apId: objects.apId,
           attributedTo: objects.attributedTo,
           visibility: objects.visibility,
           toJson: objects.toJson,
@@ -1534,22 +1622,21 @@ export async function handleUpdate(
       }
     }
 
-    const updatedVisibility = hasAddressingUpdate
-      ? isDirectShapedNote(object)
+    const updatedVisibility = updatedAddressing
+      ? isDirectShapedNote(updatedAddressing)
         ? "direct"
-        : classifyInboundNoteVisibility(object)
+        : classifyInboundNoteVisibility(updatedAddressing)
       : undefined;
-    const directToRecipients =
-      hasAddressingUpdate && updatedVisibility === "direct"
-        ? [...new Set(addressList(object.to))]
-        : [];
+    const projectedRecipients = updatedAddressing
+      ? specificRecipientAddresses(updatedAddressing)
+      : [];
     // DM conversation ids are pair authority. Never carry an old recipient's
-    // thread id across a re-address; only a single `to` recipient has a 1:1
-    // conversation in Yurucommu's model. Public/followers/multi-recipient/empty
-    // reach clears the old DM conversation.
+    // thread id across a re-address; only a single specific recipient has a
+    // 1:1 conversation in Yurucommu's model. Public/followers/multi-recipient/
+    // empty reach clears the old DM conversation.
     const updatedConversation = hasAddressingUpdate
-      ? updatedVisibility === "direct" && directToRecipients.length === 1
-        ? getConversationId(c.env.APP_URL, actor, directToRecipients[0])
+      ? updatedVisibility === "direct" && projectedRecipients.length === 1
+        ? getConversationId(c.env.APP_URL, actor, projectedRecipients[0])
         : null
       : undefined;
     const updateObject = db
@@ -1572,8 +1659,14 @@ export async function handleUpdate(
             ? boundInboundTagsJson(object.tag)
             : undefined,
         visibility: updatedVisibility,
-        toJson: hasAddressingUpdate ? boundAddressJson(object.to) : undefined,
-        ccJson: hasAddressingUpdate ? boundAddressJson(object.cc) : undefined,
+        // bto/bcc are deliberately absent: their recipients are private and
+        // represented only by the indexed recipient projection below.
+        toJson: updatedAddressing
+          ? boundAddressJson(updatedAddressing.to)
+          : undefined,
+        ccJson: updatedAddressing
+          ? boundAddressJson(updatedAddressing.cc)
+          : undefined,
         audienceJson: hasAudienceUpdate
           ? JSON.stringify(updatedAudience)
           : undefined,
@@ -1606,7 +1699,7 @@ export async function handleUpdate(
           ...insertMany(
             db,
             objectRecipients,
-            directToRecipients.map((recipientApId) => ({
+            projectedRecipients.map((recipientApId) => ({
               objectApId: objectId,
               recipientApId,
               type: "to",

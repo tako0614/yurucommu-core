@@ -25,6 +25,7 @@ import {
   follows,
   inbox as inboxTable,
   notificationArchived,
+  objectRecipients,
   objects,
 } from "../../db/index.ts";
 import { batchLoadActorInfo } from "./communities/membership-shared.ts";
@@ -39,6 +40,7 @@ import {
   emitUnreadSnapshot,
   runRealtimeAfterResponse,
 } from "../runtime/realtime-hub.ts";
+import { passesPostVisibilitySync } from "../lib/post-visibility.ts";
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -383,6 +385,9 @@ notifications.get("/", async (c) => {
             communityApId: objects.communityApId,
             visibility: objects.visibility,
             attributedTo: objects.attributedTo,
+            toJson: objects.toJson,
+            ccJson: objects.ccJson,
+            endTime: objects.endTime,
           })
           .from(objects)
           .where(inArray(objects.apId, objectApIds))
@@ -411,7 +416,10 @@ notifications.get("/", async (c) => {
     ...new Set(
       objectRows
         .filter(
-          (o) => o.visibility === "followers" && o.attributedTo !== actor.ap_id,
+          (o) =>
+            o.attributedTo !== actor.ap_id &&
+            ((o.type === "Story" && !o.communityApId) ||
+              (o.type !== "Story" && o.visibility === "followers")),
         )
         .map((o) => o.attributedTo),
     ),
@@ -434,22 +442,46 @@ notifications.get("/", async (c) => {
         )
       : new Set<string>();
 
-  const followersGateAllows = (o: {
-    visibility: string;
-    attributedTo: string;
-  }): boolean => {
-    if (o.visibility !== "followers") return true;
-    return (
-      o.attributedTo === actor.ap_id || followedAuthors.has(o.attributedTo)
-    );
-  };
+  const projectionCandidates = objectRows
+    .filter(
+      (o) =>
+        o.attributedTo !== actor.ap_id &&
+        (o.visibility === "followers" || o.visibility === "direct"),
+    )
+    .map((o) => o.apId);
+  const projectedRecipientIds =
+    projectionCandidates.length > 0
+      ? new Set(
+          (
+            await db
+              .select({ objectApId: objectRecipients.objectApId })
+              .from(objectRecipients)
+              .where(
+                and(
+                  eq(objectRecipients.recipientApId, actor.ap_id),
+                  eq(objectRecipients.type, "to"),
+                  inArray(objectRecipients.objectApId, projectionCandidates),
+                ),
+              )
+          ).map((row) => row.objectApId),
+        )
+      : new Set<string>();
+
+  const visibilityReadableRows = objectRows.filter((object) =>
+    passesPostVisibilitySync(
+      object,
+      actor.ap_id,
+      (authorApId) => followedAuthors.has(authorApId),
+      (objectApId) => projectedRecipientIds.has(objectApId),
+    ),
+  );
 
   // Apply the synchronous followers-gate first, then resolve the community
   // read-gate for all survivors in ONE batched call (2 queries) rather than
   // 1-2 queries per row.
   const readableObjectIds = await communityReadableApIds(
     db,
-    objectRows.filter(followersGateAllows),
+    visibilityReadableRows,
     actor.ap_id,
   );
 

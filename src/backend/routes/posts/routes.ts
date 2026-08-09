@@ -1,5 +1,10 @@
 import { Hono } from "hono";
-import { actors, follows, objects } from "../../../db/index.ts";
+import {
+  actors,
+  follows,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
 import type { Database } from "../../../db/index.ts";
 import { OBJECT_CONTEXT } from "../../lib/ap-context.ts";
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
@@ -56,6 +61,8 @@ import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
 import {
   actorIsBlockedBy,
   canViewerReadObjectFull,
+  passesPostVisibilitySync,
+  type ReadGateObject,
 } from "../../lib/post-visibility.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { logger } from "../../lib/logger.ts";
@@ -71,13 +78,8 @@ const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 const PUBLIC_COLLECTION = "https://www.w3.org/ns/activitystreams#Public";
 
 /** Reply row shape needed for the visibility gate (subset of the object row). */
-type ReplyVisibilityRow = {
+type ReplyVisibilityRow = ReadGateObject & {
   apId: string;
-  attributedTo: string;
-  visibility: string;
-  toJson?: string | null;
-  audienceJson?: string | null;
-  communityApId?: string | null;
 };
 
 /**
@@ -120,6 +122,27 @@ async function filterVisibleReplies<T extends ReplyVisibilityRow>(
     acceptedFollowing = new Set(rows.map((r) => r.followingApId));
   }
 
+  const projectedRecipientIds =
+    viewerApId && replies.length > 0
+      ? new Set(
+          (
+            await db
+              .select({ objectApId: objectRecipients.objectApId })
+              .from(objectRecipients)
+              .where(
+                and(
+                  eq(objectRecipients.recipientApId, viewerApId),
+                  eq(objectRecipients.type, "to"),
+                  inArray(
+                    objectRecipients.objectApId,
+                    replies.map((reply) => reply.apId),
+                  ),
+                ),
+              )
+          ).map((row) => row.objectApId),
+        )
+      : new Set<string>();
+
   // Pre-compute the community read-gate for every reply: a community-scoped
   // reply is stored "public" but carries an audience, so the per-visibility
   // checks below would let it through. Resolving membership here (rather than
@@ -136,18 +159,12 @@ async function filterVisibleReplies<T extends ReplyVisibilityRow>(
     // A private-community reply is hidden from anyone who is not an accepted
     // member, regardless of the (stored "public") visibility.
     if (!communityReadable.has(reply.apId)) return false;
-    if (reply.visibility === "followers") {
-      if (!viewerApId) return false;
-      if (reply.attributedTo === viewerApId) return true;
-      return acceptedFollowing.has(reply.attributedTo);
-    }
-    if (reply.visibility === "direct") {
-      if (!viewerApId) return false;
-      if (reply.attributedTo === viewerApId) return true;
-      const recipients = safeJsonParse<string[]>(reply.toJson, []);
-      return recipients.includes(viewerApId);
-    }
-    return true;
+    return passesPostVisibilitySync(
+      reply,
+      viewerApId,
+      (authorApId) => acceptedFollowing.has(authorApId),
+      (objectApId) => projectedRecipientIds.has(objectApId),
+    );
   });
 }
 
@@ -193,6 +210,7 @@ posts.post("/", async (c) => {
   if (body.in_reply_to) {
     const parent = await db
       .select({
+        apId: objects.apId,
         visibility: objects.visibility,
         attributedTo: objects.attributedTo,
         toJson: objects.toJson,

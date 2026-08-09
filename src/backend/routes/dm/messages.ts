@@ -3,7 +3,7 @@
 // Threading via conversation field
 
 import { Hono } from "hono";
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
   activities,
@@ -34,6 +34,7 @@ import {
   MAX_DM_PAGE_LIMIT,
   resolveConversationId,
 } from "./query-helpers.ts";
+import { recipientObjectIds } from "./conversations-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
 import {
   emitRealtimeBestEffort,
@@ -81,12 +82,7 @@ type SenderInfo = {
 // on the 4s-polled endpoint).
 type DmMessageRow = Pick<
   typeof objects.$inferSelect,
-  | "apId"
-  | "attributedTo"
-  | "content"
-  | "attachmentsJson"
-  | "published"
-  | "toJson"
+  "apId" | "attributedTo" | "content" | "attachmentsJson" | "published"
 >;
 
 type DmMessageResponse = {
@@ -177,12 +173,19 @@ async function fetchAuthorizedMessages(
   limit: number,
   before: string | undefined,
 ): Promise<{ rows: DmMessageRow[]; hasMore: boolean }> {
-  // Build where clause: filter by conversation + visibility + type
-  // Authorization is re-validated in code below (defense-in-depth)
+  // Authorization is part of the SQL set, not a post-query to_json filter.
+  // Hidden bto/bcc recipients intentionally do not appear in to_json; their
+  // indexed object_recipients link is the read authority used everywhere else
+  // in the DM subsystem. Keeping the predicate inside the query also makes the
+  // limit+1 pagination signal exact after authorization.
   const baseCondition = and(
     eq(objects.visibility, "direct"),
     eq(objects.type, "Note"),
     eq(objects.conversation, conversationId),
+    or(
+      eq(objects.attributedTo, actorApId),
+      inArray(objects.apId, recipientObjectIds(db, actorApId)),
+    ),
   );
 
   // Composite (published, apId) cursor so two messages sharing a published
@@ -203,24 +206,14 @@ async function fetchAuthorizedMessages(
       content: objects.content,
       attachmentsJson: objects.attachmentsJson,
       published: objects.published,
-      toJson: objects.toJson,
     })
     .from(objects)
     .where(whereClause!)
     .orderBy(desc(objects.published), desc(objects.apId))
     .limit(limit + 1);
 
-  // Defence-in-depth: re-validate authorization at the code level. (In practice
-  // every row in the actor's own conversation passes, so the +1 reliably signals
-  // an older page.)
-  const authorized = messages.filter((msg) => {
-    if (msg.attributedTo === actorApId) return true;
-    const toRecipients = safeJsonParse<string[]>(msg.toJson, []);
-    return toRecipients.includes(actorApId);
-  });
-
-  const hasMore = authorized.length > limit;
-  return { rows: hasMore ? authorized.slice(0, limit) : authorized, hasMore };
+  const hasMore = messages.length > limit;
+  return { rows: hasMore ? messages.slice(0, limit) : messages, hasMore };
 }
 
 /** Build a map from ap_id -> actor info, checking local actors then cached actors. */
