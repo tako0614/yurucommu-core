@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile, readdir } from "node:fs/promises";
 import { drizzle } from "drizzle-orm/libsql";
+import { sql } from "drizzle-orm";
 import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
@@ -56,6 +57,47 @@ test("filterBlockedActorApIds: actor blocks survive cosmetic URL spelling change
   expect(await isActorBlocked(db, sibling)).toBe(false);
   expect(blocked.has(canonical)).toBe(true);
   expect(blocked.has(sibling)).toBe(false);
+});
+
+test("operator actor blocks reach a cosmetic identity beyond 512 retained rows", async () => {
+  const db = await freshDb();
+  await db.run(sql`
+    WITH RECURSIVE numbers(n) AS (
+      VALUES (0)
+      UNION ALL
+      SELECT n + 1 FROM numbers WHERE n < 511
+    )
+    INSERT INTO blocked_actors (actor_ap_id, reason, created_at)
+    SELECT
+      'https://decoy-' || n || '.example/users/actor',
+      'decoy',
+      '2026-08-09T00:00:00.000Z'
+    FROM numbers
+  `);
+  await blockActor(
+    db,
+    "https://zzzz-blocked.example/users/alice/#legacy",
+    "spam",
+  );
+
+  const canonical = "https://zzzz-blocked.example/users/alice";
+  const pathCaseSibling = "https://zzzz-blocked.example/users/Alice";
+  const blocked = await filterBlockedActorApIds(db, [
+    canonical,
+    pathCaseSibling,
+  ]);
+
+  expect({
+    singular: await isActorBlocked(db, canonical),
+    sibling: await isActorBlocked(db, pathCaseSibling),
+    batch: blocked.has(canonical),
+    batchSibling: blocked.has(pathCaseSibling),
+  }).toEqual({
+    singular: true,
+    sibling: false,
+    batch: true,
+    batchSibling: false,
+  });
 });
 
 test("filterBlockedActorApIds: empty input + all-allowed return an empty set", async () => {
