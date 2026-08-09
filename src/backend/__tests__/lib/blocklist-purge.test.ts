@@ -64,6 +64,15 @@ async function objectExists(db: Database, apId: string): Promise<boolean> {
   return !!row;
 }
 
+async function activityExists(db: Database, apId: string): Promise<boolean> {
+  const row = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(eq(activities.apId, apId))
+    .get();
+  return !!row;
+}
+
 test("purgeActorContent removes the blocked actor's posts and leaves others", async () => {
   const db = await freshDb();
   const evil = "https://evil.example/users/x";
@@ -147,6 +156,85 @@ test("purgeDomainContent removes the host AND its subdomains but NOT a similarly
   expect(await objectExists(db, "https://notevil.example/objects/p")).toBe(
     true,
   );
+});
+
+test("purgeDomainContent handles a long valid D1 domain without matching path text", async () => {
+  const db = await freshDb();
+  const domain = `${"a".repeat(63)}.example`;
+  const apexActor = `https://${domain}/users/a`;
+  const subdomainActor = `https://node.${domain}/users/b`;
+  const pathOnlyActor = `https://safe.example/users/${domain}`;
+  const credentialActor = `https://${domain}@safe.example/users/d`;
+  const apexPost = `https://${domain}/objects/apex`;
+  const subdomainPost = `https://node.${domain}/objects/subdomain`;
+  const pathOnlyPost = "https://safe.example/objects/path-only";
+  const credentialPost = "https://safe.example/objects/credential";
+
+  await seedPost(db, apexPost, apexActor);
+  await seedPost(db, subdomainPost, subdomainActor);
+  await seedPost(db, pathOnlyPost, pathOnlyActor);
+  await seedPost(db, credentialPost, credentialActor);
+  await db.insert(activities).values([
+    {
+      apId: `https://${domain}/activities/apex`,
+      type: "Create",
+      actorApId: apexActor,
+      rawJson: "{}",
+      direction: "inbound",
+    },
+    {
+      apId: `https://node.${domain}/activities/subdomain`,
+      type: "Create",
+      actorApId: subdomainActor,
+      rawJson: "{}",
+      direction: "inbound",
+    },
+    {
+      apId: "https://safe.example/activities/path-only",
+      type: "Create",
+      actorApId: pathOnlyActor,
+      rawJson: "{}",
+      direction: "inbound",
+    },
+    {
+      apId: "https://safe.example/activities/credential",
+      type: "Create",
+      actorApId: credentialActor,
+      rawJson: "{}",
+      direction: "inbound",
+    },
+  ]);
+
+  await purgeDomainContent(db, domain);
+
+  expect({
+    apexPost: await objectExists(db, apexPost),
+    subdomainPost: await objectExists(db, subdomainPost),
+    pathOnlyPost: await objectExists(db, pathOnlyPost),
+    credentialPost: await objectExists(db, credentialPost),
+    apexActivity: await activityExists(db, `https://${domain}/activities/apex`),
+    subdomainActivity: await activityExists(
+      db,
+      `https://node.${domain}/activities/subdomain`,
+    ),
+    pathOnlyActivity: await activityExists(
+      db,
+      "https://safe.example/activities/path-only",
+    ),
+    credentialActivity: await activityExists(
+      db,
+      "https://safe.example/activities/credential",
+    ),
+  }).toEqual({
+    apexPost: false,
+    subdomainPost: false,
+    pathOnlyPost: true,
+    credentialPost: true,
+    apexActivity: false,
+    subdomainActivity: false,
+    pathOnlyActivity: true,
+    credentialActivity: true,
+  });
 });
 
 test("a domain block is enforced on subdomains (isActorBlocked)", async () => {

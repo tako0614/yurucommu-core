@@ -1,4 +1,5 @@
-import { inArray, like, or, sql } from "drizzle-orm";
+import { inArray, sql, type SQL } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { activities, objects } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import type { IObjectStorage } from "../runtime/types.ts";
@@ -12,6 +13,37 @@ import {
 import { logger } from "./logger.ts";
 
 const log = logger.child({ component: "blocklist" });
+
+/**
+ * Match an HTTPS ActivityPub URL by its exact hostname or a real subdomain.
+ *
+ * Do not replace this with LIKE. Cloudflare D1 rejects sufficiently long LIKE
+ * patterns as too complex, which previously made a valid long domain block
+ * retain all historical content. Extracting the authority with literal
+ * instr/substr operations also keeps domain text in the URL path, lookalike
+ * suffixes, credentials, and explicit ports outside the match — the same URL
+ * boundary the former host-anchored patterns intended to enforce.
+ */
+function activityPubUrlHostMatchesDomain(
+  column: SQLiteColumn,
+  domain: string,
+): SQL {
+  const lowerUrl = sql`lower(${column})`;
+  const authorityTail = sql`substr(${lowerUrl}, 9)`;
+  const slash = sql`instr(${authorityTail}, '/')`;
+  const authority = sql`substr(${authorityTail}, 1, ${slash} - 1)`;
+  const subdomainSuffix = `.${domain}`;
+
+  return sql`
+    substr(${lowerUrl}, 1, 8) = 'https://'
+    AND ${slash} > 1
+    AND instr(${authority}, '@') = 0
+    AND (
+      ${authority} = ${domain}
+      OR substr(${authority}, -length(${subdomainSuffix})) = ${subdomainSuffix}
+    )
+  `;
+}
 
 // Hard-delete a set of objects (with their child cascade + R2 blobs). Shared by
 // the actor / domain purge below. apIds are EXACTLY the objects to remove.
@@ -76,7 +108,7 @@ export async function purgeActorContent(
 
 /**
  * Purge already-ingested content authored by any actor on a blocked DOMAIN (the
- * host itself OR a subdomain). Host-anchored LIKE so `evil.com` matches
+ * host itself OR a subdomain). Host-boundary matching means `evil.com` matches
  * `https://evil.com/...` and `https://node1.evil.com/...` but NOT `notevil.com`.
  * Best-effort. Local content is never matched (local objects carry the local
  * host; the operator never blocks their own domain).
@@ -89,14 +121,10 @@ export async function purgeDomainContent(
   const domain = normalizeDomain(domainOrUrl);
   if (!domain) return;
   try {
-    const hostMatch = or(
-      like(objects.attributedTo, `https://${domain}/%`),
-      like(objects.attributedTo, `https://%.${domain}/%`),
-    );
     const rows = await db
       .select({ apId: objects.apId })
       .from(objects)
-      .where(hostMatch);
+      .where(activityPubUrlHostMatchesDomain(objects.attributedTo, domain));
     await purgeObjects(
       db,
       rows.map((r) => r.apId),
@@ -104,12 +132,7 @@ export async function purgeDomainContent(
     );
     await db
       .delete(activities)
-      .where(
-        or(
-          like(activities.actorApId, `https://${domain}/%`),
-          like(activities.actorApId, `https://%.${domain}/%`),
-        ),
-      );
+      .where(activityPubUrlHostMatchesDomain(activities.actorApId, domain));
   } catch (err) {
     log.warn("blocklist.purgeDomainContent failed", {
       event: "blocklist.purge_domain_failed",
