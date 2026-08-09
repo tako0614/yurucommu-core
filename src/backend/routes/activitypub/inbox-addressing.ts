@@ -29,8 +29,10 @@ import { isLocal } from "../../federation-helpers.ts";
 import type { Activity } from "./inbox-types.ts";
 import {
   addressesPublic,
-  MAX_ADDRESS_ENTRIES,
-} from "./handlers/inbox-content-handlers.ts";
+  collectBoundedInboundAddresses,
+  type InboundAddressingFailureReason,
+  type InboundAddressingResult,
+} from "./inbound-addressing.ts";
 
 export type ActorRow = typeof actors.$inferSelect;
 
@@ -114,24 +116,11 @@ export function isHandledActivityType(
  * `bto`/`bcc` are included: a peer that strips them before delivery simply
  * contributes nothing, and one that does not must still be honoured.
  */
-export function collectAddresses(activity: Activity): string[] {
+export function collectAddresses(activity: Activity): InboundAddressingResult {
   const object = typeof activity.object === "string" ? null : activity.object;
-  const all = [
-    ...(activity.to ?? []),
-    ...(activity.cc ?? []),
-    ...(activity.bto ?? []),
-    ...(activity.bcc ?? []),
-    ...(activity.audience ?? []),
-    ...(object?.to ?? []),
-    ...(object?.cc ?? []),
-    ...(object?.bto ?? []),
-    ...(object?.bcc ?? []),
-    ...(object?.audience ?? []),
-  ];
-  // Same bound the persisted addressing arrays use (policy defined once, in
-  // inbox-content-handlers): a remote must not be able to make one delivery
-  // cost an unbounded number of actor lookups.
-  return [...new Set(all)].slice(0, MAX_ADDRESS_ENTRIES);
+  return collectBoundedInboundAddresses(
+    object ? [activity, object] : [activity],
+  );
 }
 
 /**
@@ -149,6 +138,8 @@ export type AddressingResolution = {
   readonly recipients: readonly ActorRow[];
   /** Addressing IRIs read off the activity, for logging. */
   readonly addresses: readonly string[];
+  /** Invalid projections are undeliverable and must never be truncated. */
+  readonly invalidReason?: InboundAddressingFailureReason;
 };
 
 /**
@@ -163,8 +154,8 @@ async function resolveAddressedLocalActors(
     (a) => isLocal(a, baseUrl) && !addressesPublic([a]),
   );
   if (localIris.length === 0) return [];
-  // Bounded by MAX_ADDRESS_ENTRIES, but routed through inChunks anyway so the
-  // D1 parameter rule holds if that bound is ever raised.
+  // Bounded by the shared 64-entry contract, but routed through inChunks so
+  // the D1 parameter rule holds if that bound is ever raised.
   return await inChunks(localIris, (chunk) =>
     db.query.actors.findMany({ where: inArray(actors.apId, [...chunk]) }),
   );
@@ -217,7 +208,16 @@ export async function resolveAddressedRecipients(
   baseUrl: string,
   followerFanoutLimit: number,
 ): Promise<AddressingResolution> {
-  const addresses = collectAddresses(activity);
+  const collected = collectAddresses(activity);
+  if (!collected.ok) {
+    return {
+      cls: "addressed",
+      recipients: [],
+      addresses: collected.addresses,
+      invalidReason: collected.reason,
+    };
+  }
+  const addresses = collected.addresses;
   const addressed = await resolveAddressedLocalActors(db, addresses, baseUrl);
 
   const wantsAudience =

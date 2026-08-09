@@ -752,6 +752,86 @@ test("inbound Create(Note) rejects unsafe remote object ids", async () => {
   );
 });
 
+test("inbound Create(Note) rejects addressing that cannot be retained whole", async () => {
+  const db = await setup();
+  const oversizedCases = [
+    {
+      id: "https://remote.example/objects/too-many-addresses",
+      to: [
+        PUBLIC,
+        ...Array.from(
+          { length: 31 },
+          (_, index) => `https://remote.example/users/to-${index}`,
+        ),
+      ],
+      cc: Array.from(
+        { length: 33 },
+        (_, index) => `https://remote.example/users/cc-${index}`,
+      ),
+    },
+    {
+      id: "https://remote.example/objects/too-long-address",
+      to: [PUBLIC],
+      cc: [`https://remote.example/users/${"x".repeat(2050)}`],
+    },
+  ];
+
+  for (const { id, to, cc } of oversizedCases) {
+    const create = parseActivity({
+      id: `${id}/activity`,
+      type: "Create",
+      actor: REMOTE,
+      object: {
+        id,
+        type: "Note",
+        attributedTo: REMOTE,
+        content: "must not be partially retained",
+        to,
+        cc,
+      },
+    }) as Activity;
+    await handleCreate(
+      ctxFor(db),
+      create,
+      recipient(LOCAL_BOB),
+      REMOTE,
+      APP_URL,
+    );
+  }
+
+  expect(await db.select({ apId: objects.apId }).from(objects).all()).toEqual(
+    [],
+  );
+});
+
+test("Update(Note) rejects addressing overflow without replacing old reach or content", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/update-addressing-overflow";
+  await insertRemoteNote(db, id, { visibility: "public", to: [PUBLIC] });
+
+  await handleUpdate(
+    ctxFor(db),
+    updateNote(id, "must not be partially applied", {
+      to: [
+        PUBLIC,
+        ...Array.from(
+          { length: 64 },
+          (_, index) => `https://remote.example/users/update-${index}`,
+        ),
+      ],
+      cc: [],
+    }),
+    REMOTE,
+  );
+
+  expect(await reachRow(db, id)).toMatchObject({
+    content: "old body",
+    visibility: "public",
+    toJson: JSON.stringify([PUBLIC]),
+    ccJson: "[]",
+  });
+});
+
 test("inbound public Create(Note) from a muted actor is dropped at write time", async () => {
   const db = await setup();
   const id = "https://remote.example/objects/muted-public-create";

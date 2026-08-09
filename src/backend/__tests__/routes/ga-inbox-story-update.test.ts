@@ -29,6 +29,8 @@ const FETCHED_NOTE_ID = "https://remote.example/objects/fetched-late-parent";
 const FETCHED_REPLY_ID = "https://remote.example/objects/fetched-reply";
 const FETCHED_FORGED_REPLY_ID =
   "https://remote.example/objects/fetched-forged-reply";
+const FETCHED_OVERSIZED_ADDRESSING_ID =
+  "https://remote.example/objects/fetched-oversized-addressing";
 
 // ---------------------------------------------------------------------------
 // Module mock — the only network seam these handlers reach is
@@ -87,6 +89,27 @@ mock.module("../../lib/federation-fetch.ts", () => ({
               ? "https://yuru.test/ap/objects/public-parent"
               : "https://yuru.test/ap/objects/direct-parent",
           to: ["https://www.w3.org/ns/activitystreams#Public"],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/activity+json" },
+        },
+      );
+    }
+    if (url === FETCHED_OVERSIZED_ADDRESSING_ID) {
+      return new Response(
+        JSON.stringify({
+          id: FETCHED_OVERSIZED_ADDRESSING_ID,
+          type: "Note",
+          attributedTo: ALICE,
+          content: "must not be partially retained",
+          to: [
+            "https://www.w3.org/ns/activitystreams#Public",
+            ...Array.from(
+              { length: 64 },
+              (_, index) => `https://remote.example/users/boost-${index}`,
+            ),
+          ],
         }),
         {
           status: 200,
@@ -877,6 +900,28 @@ test("an Announce-fetched reply cannot inject beneath an unreadable direct paren
         .get()
     )?.replyCount,
   ).toBe(0);
+});
+
+test("an Announce-fetched Note with addressing overflow is rejected whole", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  await seedAlice(db);
+
+  expect(
+    await fetchAndPersistAnnouncedNote(
+      db,
+      FETCHED_OVERSIZED_ADDRESSING_ID,
+      "https://yuru.test",
+    ),
+  ).toBe(false);
+  expect(fetchedUrls).toContain(FETCHED_OVERSIZED_ADDRESSING_ID);
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, FETCHED_OVERSIZED_ADDRESSING_ID))
+      .get(),
+  ).toBeUndefined();
 });
 
 // ---------------------------------------------------------------------------

@@ -1318,6 +1318,17 @@ ap.post("/ap/inbox", async (c) => {
       MAX_SHARED_INBOX_FANOUT,
     );
 
+    if (resolution.invalidReason) {
+      log.warn("Shared-inbox activity has invalid addressing", {
+        event: "ap.shared_inbox.addressing_invalid",
+        activityType,
+        actor,
+        reason: resolution.invalidReason,
+      });
+      await commitActivityDispatch(c, claim, PROCESSED_UNDELIVERABLE);
+      return c.json({ error: "Invalid or oversized addressing" }, 422);
+    }
+
     if (resolution.recipients.length === 0) {
       if (resolution.cls === "audience") {
         // The activity addressed a COLLECTION (Public / followers) and nobody

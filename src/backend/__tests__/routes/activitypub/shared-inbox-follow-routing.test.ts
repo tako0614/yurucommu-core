@@ -536,3 +536,58 @@ test("shared-inbox hidden group delivery records every local recipient", async (
       .get(),
   ).toMatchObject({ toJson: "[]", ccJson: "[]", conversation: null });
 });
+
+test("shared-inbox rejects Create addressing that exceeds one complete bounded projection", async () => {
+  const db = await freshDb();
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const bob = await seedLocalActor(db, "bob");
+  await seedAlice(db, publicKeyPem);
+  const env = { APP_URL, DB_INSTANCE: db, KV: new MockKV() };
+
+  const cases = [
+    {
+      suffix: "too-many",
+      to: [
+        bob,
+        "https://www.w3.org/ns/activitystreams#Public",
+        ...Array.from(
+          { length: 63 },
+          (_, index) => `https://remote.example/users/fanout-${index}`,
+        ),
+      ],
+    },
+    {
+      suffix: "too-long",
+      to: [
+        bob,
+        "https://www.w3.org/ns/activitystreams#Public",
+        `https://remote.example/users/${"x".repeat(2050)}`,
+      ],
+    },
+  ];
+
+  for (const { suffix, to } of cases) {
+    const objectId = `https://remote.example/objects/addressing-${suffix}`;
+    const response = await postSigned(appFor(db), env, privateKeyPem, {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `https://remote.example/activities/addressing-${suffix}`,
+      type: "Create",
+      actor: ALICE,
+      object: {
+        id: objectId,
+        type: "Note",
+        attributedTo: ALICE,
+        content: "must be rejected whole",
+        to,
+      },
+    });
+    expect(response.status).toBe(422);
+    expect(
+      await db
+        .select({ apId: objects.apId })
+        .from(objects)
+        .where(eq(objects.apId, objectId))
+        .get(),
+    ).toBeUndefined();
+  }
+});

@@ -29,6 +29,10 @@ import {
   storyVotes,
 } from "../../../../db/index.ts";
 import { insertMany, runBatch } from "../../../../db/d1-write.ts";
+import {
+  addressesPublic,
+  collectBoundedInboundAddresses,
+} from "../inbound-addressing.ts";
 import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import { resolveInboundCommunityScope } from "./inbound-community-scope.ts";
@@ -153,18 +157,6 @@ function isActorTypeUpdate(type: string | string[] | undefined): boolean {
     : ACTOR_OBJECT_TYPES.has(type);
 }
 
-// The ActivityStreams public-collection magic value, including the legacy
-// short forms some implementations still emit.
-export const PUBLIC_COLLECTION = new Set([
-  "https://www.w3.org/ns/activitystreams#Public",
-  "as:Public",
-  "Public",
-]);
-
-export function addressesPublic(addresses: string[]): boolean {
-  return addresses.some((a) => PUBLIC_COLLECTION.has(a));
-}
-
 // A note addressed to a followers collection (the author's `<actor>/followers`)
 // and NOT to Public is a followers-only post. We match any `/followers`
 // collection by suffix (mirrors isDirectNote), which covers the author's
@@ -228,21 +220,15 @@ function allNoteAddresses(addressing: NoteAddressing): string[] {
  * the public to_json/cc_json projections.
  */
 function specificRecipientAddresses(addressing: NoteAddressing): string[] {
-  return [...new Set(allNoteAddresses(addressing))]
-    .filter(
-      (address) =>
-        !addressesPublic([address]) && !address.endsWith("/followers"),
-    )
-    .slice(0, MAX_ADDRESS_ENTRIES);
+  return [...new Set(allNoteAddresses(addressing))].filter(
+    (address) => !addressesPublic([address]) && !address.endsWith("/followers"),
+  );
 }
 
 function hiddenRecipientAddresses(addressing: NoteAddressing): string[] {
-  return [...new Set([...addressing.bto, ...addressing.bcc])]
-    .filter(
-      (address) =>
-        !addressesPublic([address]) && !address.endsWith("/followers"),
-    )
-    .slice(0, MAX_ADDRESS_ENTRIES);
+  return [...new Set([...addressing.bto, ...addressing.bcc])].filter(
+    (address) => !addressesPublic([address]) && !address.endsWith("/followers"),
+  );
 }
 
 /**
@@ -306,32 +292,20 @@ function isDirectShapedNote(addressing: NoteAddressing): boolean {
   return true;
 }
 
-// Cap persisted addressing arrays so a remote cannot bloat a row with a huge
-// to/cc list; 64 entries is far beyond any real audience and keeps the explicit-
-// recipient (mention) gate working.
-export const MAX_ADDRESS_ENTRIES = 64;
-function boundAddressJson(addresses: string[] | undefined): string {
-  if (!Array.isArray(addresses) || addresses.length === 0) return "[]";
-  return JSON.stringify(
-    addresses
-      .filter((a) => typeof a === "string")
-      .slice(0, MAX_ADDRESS_ENTRIES),
-  );
+function boundAddressJson(value: unknown): string {
+  return JSON.stringify(addressList(value));
 }
 
 /**
- * Normalize an AS2 addressing field (`to` / `cc` / `audience`) to a bounded list
- * of strings. The field may be absent, a bare string, or an array mixing
- * strings and embedded objects; only the string forms are usable as a
- * collection id, and the same 64-entry cap applies so a remote cannot force a
- * huge `IN (...)` lookup.
+ * Normalize one already-validated AS2 addressing field (`to` / `cc` /
+ * `audience`). The field may be absent, a bare string, or an array mixing
+ * strings and embedded objects. Validation happens once for the complete
+ * envelope/object projection before any caller derives reach from these lists.
  */
 function addressList(value: unknown): string[] {
   if (typeof value === "string") return [value];
   if (!Array.isArray(value)) return [];
-  return value
-    .filter((a): a is string => typeof a === "string")
-    .slice(0, MAX_ADDRESS_ENTRIES);
+  return [...new Set(value.filter((a): a is string => typeof a === "string"))];
 }
 
 /**
@@ -563,6 +537,17 @@ export async function handleCreate(
       actor,
       objectId: object.id,
       reason: identity.reason,
+    });
+    return;
+  }
+
+  const addressingContract = collectBoundedInboundAddresses([activity, object]);
+  if (!addressingContract.ok) {
+    log.warn("Create(Note) rejected: invalid addressing projection", {
+      event: "ap.create.note_addressing_invalid",
+      actor,
+      objectId: identity.objectId,
+      reason: addressingContract.reason,
     });
     return;
   }
@@ -1087,6 +1072,9 @@ export async function fetchAndPersistAnnouncedNote(
   if (!validateInboundObjectIdentity(objectId, attributedTo, baseUrl).ok) {
     return false;
   }
+
+  const addressingContract = collectBoundedInboundAddresses([note]);
+  if (!addressingContract.ok) return false;
 
   // Addressing gates: a DM-shaped object must never be stored world-readable,
   // and a non-public classification is refused outright (see doc comment).
@@ -1679,6 +1667,17 @@ export async function handleUpdate(
     // block/mute policy used by Story Update must stop a newly suppressed remote
     // actor from replacing already-retained Note content or reach.
     if (await ownerSuppressesInboundActor(db, actor)) return;
+
+    const addressingContract = collectBoundedInboundAddresses([object]);
+    if (!addressingContract.ok) {
+      log.warn("Update(Note) rejected: invalid addressing projection", {
+        event: "ap.update.note_addressing_invalid",
+        actor,
+        objectId,
+        reason: addressingContract.reason,
+      });
+      return;
+    }
 
     // Content and reach are one authority decision. A remote author can narrow
     // an existing public Note to followers/direct in the same Update; applying
