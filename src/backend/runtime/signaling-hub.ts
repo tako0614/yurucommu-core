@@ -23,7 +23,13 @@ const log = logger.child({ component: "rtc.hub" });
 
 export interface ISignalingHub {
   /** Handle a browser WebSocket upgrade for `actorApId` (returns 101). */
-  upgrade(request: Request, actorApId: string): Promise<Response>;
+  upgrade(
+    request: Request,
+    actorApId: string,
+    ticket: string,
+  ): Promise<Response>;
+  /** Mint a one-time short-lived WS ticket inside the user's call DO. */
+  mintTicket(actorApId: string): Promise<string | null>;
   /** Push an inbound cross-instance signal to `actorApId`'s live sockets. */
   deliver(actorApId: string, envelope: RtcSignalEnvelopeV1): Promise<void>;
 }
@@ -38,9 +44,15 @@ class CloudflareSignalingHub implements ISignalingHub {
     return this.ns.get(this.ns.idFromName(actorApId));
   }
 
-  async upgrade(request: Request, actorApId: string): Promise<Response> {
+  async upgrade(
+    request: Request,
+    actorApId: string,
+    ticket: string,
+  ): Promise<Response> {
     const headers = new Headers(request.headers);
     headers.set("X-Call-Actor", actorApId);
+    headers.set("X-Call-Auth", "ticket");
+    headers.set("X-Call-Ticket", ticket);
     const forwarded = new Request("https://call-do/_ws", {
       method: "GET",
       headers,
@@ -48,6 +60,19 @@ class CloudflareSignalingHub implements ISignalingHub {
     return this.stub(actorApId).fetch(
       forwarded as unknown as Parameters<DurableObjectStub["fetch"]>[0],
     ) as unknown as Promise<Response>;
+  }
+
+  async mintTicket(actorApId: string): Promise<string | null> {
+    const response = await this.stub(actorApId).fetch(
+      "https://call-do/_ticket",
+      {
+        method: "POST",
+        headers: { "X-Call-Actor": actorApId },
+      },
+    );
+    if (!response.ok) return null;
+    const body = (await response.json()) as { ticket?: unknown };
+    return typeof body.ticket === "string" ? body.ticket : null;
   }
 
   async deliver(
@@ -143,7 +168,11 @@ class LocalSignalingHub implements ISignalingHub {
     );
   }
 
-  async upgrade(_request: Request, _actorApId: string): Promise<Response> {
+  async upgrade(
+    _request: Request,
+    _actorApId: string,
+    _ticket: string,
+  ): Promise<Response> {
     // The Bun runtime upgrades WebSockets at the server boundary (server.upgrade)
     // and drives attach()/message()/detach() directly, so this Hono-level path is
     // never used there. Reaching it means a runtime without Durable Objects and
@@ -155,6 +184,10 @@ class LocalSignalingHub implements ISignalingHub {
       }),
       { status: 503, headers: { "Content-Type": "application/json" } },
     );
+  }
+
+  async mintTicket(): Promise<string | null> {
+    return null;
   }
 
   async deliver(

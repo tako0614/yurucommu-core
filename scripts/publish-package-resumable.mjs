@@ -29,7 +29,7 @@ function run(command, args, options = {}) {
   return result;
 }
 
-function pack(packageRoot, destination) {
+export function pack(packageRoot, destination) {
   const result = run(
     "npm",
     ["pack", "--ignore-scripts", "--json", "--pack-destination", destination],
@@ -49,6 +49,11 @@ function pack(packageRoot, destination) {
   return {
     tarballPath: resolve(destination, report.filename),
     integrity: report.integrity,
+    files: Array.isArray(report.files)
+      ? report.files
+          .map((entry) => entry?.path)
+          .filter((path) => typeof path === "string")
+      : [],
   };
 }
 
@@ -80,7 +85,7 @@ export async function publishedPackageIntegrity(packageName, version) {
   return metadata.dist.integrity;
 }
 
-async function verifyPublishedIntegrity(
+export async function verifyPublishedIntegrity(
   packageName,
   version,
   localIntegrity,
@@ -103,6 +108,90 @@ async function verifyPublishedIntegrity(
   );
 }
 
+export async function preparePackageCandidate(
+  packageRoot,
+  destination,
+  env = process.env,
+) {
+  const packageJson = JSON.parse(
+    await readFile(resolve(packageRoot, "package.json"), "utf8"),
+  );
+  const registryVersions = await publishedVersions(packageJson.name);
+  const versionResult = validatePublishVersion({
+    packageName: packageJson.name,
+    currentVersion: packageJson.version,
+    registryVersions,
+    githubRef: env.GITHUB_REF,
+    allowMajor: hasMajorOverride(env),
+    allowAlreadyPublished: true,
+  });
+  if (!versionResult.ok) throw new Error(versionResult.errors.join("\n"));
+
+  const localPackage = pack(packageRoot, destination);
+  const publishedIntegrity = await publishedPackageIntegrity(
+    packageJson.name,
+    packageJson.version,
+  );
+  return {
+    packageRoot,
+    packageName: packageJson.name,
+    version: packageJson.version,
+    registryVersions,
+    ...localPackage,
+    decision: packageReleaseDecision(
+      localPackage.integrity,
+      publishedIntegrity,
+    ),
+  };
+}
+
+export async function publishPreparedPackage(candidate) {
+  // Re-read immediately before the mutation. A concurrent publisher may have
+  // created this version since preparation; only exact bytes are resumable.
+  const currentIntegrity = await publishedPackageIntegrity(
+    candidate.packageName,
+    candidate.version,
+  );
+  const decision = packageReleaseDecision(
+    candidate.integrity,
+    currentIntegrity,
+  );
+  if (decision === "skip") {
+    return { action: "skipped", integrity: candidate.integrity };
+  }
+
+  const publishResult = run(
+    "npm",
+    [
+      "publish",
+      candidate.tarballPath,
+      "--access",
+      "public",
+      "--ignore-scripts",
+    ],
+    { cwd: candidate.packageRoot, capture: true, allowFailure: true },
+  );
+  if (publishResult.status !== 0) {
+    const racedIntegrity = await publishedPackageIntegrity(
+      candidate.packageName,
+      candidate.version,
+    );
+    if (racedIntegrity === candidate.integrity) {
+      return { action: "concurrent-exact", integrity: candidate.integrity };
+    }
+    throw new Error(
+      `npm publish failed for ${candidate.packageName}@${candidate.version}.\n${publishResult.stderr || publishResult.stdout}`,
+    );
+  }
+
+  await verifyPublishedIntegrity(
+    candidate.packageName,
+    candidate.version,
+    candidate.integrity,
+  );
+  return { action: "published", integrity: candidate.integrity };
+}
+
 export async function main(argv = process.argv.slice(2), env = process.env) {
   const checkOnly = argv.includes("--check-only");
   const positional = argv.filter((argument) => argument !== "--check-only");
@@ -119,80 +208,24 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   ) {
     throw new Error("Package directory must be inside yurucommu-core.");
   }
-  const packageJson = JSON.parse(
-    await readFile(resolve(packageRoot, "package.json"), "utf8"),
-  );
-  const registryVersions = await publishedVersions(packageJson.name);
-  const versionResult = validatePublishVersion({
-    packageName: packageJson.name,
-    currentVersion: packageJson.version,
-    registryVersions,
-    githubRef: env.GITHUB_REF,
-    allowMajor: hasMajorOverride(env),
-    allowAlreadyPublished: true,
-  });
-  if (!versionResult.ok) {
-    throw new Error(versionResult.errors.join("\n"));
-  }
-
   const tempRoot = await mkdtemp(join(tmpdir(), "yurucommu-npm-release-"));
   try {
-    const localPackage = pack(packageRoot, tempRoot);
-    const publishedIntegrity = await publishedPackageIntegrity(
-      packageJson.name,
-      packageJson.version,
-    );
-    const decision = packageReleaseDecision(
-      localPackage.integrity,
-      publishedIntegrity,
-    );
-    if (decision === "skip") {
+    const candidate = await preparePackageCandidate(packageRoot, tempRoot, env);
+    if (candidate.decision === "skip") {
       console.log(
-        `${packageJson.name}@${packageJson.version} is already published with the exact local tarball integrity; safe to skip.`,
+        `${candidate.packageName}@${candidate.version} is already published with the exact local tarball integrity; safe to skip.`,
       );
       return 0;
     }
     if (checkOnly) {
       console.log(
-        `${packageJson.name}@${packageJson.version} is unpublished and ready for the resumable publish step.`,
+        `${candidate.packageName}@${candidate.version} is unpublished and ready for the resumable publish step.`,
       );
       return 0;
     }
-
-    const publishResult = run(
-      "npm",
-      [
-        "publish",
-        localPackage.tarballPath,
-        "--access",
-        "public",
-        "--ignore-scripts",
-      ],
-      { cwd: packageRoot, capture: true, allowFailure: true },
-    );
-    if (publishResult.status !== 0) {
-      const racedIntegrity = await publishedPackageIntegrity(
-        packageJson.name,
-        packageJson.version,
-      );
-      if (racedIntegrity === localPackage.integrity) {
-        console.log(
-          `${packageJson.name}@${packageJson.version} was concurrently published with the exact local tarball integrity; safe to continue.`,
-        );
-        return 0;
-      }
-      throw new Error(
-        `npm publish failed for ${packageJson.name}@${packageJson.version}.\n${publishResult.stderr || publishResult.stdout}`,
-      );
-    }
-
-    await verifyPublishedIntegrity(
-      packageJson.name,
-      packageJson.version,
-      localPackage.integrity,
-    );
+    const result = await publishPreparedPackage(candidate);
     console.log(
-      `Published and verified ${packageJson.name}@${packageJson.version} (${localPackage.integrity}).`,
+      `${result.action === "published" ? "Published" : "Verified"} ${candidate.packageName}@${candidate.version} (${candidate.integrity}).`,
     );
     return 0;
   } finally {

@@ -26,6 +26,7 @@ import {
   isTerminalCallState,
   parseRtcSignalEnvelope,
 } from "../../../packages/api/src/types/call.ts";
+import { consumeOneTimeTicket, mintOneTimeTicket } from "./one-time-ticket.ts";
 
 // --- Minimal Cloudflare DO + Hibernatable WebSocket surface ----------------
 interface DoWebSocket {
@@ -57,6 +58,7 @@ type CallDoEnv = EnvVars & {
 const ALARM_INTERVAL_MS = 15_000;
 const ACTOR_KEY = "actor";
 const CALL_PREFIX = "call:";
+const TICKET_PREFIX = "ticket:";
 
 export class CallSignalingDurableObject {
   private hub: CallHub | null = null;
@@ -73,20 +75,36 @@ export class CallSignalingDurableObject {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/_ws") {
-      return this.handleUpgrade(request, url);
+      return this.handleUpgrade(request);
     }
     if (url.pathname === "/_ingest") {
       return this.handleIngest(request);
     }
+    if (url.pathname === "/_ticket") {
+      return this.handleMintTicket(request);
+    }
     return new Response("not found", { status: 404 });
   }
 
-  private async handleUpgrade(request: Request, url: URL): Promise<Response> {
+  private async handleUpgrade(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("expected websocket", { status: 426 });
     }
-    const actor =
-      request.headers.get("X-Call-Actor") ?? url.searchParams.get("actor");
+    const authMode = request.headers.get("X-Call-Auth");
+    if (authMode !== "ticket") {
+      return new Response("unauthorized", { status: 401 });
+    }
+    const ticket = request.headers.get("X-Call-Ticket") ?? "";
+    if (
+      !ticket ||
+      !(await consumeOneTimeTicket(this.state.storage, ticket, {
+        prefix: TICKET_PREFIX,
+      }))
+    ) {
+      return new Response("invalid ticket", { status: 401 });
+    }
+
+    const actor = request.headers.get("X-Call-Actor");
     if (!actor) return new Response("missing actor", { status: 400 });
     await this.setActor(actor);
 
@@ -100,6 +118,19 @@ export class CallSignalingDurableObject {
       // `webSocket` is a Cloudflare-specific ResponseInit field.
       webSocket: client,
     } as unknown as ResponseInit);
+  }
+
+  private async handleMintTicket(request: Request): Promise<Response> {
+    if (request.method !== "POST") {
+      return new Response("method not allowed", { status: 405 });
+    }
+    const actor = request.headers.get("X-Call-Actor");
+    if (!actor) return new Response("missing actor", { status: 400 });
+    await this.setActor(actor);
+    const ticket = await mintOneTimeTicket(this.state.storage, {
+      prefix: TICKET_PREFIX,
+    });
+    return Response.json({ ticket });
   }
 
   private async handleIngest(request: Request): Promise<Response> {

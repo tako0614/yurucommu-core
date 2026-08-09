@@ -2,6 +2,7 @@
  * Call feature routes (WebRTC voice + video).
  *
  *   POST /ap/rtc/signal    server-to-server signaling ingest (HTTP-Signature)
+ *   POST /api/rtc/ticket   mint a one-time short-lived WS ticket
  *   GET  /api/rtc/socket   browser WebSocket upgrade -> per-user signaling hub
  *   GET  /api/rtc/ice      mint short-lived ICE (STUN/TURN) servers
  *   POST /api/rtc/calls    start a call (block-list gate + callId + ICE)
@@ -81,14 +82,31 @@ rtc.post("/ap/rtc/signal", async (c) => {
   return c.body(null, 204);
 });
 
-// --- Browser WebSocket upgrade ---------------------------------------------
-rtc.get("/api/rtc/socket", async (c) => {
+// --- Browser WebSocket ticket + upgrade ------------------------------------
+rtc.post("/api/rtc/ticket", async (c) => {
   const actor = c.get("actor");
   if (!actor) return c.json({ error: "unauthorized" }, 401);
   if (!isSignalingAvailable(c.env)) {
     return c.json({ error: "signaling_unavailable" }, 503);
   }
-  return getSignalingHub(c.env).upgrade(c.req.raw, actor.ap_id);
+  const ticket = await getSignalingHub(c.env).mintTicket(actor.ap_id);
+  if (!ticket) return c.json({ error: "ticket_mint_failed" }, 500);
+  return c.json({ ticket, actor_ap_id: actor.ap_id });
+});
+
+rtc.get("/api/rtc/socket", async (c) => {
+  if (!isSignalingAvailable(c.env)) {
+    return c.json({ error: "signaling_unavailable" }, 503);
+  }
+  const hub = getSignalingHub(c.env);
+  const actorParam = c.req.query("actor")?.trim();
+  const ticket = c.req.query("ticket")?.trim();
+  if (actorParam && ticket) {
+    // The actor only selects which per-user DO validates and consumes the
+    // ticket. A forged actor value reaches a DO that never minted it.
+    return hub.upgrade(c.req.raw, actorParam, ticket);
+  }
+  return c.json({ error: "unauthorized" }, 401);
 });
 
 // --- ICE servers ------------------------------------------------------------

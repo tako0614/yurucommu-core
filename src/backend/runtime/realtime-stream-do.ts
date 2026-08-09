@@ -60,38 +60,11 @@ const EVENT_PREFIX = "evt:";
 /** Ring buffer size: how many events a reconnect can replay before `resync`. */
 const EVENT_BUFFER_SIZE = 200;
 const TICKET_PREFIX = "ticket:";
-/** Outstanding one-time tickets per user (multiple tabs may mint at once). */
-const MAX_OUTSTANDING_TICKETS = 8;
-const TICKET_TTL_MS = 60_000;
-
-interface StoredTicket {
-  hash: string;
-  expiresAt: number;
-}
+import { consumeOneTimeTicket, mintOneTimeTicket } from "./one-time-ticket.ts";
 
 function eventKey(seq: number): string {
   // Fixed-width key so storage.list({prefix}) returns events in seq order.
   return `${EVENT_PREFIX}${String(seq).padStart(12, "0")}`;
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-/** Constant-time hex-string comparison (both inputs are fixed-width hashes). */
-function timingSafeEqualHex(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
 }
 
 export class RealtimeStreamDO {
@@ -122,45 +95,16 @@ export class RealtimeStreamDO {
     if (request.method !== "POST") {
       return new Response("method not allowed", { status: 405 });
     }
-    const ticket =
-      crypto.randomUUID().replaceAll("-", "") +
-      crypto.randomUUID().replaceAll("-", "");
-    const hash = await sha256Hex(ticket);
-    const now = Date.now();
-
-    const stored = await this.state.storage.list<StoredTicket>({
+    const ticket = await mintOneTimeTicket(this.state.storage, {
       prefix: TICKET_PREFIX,
     });
-    // Drop expired tickets; keep the newest few so parallel tabs still work.
-    const live = [...stored.entries()]
-      .filter(([, t]) => t.expiresAt > now)
-      .sort((a, b) => a[1].expiresAt - b[1].expiresAt);
-    for (const [key] of stored) {
-      if (!live.some(([liveKey]) => liveKey === key)) {
-        await this.state.storage.delete(key);
-      }
-    }
-    while (live.length >= MAX_OUTSTANDING_TICKETS) {
-      const [oldestKey] = live.shift()!;
-      await this.state.storage.delete(oldestKey);
-    }
-    await this.state.storage.put(`${TICKET_PREFIX}${hash}`, {
-      hash,
-      expiresAt: now + TICKET_TTL_MS,
-    } satisfies StoredTicket);
-
     return Response.json({ ticket });
   }
 
   private async consumeTicket(ticket: string): Promise<boolean> {
-    const hash = await sha256Hex(ticket);
-    const key = `${TICKET_PREFIX}${hash}`;
-    const stored = await this.state.storage.get<StoredTicket>(key);
-    if (!stored) return false;
-    // Single-use: consume before validating expiry so a replay always misses.
-    await this.state.storage.delete(key);
-    if (stored.expiresAt <= Date.now()) return false;
-    return timingSafeEqualHex(stored.hash, hash);
+    return consumeOneTimeTicket(this.state.storage, ticket, {
+      prefix: TICKET_PREFIX,
+    });
   }
 
   // -------------------------------------------------------------------------

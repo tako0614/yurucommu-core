@@ -1,6 +1,6 @@
 {
   "name": "@takosjp/yurucommu-core",
-  "version": "3.4.3",
+  "version": "3.4.4",
   "license": "AGPL-3.0-only",
   "type": "module",
   "workspaces": [
@@ -67,6 +67,7 @@
     "build:api": "cd packages/api && bun run build",
     "check:release-contents": "bun scripts/check-release-contents.mjs",
     "check:packed-consumer": "bun scripts/check-packed-consumer.mjs",
+    "deploy": "bun scripts/deploy.mjs",
     "prepublishOnly": "bun scripts/check-publish-version-discipline.mjs .",
     "pack:core": "npm pack --dry-run",
     "pack:api": "cd packages/api && bun run pack:dry",

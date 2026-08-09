@@ -2,7 +2,7 @@
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -39,8 +39,31 @@ function pack(packageRoot, destination) {
 
 const tempRoot = await mkdtemp(join(tmpdir(), "yurucommu-packed-consumer-"));
 try {
-  const coreTarball = pack(repoRoot, tempRoot);
-  const apiTarball = pack(apiRoot, tempRoot);
+  const argv = process.argv.slice(2);
+  const valueAfter = (flag) => {
+    const index = argv.indexOf(flag);
+    return index === -1 ? undefined : argv[index + 1];
+  };
+  const coreTarballArg = valueAfter("--core-tarball");
+  const apiTarballArg = valueAfter("--api-tarball");
+  const registryVersion = valueAfter("--registry-version");
+  if (Boolean(coreTarballArg) !== Boolean(apiTarballArg)) {
+    throw new Error(
+      "--core-tarball and --api-tarball must be provided together.",
+    );
+  }
+  if (registryVersion && coreTarballArg) {
+    throw new Error(
+      "--registry-version cannot be combined with tarball arguments.",
+    );
+  }
+
+  const coreSpec = registryVersion
+    ? registryVersion
+    : `file:${resolve(coreTarballArg ?? pack(repoRoot, tempRoot))}`;
+  const apiSpec = registryVersion
+    ? registryVersion
+    : `file:${resolve(apiTarballArg ?? pack(apiRoot, tempRoot))}`;
   const consumerRoot = join(tempRoot, "consumer");
   await mkdir(consumerRoot);
   await writeFile(
@@ -51,8 +74,8 @@ try {
         private: true,
         type: "module",
         dependencies: {
-          "@takosjp/yurucommu-api": `file:../${basename(apiTarball)}`,
-          "@takosjp/yurucommu-core": `file:../${basename(coreTarball)}`,
+          "@takosjp/yurucommu-api": apiSpec,
+          "@takosjp/yurucommu-core": coreSpec,
         },
       },
       null,
@@ -64,6 +87,7 @@ try {
     `import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
+  CallClient,
   clearBrowserNotificationPush,
   disableBrowserNotificationPush,
   enableBrowserNotificationPush,
@@ -85,6 +109,7 @@ if (!existsSync(join(coreRoot, "migrations/0019_notification_push_delivery.sql")
   throw new Error("packed core is missing migration 0019_notification_push_delivery.sql");
 }
 for (const [name, value] of Object.entries({
+  CallClient,
   applyMigrations,
   clearBrowserNotificationPush,
   createManagedRuntimeKeyValueStore,
@@ -118,7 +143,9 @@ console.log("packed core/API consumer verified");
     await readFile(join(apiRoot, "package.json"), "utf8"),
   );
   console.log(
-    `Packed consumer ready for core ${corePackageJson.version} and API ${apiPackageJson.version}.`,
+    registryVersion
+      ? `Registry consumer verified core/API ${registryVersion}.`
+      : `Packed consumer ready for core ${corePackageJson.version} and API ${apiPackageJson.version}.`,
   );
 } finally {
   if (process.env.YURUCOMMU_KEEP_PACKED_CONSUMER !== "1") {

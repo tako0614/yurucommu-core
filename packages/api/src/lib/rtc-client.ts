@@ -19,6 +19,8 @@ import type {
   HubToClientFrame,
   IceServerConfig,
 } from "../types/call.ts";
+import { apiPost } from "./api/fetch.ts";
+import { getYurucommuApiTransport } from "./transport.ts";
 
 export type CallUiState =
   | "idle"
@@ -45,7 +47,7 @@ export interface CallClientEvents {
 }
 
 export interface CallClientOptions {
-  /** Origin the app is served from (defaults to the page origin). */
+  /** Explicit server-origin override; otherwise the configured API transport owns it. */
   origin?: string;
   /** WebSocket reconnect backoff ceiling (ms). */
   maxBackoffMs?: number;
@@ -67,12 +69,15 @@ interface ActiveCall {
 }
 
 const CANDIDATE_FLUSH_MS = 200;
+const MAX_PENDING_SOCKET_FRAMES = 64;
 
 export class CallClient {
   private ws: WebSocket | null = null;
   private wantConnected = false;
   private backoff = 500;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private openingSocket = false;
+  private readonly pendingFrames: ClientToHubFrame[] = [];
   private readonly listeners = new Map<keyof CallClientEvents, Set<Listener>>();
   private call: ActiveCall | null = null;
   private localStream: MediaStream | null = null;
@@ -114,16 +119,24 @@ export class CallClient {
   }
 
   // --- connection -----------------------------------------------------------
-  private origin(): string {
-    return (
-      this.options.origin ??
-      (typeof location !== "undefined" ? location.origin : "")
-    );
+  private apiUrl(path: string): string {
+    const origin = this.options.origin;
+    return origin ? new URL(path, `${origin}/`).toString() : path;
   }
 
-  private socketUrl(): string {
-    const o = this.origin();
-    return `${o.replace(/^http/, "ws")}/api/rtc/socket`;
+  private socketUrl(actorApId: string, ticket: string): string {
+    const transport = getYurucommuApiTransport();
+    const resolved = transport.resolveUrl(this.apiUrl("/api/rtc/socket"));
+    const base =
+      this.options.origin ??
+      (typeof location !== "undefined" ? location.origin : "http://localhost");
+    const url = new URL(resolved, base);
+    if (url.protocol === "http:") url.protocol = "ws:";
+    else if (url.protocol === "https:") url.protocol = "wss:";
+    else throw new Error("call socket URL must use HTTP(S)");
+    url.searchParams.set("actor", actorApId);
+    url.searchParams.set("ticket", ticket);
+    return url.toString();
   }
 
   connect(): void {
@@ -137,13 +150,46 @@ export class CallClient {
     this.reconnectTimer = null;
     this.ws?.close();
     this.ws = null;
+    this.pendingFrames.length = 0;
   }
 
   private openSocket(): void {
     if (this.ws && this.ws.readyState <= WebSocket.OPEN) return;
+    if (this.openingSocket) return;
+    this.openingSocket = true;
+    void this.openSocketWithTicket().finally(() => {
+      this.openingSocket = false;
+    });
+  }
+
+  private async openSocketWithTicket(): Promise<void> {
+    let actorApId: string;
+    let ticket: string;
+    try {
+      const response = await apiPost(this.apiUrl("/api/rtc/ticket"));
+      if (!response.ok) throw new Error(`ticket ${response.status}`);
+      const body = (await response.json()) as {
+        actor_ap_id?: unknown;
+        ticket?: unknown;
+      };
+      if (
+        typeof body.actor_ap_id !== "string" ||
+        typeof body.ticket !== "string"
+      ) {
+        throw new Error("bad ticket response");
+      }
+      actorApId = body.actor_ap_id;
+      ticket = body.ticket;
+    } catch (err) {
+      this.emit("error", "socket_ticket_failed", String(err));
+      this.scheduleReconnect();
+      return;
+    }
+    if (!this.wantConnected) return;
+
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.socketUrl());
+      socket = new WebSocket(this.socketUrl(actorApId, ticket));
     } catch (err) {
       this.emit("error", "socket_open_failed", String(err));
       this.scheduleReconnect();
@@ -152,8 +198,22 @@ export class CallClient {
     this.ws = socket;
     socket.onopen = () => {
       this.backoff = 500;
-      this.send({ t: "hello" });
-      if (this.call) this.send({ t: "resume", callId: this.call.callId });
+      socket.send(JSON.stringify({ t: "hello" } satisfies ClientToHubFrame));
+      const pending = this.pendingFrames.splice(0);
+      const hasInitialInvite =
+        this.call !== null &&
+        pending.some(
+          (frame) => frame.t === "invite" && frame.callId === this.call?.callId,
+        );
+      if (this.call && !hasInitialInvite) {
+        socket.send(
+          JSON.stringify({
+            t: "resume",
+            callId: this.call.callId,
+          } satisfies ClientToHubFrame),
+        );
+      }
+      for (const frame of pending) socket.send(JSON.stringify(frame));
     };
     socket.onmessage = (ev) => {
       void this.onFrame(ev.data);
@@ -181,7 +241,14 @@ export class CallClient {
   private send(frame: ClientToHubFrame): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(frame));
+      return;
     }
+    if (!this.wantConnected) return;
+    if (this.pendingFrames.length >= MAX_PENDING_SOCKET_FRAMES) {
+      this.emit("error", "socket_queue_full");
+      return;
+    }
+    this.pendingFrames.push(frame);
   }
 
   // --- public call control --------------------------------------------------
@@ -189,11 +256,9 @@ export class CallClient {
   /** Place an outgoing call. Fetches a callId + ICE, then rings the peer. */
   async startCall(peer: string, media: CallMediaKind): Promise<void> {
     if (this.call) throw new Error("already in a call");
-    const res = await fetch(`${this.origin()}/api/rtc/calls`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: peer, media }),
+    const res = await apiPost(this.apiUrl("/api/rtc/calls"), {
+      to: peer,
+      media,
     });
     if (!res.ok) {
       const code = res.status === 403 ? "blocked" : "start_failed";
