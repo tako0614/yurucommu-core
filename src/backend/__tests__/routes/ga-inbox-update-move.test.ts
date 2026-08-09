@@ -188,6 +188,24 @@ test("handleUpdate(actor) rejects when the object id does not match the actor", 
 // actor were already connected.
 // ---------------------------------------------------------------------------
 
+test("handleMove ignores a cosmetic self-move", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+
+  const activity: Activity = {
+    type: "Move",
+    actor: OLD_ACTOR,
+    object: "https://REMOTE.example/users/old/",
+    target: "https://REMOTE.example/users/old/",
+  };
+
+  await handleMove(ctx(db), activity, OLD_ACTOR);
+
+  expect(fetchedUrls).toEqual([]);
+  expect(await db.select().from(follows)).toEqual([]);
+  expect(await db.select().from(activities)).toEqual([]);
+});
+
 test("handleMove does not create self-follow rows when old/new were already connected", async () => {
   fetchedUrls.length = 0;
   const db = await freshDb();

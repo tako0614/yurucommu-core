@@ -55,12 +55,22 @@ function createMockDb(options: {
   batchUpdatesFire?: boolean[];
   // Actionable local target returned by Flag authority-resolution queries.
   flagTargetApId?: string;
+  // Exact follow rows returned by the actor-identity compatibility lookups.
+  followLookupRows?: Array<
+    | {
+        followerApId: string;
+        followingApId: string;
+        status: string;
+      }
+    | undefined
+  >;
 }) {
   const {
     insertReturningResult = undefined,
     deleteReturningRows = [],
     batchUpdatesFire,
     flagTargetApId,
+    followLookupRows = [],
   } = options;
 
   const tracker = {
@@ -106,8 +116,16 @@ function createMockDb(options: {
     }),
     select: () => ({
       from: () => ({
-        where: () =>
-          Promise.resolve(flagTargetApId ? [{ apId: flagTargetApId }] : []),
+        where: () => {
+          const followRow = followLookupRows.shift();
+          const directRows = flagTargetApId ? [{ apId: flagTargetApId }] : [];
+          return {
+            get: () => Promise.resolve(followRow),
+            limit: () => ({ all: () => Promise.resolve([]) }),
+            then: (resolve: (value: unknown[]) => unknown) =>
+              Promise.resolve(directRows).then(resolve),
+          };
+        },
       }),
     }),
     update: () => ({
@@ -202,6 +220,13 @@ test("handleAdd transitions a PENDING edge to accepted + fires the counter +1s",
     // A pending edge exists => the `pendingEdgeExists` guard holds, both +1s AND
     // the status flip fire (3 `update` statements in the batch).
     batchUpdatesFire: [true],
+    followLookupRows: [
+      {
+        followerApId: RECIPIENT,
+        followingApId: REMOTE_FOLLOWING,
+        status: "pending",
+      },
+    ],
   });
   const ctx = createMockContext(db);
 
@@ -225,6 +250,7 @@ test("handleAdd is a no-op (no forged edge / counter drift) when there is no PEN
     // is false, so neither the +1s nor the flip fire — an unsolicited Add can't
     // forge an accepted follow.
     batchUpdatesFire: [false],
+    followLookupRows: [undefined],
   });
   const ctx = createMockContext(db);
 
@@ -246,6 +272,13 @@ test("handleRemove decrements counters when an accepted edge is removed", async 
     deleteReturningRows: [{ status: "accepted" }],
     // Accepted edge => the `acceptedEdgeExists` guard holds, both -1s fire.
     batchUpdatesFire: [true],
+    followLookupRows: [
+      {
+        followerApId: RECIPIENT,
+        followingApId: REMOTE_FOLLOWING,
+        status: "accepted",
+      },
+    ],
   });
   const ctx = createMockContext(db);
 
@@ -268,6 +301,13 @@ test("handleRemove does not drift counters for a pending edge", async () => {
     // Pending edge was never counted => the `acceptedEdgeExists` guard is
     // false, no -1s.
     batchUpdatesFire: [false],
+    followLookupRows: [
+      {
+        followerApId: RECIPIENT,
+        followingApId: REMOTE_FOLLOWING,
+        status: "pending",
+      },
+    ],
   });
   const ctx = createMockContext(db);
 
@@ -289,6 +329,7 @@ test("handleRemove does not drift counters when no edge was removed", async () =
     deleteReturningRows: [],
     // No edge existed => the `acceptedEdgeExists` guard is false, no -1s.
     batchUpdatesFire: [false],
+    followLookupRows: [undefined],
   });
   const ctx = createMockContext(db);
 
@@ -324,6 +365,18 @@ test("handleBlock decrements counters per removed accepted edge", async () => {
     // Block severs both directions in one batch; both accepted edges make all
     // four guarded counter updates fire.
     batchUpdatesFire: [true],
+    followLookupRows: [
+      {
+        followerApId: RECIPIENT,
+        followingApId: REMOTE_ACTOR,
+        status: "accepted",
+      },
+      {
+        followerApId: REMOTE_ACTOR,
+        followingApId: RECIPIENT,
+        status: "accepted",
+      },
+    ],
   });
   const ctx = createMockContext(db);
 
@@ -351,6 +404,14 @@ test("handleBlock skips counter updates for pending edges", async () => {
     // The pair batch sees only pending/absent accepted edges, so every
     // `acceptedEdgeExists` guard is false and no -1 fires.
     batchUpdatesFire: [false],
+    followLookupRows: [
+      {
+        followerApId: RECIPIENT,
+        followingApId: REMOTE_ACTOR,
+        status: "pending",
+      },
+      undefined,
+    ],
   });
   const ctx = createMockContext(db);
 

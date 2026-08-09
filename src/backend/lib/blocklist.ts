@@ -16,6 +16,10 @@ import { eq, inArray } from "drizzle-orm";
 
 import type { Database } from "../../db/index.ts";
 import { blockedActors, blockedDomains } from "../../db/index.ts";
+import {
+  isSameActivityPubActor,
+  normalizeActivityPubActorId,
+} from "./activitypub-actor-identity.ts";
 import { logger } from "./logger.ts";
 
 const log = logger.child({ component: "blocklist" });
@@ -29,6 +33,7 @@ const log = logger.child({ component: "blocklist" });
 // silently disabling the operator blocklist for the whole fan-out (a
 // defederation bypass we must not allow).
 const BLOCKLIST_IN_CHUNK = 90;
+const BLOCKED_ACTOR_IDENTITY_FALLBACK_LIMIT = 512;
 
 /**
  * Normalise an actor AP-ID hostname for blocklist lookups: lowercase and
@@ -110,6 +115,31 @@ export async function isActorBlocked(
       columns: { actorApId: true },
     });
     if (row) return true;
+
+    // Operator rows written before the verified-key-owner invariant may carry
+    // an accepted cosmetic spelling. Actor blocklists are intentionally small;
+    // keep this compatibility read bounded and preserve path case in JS.
+    if (typeof (db as unknown as { select?: unknown }).select === "function") {
+      const query = db
+        .select({ actorApId: blockedActors.actorApId })
+        .from(blockedActors) as unknown as {
+        limit?: (count: number) => {
+          all: () => Promise<Array<{ actorApId: string }>>;
+        };
+      };
+      if (typeof query.limit === "function") {
+        const candidates = await query
+          .limit(BLOCKED_ACTOR_IDENTITY_FALLBACK_LIMIT)
+          .all();
+        if (
+          candidates.some((candidate) =>
+            isSameActivityPubActor(candidate.actorApId, actorApId),
+          )
+        ) {
+          return true;
+        }
+      }
+    }
   } catch (err) {
     log.warn("blocklist.isActorBlocked failed", {
       event: "blocklist.actor_lookup_failed",
@@ -159,6 +189,24 @@ export async function filterBlockedActorApIds(
         );
       for (const r of rows) blockedActorSet.add(r.actorApId);
     }
+    const retainedActorQuery = db
+      .select({ actorApId: blockedActors.actorApId })
+      .from(blockedActors) as unknown as {
+      limit?: (count: number) => {
+        all: () => Promise<Array<{ actorApId: string }>>;
+      };
+    };
+    const retainedActorBlocks =
+      typeof retainedActorQuery.limit === "function"
+        ? await retainedActorQuery
+            .limit(BLOCKED_ACTOR_IDENTITY_FALLBACK_LIMIT)
+            .all()
+        : [];
+    const retainedActorIdentities = new Set(
+      retainedActorBlocks
+        .map((candidate) => normalizeActivityPubActorId(candidate.actorApId))
+        .filter((identity): identity is string => identity !== null),
+    );
 
     // Expand each actor's hostname to its parent-domain candidates so a domain
     // block covers subdomains (see domainSuffixCandidates) — querying the union
@@ -190,8 +238,11 @@ export async function filterBlockedActorApIds(
 
     for (const id of uniqueIds) {
       const candidates = idToCandidates.get(id) ?? [];
+      const normalizedActorId = normalizeActivityPubActorId(id);
       if (
         blockedActorSet.has(id) ||
+        (normalizedActorId !== null &&
+          retainedActorIdentities.has(normalizedActorId)) ||
         candidates.some((c) => blockedDomainSet.has(c))
       ) {
         blocked.add(id);

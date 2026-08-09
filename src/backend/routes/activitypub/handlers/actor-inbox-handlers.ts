@@ -12,6 +12,7 @@ import {
   isLocal,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
 import { isMemberBanned } from "../../communities/membership-shared.ts";
 import {
   boundInboundContent,
@@ -22,7 +23,11 @@ import {
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import { canActorPostToInboundCommunity } from "./inbound-community-scope.ts";
 import { validateInboundObjectIdentity } from "./inbound-object-identity.ts";
-import { findFollowByActivityId, runBatch } from "./inbox-shared-helpers.ts";
+import {
+  findFollowByActivityId,
+  findFollowByFollowerIdentity,
+  runBatch,
+} from "./inbox-shared-helpers.ts";
 import type { InstanceActorResult } from "../query-helpers.ts";
 import {
   type Activity,
@@ -67,12 +72,11 @@ export async function handleGroupFollow(
     followingApId: group.apId,
   };
 
-  const existing = await db.query.follows.findFirst({
-    where: and(
-      eq(follows.followerApId, followerKey.followerApId),
-      eq(follows.followingApId, followerKey.followingApId),
-    ),
-  });
+  const existing = await findFollowByFollowerIdentity(
+    db,
+    followerKey.followerApId,
+    followerKey.followingApId,
+  );
 
   // A banned actor re-Following an OPEN community must NOT auto-rejoin: force a
   // Reject and record no edge (durable kick — mirrors the local open-join ban
@@ -189,7 +193,7 @@ export async function handleGroupUndo(
     // their own domain could resolve a VICTIM's follow by that id and sever the
     // victim's follow/membership edge — the same cross-actor forgery already
     // guarded in the user-inbox undoFollow handler.
-    if (follow.followerApId !== actorApIdStr) return;
+    if (!isSameActivityPubActor(follow.followerApId, actorApIdStr)) return;
     await db
       .delete(follows)
       .where(
@@ -205,12 +209,18 @@ export async function handleGroupUndo(
   // the verified signer, so it can only remove the signer's OWN follow.
   if (getActivityObject(activity)?.type !== "Follow") return;
 
+  const retainedFollow = await findFollowByFollowerIdentity(
+    db,
+    actorApIdStr,
+    group.apId,
+  );
+  if (!retainedFollow) return;
   await db
     .delete(follows)
     .where(
       and(
-        eq(follows.followerApId, actorApIdStr),
-        eq(follows.followingApId, group.apId),
+        eq(follows.followerApId, retainedFollow.followerApId),
+        eq(follows.followingApId, retainedFollow.followingApId),
       ),
     );
 }

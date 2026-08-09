@@ -1,13 +1,10 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import type { Database } from "../../../../db/index.ts";
-import {
-  communities,
-  communityMembers,
-  follows,
-} from "../../../../db/index.ts";
+import { communities, communityMembers } from "../../../../db/index.ts";
 import { communityRequiresMembership } from "../../../lib/community-visibility.ts";
 import { isMemberBanned } from "../../communities/membership-shared.ts";
+import { findFollowByFollowerIdentity } from "./inbox-shared-helpers.ts";
 
 export type InboundCommunityTarget = {
   apId: string;
@@ -35,14 +32,7 @@ export async function canActorPostToInboundCommunity(
 ): Promise<boolean> {
   const [banned, memberFollow, memberRow] = await Promise.all([
     isMemberBanned(db, community.apId, actorApId),
-    db.query.follows.findFirst({
-      where: and(
-        eq(follows.followerApId, actorApId),
-        eq(follows.followingApId, community.apId),
-        eq(follows.status, "accepted"),
-      ),
-      columns: { status: true },
-    }),
+    findFollowByFollowerIdentity(db, actorApId, community.apId),
     db.query.communityMembers.findFirst({
       where: and(
         eq(communityMembers.communityApId, community.apId),
@@ -53,7 +43,7 @@ export async function canActorPostToInboundCommunity(
   ]);
   if (banned) return false;
 
-  const isMember = Boolean(memberFollow) || Boolean(memberRow);
+  const isMember = memberFollow?.status === "accepted" || Boolean(memberRow);
   const role = memberRow?.role;
   const isManager = role === "owner" || role === "moderator";
   const policy = community.postPolicy || "members";

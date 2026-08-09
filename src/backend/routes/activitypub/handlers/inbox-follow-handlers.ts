@@ -7,6 +7,7 @@ import {
   isLocal,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
 import { actorSuppressesInteractionFrom } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
 import { resolveInboundActivityReference } from "../inbound-activity-reference.ts";
@@ -19,6 +20,7 @@ import {
 } from "../inbox-types.ts";
 import {
   findFollowByActivityId,
+  findFollowByFollowerIdentity,
   runBatch,
   undoInteraction,
   upsertActivityAndNotify,
@@ -39,7 +41,7 @@ function authorizesFollowUndo(
   recipientApId: string,
   activityId: string | null,
 ): boolean {
-  if (follow.followerApId !== actor) {
+  if (!isSameActivityPubActor(follow.followerApId, actor)) {
     log.warn("Undo(Follow) actor mismatch", {
       event: "ap.undo.follow.actor_mismatch",
       actor,
@@ -93,20 +95,17 @@ export async function handleFollow(
   const status = recipient.isPrivate ? "pending" : "accepted";
   const now = new Date().toISOString();
 
-  // Was the edge already present BEFORE this dispatch? This gates the one-shot
-  // owner notification / Accept reply below so a duplicate (re)delivery does not
-  // spam them — it does NOT gate the counter, which is reconciled atomically in
-  // the batch below against the edge table's pre-insert state.
-  const existingEdge = await db
-    .select({ followerApId: follows.followerApId })
-    .from(follows)
-    .where(
-      and(
-        eq(follows.followerApId, actor),
-        eq(follows.followingApId, recipient.apId),
-      ),
-    )
-    .get();
+  // Was the edge already present BEFORE this dispatch? Exact keys are the
+  // steady-state path; the helper also recognizes a pre-invariant cosmetic
+  // spelling so a retry cannot create a second logical edge. The original
+  // insert + counter transition committed atomically, so a retained edge means
+  // there is nothing left to reconcile or notify.
+  const existingEdge = await findFollowByFollowerIdentity(
+    db,
+    actor,
+    recipient.apId,
+  );
+  if (existingEdge) return;
 
   // #COUNTER-SYM (crash-retry convergence): the followers-edge insert and the
   // recipient.followerCount +1 MUST commit together. Previously the edge was
@@ -155,11 +154,6 @@ export async function handleFollow(
       })
       .onConflictDoNothing();
   }
-
-  // If the edge already existed, this is a duplicate (re)delivery: the counter is
-  // already correct (the batch's no-op insert kept the NOT-EXISTS guard false),
-  // so do not re-notify the owner or re-send an Accept.
-  if (existingEdge) return;
 
   // Store activity and add to inbox (AP Native notification)
   await upsertActivityAndNotify(
@@ -220,7 +214,7 @@ export async function handleAccept(
   // Only the followed party may Accept the follow. The signing actor is bound to
   // its domain upstream, so without this a different-domain actor that learned
   // the follow activity id could flip someone else's pending follow to accepted.
-  if (!actor || follow.followingApId !== actor) return;
+  if (!isSameActivityPubActor(follow.followingApId, actor)) return;
 
   const now = new Date().toISOString();
 
@@ -281,7 +275,7 @@ export async function handleReject(
   if (!follow) return;
 
   // Only the followed party may Reject the follow (see handleAccept).
-  if (!actor || follow.followingApId !== actor) return;
+  if (!isSameActivityPubActor(follow.followingApId, actor)) return;
 
   // A remote followee can Reject an ALREADY-ACCEPTED follow to terminate it
   // (Mastodon does this on lock + remove-follower). handleAccept incremented the
@@ -407,7 +401,10 @@ async function resolveUndoByActivityId(
     .get();
   if (!originalActivity) return false;
 
-  if (originalActivity.actorApId && originalActivity.actorApId !== actor) {
+  if (
+    originalActivity.actorApId &&
+    !isSameActivityPubActor(originalActivity.actorApId, actor)
+  ) {
     log.warn("Undo actor mismatch", {
       event: "ap.undo.actor_mismatch",
       actor,

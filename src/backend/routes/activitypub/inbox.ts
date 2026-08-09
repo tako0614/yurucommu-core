@@ -20,6 +20,7 @@ import { sha256Hex } from "../../lib/delivery/transformers.ts";
 import { getInstanceActor, loadFederatedCommunity } from "./query-helpers.ts";
 import { communityApId } from "../../lib/ap-ids.ts";
 import { isTrustedRemoteActivityId } from "../../lib/remote-activity-id.ts";
+import { isSameActivityPubActor } from "../../lib/activitypub-actor-identity.ts";
 import type { Activity } from "./inbox-types.ts";
 import {
   getActivityObject,
@@ -69,6 +70,7 @@ import {
   handleUndo,
   handleUpdate,
 } from "./handlers/user-inbox-handlers.ts";
+import { internalInboundActivityId } from "./inbound-activity-identity.ts";
 
 const log = logger.child({ component: "activitypub.inbox" });
 
@@ -133,26 +135,6 @@ export function signingActorFromKeyId(
 }
 
 /**
- * Normalize an actor URL for identity comparison: lowercase the host (host names
- * are case-insensitive) and drop a single trailing slash + any fragment, leaving
- * the (case-sensitive) path intact. Used to compare the signing-key owner with
- * the activity actor without rejecting cosmetically-different-but-identical IRIs
- * (trailing slash / host case) that conformant peers occasionally emit. Returns
- * null for an unparseable URL.
- */
-function normalizeActorUrl(url: string): string | null {
-  try {
-    const u = new URL(url);
-    u.hash = "";
-    let normalized = `${u.protocol}//${u.host}${u.pathname}${u.search}`;
-    if (normalized.endsWith("/")) normalized = normalized.slice(0, -1);
-    return normalized;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Returns true when the HTTP-signature signing key does NOT belong to exactly
  * the activity actor (after URL normalization).
  *
@@ -181,18 +163,7 @@ export function isActorMismatch(
   actor: string,
 ): boolean {
   if (!signingActorUrl) return true;
-  if (signingActorUrl === actor) return false;
-
-  const normalizedSigner = normalizeActorUrl(signingActorUrl);
-  const normalizedActor = normalizeActorUrl(actor);
-  if (
-    normalizedSigner !== null &&
-    normalizedActor !== null &&
-    normalizedSigner === normalizedActor
-  ) {
-    return false;
-  }
-  return true;
+  return !isSameActivityPubActor(signingActorUrl, actor);
 }
 
 type ParsedActivity = {
@@ -207,18 +178,6 @@ type ParsedActivity = {
   activityType: string;
   activityObjectId: string | null;
 };
-
-async function internalInboundActivityId(
-  baseUrl: string,
-  actor: string,
-  source: string,
-): Promise<string> {
-  const actorIdentity = normalizeActorUrl(actor) ?? actor;
-  return activityApId(
-    baseUrl,
-    `inbound-${await sha256Hex(`${actorIdentity}\0${source}`)}`,
-  );
-}
 
 /**
  * Shared pipeline for both inbox endpoints: size check, signature verification,
@@ -277,12 +236,33 @@ async function verifyAndParseInbox(
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const actor = typeof activity.actor === "string" ? activity.actor : null;
+  const claimedActor =
+    typeof activity.actor === "string" ? activity.actor : null;
   const activityType = typeof activity.type === "string" ? activity.type : null;
 
-  if (!actor || !activityType) {
+  if (!claimedActor || !activityType) {
     return c.json({ error: "Invalid activity" }, 400);
   }
+
+  const signingActor = signingActorFromKeyId(signatureResult.keyId);
+  if (isActorMismatch(signingActor, claimedActor)) {
+    log.warn("Actor mismatch between activity and signing key", {
+      event: "ap.signature.actor_mismatch",
+      actor: claimedActor,
+      signingActor,
+      keyId: signatureResult.keyId,
+    });
+    return c.json({ error: "Actor mismatch" }, 401);
+  }
+
+  // From this point onward the key owner is the authoritative actor spelling.
+  // The actor document fetched during signature verification asserts this exact
+  // URL as its id, whereas the envelope may carry an accepted cosmetic variant.
+  // Keeping the original body in rawActivityJson preserves protocol evidence;
+  // normalizing the dispatched Activity prevents one verified identity from
+  // creating separate relationship keys merely by toggling host case or `/`.
+  const actor = signingActor!;
+  activity.actor = actor;
 
   // A peer controls Activity.id. Never use that unbounded string as our primary
   // key, queue key, or structured-log identifier. First validate the protocol
@@ -316,17 +296,6 @@ async function verifyAndParseInbox(
   // those internal keys. Undo references are normalized through the same
   // source-id lookup in the Undo helpers and therefore still resolve.
   activity.id = activityId;
-
-  const signingActor = signingActorFromKeyId(signatureResult.keyId);
-  if (isActorMismatch(signingActor, actor)) {
-    log.warn("Actor mismatch between activity and signing key", {
-      event: "ap.signature.actor_mismatch",
-      actor,
-      signingActor,
-      keyId: signatureResult.keyId,
-    });
-    return c.json({ error: "Actor mismatch" }, 401);
-  }
 
   // Central federation blocklist gate. Applied once here so every activity
   // type (Follow / Like / Announce / Undo / content / group inbox / ...) is

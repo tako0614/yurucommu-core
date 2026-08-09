@@ -71,6 +71,7 @@ import {
   fetchAndUpsertActorCache,
   getInstanceFetchSignerByDb,
 } from "../../../lib/activitypub-actor-cache.ts";
+import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
 import { fetchWithTimeout } from "../../../lib/federation-fetch.ts";
 import { signRequest } from "../../../lib/ap-signing.ts";
 import {
@@ -1424,14 +1425,14 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
     // (same origin), so an object that equals the verified actor is owned by the
     // signer. Tombstone the remote locally so a stale profile + dangling follow
     // edge + cached content do not survive indefinitely.
-    if (objectId === actorId) {
+    if (isSameActivityPubActor(objectId, actorId)) {
       await handleRemoteActorDelete(c, actorId);
     }
     return;
   }
 
   // Verify actor owns the object before deleting
-  if (delObj.attributedTo !== actorId) {
+  if (!isSameActivityPubActor(delObj.attributedTo, actorId)) {
     log.warn("Delete rejected: actor does not own object", {
       event: "ap.delete.actor_ownership_mismatch",
       actor: actorId,
@@ -1519,8 +1520,11 @@ export async function handleUpdate(
   // mirroring the actor==object self-update contract). The remote document is
   // re-fetched from origin (never trusted from the wire) so a spoofed Update
   // body cannot poison the cache.
-  if (isActorTypeUpdate(object.type) || objectId === actor) {
-    if (objectId !== actor) {
+  if (
+    isActorTypeUpdate(object.type) ||
+    isSameActivityPubActor(objectId, actor)
+  ) {
+    if (!isSameActivityPubActor(objectId, actor)) {
       log.warn("Update(actor) rejected: object id does not match actor", {
         event: "ap.update.actor_self_mismatch",
         actor,
@@ -1536,7 +1540,7 @@ export async function handleUpdate(
     const cached = await db
       .select({ lastFetchedAt: actorCache.lastFetchedAt })
       .from(actorCache)
-      .where(eq(actorCache.apId, objectId))
+      .where(eq(actorCache.apId, actor))
       .get();
     if (cached?.lastFetchedAt) {
       const age = Date.now() - new Date(cached.lastFetchedAt).getTime();
@@ -1547,13 +1551,13 @@ export async function handleUpdate(
       ) {
         log.debug("Update(actor) re-fetch skipped: within cooldown", {
           event: "ap.update.actor_refetch_cooldown",
-          actor: objectId,
+          actor,
           ageMs: age,
         });
         return;
       }
     }
-    await refreshActorCache(db, objectId);
+    await refreshActorCache(db, actor);
     return;
   }
 
@@ -1570,7 +1574,9 @@ export async function handleUpdate(
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
-  if (!existing || existing.attributedTo !== actor) return;
+  if (!existing || !isSameActivityPubActor(existing.attributedTo, actor)) {
+    return;
+  }
 
   // Story is deliberately handled before Note: Yurucommu emits
   // type=["Story","Note"] for interoperability, but its durable projection is
@@ -1921,14 +1927,15 @@ export async function handleMove(
   actor: string,
 ) {
   const db = c.get("db");
-  const oldActorApId = getActivityObjectId(activity);
+  const claimedOldActorApId = getActivityObjectId(activity);
   const newActorApId = getActivityTargetId(activity);
-  if (!oldActorApId || !newActorApId) return;
+  if (!claimedOldActorApId || !newActorApId) return;
 
   // Only accept self-move. Signature verification already ensures the request is signed,
   // but we also require Move.object to match Move.actor (defense-in-depth).
-  if (oldActorApId !== actor) return;
-  if (oldActorApId === newActorApId) return;
+  if (!isSameActivityPubActor(claimedOldActorApId, actor)) return;
+  if (isSameActivityPubActor(actor, newActorApId)) return;
+  const oldActorApId = actor;
 
   if (!isSafeRemoteUrl(newActorApId)) {
     log.warn("Blocked unsafe Move target", {

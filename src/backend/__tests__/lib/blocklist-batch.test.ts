@@ -9,6 +9,7 @@ import {
   blockActor,
   blockDomain,
   filterBlockedActorApIds,
+  isActorBlocked,
 } from "../../lib/blocklist.ts";
 
 async function freshDb(): Promise<Database> {
@@ -41,6 +42,20 @@ test("filterBlockedActorApIds: blocks by actor AND transitively by domain, in on
   expect(blocked.has(onBlockedDomain)).toBe(true); // transitively (domain)
   expect(blocked.has(allowed)).toBe(false); // not blocked
   expect(blocked.size).toBe(2);
+});
+
+test("filterBlockedActorApIds: actor blocks survive cosmetic URL spelling changes", async () => {
+  const db = await freshDb();
+  await blockActor(db, "https://EVIL.example/users/mallory/", "spam");
+
+  const canonical = "https://evil.example/users/mallory";
+  const sibling = "https://evil.example/users/alice";
+  const blocked = await filterBlockedActorApIds(db, [canonical, sibling]);
+
+  expect(await isActorBlocked(db, canonical)).toBe(true);
+  expect(await isActorBlocked(db, sibling)).toBe(false);
+  expect(blocked.has(canonical)).toBe(true);
+  expect(blocked.has(sibling)).toBe(false);
 });
 
 test("filterBlockedActorApIds: empty input + all-allowed return an empty set", async () => {

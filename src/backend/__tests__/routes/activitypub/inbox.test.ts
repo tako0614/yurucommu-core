@@ -87,7 +87,7 @@ async function signedInboxRequest(
   });
 }
 
-test("activitypub inbox - accepts signed object activities and stores them once", async () => {
+test("activitypub inbox - stores the verified key owner once across cosmetic actor spellings", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
   const { db } = await createTestDb();
@@ -139,7 +139,7 @@ test("activitypub inbox - accepts signed object activities and stores them once"
   const body = JSON.stringify({
     id: "https://remote.example/activities/one",
     type: "Question",
-    actor: actorApId,
+    actor: "https://REMOTE.example/users/alice/",
     object: "https://remote.example/objects/one",
   });
 
@@ -151,7 +151,16 @@ test("activitypub inbox - accepts signed object activities and stores them once"
   expect(res.status).toEqual(202);
 
   const duplicate = await app.fetch(
-    await signedInboxRequest(body, privateKeyPem, `${actorApId}#main-key`),
+    await signedInboxRequest(
+      JSON.stringify({
+        id: "https://remote.example/activities/one",
+        type: "Question",
+        actor: actorApId,
+        object: "https://remote.example/objects/one",
+      }),
+      privateKeyPem,
+      `${actorApId}#main-key`,
+    ),
     { APP_URL: "https://test.local" },
   );
   expect(duplicate.status).toEqual(202);

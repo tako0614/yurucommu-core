@@ -59,6 +59,7 @@ const APP_URL = "https://yuru.test";
 const LOCAL_BOB = `${APP_URL}/ap/users/bob`;
 const LOCAL_CAROL = `${APP_URL}/ap/users/carol`;
 const REMOTE_ALICE = "https://remote.example/users/alice";
+const REMOTE_ALICE_COSMETIC = "https://REMOTE.example/users/alice/";
 const SAME_HOST_MALLORY = "https://remote.example/users/mallory";
 const OBJECT_AP_ID = `${APP_URL}/ap/objects/post-1`;
 
@@ -212,6 +213,51 @@ test("COUNTER-SYM: undo Like with a directObject recomputes the counter (exactly
     APP_URL,
   );
   expect(await likeCount(db)).toBe(0);
+});
+
+test("actor identity: cosmetic signer spelling can undo its retained Like", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob");
+  await seedActor(db, REMOTE_ALICE_COSMETIC, "alice");
+  await db.insert(objects).values({
+    apId: OBJECT_AP_ID,
+    type: "Note",
+    attributedTo: LOCAL_BOB,
+    content: "hi",
+    likeCount: 1,
+  });
+  await db.insert(likes).values({
+    actorApId: REMOTE_ALICE_COSMETIC,
+    objectApId: OBJECT_AP_ID,
+    activityApId: "https://remote.example/activities/like-cosmetic",
+  });
+
+  await handleUndo(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/undo-like-cosmetic",
+      type: "Undo",
+      actor: REMOTE_ALICE,
+      object: { type: "Like", object: OBJECT_AP_ID },
+    } as unknown as Activity,
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+
+  expect(await likeCount(db)).toBe(0);
+  expect(
+    await db
+      .select()
+      .from(likes)
+      .where(
+        eq(
+          likes.activityApId,
+          "https://remote.example/activities/like-cosmetic",
+        ),
+      )
+      .get(),
+  ).toBeUndefined();
 });
 
 test("COUNTER-SYM: crash-then-retry of an undo Announce (edge gone, counter stale) CONVERGES", async () => {
@@ -452,6 +498,35 @@ test("COUNTER-SYM: crash-then-retry of Accept (edge already accepted, counts not
   expect(await followerCount(db, REMOTE_ALICE)).toBeLessThanOrEqual(1);
 });
 
+test("actor identity: cosmetic followee spelling can Accept but a sibling actor cannot", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob");
+  const followId = "https://yuru.test/ap/activities/follow-cosmetic-accept";
+  await db.insert(follows).values({
+    followerApId: LOCAL_BOB,
+    followingApId: REMOTE_ALICE_COSMETIC,
+    status: "pending",
+    activityApId: followId,
+  });
+  const accept = {
+    id: "https://remote.example/activities/accept-cosmetic",
+    type: "Accept",
+    actor: REMOTE_ALICE,
+    object: followId,
+  } as unknown as Activity;
+
+  await handleAccept(ctxFor(db), accept, SAME_HOST_MALLORY);
+  expect(await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE_COSMETIC)).toBe(
+    "pending",
+  );
+
+  await handleAccept(ctxFor(db), accept, REMOTE_ALICE);
+  expect(await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE_COSMETIC)).toBe(
+    "accepted",
+  );
+  expect(await followingCount(db, LOCAL_BOB)).toBe(1);
+});
+
 // ---------------------------------------------------------------------------
 // undo Follow — co-committed delete + decrement (no permanent OVER-count)
 // ---------------------------------------------------------------------------
@@ -617,6 +692,41 @@ test("bare-id Undo(Follow) delivered to the wrong recipient leaves edge and coun
   expect(await followerCount(db, LOCAL_CAROL)).toBe(1);
 });
 
+test("actor identity: cosmetic follower spelling can Undo its own Follow", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob", { followerCount: 1 });
+  const followId = "https://remote.example/activities/follow-cosmetic-undo";
+  await db.insert(follows).values({
+    followerApId: REMOTE_ALICE_COSMETIC,
+    followingApId: LOCAL_BOB,
+    status: "accepted",
+    activityApId: followId,
+  });
+
+  await handleUndo(
+    ctxFor(db),
+    {
+      id: "https://remote.example/activities/undo-follow-cosmetic",
+      type: "Undo",
+      actor: REMOTE_ALICE,
+      object: {
+        type: "Follow",
+        id: followId,
+        actor: REMOTE_ALICE,
+        object: LOCAL_BOB,
+      },
+    } as unknown as Activity,
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+
+  expect(
+    await followEdgeStatus(db, REMOTE_ALICE_COSMETIC, LOCAL_BOB),
+  ).toBeNull();
+  expect(await followerCount(db, LOCAL_BOB)).toBe(0);
+});
+
 // ---------------------------------------------------------------------------
 // handleAdd / handleRemove — collection membership counter symmetry
 // ---------------------------------------------------------------------------
@@ -650,6 +760,50 @@ test("COUNTER-SYM: Add transitions a PENDING edge to accepted, exactly once", as
   await handleAdd(ctxFor(db), add, recipientRow(LOCAL_BOB), REMOTE_ALICE);
   expect(await followingCount(db, LOCAL_BOB)).toBe(1);
   expect(await followerCount(db, REMOTE_ALICE)).toBe(1);
+});
+
+test("actor identity: Add and Remove use the retained cosmetic followee key", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob");
+  await seedActor(db, REMOTE_ALICE_COSMETIC, "alice");
+  await db.insert(follows).values({
+    followerApId: LOCAL_BOB,
+    followingApId: REMOTE_ALICE_COSMETIC,
+    status: "pending",
+    activityApId: `${APP_URL}/ap/activities/follow-cosmetic-add`,
+  });
+  const collectionActivity = (type: "Add" | "Remove") =>
+    ({
+      id: `https://remote.example/activities/${type.toLowerCase()}-cosmetic`,
+      type,
+      actor: REMOTE_ALICE,
+      object: LOCAL_BOB,
+      target: `${REMOTE_ALICE}/followers`,
+    }) as unknown as Activity;
+
+  await handleAdd(
+    ctxFor(db),
+    collectionActivity("Add"),
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+  );
+  expect(await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE_COSMETIC)).toBe(
+    "accepted",
+  );
+  expect(await followingCount(db, LOCAL_BOB)).toBe(1);
+  expect(await followerCount(db, REMOTE_ALICE_COSMETIC)).toBe(1);
+
+  await handleRemove(
+    ctxFor(db),
+    collectionActivity("Remove"),
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+  );
+  expect(
+    await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE_COSMETIC),
+  ).toBeNull();
+  expect(await followingCount(db, LOCAL_BOB)).toBe(0);
+  expect(await followerCount(db, REMOTE_ALICE_COSMETIC)).toBe(0);
 });
 
 test("SECURITY: an unsolicited Add (no prior Follow) cannot forge an accepted follow", async () => {
@@ -795,26 +949,26 @@ test("SECURITY: same-host sibling Remove cannot sever another actor's accepted f
 // handleBlock — per-direction atomic sever
 // ---------------------------------------------------------------------------
 
-test("COUNTER-SYM: Block severs both follow directions and reconciles counts, retry-safe", async () => {
+test("COUNTER-SYM: Block severs cosmetic actor edges in both directions, retry-safe", async () => {
   const db = await freshDb();
   await seedActor(db, LOCAL_BOB, "bob", {
     followerCount: 1,
     followingCount: 1,
   });
-  await seedActor(db, REMOTE_ALICE, "alice", {
+  await seedActor(db, REMOTE_ALICE_COSMETIC, "alice", {
     followerCount: 1,
     followingCount: 1,
   });
   // Mutual accepted follows.
   await db.insert(follows).values({
-    followerApId: REMOTE_ALICE,
+    followerApId: REMOTE_ALICE_COSMETIC,
     followingApId: LOCAL_BOB,
     status: "accepted",
     acceptedAt: new Date().toISOString(),
   });
   await db.insert(follows).values({
     followerApId: LOCAL_BOB,
-    followingApId: REMOTE_ALICE,
+    followingApId: REMOTE_ALICE_COSMETIC,
     status: "accepted",
     acceptedAt: new Date().toISOString(),
   });
@@ -827,21 +981,25 @@ test("COUNTER-SYM: Block severs both follow directions and reconciles counts, re
   } as unknown as Activity;
 
   await handleBlock(ctxFor(db), block, recipientRow(LOCAL_BOB), REMOTE_ALICE);
-  expect(await followEdgeStatus(db, REMOTE_ALICE, LOCAL_BOB)).toBeNull();
-  expect(await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE)).toBeNull();
+  expect(
+    await followEdgeStatus(db, REMOTE_ALICE_COSMETIC, LOCAL_BOB),
+  ).toBeNull();
+  expect(
+    await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE_COSMETIC),
+  ).toBeNull();
   // alice followed bob: alice.following-1, bob.follower-1.
   // bob followed alice: bob.following-1, alice.follower-1.
   expect(await followerCount(db, LOCAL_BOB)).toBe(0);
   expect(await followingCount(db, LOCAL_BOB)).toBe(0);
-  expect(await followerCount(db, REMOTE_ALICE)).toBe(0);
-  expect(await followingCount(db, REMOTE_ALICE)).toBe(0);
+  expect(await followerCount(db, REMOTE_ALICE_COSMETIC)).toBe(0);
+  expect(await followingCount(db, REMOTE_ALICE_COSMETIC)).toBe(0);
 
   // Duplicate Block (peer retry): all edges gone, guarded -1 cannot underflow.
   await handleBlock(ctxFor(db), block, recipientRow(LOCAL_BOB), REMOTE_ALICE);
   expect(await followerCount(db, LOCAL_BOB)).toBe(0);
   expect(await followingCount(db, LOCAL_BOB)).toBe(0);
-  expect(await followerCount(db, REMOTE_ALICE)).toBe(0);
-  expect(await followingCount(db, REMOTE_ALICE)).toBe(0);
+  expect(await followerCount(db, REMOTE_ALICE_COSMETIC)).toBe(0);
+  expect(await followingCount(db, REMOTE_ALICE_COSMETIC)).toBe(0);
 });
 
 test("COUNTER-SYM: Block rolls back both directions when the second edge delete fails", async () => {

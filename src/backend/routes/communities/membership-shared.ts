@@ -12,6 +12,9 @@ import {
 import type { Env, Variables } from "../../types.ts";
 import { communityApId } from "../../federation-helpers.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
+import { isSameActivityPubActor } from "../../lib/activitypub-actor-identity.ts";
+
+const LEGACY_COMMUNITY_BAN_CANDIDATE_LIMIT = 64;
 
 export const managerRoles = new Set(["owner", "moderator"]);
 
@@ -65,7 +68,17 @@ export async function isMemberBanned(
       ),
     )
     .get();
-  return !!row;
+  if (row) return true;
+
+  const candidates = await db
+    .select({ bannedApId: communityBans.bannedApId })
+    .from(communityBans)
+    .where(eq(communityBans.communityApId, communityApIdVal))
+    .limit(LEGACY_COMMUNITY_BAN_CANDIDATE_LIMIT)
+    .all();
+  return candidates.some((candidate) =>
+    isSameActivityPubActor(candidate.bannedApId, actorApId),
+  );
 }
 
 // `Database` is a union whose `.batch` lives only on the concrete D1/libsql

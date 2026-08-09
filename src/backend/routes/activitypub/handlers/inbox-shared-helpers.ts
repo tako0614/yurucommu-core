@@ -10,6 +10,7 @@ import {
   objects,
 } from "../../../../db/index.ts";
 import { isLocal } from "../../../federation-helpers.ts";
+import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
 import { isBoundedHttpActivityId } from "../../../lib/remote-activity-id.ts";
 import { resolveInboundActivityReference } from "../inbound-activity-reference.ts";
 import type { Activity } from "../inbox-types.ts";
@@ -85,6 +86,114 @@ const INTERACTION_TABLES: Record<"like" | "announce", InteractionTable> = {
   announce: announces,
 };
 
+const LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT = 64;
+
+/**
+ * Resolve a follow edge owned by the verified follower identity. Exact DB keys
+ * are the steady-state path; the bounded fallback keeps pre-invariant rows
+ * reachable without treating a same-origin sibling as the same actor.
+ */
+export async function findFollowByFollowerIdentity(
+  db: Database,
+  followerApId: string,
+  followingApId: string,
+) {
+  const exact = await db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, followerApId),
+        eq(follows.followingApId, followingApId),
+      ),
+    )
+    .get();
+  if (exact) return exact;
+
+  const candidates = await db
+    .select()
+    .from(follows)
+    .where(eq(follows.followingApId, followingApId))
+    .limit(LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT)
+    .all();
+  return candidates.find((candidate) =>
+    isSameActivityPubActor(candidate.followerApId, followerApId),
+  );
+}
+
+/** Same compatibility lookup when the verified actor owns the followee side. */
+export async function findFollowByFollowingIdentity(
+  db: Database,
+  followerApId: string,
+  followingApId: string,
+) {
+  const exact = await db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, followerApId),
+        eq(follows.followingApId, followingApId),
+      ),
+    )
+    .get();
+  if (exact) return exact;
+
+  const candidates = await db
+    .select()
+    .from(follows)
+    .where(eq(follows.followerApId, followerApId))
+    .limit(LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT)
+    .all();
+  return candidates.find((candidate) =>
+    isSameActivityPubActor(candidate.followingApId, followingApId),
+  );
+}
+
+type FollowLookupRow = {
+  followerApId: string;
+  followingApId: string;
+  status: string;
+};
+
+async function findActorOwnedFollowByActivityId(
+  db: Database,
+  activityApIdValue: string,
+  actorApId: string,
+): Promise<FollowLookupRow | null> {
+  const columns = {
+    followerApId: follows.followerApId,
+    followingApId: follows.followingApId,
+    status: follows.status,
+  };
+  const exact = await db
+    .select(columns)
+    .from(follows)
+    .where(
+      and(
+        eq(follows.activityApId, activityApIdValue),
+        eq(follows.followerApId, actorApId),
+      ),
+    )
+    .get();
+  if (exact) return exact;
+
+  // Current ingress stores the verified key owner spelling, so this only
+  // serves rows created before that invariant. Keep it bounded and compare in
+  // JS so path case remains identity-significant while host case does not.
+  const candidates = await db
+    .select(columns)
+    .from(follows)
+    .where(eq(follows.activityApId, activityApIdValue))
+    .limit(LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT)
+    .all();
+  return (
+    candidates.find((candidate) =>
+      isSameActivityPubActor(candidate.followerApId, actorApId),
+    ) ?? null
+  );
+}
+
 /**
  * Find a follow by its retained activity IRI. When `source` is present, a peer
  * wire ID may also resolve through that verified actor's inbound ledger row.
@@ -100,22 +209,21 @@ export async function findFollowByActivityId(
 } | null> {
   if (!isBoundedHttpActivityId(activityApIdValue)) return null;
 
-  let row = await db
-    .select({
-      followerApId: follows.followerApId,
-      followingApId: follows.followingApId,
-      status: follows.status,
-    })
-    .from(follows)
-    .where(
-      source
-        ? and(
-            eq(follows.activityApId, activityApIdValue),
-            eq(follows.followerApId, source.actorApId),
-          )
-        : eq(follows.activityApId, activityApIdValue),
-    )
-    .get();
+  let row = source
+    ? await findActorOwnedFollowByActivityId(
+        db,
+        activityApIdValue,
+        source.actorApId,
+      )
+    : await db
+        .select({
+          followerApId: follows.followerApId,
+          followingApId: follows.followingApId,
+          status: follows.status,
+        })
+        .from(follows)
+        .where(eq(follows.activityApId, activityApIdValue))
+        .get();
   if (!row && source) {
     // Inbound envelopes use an origin-bound internal activities.apId. Undo
     // carries the peer's protocol id, so resolve that bounded raw-json id back
@@ -128,20 +236,11 @@ export async function findFollowByActivityId(
       source.localBaseUrl,
     );
     if (internalActivityApId) {
-      row = await db
-        .select({
-          followerApId: follows.followerApId,
-          followingApId: follows.followingApId,
-          status: follows.status,
-        })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.activityApId, internalActivityApId),
-            eq(follows.followerApId, source.actorApId),
-          ),
-        )
-        .get();
+      row = await findActorOwnedFollowByActivityId(
+        db,
+        internalActivityApId,
+        source.actorApId,
+      );
     }
   }
   return row ?? null;
@@ -239,6 +338,27 @@ export async function undoInteraction(
   const cf = countField ?? COUNT_FIELDS[kind];
 
   if (directObjectId) {
+    const exact = await db
+      .select({ actorApId: table.actorApId })
+      .from(table)
+      .where(
+        and(eq(table.actorApId, actor), eq(table.objectApId, directObjectId)),
+      )
+      .get();
+    let retainedActorApId = exact?.actorApId ?? null;
+    if (!retainedActorApId) {
+      const candidates = await db
+        .select({ actorApId: table.actorApId })
+        .from(table)
+        .where(eq(table.objectApId, directObjectId))
+        .limit(LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT)
+        .all();
+      retainedActorApId =
+        candidates.find((candidate) =>
+          isSameActivityPubActor(candidate.actorApId, actor),
+        )?.actorApId ?? null;
+    }
+
     // Delete the edge and recompute the counter from the remaining edge rows
     // atomically. A duplicate Undo (or an Undo of an interaction we never
     // recorded) deletes 0 rows and the recompute is a no-op against the
@@ -247,7 +367,10 @@ export async function undoInteraction(
       db
         .delete(table)
         .where(
-          and(eq(table.actorApId, actor), eq(table.objectApId, directObjectId)),
+          and(
+            eq(table.actorApId, retainedActorApId ?? actor),
+            eq(table.objectApId, directObjectId),
+          ),
         ),
       db
         .update(objects)
@@ -263,20 +386,35 @@ export async function undoInteraction(
 
   // Resolve the edge by its activity ID, then commit the delete + recompute in
   // one batch keyed on the resolved objectApId.
-  const record = await db
+  let record = await db
     .select({
       actorApId: table.actorApId,
       objectApId: table.objectApId,
     })
     .from(table)
-    .where(eq(table.activityApId, activityId))
+    .where(and(eq(table.activityApId, activityId), eq(table.actorApId, actor)))
     .get();
+  if (!record) {
+    const candidates = await db
+      .select({
+        actorApId: table.actorApId,
+        objectApId: table.objectApId,
+      })
+      .from(table)
+      .where(eq(table.activityApId, activityId))
+      .limit(LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT)
+      .all();
+    record =
+      candidates.find((candidate) =>
+        isSameActivityPubActor(candidate.actorApId, actor),
+      ) ?? undefined;
+  }
   if (record) {
     // Bind the undo to the VERIFIED signer. The activity id is public, so a
     // resolved edge whose owner != the signing actor is a cross-actor forgery
     // (a remote attacker undoing someone else's like/announce by id). The
     // directObjectId branch above already keys its delete on `actor`; mirror it.
-    if (record.actorApId !== actor) return false;
+    if (!isSameActivityPubActor(record.actorApId, actor)) return false;
     await runBatch(db, [
       db
         .delete(table)

@@ -20,7 +20,10 @@ import {
   type ActivityContext,
   getActivityObjectId,
 } from "../inbox-types.ts";
-import { notifyLocalObjectOwner } from "./inbox-shared-helpers.ts";
+import {
+  findFollowByFollowingIdentity,
+  notifyLocalObjectOwner,
+} from "./inbox-shared-helpers.ts";
 import { fetchAndPersistAnnouncedNote } from "./inbox-content-handlers.ts";
 import { isLocal } from "../../../lib/ap-ids.ts";
 import { notDeleted } from "../../../../db/index.ts";
@@ -29,6 +32,7 @@ import {
   canViewerReadObjectFull,
 } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
+import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
 import { MAX_ACTIVITY_OBJECT_IDS } from "../../../lib/activitypub-validators.ts";
 import { severFollowPair } from "../../../lib/follow-edge-mutations.ts";
 
@@ -294,6 +298,13 @@ export async function handleAdd(
 
   const db = c.get("db");
   const now = new Date().toISOString();
+  const pendingEdge = await findFollowByFollowingIdentity(
+    db,
+    recipient.apId,
+    followingApId,
+  );
+  if (!pendingEdge || pendingEdge.status !== "pending") return;
+  const retainedFollowingApId = pendingEdge.followingApId;
 
   // SECURITY (consent — federated follow-graph forgery): an `Add <local user>
   // to <remote>/followers` is the remote CONFIRMING the local user's OWN Follow
@@ -311,7 +322,7 @@ export async function handleAdd(
   // flip's own `status='pending'` predicate makes a duplicate/already-accepted
   // (or absent) edge a total no-op — so counters can neither double-bump,
   // under-count on retry, nor bump for an edge that was never pending.
-  const pendingEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${recipient.apId} AND ${follows.followingApId} = ${followingApId} AND ${follows.status} = 'pending')`;
+  const pendingEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${recipient.apId} AND ${follows.followingApId} = ${retainedFollowingApId} AND ${follows.status} = 'pending')`;
   await runBatch(db, [
     db
       .update(actors)
@@ -320,14 +331,14 @@ export async function handleAdd(
     db
       .update(actors)
       .set({ followerCount: sql`${actors.followerCount} + 1` })
-      .where(and(eq(actors.apId, followingApId), pendingEdgeExists)),
+      .where(and(eq(actors.apId, retainedFollowingApId), pendingEdgeExists)),
     db
       .update(follows)
       .set({ status: "accepted", acceptedAt: now })
       .where(
         and(
           eq(follows.followerApId, recipient.apId),
-          eq(follows.followingApId, followingApId),
+          eq(follows.followingApId, retainedFollowingApId),
           eq(follows.status, "pending"),
         ),
       ),
@@ -348,6 +359,13 @@ export async function handleRemove(
   if (!followingApId) return;
 
   const db = c.get("db");
+  const retainedEdge = await findFollowByFollowingIdentity(
+    db,
+    recipient.apId,
+    followingApId,
+  );
+  if (!retainedEdge) return;
+  const retainedFollowingApId = retainedEdge.followingApId;
 
   // #COUNTER-SYM (crash-retry convergence): the edge delete and both -1s MUST
   // commit together. Previously the delete committed first and the decrements
@@ -360,7 +378,7 @@ export async function handleRemove(
   // never-counted edge, a duplicate Remove, or an unknown edge does not drift
   // the counts) plus a `count > 0` underflow guard (mirrors the local API delete
   // paths in posts/interactions.ts which batch + guard both sides).
-  const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${recipient.apId} AND ${follows.followingApId} = ${followingApId} AND ${follows.status} = 'accepted')`;
+  const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${recipient.apId} AND ${follows.followingApId} = ${retainedFollowingApId} AND ${follows.status} = 'accepted')`;
   await runBatch(db, [
     db
       .update(actors)
@@ -377,7 +395,7 @@ export async function handleRemove(
       .set({ followerCount: sql`${actors.followerCount} - 1` })
       .where(
         and(
-          eq(actors.apId, followingApId),
+          eq(actors.apId, retainedFollowingApId),
           gt(actors.followerCount, 0),
           acceptedEdgeExists,
         ),
@@ -387,7 +405,7 @@ export async function handleRemove(
       .where(
         and(
           eq(follows.followerApId, recipient.apId),
-          eq(follows.followingApId, followingApId),
+          eq(follows.followingApId, retainedFollowingApId),
         ),
       ),
   ]);
@@ -597,7 +615,8 @@ function resolveCollectionTarget(
   // Same-origin is insufficient: one account on a multi-user remote host must
   // not Accept or Remove a local user's follow edge to a sibling account. Once
   // an optional `/followers` collection suffix is normalized, the target actor
-  // id must therefore equal the verified signer exactly.
-  if (followingApId !== actor) return null;
+  // id must therefore identify the verified signer under the same narrow
+  // cosmetic equivalence used at the HTTP-signature boundary.
+  if (!isSameActivityPubActor(followingApId, actor)) return null;
   return followingApId;
 }

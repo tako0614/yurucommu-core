@@ -143,6 +143,27 @@ test("inbound Delete(Actor) tombstones a remote: purges actorCache, drops follow
   expect((await db.select().from(likes)).length).toBe(0);
 });
 
+test("Delete(Actor) uses the verified actor spelling for cosmetic object ids", async () => {
+  const db = await freshDb();
+  await db.insert(actorCache).values({
+    apId: REMOTE,
+    type: "Person",
+    inbox: `${REMOTE}/inbox`,
+    rawJson: "{}",
+  });
+
+  await handleDelete(ctxFor(db), {
+    id: `${REMOTE}#delete-cosmetic-object`,
+    type: "Delete",
+    actor: REMOTE,
+    object: "https://REMOTE.example/users/alice/",
+  } as Activity);
+
+  expect(
+    await db.select().from(actorCache).where(eq(actorCache.apId, REMOTE)),
+  ).toEqual([]);
+});
+
 test("Delete(Actor) rolls back counterpart counters when a later teardown statement fails, then retries exactly", async () => {
   const db = await freshDb();
   const otherRemote = "https://other.example/users/carol";

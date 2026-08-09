@@ -17,6 +17,7 @@ import {
   handleGroupFollow,
   handleGroupUndo,
 } from "../../../routes/activitypub/handlers/actor-inbox-handlers.ts";
+import { canActorPostToInboundCommunity } from "../../../routes/activitypub/handlers/inbound-community-scope.ts";
 import { canViewerReadObject } from "../../../lib/community-visibility.ts";
 import type { InstanceActorResult } from "../../../routes/activitypub/query-helpers.ts";
 import type {
@@ -27,6 +28,8 @@ import { createTestDb } from "../../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
 const REMOTE = "https://remote.example/users/alice";
+const REMOTE_COSMETIC = "https://REMOTE.example/users/alice/";
+const REMOTE_SIBLING = "https://remote.example/users/mallory";
 
 async function freshDb(): Promise<Database> {
   return (await createTestDb()).db;
@@ -275,6 +278,91 @@ test("Undo(Follow) removes the community membership", async () => {
       ),
     }),
   ).toBeUndefined();
+});
+
+test("cosmetic actor spelling preserves one community edge and sibling isolation", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "cosmetic", "open");
+  const activityId = "https://remote.example/activities/follow-cosmetic-group";
+  await db.insert(follows).values({
+    followerApId: REMOTE_COSMETIC,
+    followingApId: apId,
+    status: "accepted",
+    activityApId: activityId,
+    acceptedAt: new Date().toISOString(),
+  });
+
+  expect(
+    await canActorPostToInboundCommunity(db, REMOTE, {
+      apId,
+      visibility: "private",
+      postPolicy: "members",
+    }),
+  ).toBe(true);
+
+  await handleGroupFollow(
+    ctx(db),
+    {
+      type: "Follow",
+      actor: REMOTE,
+      object: apId,
+      id: "https://remote.example/activities/follow-cosmetic-retry",
+    } as unknown as Activity,
+    { apId, joinPolicy: "open" },
+    REMOTE,
+    APP_URL,
+    "https://remote.example/activities/follow-cosmetic-retry",
+  );
+  expect(
+    await db
+      .select({ followerApId: follows.followerApId })
+      .from(follows)
+      .where(eq(follows.followingApId, apId))
+      .all(),
+  ).toHaveLength(1);
+
+  const undo = {
+    type: "Undo",
+    actor: REMOTE,
+    object: { type: "Follow", id: activityId },
+  } as unknown as Activity;
+  await handleGroupUndo(
+    ctx(db),
+    undo,
+    { apId, joinPolicy: "open" },
+    REMOTE_SIBLING,
+  );
+  expect(
+    await db.query.follows.findFirst({
+      where: eq(follows.followingApId, apId),
+    }),
+  ).toBeTruthy();
+
+  await handleGroupUndo(ctx(db), undo, { apId, joinPolicy: "open" }, REMOTE);
+  expect(
+    await db.query.follows.findFirst({
+      where: eq(follows.followingApId, apId),
+    }),
+  ).toBeUndefined();
+
+  await db.insert(communityBans).values({
+    communityApId: apId,
+    bannedApId: REMOTE_COSMETIC,
+  });
+  expect(
+    await canActorPostToInboundCommunity(db, REMOTE, {
+      apId,
+      visibility: "public",
+      postPolicy: "anyone",
+    }),
+  ).toBe(false);
+  expect(
+    await canActorPostToInboundCommunity(db, REMOTE_SIBLING, {
+      apId,
+      visibility: "public",
+      postPolicy: "anyone",
+    }),
+  ).toBe(true);
 });
 
 test("a bare peer Follow id resolves through the inbound ledger and removes group membership", async () => {

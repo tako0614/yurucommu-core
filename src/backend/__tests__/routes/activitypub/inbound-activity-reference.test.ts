@@ -7,6 +7,7 @@ import { createTestDb } from "../../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
 const ALICE = "https://peer.example/users/alice";
+const ALICE_COSMETIC = "https://PEER.example/users/alice/";
 const MALLORY = "https://peer.example/users/mallory";
 const WIRE_ID = "https://peer.example/activities/shared-id";
 const ALICE_INTERNAL = `${APP_URL}/ap/activities/inbound-alice`;
@@ -38,9 +39,13 @@ test("resolves a retained wire id within the verified actor despite sibling coll
     {
       apId: ALICE_INTERNAL,
       type: "Like",
-      actorApId: ALICE,
+      actorApId: ALICE_COSMETIC,
       objectApId: `${APP_URL}/ap/objects/1`,
-      rawJson: JSON.stringify({ id: WIRE_ID, type: "Like", actor: ALICE }),
+      rawJson: JSON.stringify({
+        id: WIRE_ID,
+        type: "Like",
+        actor: ALICE_COSMETIC,
+      }),
       direction: "inbound",
     },
   ]);
@@ -53,6 +58,14 @@ test("resolves a retained wire id within the verified actor despite sibling coll
   ).toBe(MALLORY_INTERNAL);
   expect(
     await resolveInboundActivityReference(db, ALICE_INTERNAL, ALICE, APP_URL),
+  ).toBe(ALICE_INTERNAL);
+  expect(
+    await resolveInboundActivityReference(
+      db,
+      ALICE_INTERNAL,
+      ALICE_COSMETIC,
+      APP_URL,
+    ),
   ).toBe(ALICE_INTERNAL);
   expect(
     await resolveInboundActivityReference(db, ALICE_INTERNAL, MALLORY, APP_URL),
