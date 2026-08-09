@@ -8,6 +8,7 @@ import {
   activities,
   actorCache,
   actors,
+  follows,
   likes,
   objects,
   reports,
@@ -568,6 +569,154 @@ test("activitypub inbox - retries an actionable Flag after transient report stor
         .get()
     )?.processed,
   ).toEqual(1);
+});
+
+test("activitypub inbox - retries an Accept after transient follow-transition failure", async () => {
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const actorApId = "https://remote.example/users/alice";
+  const localActor = "https://test.local/ap/users/bob";
+  const followActivityId =
+    "https://test.local/ap/activities/outbound-follow-storage-retry";
+  const { db } = await createTestDb();
+  await db.insert(actors).values({
+    apId: localActor,
+    type: "Person",
+    preferredUsername: "bob",
+    inbox: `${localActor}/inbox`,
+    outbox: `${localActor}/outbox`,
+    followersUrl: `${localActor}/followers`,
+    followingUrl: `${localActor}/following`,
+    publicKeyPem: "local-public",
+    privateKeyPem: "local-private",
+    followingCount: 0,
+  });
+  await db.insert(actorCache).values({
+    apId: actorApId,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${actorApId}/inbox`,
+    publicKeyId: `${actorApId}#main-key`,
+    publicKeyPem,
+    rawJson: "{}",
+    lastFetchedAt: new Date().toISOString(),
+  });
+  await db.insert(activities).values({
+    apId: followActivityId,
+    type: "Follow",
+    actorApId: localActor,
+    objectApId: actorApId,
+    rawJson: JSON.stringify({
+      id: followActivityId,
+      type: "Follow",
+      actor: localActor,
+      object: actorApId,
+    }),
+    direction: "outbound",
+  });
+  await db.insert(follows).values({
+    followerApId: localActor,
+    followingApId: actorApId,
+    status: "pending",
+    activityApId: followActivityId,
+  });
+  await db.run(sql`
+    CREATE TRIGGER reject_inbound_accept_transition
+    BEFORE UPDATE OF status ON follows
+    WHEN OLD.follower_ap_id = 'https://test.local/ap/users/bob'
+      AND OLD.following_ap_id = 'https://remote.example/users/alice'
+      AND NEW.status = 'accepted'
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated Accept storage failure');
+    END
+  `);
+
+  const app = new Hono();
+  app.use("*", async (c, next) => {
+    (c as unknown as { set: (key: string, value: unknown) => void }).set(
+      "db",
+      db,
+    );
+    await next();
+  });
+  app.route("/", inboxRoutes);
+
+  const body = JSON.stringify({
+    id: "https://remote.example/activities/accept-storage-retry",
+    type: "Accept",
+    actor: actorApId,
+    object: followActivityId,
+  });
+  const state = async () => ({
+    followStatus: (
+      await db
+        .select({ status: follows.status })
+        .from(follows)
+        .where(eq(follows.activityApId, followActivityId))
+        .get()
+    )?.status,
+    followingCount: (
+      await db
+        .select({ followingCount: actors.followingCount })
+        .from(actors)
+        .where(eq(actors.apId, localActor))
+        .get()
+    )?.followingCount,
+    processed: (
+      await db
+        .select({ processed: activities.processed })
+        .from(activities)
+        .where(eq(activities.type, "Accept"))
+        .get()
+    )?.processed,
+  });
+
+  const first = await app.fetch(
+    await signedInboxRequest(body, privateKeyPem, `${actorApId}#main-key`),
+    { APP_URL: "https://test.local" },
+  );
+  const afterFailure = await state();
+
+  await db.run(sql`DROP TRIGGER reject_inbound_accept_transition`);
+  const retry = await app.fetch(
+    await signedInboxRequest(body, privateKeyPem, `${actorApId}#main-key`),
+    { APP_URL: "https://test.local" },
+  );
+  const afterRetry = await state();
+  const duplicate = await app.fetch(
+    await signedInboxRequest(body, privateKeyPem, `${actorApId}#main-key`),
+    { APP_URL: "https://test.local" },
+  );
+  const afterDuplicate = await state();
+
+  expect({
+    firstStatus: first.status,
+    retryAfter: first.headers.get("retry-after"),
+    afterFailure,
+    retryStatus: retry.status,
+    afterRetry,
+    duplicateStatus: duplicate.status,
+    afterDuplicate,
+  }).toEqual({
+    firstStatus: 503,
+    retryAfter: "30",
+    afterFailure: {
+      followStatus: "pending",
+      followingCount: 0,
+      processed: 0,
+    },
+    retryStatus: 202,
+    afterRetry: {
+      followStatus: "accepted",
+      followingCount: 1,
+      processed: 1,
+    },
+    duplicateStatus: 202,
+    afterDuplicate: {
+      followStatus: "accepted",
+      followingCount: 1,
+      processed: 1,
+    },
+  });
 });
 
 function createSharedInboxDbMock(
