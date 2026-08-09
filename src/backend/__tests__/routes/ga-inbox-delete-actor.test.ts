@@ -1,10 +1,6 @@
 import { expect, test } from "bun:test";
-import { readFile, readdir } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
@@ -19,6 +15,7 @@ import type {
   Activity,
   ActivityContext,
 } from "../../routes/activitypub/inbox-types.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 // Audit #8 finding #4: an inbound Delete(Actor) (object === actor, the standard
 // way a remote announces account deletion) used to be a silent no-op — remote
@@ -32,13 +29,7 @@ const LOCAL = `${APP_URL}/ap/users/bob`;
 const REMOTE = "https://remote.example/users/alice";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  const files = (await readdir(root)).filter((f) => f.endsWith(".sql")).sort();
-  for (const f of files) {
-    await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function ctxFor(db: Database): ActivityContext {
@@ -55,6 +46,26 @@ const deleteActor = (actor: string): Activity =>
     actor,
     object: actor,
   }) as unknown as Activity;
+
+async function remoteDeleteState(db: Database) {
+  const local = await db
+    .select({
+      followerCount: actors.followerCount,
+      followingCount: actors.followingCount,
+    })
+    .from(actors)
+    .where(eq(actors.apId, LOCAL))
+    .get();
+  return {
+    local,
+    edges: (await db.select().from(follows))
+      .map((edge) => `${edge.followerApId}->${edge.followingApId}`)
+      .sort(),
+    cachedActors: (await db.select({ apId: actorCache.apId }).from(actorCache))
+      .map((actor) => actor.apId)
+      .sort(),
+  };
+}
 
 test("inbound Delete(Actor) tombstones a remote: purges actorCache, drops follow edges, reconciles counts, removes cached content", async () => {
   const db = await freshDb();
@@ -130,6 +141,101 @@ test("inbound Delete(Actor) tombstones a remote: purges actorCache, drops follow
       .length,
   ).toBe(0);
   expect((await db.select().from(likes)).length).toBe(0);
+});
+
+test("Delete(Actor) rolls back counterpart counters when a later teardown statement fails, then retries exactly", async () => {
+  const db = await freshDb();
+  const otherRemote = "https://other.example/users/carol";
+  await db.insert(actors).values({
+    apId: LOCAL,
+    type: "Person",
+    preferredUsername: "bob",
+    inbox: `${LOCAL}/inbox`,
+    outbox: `${LOCAL}/outbox`,
+    followersUrl: `${LOCAL}/followers`,
+    followingUrl: `${LOCAL}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    followerCount: 2,
+    followingCount: 2,
+  });
+  await db.insert(actorCache).values([
+    {
+      apId: REMOTE,
+      type: "Person",
+      inbox: `${REMOTE}/inbox`,
+      rawJson: "{}",
+    },
+    {
+      apId: otherRemote,
+      type: "Person",
+      inbox: `${otherRemote}/inbox`,
+      rawJson: "{}",
+    },
+  ]);
+  await db.insert(follows).values([
+    { followerApId: REMOTE, followingApId: LOCAL, status: "accepted" },
+    { followerApId: LOCAL, followingApId: REMOTE, status: "accepted" },
+    { followerApId: otherRemote, followingApId: LOCAL, status: "accepted" },
+    { followerApId: LOCAL, followingApId: otherRemote, status: "accepted" },
+  ]);
+
+  // The pre-fix teardown decremented followerCount first, then followingCount
+  // in a separate commit. Reject only the historically-second update: retrying
+  // while both remote follow edges remain must not decrement followerCount a
+  // second time.
+  await db.run(sql`
+    CREATE TRIGGER reject_second_remote_actor_counter_update
+    BEFORE UPDATE OF following_count ON actors
+    WHEN OLD.ap_id = 'https://yuru.test/ap/users/bob'
+      AND NEW.following_count = OLD.following_count - 1
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated remote actor teardown failure');
+    END
+  `);
+
+  let failed = false;
+  try {
+    await handleDelete(ctxFor(db), deleteActor(REMOTE));
+  } catch {
+    failed = true;
+  }
+  const afterFailure = await remoteDeleteState(db);
+
+  await db.run(sql`DROP TRIGGER reject_second_remote_actor_counter_update`);
+  await handleDelete(ctxFor(db), deleteActor(REMOTE));
+  const afterRetry = await remoteDeleteState(db);
+  await handleDelete(ctxFor(db), deleteActor(REMOTE));
+  const afterDuplicate = await remoteDeleteState(db);
+
+  const originalEdges = [
+    `${LOCAL}->${REMOTE}`,
+    `${LOCAL}->${otherRemote}`,
+    `${REMOTE}->${LOCAL}`,
+    `${otherRemote}->${LOCAL}`,
+  ].sort();
+  const survivingEdges = [
+    `${LOCAL}->${otherRemote}`,
+    `${otherRemote}->${LOCAL}`,
+  ].sort();
+  expect({ failed, afterFailure, afterRetry, afterDuplicate }).toEqual({
+    failed: true,
+    afterFailure: {
+      local: { followerCount: 2, followingCount: 2 },
+      edges: originalEdges,
+      cachedActors: [REMOTE, otherRemote].sort(),
+    },
+    afterRetry: {
+      local: { followerCount: 1, followingCount: 1 },
+      edges: survivingEdges,
+      cachedActors: [otherRemote],
+    },
+    afterDuplicate: {
+      local: { followerCount: 1, followingCount: 1 },
+      edges: survivingEdges,
+      cachedActors: [otherRemote],
+    },
+  });
 });
 
 // Audit #18: a Delete(Person) must also reconcile the like/announce/share counts

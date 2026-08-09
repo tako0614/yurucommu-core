@@ -1123,160 +1123,165 @@ async function handleRemoteActorDelete(
 ): Promise<void> {
   const db = c.get("db");
 
-  // Counterpart count reconcile BEFORE dropping edges (mirrors actors.ts):
-  // everyone the deleted remote followed loses a follower; everyone who followed
-  // it loses a following. The subquery naturally scopes to LOCAL actors (remote
-  // actors have no `actors` row); gt(...,0) guards underflow.
-  await db
-    .update(actors)
-    .set({ followerCount: sql`${actors.followerCount} - 1` })
-    .where(
-      and(
-        inArray(
-          actors.apId,
-          db
-            .select({ id: follows.followingApId })
-            .from(follows)
-            .where(eq(follows.followerApId, actorId)),
-        ),
-        gt(actors.followerCount, 0),
-      ),
-    );
-  await db
-    .update(actors)
-    .set({ followingCount: sql`${actors.followingCount} - 1` })
-    .where(
-      and(
-        inArray(
-          actors.apId,
-          db
-            .select({ id: follows.followerApId })
-            .from(follows)
-            .where(eq(follows.followingApId, actorId)),
-        ),
-        gt(actors.followingCount, 0),
-      ),
-    );
-  await db
-    .delete(follows)
-    .where(
-      or(eq(follows.followerApId, actorId), eq(follows.followingApId, actorId)),
-    );
-
-  // Recompute the replyCount of any LOCAL parent the remote's cached objects
-  // replied to, counting only the replies that will REMAIN (not authored by the
-  // deleted remote), BEFORE the cascade removes them (mirrors actors.ts).
-  await db
-    .update(objects)
-    .set({
-      replyCount: sql`(SELECT COUNT(*) FROM objects AS child WHERE child.in_reply_to = ${objects.apId} AND child.attributed_to <> ${actorId})`,
-    })
-    .where(
-      inArray(
-        objects.apId,
-        db
-          .select({ id: objects.inReplyTo })
-          .from(objects)
-          .where(
-            and(
-              eq(objects.attributedTo, actorId),
-              isNotNull(objects.inReplyTo),
-            ),
-          ),
-      ),
-    );
-
-  // Reconcile the like/announce/share counters on OTHER objects the deleted
-  // remote INTERACTED with, BEFORE dropping its edges — mirrors the local
-  // account-delete griefing defense (actors.ts). A throwaway remote could ratchet
-  // a local post's like/announce/share counts then self-delete via a signed
-  // Delete(Person); without this those counts stay permanently inflated and the
-  // edge rows orphan (the object-scoped cascade below only reaps interactions ON
-  // the remote's OWN posts, not the ones it authored on others'). gt(...,0) guards
-  // underflow; the subquery scopes without splicing ids (D1 param ceiling).
-  await db
-    .update(objects)
-    .set({ likeCount: sql`${objects.likeCount} - 1` })
-    .where(
-      and(
-        inArray(
-          objects.apId,
-          db
-            .select({ id: likes.objectApId })
-            .from(likes)
-            .where(eq(likes.actorApId, actorId)),
-        ),
-        gt(objects.likeCount, 0),
-      ),
-    );
-  await db
-    .update(objects)
-    .set({ announceCount: sql`${objects.announceCount} - 1` })
-    .where(
-      and(
-        inArray(
-          objects.apId,
-          db
-            .select({ id: announces.objectApId })
-            .from(announces)
-            .where(eq(announces.actorApId, actorId)),
-        ),
-        gt(objects.announceCount, 0),
-      ),
-    );
-  await db
-    .update(objects)
-    .set({ shareCount: sql`${objects.shareCount} - 1` })
-    .where(
-      and(
-        inArray(
-          objects.apId,
-          db
-            .select({ id: storyShares.storyApId })
-            .from(storyShares)
-            .where(eq(storyShares.actorApId, actorId)),
-        ),
-        gt(objects.shareCount, 0),
-      ),
-    );
-  // Delete the interaction edges the remote AUTHORED on OTHER objects.
-  await db.delete(likes).where(eq(likes.actorApId, actorId));
-  await db.delete(announces).where(eq(announces.actorApId, actorId));
-  await db.delete(bookmarks).where(eq(bookmarks.actorApId, actorId));
-  await db.delete(storyShares).where(eq(storyShares.actorApId, actorId));
-  await db.delete(storyVotes).where(eq(storyVotes.actorApId, actorId));
-  await db.delete(storyViews).where(eq(storyViews.actorApId, actorId));
-
-  // Cascade child rows keyed by the remote's authored objects (no FK cascade on
-  // prod D1), then the objects themselves. A fresh subquery per statement avoids
-  // shared-AST reuse.
+  // A Delete(actor) is one authority transition: the remote identity, its
+  // relationship authority, cached content, and every denormalized counter
+  // must disappear together. Keeping these as independent commits made retry
+  // unsafe: a failure after one counterpart counter decrement but before the
+  // follow delete let the retry observe the same edge and decrement again.
+  // D1 batch is the only atomic multi-statement primitive available here.
   const remoteObjectIds = () =>
     db
       .select({ id: objects.apId })
       .from(objects)
       .where(eq(objects.attributedTo, actorId));
-  await db.delete(likes).where(inArray(likes.objectApId, remoteObjectIds()));
-  await db
-    .delete(announces)
-    .where(inArray(announces.objectApId, remoteObjectIds()));
-  await db
-    .delete(bookmarks)
-    .where(inArray(bookmarks.objectApId, remoteObjectIds()));
-  await db
-    .delete(objectRecipients)
-    .where(inArray(objectRecipients.objectApId, remoteObjectIds()));
-  await db
-    .delete(storyVotes)
-    .where(inArray(storyVotes.storyApId, remoteObjectIds()));
-  await db
-    .delete(storyViews)
-    .where(inArray(storyViews.storyApId, remoteObjectIds()));
-  await db
-    .delete(storyShares)
-    .where(inArray(storyShares.storyApId, remoteObjectIds()));
-  await db.delete(objects).where(eq(objects.attributedTo, actorId));
 
-  await db.delete(actorCache).where(eq(actorCache.apId, actorId));
+  // Counterpart count reconcile BEFORE dropping edges (mirrors actors.ts):
+  // everyone the deleted remote followed loses a follower; everyone who followed
+  // it loses a following. The subquery naturally scopes to LOCAL actors (remote
+  // actors have no `actors` row); gt(...,0) guards underflow.
+  await runBatch(db, [
+    db
+      .update(actors)
+      .set({ followerCount: sql`${actors.followerCount} - 1` })
+      .where(
+        and(
+          inArray(
+            actors.apId,
+            db
+              .select({ id: follows.followingApId })
+              .from(follows)
+              .where(eq(follows.followerApId, actorId)),
+          ),
+          gt(actors.followerCount, 0),
+        ),
+      ),
+    db
+      .update(actors)
+      .set({ followingCount: sql`${actors.followingCount} - 1` })
+      .where(
+        and(
+          inArray(
+            actors.apId,
+            db
+              .select({ id: follows.followerApId })
+              .from(follows)
+              .where(eq(follows.followingApId, actorId)),
+          ),
+          gt(actors.followingCount, 0),
+        ),
+      ),
+    db
+      .delete(follows)
+      .where(
+        or(
+          eq(follows.followerApId, actorId),
+          eq(follows.followingApId, actorId),
+        ),
+      ),
+
+    // Recompute the replyCount of any LOCAL parent the remote's cached objects
+    // replied to, counting only replies that will remain after this batch.
+    db
+      .update(objects)
+      .set({
+        replyCount: sql`(SELECT COUNT(*) FROM objects AS child WHERE child.in_reply_to = ${objects.apId} AND child.attributed_to <> ${actorId})`,
+      })
+      .where(
+        inArray(
+          objects.apId,
+          db
+            .select({ id: objects.inReplyTo })
+            .from(objects)
+            .where(
+              and(
+                eq(objects.attributedTo, actorId),
+                isNotNull(objects.inReplyTo),
+              ),
+            ),
+        ),
+      ),
+
+    // Reconcile counters on OTHER objects the remote interacted with before
+    // dropping those edges. The subqueries stay bounded and D1-param-safe.
+    db
+      .update(objects)
+      .set({ likeCount: sql`${objects.likeCount} - 1` })
+      .where(
+        and(
+          inArray(
+            objects.apId,
+            db
+              .select({ id: likes.objectApId })
+              .from(likes)
+              .where(eq(likes.actorApId, actorId)),
+          ),
+          gt(objects.likeCount, 0),
+        ),
+      ),
+    db
+      .update(objects)
+      .set({ announceCount: sql`${objects.announceCount} - 1` })
+      .where(
+        and(
+          inArray(
+            objects.apId,
+            db
+              .select({ id: announces.objectApId })
+              .from(announces)
+              .where(eq(announces.actorApId, actorId)),
+          ),
+          gt(objects.announceCount, 0),
+        ),
+      ),
+    db
+      .update(objects)
+      .set({ shareCount: sql`${objects.shareCount} - 1` })
+      .where(
+        and(
+          inArray(
+            objects.apId,
+            db
+              .select({ id: storyShares.storyApId })
+              .from(storyShares)
+              .where(eq(storyShares.actorApId, actorId)),
+          ),
+          gt(objects.shareCount, 0),
+        ),
+      ),
+
+    // Delete interaction edges the remote authored on other objects.
+    db.delete(likes).where(eq(likes.actorApId, actorId)),
+    db.delete(announces).where(eq(announces.actorApId, actorId)),
+    db.delete(bookmarks).where(eq(bookmarks.actorApId, actorId)),
+    db.delete(storyShares).where(eq(storyShares.actorApId, actorId)),
+    db.delete(storyVotes).where(eq(storyVotes.actorApId, actorId)),
+    db.delete(storyViews).where(eq(storyViews.actorApId, actorId)),
+
+    // Cascade child rows keyed by the remote's authored objects (no FK cascade
+    // is assumed), then remove the objects and cached identity itself. A fresh
+    // subquery per statement avoids shared-AST reuse.
+    db.delete(likes).where(inArray(likes.objectApId, remoteObjectIds())),
+    db
+      .delete(announces)
+      .where(inArray(announces.objectApId, remoteObjectIds())),
+    db
+      .delete(bookmarks)
+      .where(inArray(bookmarks.objectApId, remoteObjectIds())),
+    db
+      .delete(objectRecipients)
+      .where(inArray(objectRecipients.objectApId, remoteObjectIds())),
+    db
+      .delete(storyVotes)
+      .where(inArray(storyVotes.storyApId, remoteObjectIds())),
+    db
+      .delete(storyViews)
+      .where(inArray(storyViews.storyApId, remoteObjectIds())),
+    db
+      .delete(storyShares)
+      .where(inArray(storyShares.storyApId, remoteObjectIds())),
+    db.delete(objects).where(eq(objects.attributedTo, actorId)),
+    db.delete(actorCache).where(eq(actorCache.apId, actorId)),
+  ]);
 
   log.info("Processed inbound Delete(actor)", {
     event: "ap.delete.actor",
