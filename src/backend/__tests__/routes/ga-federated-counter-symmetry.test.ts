@@ -430,6 +430,88 @@ test("bare-id Undo resolves a colliding same-origin wire id only within the sign
   expect(await likeCount(db)).toBe(1);
 });
 
+test("bare-id Undo reaches a cosmetic legacy activity behind 64 same-origin siblings", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob");
+  await seedActor(db, REMOTE_ALICE_COSMETIC, "alice");
+  await db.insert(objects).values({
+    apId: OBJECT_AP_ID,
+    type: "Note",
+    attributedTo: LOCAL_BOB,
+    content: "hi",
+    likeCount: 1,
+  });
+  const wireId = "https://remote.example/activities/reused-legacy-like";
+  const targetInternalId = `${APP_URL}/ap/activities/legacy-like-target`;
+  await db.run(sql`
+    WITH RECURSIVE numbers(n) AS (
+      VALUES (0)
+      UNION ALL
+      SELECT n + 1 FROM numbers WHERE n < 63
+    )
+    INSERT INTO activities (
+      ap_id, type, actor_ap_id, object_ap_id, raw_json, direction, processed,
+      created_at
+    )
+    SELECT
+      ${APP_URL} || '/ap/activities/legacy-like-sibling-' || n,
+      'Like',
+      CASE WHEN n = 0 THEN ${SAME_HOST_MALLORY}
+        ELSE 'https://remote.example/users/sibling-' || n END,
+      ${OBJECT_AP_ID},
+      json_object('id', ${wireId}, 'type', 'Like'),
+      'inbound', 1, '2026-08-09T00:00:00.000Z'
+    FROM numbers
+  `);
+  await db.insert(schema.activities).values({
+    apId: targetInternalId,
+    type: "Like",
+    actorApId: REMOTE_ALICE_COSMETIC,
+    objectApId: OBJECT_AP_ID,
+    rawJson: JSON.stringify({ id: wireId, type: "Like" }),
+    direction: "inbound",
+    processed: 1,
+  });
+  await db.insert(likes).values({
+    actorApId: REMOTE_ALICE_COSMETIC,
+    objectApId: OBJECT_AP_ID,
+    activityApId: targetInternalId,
+  });
+
+  const undo = (actor: string) =>
+    ({
+      id: `${actor}/activities/undo-reused-legacy-like`,
+      type: "Undo",
+      actor,
+      object: wireId,
+    }) as unknown as Activity;
+
+  await handleUndo(
+    ctxFor(db),
+    undo(SAME_HOST_MALLORY),
+    recipientRow(LOCAL_BOB),
+    SAME_HOST_MALLORY,
+    APP_URL,
+  );
+  expect(await likeCount(db)).toBe(1);
+
+  await handleUndo(
+    ctxFor(db),
+    undo(REMOTE_ALICE),
+    recipientRow(LOCAL_BOB),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+  expect(await likeCount(db)).toBe(0);
+  expect(
+    await db
+      .select()
+      .from(likes)
+      .where(eq(likes.activityApId, targetInternalId))
+      .get(),
+  ).toBeUndefined();
+});
+
 // ---------------------------------------------------------------------------
 // handleAccept — co-committed flip + increments (no permanent UNDER-count)
 // ---------------------------------------------------------------------------

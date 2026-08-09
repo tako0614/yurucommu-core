@@ -3,13 +3,12 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import { activities } from "../../../db/index.ts";
 import { isSameActivityPubActor } from "../../lib/activitypub-actor-identity.ts";
+import { activityPubActorIdentityMatchesSql } from "../../lib/activitypub-actor-identity-sql.ts";
 import {
   isBoundedHttpActivityId,
   isTrustedRemoteActivityId,
 } from "../../lib/remote-activity-id.ts";
 import { internalInboundActivityId } from "./inbound-activity-identity.ts";
-
-const LEGACY_REFERENCE_CANDIDATE_LIMIT = 64;
 
 /**
  * Resolve an Activity reference controlled by a verified remote actor to the
@@ -85,23 +84,33 @@ export async function resolveInboundActivityReference(
   if (retainedExact) return retainedExact.apId;
 
   // Older rows may retain the same key owner under an accepted cosmetic actor
-  // spelling. This compatibility path is deliberately bounded; current rows
-  // always hit the deterministic lookup above. Compare in JS so host case is
-  // insensitive without accidentally making the case-sensitive path so.
-  const retainedLegacyCandidates = await db
+  // spelling. Search the complete candidate set in SQL: a public wire id can
+  // collide across arbitrarily many same-origin sibling actors, so a fixed JS
+  // prefix made the legitimate signer-dependent row unreachable. The shared
+  // identity matcher keeps path case and sibling actor paths distinct while
+  // using a constant parameter count.
+  const retainedLegacyActors = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${activities.actorApId}
+      FROM ${activities}
+      WHERE ${activities.direction} = 'inbound'
+        AND CASE WHEN json_valid(${activities.rawJson})
+          THEN json_extract(${activities.rawJson}, '$.id')
+          ELSE NULL END = ${reference}
+    `,
+    actorApId,
+  );
+  const retainedLegacy = await db
     .select({ apId: activities.apId, actorApId: activities.actorApId })
     .from(activities)
     .where(
       and(
         eq(activities.direction, "inbound"),
         sql`CASE WHEN json_valid(${activities.rawJson}) THEN json_extract(${activities.rawJson}, '$.id') ELSE NULL END = ${reference}`,
+        sql`${activities.actorApId} IN (${retainedLegacyActors})`,
       ),
     )
-    .limit(LEGACY_REFERENCE_CANDIDATE_LIMIT)
-    .all();
-  return (
-    retainedLegacyCandidates.find((candidate) =>
-      isSameActivityPubActor(candidate.actorApId, actorApId),
-    )?.apId ?? null
-  );
+    .limit(1)
+    .get();
+  return retainedLegacy?.apId ?? null;
 }
