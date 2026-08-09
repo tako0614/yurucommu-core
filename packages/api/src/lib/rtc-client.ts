@@ -269,18 +269,19 @@ export class CallClient {
       callId: string;
       iceServers: IceServerConfig[];
     };
-    this.call = this.newCall(
+    const call = this.newCall(
       data.callId,
       peer,
       media,
       "caller",
       data.iceServers,
     );
+    this.call = call;
     this.setState("calling");
     this.connect();
     this.send({ t: "invite", callId: data.callId, to: peer, media });
-    await this.setupMedia(this.call);
-    await this.makeOffer(this.call);
+    if (!(await this.setupMedia(call))) return;
+    await this.makeOffer(call);
   }
 
   /** Accept the current incoming call. */
@@ -289,11 +290,14 @@ export class CallClient {
     if (!call || call.role !== "callee") return;
     this.setState("connecting");
     this.send({ t: "accept", callId: call.callId });
-    await this.setupMedia(call);
+    if (!(await this.setupMedia(call))) return;
     // The offer was already applied on arrival; create + send the answer.
-    if (call.pc && call.remoteDescriptionSet) {
-      const answer = await call.pc.createAnswer();
-      await call.pc.setLocalDescription(answer);
+    const pc = call.pc;
+    if (pc && call.remoteDescriptionSet && this.isActiveCall(call)) {
+      const answer = await pc.createAnswer();
+      if (!this.isActivePeer(call, pc)) return;
+      await pc.setLocalDescription(answer);
+      if (!this.isActivePeer(call, pc)) return;
       this.send({ t: "answer", callId: call.callId, sdp: answer.sdp ?? "" });
     }
   }
@@ -477,24 +481,45 @@ export class CallClient {
   }
 
   // --- media + peer connection ---------------------------------------------
-  private async setupMedia(call: ActiveCall): Promise<void> {
+  private isActiveCall(call: ActiveCall): boolean {
+    return this.call === call;
+  }
+
+  private isActivePeer(call: ActiveCall, pc: RTCPeerConnection): boolean {
+    return this.isActiveCall(call) && call.pc === pc;
+  }
+
+  private async setupMedia(call: ActiveCall): Promise<boolean> {
+    if (!this.isActiveCall(call)) return false;
     if (!this.localStream) {
+      let stream: MediaStream;
       try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getUserMedia({
           audio: call.media.audio,
           video: call.media.video,
         });
       } catch (err) {
+        if (!this.isActiveCall(call)) return false;
         this.emit("error", "media_denied", String(err));
         this.hangup("media_denied");
-        return;
+        return false;
       }
+      if (!this.isActiveCall(call)) {
+        // Permission prompts resolve asynchronously. If the user cancelled or
+        // another call replaced this one while the prompt was open, the newly
+        // acquired tracks have no owner and must be stopped immediately.
+        stream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
+      this.localStream = stream;
       this.emit("localstream", this.localStream);
     }
+    if (!this.isActiveCall(call)) return false;
     if (!call.pc) this.buildPeerConnection(call);
     for (const track of this.localStream.getTracks()) {
       call.pc?.addTrack(track, this.localStream);
     }
+    return this.isActiveCall(call);
   }
 
   private buildPeerConnection(call: ActiveCall): void {
@@ -506,13 +531,16 @@ export class CallClient {
       })),
     });
     pc.onicecandidate = (ev) => {
+      if (!this.isActivePeer(call, pc)) return;
       if (ev.candidate) this.bufferCandidate(call, ev.candidate.toJSON());
       else this.flushCandidates(call);
     };
     pc.ontrack = (ev) => {
+      if (!this.isActivePeer(call, pc)) return;
       this.emit("remotestream", ev.streams[0] ?? null);
     };
     pc.onconnectionstatechange = () => {
+      if (!this.isActivePeer(call, pc)) return;
       if (pc.connectionState === "connected") this.setState("connected");
       else if (
         pc.connectionState === "failed" ||
@@ -525,9 +553,14 @@ export class CallClient {
   }
 
   private async makeOffer(call: ActiveCall): Promise<void> {
+    if (!this.isActiveCall(call)) return;
     if (!call.pc) this.buildPeerConnection(call);
-    const offer = await call.pc!.createOffer();
-    await call.pc!.setLocalDescription(offer);
+    const pc = call.pc;
+    if (!pc) return;
+    const offer = await pc.createOffer();
+    if (!this.isActivePeer(call, pc)) return;
+    await pc.setLocalDescription(offer);
+    if (!this.isActivePeer(call, pc)) return;
     this.send({ t: "offer", callId: call.callId, sdp: offer.sdp ?? "" });
   }
 

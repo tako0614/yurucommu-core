@@ -440,13 +440,14 @@ ap.get(
       following: showCollections ? actor.followingUrl : undefined,
       // Advertise sharedInbox so remote servers can deduplicate fan-out
       // delivery (Mastodon convention). The endpoint accepts signed
-      // activities just like the per-actor inbox. `rtcSignal` advertises the
-      // call-signaling ingest so a caller's instance can reach this user
-      // directly (yurucommu extension; peers that don't recognize it just fall
-      // back to deriving it from the inbox origin).
+      // activities just like the per-actor inbox. `rtcSignal` is a Yurucommu
+      // extension and must be advertised only when this exact deployment has a
+      // signaling namespace; otherwise peers are sent to a permanent 503.
       endpoints: {
         sharedInbox: `${baseUrl}/ap/inbox`,
-        rtcSignal: `${baseUrl}/ap/rtc/signal`,
+        ...(c.env.CALL_SIGNALING
+          ? { rtcSignal: `${baseUrl}/ap/rtc/signal` }
+          : {}),
       },
       publicKey: buildPublicKey(actor.apId, actor.publicKeyPem),
       discoverable: !actor.isPrivate,

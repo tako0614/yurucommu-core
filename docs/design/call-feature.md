@@ -133,40 +133,40 @@ env は `EnvVars`（`types.ts`）に追加済み。secret（`_TURN_SECRET`/`_SFU
 
 ---
 
-## 9. Deploy 配線（Phase 2、両プロダクト）
+## 9. Product / deploy 配線（未実装）
 
-1. `public.ts` の DO re-export（済）＋ 両 `scripts/build-*-worker.ts` の `createEntrySource` に `export { CallSignalingDurableObject } from "@takosjp/yurucommu-core/server";` ＋ `CALL_SIGNALING?: DurableObjectNamespace` を emit 型へ。
-2. 両 `wrangler.jsonc`: `durable_objects.bindings`（`CALL_SIGNALING`→`CallSignalingDurableObject`）+ `migrations`（`new_sqlite_classes`）+ RTC `vars`/secret。
-3. 両 `main.tf`/`outputs.tf`: DO namespace binding + `new_sqlite_classes` + RTC `plain_text`/`secret_text` + `variable`。
+以下は通話を採用するproductが所有する未実装作業である。現行の`yurucommu`/`yurumeet`はこの配線を持たない。
+
+1. `public.ts` の DO re-export（Core側は済）に加え、各 `scripts/build-*-worker.ts` の生成entryから `CallSignalingDurableObject` をre-exportし、`CALL_SIGNALING?: DurableObjectNamespace`をbinding型へ追加する。
+2. 各 `wrangler.jsonc` に `CALL_SIGNALING` binding、`new_sqlite_classes` migration、RTC vars/secretを追加する。
+3. 各 `main.tf`/`outputs.tf` にDO namespace binding、migration、RTC用variable/connectionを追加する。
 4. **realtime-websocket-fanout と同時に DO を足す場合**、`migrations` の `new_sqlite_classes` は両クラスを1 tag で宣言し tag 競合を避ける。
 
 ---
 
-## 10. 実装状況（2026-07-16, session 2 まで）
+## 10. 実装状況（2026-08-09 current source）
 
 **DONE — Phase 1 core engine（session 1、gates green）**:
 
-- wire contract / `CallHub` / `CallSignalingDurableObject` / `ISignalingHub` seam / port factory / `RtcProvider` / `signal-transport` / `call-store` / routes / `call_sessions` schema + migration `0020` / actor doc advertise / DO re-export / 共有 `CallClient`。
+- wire contract / `CallHub` / `CallSignalingDurableObject` / `ISignalingHub` seam / port factory / `RtcProvider` / `signal-transport` / `call-store` / routes / `call_sessions` schema + migration `0020` / DO re-export / 共有 `CallClient`。
 - index.ts: Env+binding+RTC env+route mount+rate-limit+101 guard+Permissions-Policy 修正。shim に DO 型。
 - **test**: `__tests__/rtc/call-hub.test.ts` 6/6 green（full 1:1 / reject / glare / stale-TTL / timeout）。
-- **gates**: core `tsc` 0 / api `tsc` 0 / api build OK / `bun run check` 0 / `check:release-contents` 0 / core full suite 848/848。
+- actor文書の`endpoints.rtcSignal`は`CALL_SIGNALING` bindingがあるdeploymentだけで広告する。未配線productは存在しないcapabilityをremote peerへ宣言しない。
 
-**DONE — release + Phase 2（session 2）**:
+**未実装 — Product UI / deploy wiring**:
 
-1. **`@takosjp/yurucommu-core@3.3.0` + `@takosjp/yurucommu-api@3.3.0` を npm に publish 済み**（当時の integrity 検証付き公開手順）。両 product deps `^3.3.0` に bump + install 済み。
-2. **Phase 2 UI 実装済み（両 product）**: yurumeet = `src/lib/call-context.tsx` (`CallProvider`/`useCall`) + `src/components/CallOverlay.tsx` + `ChatPane.tsx` header の音声/ビデオボタン + `styles.css` `.p-call*`、main.tsx に mount。yurucommu = `src/lib/call-context.tsx`（jotai toast 連携）+ `src/components/call/CallOverlay.tsx`（Tailwind dark）+ `DMChatPanel.tsx` header ボタン + i18n `call.*` keys（ja/en parity test green）、`App.tsx` AppShell に mount。※両 product とも wrapper は Solid context に統一（jotai は toast のみ）。
-3. **deploy 配線済み（両 product）**: `wrangler.jsonc`（`durable_objects.bindings` CALL_SIGNALING + `migrations` tag `calls-v1` new_sqlite_classes）/ `scripts/build-*-worker.ts` の生成 entry に DO re-export + `CALL_SIGNALING` binding 型 / `main.tf`（DO migrations + `durable_object_namespace` binding + `rtc_ice_servers`/`rtc_turn_uris`/`rtc_turn_secret`(sensitive)/`rtc_turn_ttl` variables + 条件付き bindings + turn_uris⇔turn_secret precondition）。**`tofu validate` 両 product green**。
-4. **検証**: 生成 worker entry を installed 3.3.0 で bundle し `CallSignalingDurableObject` の top-level export を両 product で直接確認。call 関連ファイルは両 product とも tsc clean。
-
-**注記（並行作業との干渉）**: 同一 working tree で realtime-websocket-fanout（§11）が並行実装中。product 全体の `tsc`/`vite build` は現在**先方の WIP**（`src/lib/realtime.ts` が未 publish の `createRealtimeClient` を import）で一時的に赤 — call 機能側の欠陥ではなく、realtime 側の api client が 3.4.0 として release されれば解消。deploy の DO migrations tag は call=`calls-v1`; realtime 側は別 tag（例 `realtime-v1`）を追加すること。
+1. 現行`yurucommu`/`yurumeet`のsourceには`CallClient`利用、call context/overlay/button、通話i18nが存在しない。
+2. 現行の生成Worker entry、`wrangler.jsonc`、`main.tf`に`CALL_SIGNALING`/`CallSignalingDurableObject`配線は存在しない。
+3. したがってCoreのprotocol testはgreenでも、どちらのproductにもユーザーが利用できる通話surfaceはなく、2-instance browser E2Eを成功したとは扱えない。
+4. 以前この文書にあった「Phase 2 UI/deploy配線済み」という記録はcurrent sourceと一致しないため撤回した。実装する場合はproduct側の正本・差分・owner gateを証拠とする。
 
 **残**:
 
-1. **E2E 検証**（`wrangler dev` 2 instance + Chrome fake-device で 1:1 音声+ビデオ / mute / camera / hangup）— 上記 realtime WIP の解消（api 3.4.x publish）で product build が通り次第実施。
-2. bun WS local hub の server.ts 配線（非 CF self-host。`LocalSignalingHub.attach/message/detach` は実装済み。tree 安定後）。
-3. ~~WS 認証を realtime 側の短命チケット方式に unify~~ — 2026-08-09に共通one-time-ticket primitiveで完了。
-4. Phase 3 group SFU（WHIP/WHEP token 実発行）、Phase 4 Tauri mobile（`call.incoming` push category）。
-5. Capsule release（worker.js artifact + `worker_release_tag`）を次回タグ時に両 product で cut（installs は release artifact を pull）。
+1. 各productが通話を採用するかを決め、採用するproductでUIと§9のruntime/Capsule配線を実装する。
+2. 配線後に2 instance + Chrome fake-deviceで1:1音声+ビデオ / mute / camera / hangupをE2E検証する。
+3. bun WS local hub のserver.ts配線（非CF self-host。`LocalSignalingHub.attach/message/detach`は実装済み）。
+4. ~~WS認証をrealtime側の短命ticket方式にunify~~ — 2026-08-09に共通one-time-ticket primitiveで完了。
+5. 採用後のPhase 3 group SFU（WHIP/WHEP token実発行）、Phase 4 Tauri mobile（`call.incoming` push category）。
 
 ---
 

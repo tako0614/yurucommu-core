@@ -62,15 +62,38 @@ function createApp(db: ReturnType<typeof createDbMock>) {
   return app;
 }
 
-async function getActorDoc(username: string) {
+async function getActorDoc(
+  username: string,
+  env: Record<string, unknown> = { APP_URL: "https://test.local" },
+) {
   const db = createDbMock(username);
   const app = createApp(db);
   const res = await app.fetch(
     new Request(`https://test.local/ap/users/${username}`),
-    { APP_URL: "https://test.local" },
+    env,
   );
   return { res, body: (await res.json()) as Record<string, unknown> };
 }
+
+test("served actor doc advertises RTC signaling only when the binding exists", async () => {
+  const unavailable = await getActorDoc("no-rtc");
+  const unavailableEndpoints = unavailable.body.endpoints as Record<
+    string,
+    unknown
+  >;
+  expect(unavailableEndpoints.sharedInbox).toBe("https://test.local/ap/inbox");
+  expect(unavailableEndpoints.rtcSignal).toBeUndefined();
+
+  const available = await getActorDoc("with-rtc", {
+    APP_URL: "https://test.local",
+    CALL_SIGNALING: {},
+  });
+  const availableEndpoints = available.body.endpoints as Record<
+    string,
+    unknown
+  >;
+  expect(availableEndpoints.rtcSignal).toBe("https://test.local/ap/rtc/signal");
+});
 
 test("served actor doc @context includes Mastodon extension terms", async () => {
   const { res, body } = await getActorDoc("context-user");

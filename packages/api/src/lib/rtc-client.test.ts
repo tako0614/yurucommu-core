@@ -208,3 +208,141 @@ test("CallClient preserves the initial invite and offer until the ticket socket 
     globalThis.RTCPeerConnection = originalPeerConnection;
   }
 });
+
+test("CallClient stops late media and sends no offer after hangup during permission", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWebSocket = globalThis.WebSocket;
+  const originalNavigator = globalThis.navigator;
+  const originalPeerConnection = globalThis.RTCPeerConnection;
+  const sockets: FakeCallSocket[] = [];
+  let mediaRequested = false;
+  let resolveMedia!: (stream: MediaStream) => void;
+  let stoppedTracks = 0;
+
+  class FakeCallSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    readyState = FakeCallSocket.CONNECTING;
+    readonly sent: unknown[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((event: MessageEvent) => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+
+    constructor() {
+      sockets.push(this);
+      queueMicrotask(() => {
+        this.readyState = FakeCallSocket.OPEN;
+        this.onopen?.();
+      });
+    }
+
+    send(data: string): void {
+      this.sent.push(JSON.parse(data));
+    }
+
+    close(): void {}
+  }
+
+  class FakePeerConnection {
+    connectionState = "new";
+    onicecandidate: ((event: { candidate: null }) => void) | null = null;
+    ontrack: ((event: { streams: MediaStream[] }) => void) | null = null;
+    onconnectionstatechange: (() => void) | null = null;
+
+    addTrack(): void {}
+    async createOffer(): Promise<RTCSessionDescriptionInit> {
+      return { type: "offer", sdp: "stale-offer" };
+    }
+    async setLocalDescription(): Promise<void> {}
+    getSenders(): RTCRtpSender[] {
+      return [];
+    }
+    close(): void {}
+  }
+
+  try {
+    setYurucommuApiTransport({
+      credentials: "include",
+      resolveUrl(path) {
+        return new URL(path, "https://server.example/").toString();
+      },
+      getAuthHeaders() {
+        return {};
+      },
+    });
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/rtc/calls") {
+        return Response.json({ callId: "call-late-media", iceServers: [] });
+      }
+      if (url.pathname === "/api/rtc/ticket") {
+        return Response.json({
+          ticket: "ticket-late-media",
+          actor_ap_id: "https://server.example/ap/users/owner",
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    }) as typeof fetch;
+    globalThis.WebSocket = FakeCallSocket as unknown as typeof WebSocket;
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: {
+        mediaDevices: {
+          getUserMedia() {
+            mediaRequested = true;
+            return new Promise<MediaStream>((resolve) => {
+              resolveMedia = resolve;
+            });
+          },
+        },
+      },
+    });
+    globalThis.RTCPeerConnection =
+      FakePeerConnection as unknown as typeof RTCPeerConnection;
+
+    const client = new CallClient();
+    const starting = client.startCall("https://peer.example/ap/users/alice", {
+      audio: true,
+      video: true,
+    });
+    for (let attempt = 0; attempt < 20 && !mediaRequested; attempt++) {
+      await Bun.sleep(1);
+    }
+    expect(mediaRequested).toBe(true);
+
+    client.hangup("cancelled_during_permission");
+    resolveMedia({
+      getTracks: () => [
+        {
+          stop() {
+            stoppedTracks += 1;
+          },
+        },
+      ],
+      getAudioTracks: () => [],
+      getVideoTracks: () => [],
+    } as unknown as MediaStream);
+    await starting;
+    for (let attempt = 0; attempt < 20 && sockets.length === 0; attempt++) {
+      await Bun.sleep(1);
+    }
+
+    expect(stoppedTracks).toBe(1);
+    expect(
+      sockets.flatMap((socket) =>
+        socket.sent.map((frame) => (frame as { t: string }).t),
+      ),
+    ).not.toContain("offer");
+    client.disconnect();
+  } finally {
+    clearYurucommuApiTransport();
+    globalThis.fetch = originalFetch;
+    globalThis.WebSocket = originalWebSocket;
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: originalNavigator,
+    });
+    globalThis.RTCPeerConnection = originalPeerConnection;
+  }
+});
