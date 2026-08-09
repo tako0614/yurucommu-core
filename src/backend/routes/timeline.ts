@@ -475,7 +475,7 @@ async function handleCommunityTimeline(
     return c.json({ error: "Not a community member" }, 403);
   }
 
-  const excludeAuthors = excludeBlockedMutedAuthors(db, viewerApId);
+  const excludeAuthors = excludeBlockedMutedAuthors(viewerApId);
 
   // This is the home "narrow to a community" filter: it shows the slice of the
   // viewer's reach that belongs to this community — (1) posts deliberately
@@ -565,7 +565,7 @@ timeline.get(
     const before = c.req.query("before");
     const viewerApId = actor?.ap_id || "";
 
-    const excludeAuthors = excludeBlockedMutedAuthors(db, viewerApId);
+    const excludeAuthors = excludeBlockedMutedAuthors(viewerApId);
 
     const base = [
       eq(objects.type, "Note"),
@@ -702,7 +702,7 @@ timeline.get("/following", async (c) => {
   const before = c.req.query("before");
   const viewerApId = actor.ap_id;
 
-  const excludeAuthors = excludeBlockedMutedAuthors(db, viewerApId);
+  const excludeAuthors = excludeBlockedMutedAuthors(viewerApId);
 
   // Own posts: all visibilities except direct
   // Followed users' posts: public, unlisted, or followers visibility

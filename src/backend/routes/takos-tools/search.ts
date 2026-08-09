@@ -125,7 +125,7 @@ async function searchPosts(
         isNull(objects.deletedAt),
         // Honor the caller's block/mute filter, matching the web search +
         // feed surfaces (undefined for an anonymous caller → and() drops it).
-        excludeBlockedMutedAuthors(db, actor?.ap_id ?? ""),
+        excludeBlockedMutedAuthors(actor?.ap_id ?? ""),
       ),
     )
     .orderBy(desc(objects.published), desc(objects.apId))

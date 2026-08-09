@@ -361,8 +361,8 @@ export async function createRelation(
 
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: "ap_id required" }, 400);
-  const targetApId = canonicalPersonalModerationActorId(body.ap_id);
-  if (targetApId === canonicalPersonalModerationActorId(actor.ap_id)) {
+  const canonicalTargetApId = canonicalPersonalModerationActorId(body.ap_id);
+  if (canonicalTargetApId === canonicalPersonalModerationActorId(actor.ap_id)) {
     return c.json({ error: `Cannot ${verb} yourself` }, 400);
   }
 
@@ -373,7 +373,11 @@ export async function createRelation(
   if ((await countExisting(db, actor.ap_id)) >= MAX_RELATIONS_PER_ACTOR) {
     return c.json({ error: `${verb} limit reached` }, 429);
   }
-  await upsert(db, actor.ap_id, targetApId);
+  // Retain the exact actor spelling the user acted on. Feed queries expand
+  // this one row to raw + canonical identity, so historical content under the
+  // presented spelling and future canonical content are both suppressed
+  // without storing duplicate moderation rows or consuming the relation quota.
+  await upsert(db, actor.ap_id, body.ap_id);
 
   return c.json({ success: true });
 }

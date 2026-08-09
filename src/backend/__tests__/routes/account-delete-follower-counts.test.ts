@@ -781,7 +781,7 @@ test("POST /me/blocked severs both follow edges and decrements both counters", a
   expect((await countOf(db, mallory))?.followingCount).toBe(0);
 });
 
-test("personal block/mute routes canonicalize actor identity and remove legacy-equivalent rows", async () => {
+test("personal block/mute routes retain one presented identity and remove equivalent rows", async () => {
   const db = await freshDb();
   const tako = await insertActor(db, "tako");
   const cosmetic = "https://REMOTE.example:443/users/alice/#profile";
@@ -808,18 +808,18 @@ test("personal block/mute routes canonicalize actor identity and remove legacy-e
   }
   expect(
     (await db.select().from(blocks)).map((row) => row.blockedApId),
-  ).toEqual([canonical]);
+  ).toEqual([cosmetic]);
   expect((await db.select().from(mutes)).map((row) => row.mutedApId)).toEqual([
-    canonical,
+    cosmetic,
   ]);
 
-  // Simulate a pre-normalization duplicate. One canonical unblock/unmute must
+  // Simulate a canonical duplicate. One canonical unblock/unmute must
   // remove every equivalent row so the user's moderation intent really ends.
   await db.insert(blocks).values({
     blockerApId: tako,
-    blockedApId: cosmetic,
+    blockedApId: canonical,
   });
-  await db.insert(mutes).values({ muterApId: tako, mutedApId: cosmetic });
+  await db.insert(mutes).values({ muterApId: tako, mutedApId: canonical });
   for (const relation of ["blocked", "muted"]) {
     const remove = await app.fetch(
       new Request(`${APP_URL}/me/${relation}`, {

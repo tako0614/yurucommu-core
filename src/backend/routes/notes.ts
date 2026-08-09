@@ -99,7 +99,6 @@ async function loadActiveNotes(
     )!,
   ];
   const excludeAuthors = excludeBlockedMutedAuthors(
-    db,
     viewerApId,
     actorNotes.actorApId,
   );

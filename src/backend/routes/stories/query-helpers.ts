@@ -3,10 +3,8 @@ import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
   actors,
-  blocks,
   communityMembers,
   follows,
-  mutes,
   objects,
   storyVotes,
 } from "../../../db/index.ts";
@@ -134,32 +132,6 @@ export async function canViewerReadStory(
     )
     .get();
   return Boolean(follow);
-}
-
-// ---------------------------------------------------------------------------
-// Blocked / muted helpers
-// ---------------------------------------------------------------------------
-
-/** Fetch blocked and muted ap_ids for the given actor. */
-export async function fetchBlockedAndMutedIds(
-  db: Database,
-  actorApId: string,
-): Promise<{ blockedIds: string[]; mutedIds: string[] }> {
-  const [blockRows, muteRows] = await Promise.all([
-    db
-      .select({ blockedApId: blocks.blockedApId })
-      .from(blocks)
-      .where(eq(blocks.blockerApId, actorApId)),
-    db
-      .select({ mutedApId: mutes.mutedApId })
-      .from(mutes)
-      .where(eq(mutes.muterApId, actorApId)),
-  ]);
-
-  return {
-    blockedIds: blockRows.map((b) => b.blockedApId),
-    mutedIds: muteRows.map((m) => m.mutedApId),
-  };
 }
 
 // ---------------------------------------------------------------------------

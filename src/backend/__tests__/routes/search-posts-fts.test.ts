@@ -169,10 +169,14 @@ test("post search excludes blocked AND muted authors (moderation parity with fee
   await insertPost(db, blocked, "b1", "shared keyword foobar from blocked");
   await insertPost(db, muted, "m1", "shared keyword foobar from muted");
   await insertPost(db, visible, "o1", "shared keyword foobar from ok");
-  await db
-    .insert(schema.blocks)
-    .values({ blockerApId: viewer, blockedApId: blocked });
-  await db.insert(schema.mutes).values({ muterApId: viewer, mutedApId: muted });
+  await db.insert(schema.blocks).values({
+    blockerApId: viewer,
+    blockedApId: "https://YURU.test:443/ap/users/blockee/#profile",
+  });
+  await db.insert(schema.mutes).values({
+    muterApId: viewer,
+    mutedApId: "https://YURU.test/ap/users/mutee/",
+  });
 
   // App with the viewer as the authenticated actor.
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();

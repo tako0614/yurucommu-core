@@ -25,6 +25,7 @@ import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
+  blocks,
   communities,
   communityMembers,
   follows,
@@ -417,4 +418,53 @@ test("GET /:actorId personal stories are visible only to the author + accepted f
   ).toEqual([]);
   // Anonymous gets nothing.
   expect((await readActorStories(db, null, author, env)).ids).toEqual([]);
+});
+
+test("GET /:actorId suppresses a legacy cosmetic block without folding path case", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const author = await insertLocalActor(db, "author");
+  const pathCaseSibling = await insertLocalActor(db, "Author");
+  const follower = await insertLocalActor(db, "follower");
+
+  const blockedStory = await createStory(
+    db,
+    fakeActor(author, "author"),
+    env,
+    {},
+  );
+  const siblingStory = await createStory(
+    db,
+    fakeActor(pathCaseSibling, "Author"),
+    env,
+    {},
+  );
+  await db.insert(follows).values([
+    { followerApId: follower, followingApId: author, status: "accepted" },
+    {
+      followerApId: follower,
+      followingApId: pathCaseSibling,
+      status: "accepted",
+    },
+  ]);
+  await db.insert(blocks).values({
+    blockerApId: follower,
+    blockedApId: "https://YURU.test:443/ap/users/author/#profile",
+  });
+
+  expect(
+    (await readActorStories(db, fakeActor(follower, "follower"), author, env))
+      .ids,
+  ).toEqual([]);
+  expect(
+    (
+      await readActorStories(
+        db,
+        fakeActor(follower, "follower"),
+        pathCaseSibling,
+        env,
+      )
+    ).ids,
+  ).toContain(siblingStory);
+  expect(blockedStory).not.toBe(siblingStory);
 });

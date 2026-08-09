@@ -34,7 +34,6 @@ import {
   cleanupExpiredStories,
   fetchActorCache,
   fetchBatchVotes,
-  fetchBlockedAndMutedIds,
   type StoryAuthor,
   sumVotes,
   transformStoryData,
@@ -45,6 +44,7 @@ import {
   enqueueFanoutToFollowers,
 } from "../../lib/delivery/queue.ts";
 import { logger } from "../../lib/logger.ts";
+import { personalActorIsSuppressedBy } from "../../lib/personal-actor-moderation.ts";
 
 const log = logger.child({ component: "stories.routes" });
 
@@ -367,7 +367,7 @@ stories.get("/", async (c) => {
           ),
         );
 
-  const excludeAuthors = excludeBlockedMutedAuthors(db, actor.ap_id);
+  const excludeAuthors = excludeBlockedMutedAuthors(actor.ap_id);
   if (excludeAuthors) {
     storiesWhere = and(storiesWhere, excludeAuthors);
   }
@@ -527,14 +527,11 @@ stories.get("/:actorId", async (c) => {
   }
 
   // Check blocked/muted (if authenticated)
-  if (actor) {
-    const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(
-      db,
-      actor.ap_id,
-    );
-    if (blockedIds.includes(targetApId) || mutedIds.includes(targetApId)) {
-      return c.json({ stories: [] });
-    }
+  if (
+    actor &&
+    (await personalActorIsSuppressedBy(db, actor.ap_id, targetApId))
+  ) {
+    return c.json({ stories: [] });
   }
 
   // Personal stories are follower-scoped: the home feed (`GET /`) only surfaces

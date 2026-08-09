@@ -140,11 +140,7 @@ export function notificationEligibilityWhere(
   // when a specific inbound write path also suppresses muted interactions, so
   // like/repost/follow/reply/mention stay covered for both local and federated
   // producers.
-  const blockMute = excludeBlockedMutedAuthors(
-    db,
-    actorApId,
-    activities.actorApId,
-  );
+  const blockMute = excludeBlockedMutedAuthors(actorApId, activities.actorApId);
   if (blockMute) conditions.push(blockMute);
 
   return conditions;

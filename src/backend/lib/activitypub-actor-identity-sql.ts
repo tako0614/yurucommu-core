@@ -1,0 +1,102 @@
+import { sql, type SQL } from "drizzle-orm";
+
+/**
+ * Expand an uncorrelated one-column actor-ID query into its raw spellings plus
+ * the canonical HTTP(S) spellings accepted by the signature boundary.
+ *
+ * Feed callers compare their actor column to this set with `NOT IN`. The CTE is
+ * independent of the outer feed row, so SQLite computes the small personal
+ * moderation set once instead of reparsing actor URLs for every post or
+ * notification. Raw IDs stay in the result for malformed legacy values and
+ * content retained under the exact historical spelling. The canonical branch
+ * preserves path/query bytes while folding only scheme/authority case,
+ * default ports, fragments, and one trailing slash.
+ *
+ * Keep the parsing stages MATERIALIZED. Letting SQLite flatten this expression
+ * chain causes workerd's D1 engine to exhaust memory even for a tiny relation
+ * set; explicit materialization also keeps runtime bounded as the set grows.
+ */
+export function activityPubActorIdentitySetSql(rawActorIds: SQL): SQL {
+  return sql`
+    WITH
+    actor_identity_raw(actor_id) AS MATERIALIZED (
+      ${rawActorIds}
+    ),
+    actor_identity_fragmentless(actor_id) AS MATERIALIZED (
+      SELECT CASE WHEN instr(actor_id, '#') > 0
+        THEN substr(actor_id, 1, instr(actor_id, '#') - 1)
+        ELSE actor_id
+      END
+      FROM actor_identity_raw
+    ),
+    actor_identity_clean(actor_id) AS MATERIALIZED (
+      SELECT CASE WHEN substr(actor_id, -1) = '/'
+        THEN substr(actor_id, 1, length(actor_id) - 1)
+        ELSE actor_id
+      END
+      FROM actor_identity_fragmentless
+    ),
+    actor_identity_split(actor_id, separator, tail) AS MATERIALIZED (
+      SELECT
+        actor_id,
+        instr(actor_id, '://'),
+        substr(actor_id, instr(actor_id, '://') + 3)
+      FROM actor_identity_clean
+    ),
+    actor_identity_bounds(actor_id, separator, tail, boundary) AS MATERIALIZED (
+      SELECT
+        actor_id,
+        separator,
+        tail,
+        CASE
+          WHEN instr(tail, '/') = 0 THEN instr(tail, '?')
+          WHEN instr(tail, '?') = 0 THEN instr(tail, '/')
+          WHEN instr(tail, '/') < instr(tail, '?') THEN instr(tail, '/')
+          ELSE instr(tail, '?')
+        END
+      FROM actor_identity_split
+    ),
+    actor_identity_components(
+      separator, scheme, authority, path_query
+    ) AS MATERIALIZED (
+      SELECT
+        separator,
+        lower(substr(actor_id, 1, separator - 1)),
+        CASE WHEN boundary = 0
+          THEN tail
+          ELSE substr(tail, 1, boundary - 1)
+        END,
+        CASE
+          WHEN boundary = 0 THEN ''
+          WHEN substr(tail, boundary, 1) = '?'
+            THEN '/' || substr(tail, boundary)
+          ELSE substr(tail, boundary)
+        END
+      FROM actor_identity_bounds
+    ),
+    actor_identity_normalized(
+      separator, scheme, authority, path_query
+    ) AS MATERIALIZED (
+      SELECT
+        separator,
+        scheme,
+        CASE
+          WHEN scheme = 'https' AND substr(lower(authority), -4) = ':443'
+            THEN substr(lower(authority), 1, length(authority) - 4)
+          WHEN scheme = 'http' AND substr(lower(authority), -3) = ':80'
+            THEN substr(lower(authority), 1, length(authority) - 3)
+          ELSE lower(authority)
+        END,
+        path_query
+      FROM actor_identity_components
+      WHERE instr(authority, '@') = 0
+    )
+    SELECT actor_id FROM actor_identity_raw
+    UNION
+    SELECT scheme || '://' || authority || path_query
+    FROM actor_identity_normalized
+    WHERE separator > 1
+      AND scheme IN ('http', 'https')
+      AND length(authority) > 0
+  `;
+}

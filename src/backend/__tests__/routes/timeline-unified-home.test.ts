@@ -588,13 +588,22 @@ test("unified home: excludes posts by blocked and muted authors", async () => {
   const normal = await insertLocalActor(db, "fnormal");
   const blocked = await insertLocalActor(db, "fblocked");
   const muted = await insertLocalActor(db, "fmuted");
+  const pathCaseSibling = await insertLocalActor(db, "Fblocked");
 
-  // I follow all three; then block one and mute another.
+  // I follow all four; then block one and mute another using legacy cosmetic
+  // actor spellings accepted by the HTTP-signature identity boundary.
   await acceptFollow(db, me, normal);
   await acceptFollow(db, me, blocked);
   await acceptFollow(db, me, muted);
-  await db.insert(blocks).values({ blockerApId: me, blockedApId: blocked });
-  await db.insert(mutes).values({ muterApId: me, mutedApId: muted });
+  await acceptFollow(db, me, pathCaseSibling);
+  await db.insert(blocks).values({
+    blockerApId: me,
+    blockedApId: "https://YURU.test:443/ap/users/fblocked/#profile",
+  });
+  await db.insert(mutes).values({
+    muterApId: me,
+    mutedApId: "https://YURU.test/ap/users/fmuted/",
+  });
 
   await insertPersonalPost(db, {
     apId: `${APP_URL}/ap/objects/normal`,
@@ -614,10 +623,17 @@ test("unified home: excludes posts by blocked and muted authors", async () => {
     content: "from a muted author",
     published: "2026-01-01T00:00:00.000Z",
   });
+  await insertPersonalPost(db, {
+    apId: `${APP_URL}/ap/objects/path-case-sibling`,
+    author: pathCaseSibling,
+    content: "a distinct path-case sibling stays visible",
+    published: "2025-12-31T00:00:00.000Z",
+  });
 
   const ids = await getHome(db, fakeActor(me, "me"));
 
   expect(ids).toContain(`${APP_URL}/ap/objects/normal`);
+  expect(ids).toContain(`${APP_URL}/ap/objects/path-case-sibling`);
   expect(ids).not.toContain(`${APP_URL}/ap/objects/blocked`);
   expect(ids).not.toContain(`${APP_URL}/ap/objects/muted`);
 });

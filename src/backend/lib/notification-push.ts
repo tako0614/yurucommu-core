@@ -996,7 +996,7 @@ async function loadPushEvent(
           ne(activities.actorApId, actorApId),
           inArray(activities.type, [...NOTIFICATION_ACTIVITY_TYPES]),
           exists(currentCommunityMembership),
-          excludeBlockedMutedAuthors(db, actorApId, activities.actorApId),
+          excludeBlockedMutedAuthors(actorApId, activities.actorApId),
         ),
       )
       .get();

@@ -536,8 +536,14 @@ test("notifications from a blocked or muted actor are suppressed (list + unread 
   await seedLike("like-muted", muted);
   await seedLike("like-friend", friend);
 
-  await db.insert(blocks).values({ blockerApId: me, blockedApId: blocked });
-  await db.insert(mutes).values({ muterApId: me, mutedApId: muted });
+  await db.insert(blocks).values({
+    blockerApId: me,
+    blockedApId: "https://YURU.test:443/ap/users/spammer/#profile",
+  });
+  await db.insert(mutes).values({
+    muterApId: me,
+    mutedApId: "https://YURU.test/ap/users/noisy/",
+  });
 
   // List: only the non-blocked/non-muted like survives.
   const notifs = await fetchNotifications(db, fakeActor(me, "me"));
