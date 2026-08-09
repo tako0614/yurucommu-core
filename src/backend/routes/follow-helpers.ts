@@ -8,6 +8,7 @@ import {
   actors,
   follows,
   inbox,
+  runBatch,
 } from "../../db/index.ts";
 import {
   activityApId,
@@ -29,10 +30,6 @@ import { requireActor } from "./actors-helpers.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "follow.helpers" });
-
-// `.batch` lives only on the concrete D1/libsql subclasses, not the Database
-// union; reach it through a narrow structural cast (matching the other routes).
-type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
 
@@ -309,17 +306,31 @@ export async function handleLocalFollow(
       activityApId: id,
       acceptedAt: status === "accepted" ? now : null,
     });
+    const activityInsert = db.insert(activities).values({
+      apId: id,
+      type: "Follow",
+      actorApId: actor.ap_id,
+      objectApId: targetApId,
+      rawJson: JSON.stringify(followActivity),
+      direction: "local",
+    });
+    const inboxInsert = db.insert(inbox).values({
+      actorApId: targetApId,
+      activityApId: id,
+      read: 0,
+    });
 
     if (status === "accepted") {
-      // Co-commit the edge insert + both increments in ONE batch so a crash
-      // between them can't leave the edge accepted with un-bumped counts (the
-      // retry would see the existing edge and skip the increment → permanent
-      // under-count). Increments guarded by NOT EXISTS(edge) — evaluated before
-      // the in-batch insert — so a concurrent duplicate can't double-count; the
-      // bare insert still throws on a true duplicate, rolling back the whole
-      // batch so the catch below returns the "Already following" 400.
+      // Co-commit the edge, both increments, ActivityPub ledger row, and target
+      // inbox notification in ONE batch. A later activity/inbox failure used to
+      // return 500 after the accepted relationship and counts had already
+      // committed; the route's existing-edge guard then made every retry a 400,
+      // permanently hiding the missing activity/notification. The whole local
+      // follow is one authority mutation, so a failure leaves nothing behind.
+      // Increments stay guarded by NOT EXISTS(edge), evaluated before the
+      // in-batch insert, so a concurrent duplicate cannot double-count.
       const edgeAbsent = sql`NOT EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${actor.ap_id} AND ${follows.followingApId} = ${targetApId})`;
-      await (db as unknown as Batchable).batch([
+      await runBatch(db, [
         db
           .update(actors)
           .set({ followingCount: sql`${actors.followingCount} + 1` })
@@ -329,25 +340,15 @@ export async function handleLocalFollow(
           .set({ followerCount: sql`${actors.followerCount} + 1` })
           .where(and(eq(actors.apId, targetApId), edgeAbsent)),
         followInsert,
+        activityInsert,
+        inboxInsert,
       ]);
     } else {
-      await followInsert;
+      // A private-account request is the same atomic authority mutation minus
+      // accepted-edge counters: never retain an invisible pending request when
+      // its activity or inbox notification could not be stored.
+      await runBatch(db, [followInsert, activityInsert, inboxInsert]);
     }
-
-    await db.insert(activities).values({
-      apId: id,
-      type: "Follow",
-      actorApId: actor.ap_id,
-      objectApId: targetApId,
-      rawJson: JSON.stringify(followActivity),
-      direction: "local",
-    });
-
-    await db.insert(inbox).values({
-      actorApId: targetApId,
-      activityApId: id,
-      read: 0,
-    });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       return c.json({ error: "Already following or pending" }, 400);
