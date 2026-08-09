@@ -6,7 +6,16 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actorCache, actors, blocks, objects } from "../../../db/index.ts";
+import {
+  actorCache,
+  actors,
+  blocks,
+  communities,
+  follows,
+  mutes,
+  objects,
+  storyVotes,
+} from "../../../db/index.ts";
 import type {
   Activity,
   ActivityContext,
@@ -14,6 +23,8 @@ import type {
 
 const ALICE = "https://remote.example/users/alice";
 const STORY_ID = "https://remote.example/stories/s1";
+const COMMUNITY_ID = "https://yuru.test/ap/groups/town";
+const COMMUNITY_FOLLOWERS = `${COMMUNITY_ID}/followers`;
 const FETCHED_NOTE_ID = "https://remote.example/objects/fetched-late-parent";
 const FETCHED_REPLY_ID = "https://remote.example/objects/fetched-reply";
 const FETCHED_FORGED_REPLY_ID =
@@ -97,10 +108,13 @@ async function freshDb(): Promise<Database> {
   const root = new URL("../../../../migrations/", import.meta.url);
   for (const file of [
     "0001_init.sql",
+    "0002_social_remote_actor_edges.sql",
     "0004_blocklist.sql",
     "0005_story_community_scope.sql",
     "0008_actor_fields_aka.sql",
     "0009_object_tags.sql",
+    "0011_drop_remote_actor_fks.sql",
+    "0015_community_bans.sql",
   ]) {
     const sql = await readFile(new URL(file, root), "utf8");
     await client.executeMultiple(sql);
@@ -131,6 +145,63 @@ function storyActivity(): Activity {
       },
     },
   } as unknown as Activity;
+}
+
+type StoredStoryProjection = {
+  attachment?: {
+    url?: string;
+    content_type?: string;
+    width?: number;
+    height?: number;
+  };
+  caption?: string;
+  displayDuration?: string;
+  overlays?: Array<{
+    type?: string;
+    name?: string;
+    href?: string;
+    position?: { x?: number; y?: number; width?: number; height?: number };
+    oneOf?: Array<{ type?: string; name?: string }>;
+  }>;
+};
+
+function storedStoryProjection(attachmentsJson: string): StoredStoryProjection {
+  return JSON.parse(attachmentsJson) as StoredStoryProjection;
+}
+
+function storyUpdate(
+  object: Record<string, unknown>,
+  envelope: Record<string, unknown> = {},
+): Activity {
+  return {
+    id: "https://remote.example/activities/update-story-1",
+    type: "Update",
+    actor: ALICE,
+    ...envelope,
+    object: {
+      id: STORY_ID,
+      type: ["Story", "Note"],
+      ...object,
+    },
+  } as unknown as Activity;
+}
+
+async function seedCommunity(db: Database): Promise<void> {
+  const owner = "https://yuru.test/ap/users/owner";
+  await seedActor(db, owner, "owner");
+  await db.insert(communities).values({
+    apId: COMMUNITY_ID,
+    preferredUsername: "town",
+    name: "Town",
+    inbox: `${COMMUNITY_ID}/inbox`,
+    outbox: `${COMMUNITY_ID}/outbox`,
+    followersUrl: COMMUNITY_FOLLOWERS,
+    visibility: "private",
+    postPolicy: "members",
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: owner,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +274,485 @@ test("a Story arriving after an indexed reply reconstructs and repairs replyCoun
         .get()
     )?.replyCount,
   ).toBe(1);
+});
+
+test("Create(Story) resolves the exact outer-to community fanout emitted by Yurucommu", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await seedCommunity(db);
+  await db.insert(follows).values({
+    followerApId: ALICE,
+    followingApId: COMMUNITY_ID,
+    status: "accepted",
+  });
+
+  await handleCreateStory(
+    ctx(db),
+    {
+      ...storyActivity(),
+      to: [COMMUNITY_FOLLOWERS],
+      object: {
+        ...(storyActivity().object as object),
+        type: ["Story", "Note"],
+        to: [`${ALICE}/followers`],
+      },
+    } as Activity,
+    ALICE,
+    "https://yuru.test",
+  );
+
+  const row = await db
+    .select({
+      communityApId: objects.communityApId,
+      audienceJson: objects.audienceJson,
+    })
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  expect(row?.communityApId).toBe(COMMUNITY_ID);
+  expect(JSON.parse(row?.audienceJson ?? "[]")).toEqual([COMMUNITY_ID]);
+});
+
+test("Create(Story) cannot turn an unauthorized outer-to community delivery into a personal Story", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await seedCommunity(db);
+
+  await handleCreateStory(
+    ctx(db),
+    {
+      ...storyActivity(),
+      to: [COMMUNITY_FOLLOWERS],
+      object: {
+        ...(storyActivity().object as object),
+        type: ["Story", "Note"],
+        to: [`${ALICE}/followers`],
+      },
+    } as Activity,
+    ALICE,
+    "https://yuru.test",
+  );
+
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, STORY_ID))
+      .get(),
+  ).toBeUndefined();
+});
+
+test("Create(Story) fails closed when excess addressing could hide a community target", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await seedCommunity(db);
+  const paddedAddresses = Array.from(
+    { length: 64 },
+    (_, index) => `https://audience.example/collections/${index}`,
+  );
+
+  await handleCreateStory(
+    ctx(db),
+    {
+      ...storyActivity(),
+      to: [...paddedAddresses, COMMUNITY_FOLLOWERS],
+    } as Activity,
+    ALICE,
+    "https://yuru.test",
+  );
+
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, STORY_ID))
+      .get(),
+  ).toBeUndefined();
+});
+
+test("Update(Story) cannot move a personal Story into an authorized community", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await seedCommunity(db);
+  await db.insert(follows).values({
+    followerApId: ALICE,
+    followingApId: COMMUNITY_ID,
+    status: "accepted",
+  });
+  await handleCreateStory(ctx(db), storyActivity(), ALICE, "https://yuru.test");
+  const before = await db
+    .select({
+      attachmentsJson: objects.attachmentsJson,
+      communityApId: objects.communityApId,
+      updated: objects.updated,
+    })
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+
+  await handleUpdate(
+    ctx(db),
+    storyUpdate(
+      { content: "must not move scope" },
+      { to: [COMMUNITY_FOLLOWERS] },
+    ),
+    ALICE,
+  );
+
+  const after = await db
+    .select({
+      attachmentsJson: objects.attachmentsJson,
+      communityApId: objects.communityApId,
+      updated: objects.updated,
+    })
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  expect(after).toEqual(before);
+});
+
+test("Update(Story) rechecks retained community authority after membership is revoked", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await seedCommunity(db);
+  await db.insert(follows).values({
+    followerApId: ALICE,
+    followingApId: COMMUNITY_ID,
+    status: "accepted",
+  });
+  await handleCreateStory(
+    ctx(db),
+    {
+      ...storyActivity(),
+      to: [COMMUNITY_FOLLOWERS],
+      object: {
+        ...(storyActivity().object as object),
+        to: [`${ALICE}/followers`],
+      },
+    } as Activity,
+    ALICE,
+    "https://yuru.test",
+  );
+  const before = await db
+    .select({
+      attachmentsJson: objects.attachmentsJson,
+      communityApId: objects.communityApId,
+      updated: objects.updated,
+    })
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  await db.delete(follows).where(eq(follows.followingApId, COMMUNITY_ID));
+
+  await handleUpdate(
+    ctx(db),
+    storyUpdate({ content: "former member must not update" }),
+    ALICE,
+  );
+
+  expect(
+    await db
+      .select({
+        attachmentsJson: objects.attachmentsJson,
+        communityApId: objects.communityApId,
+        updated: objects.updated,
+      })
+      .from(objects)
+      .where(eq(objects.apId, STORY_ID))
+      .get(),
+  ).toEqual(before);
+});
+
+test("Update(Story) rewrites the Story projection without becoming a Note or extending expiry", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await handleCreateStory(ctx(db), storyActivity(), ALICE, "https://yuru.test");
+  const before = await db
+    .select({ endTime: objects.endTime })
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+
+  await handleUpdate(
+    ctx(db),
+    storyUpdate({
+      content: "updated story caption",
+      attachment: {
+        type: "Document",
+        url: "https://remote.example/media/s1-updated.jpg",
+        mediaType: "image/webp",
+        width: 720,
+        height: 1280,
+      },
+      displayDuration: "PT12S",
+      overlays: [
+        {
+          type: "Question",
+          name: "tea?",
+          position: { x: 0.5, y: 0.5, width: 0.8, height: 0.3 },
+          oneOf: [
+            { type: "Note", name: "yes" },
+            { type: "Note", name: "no" },
+          ],
+        },
+      ],
+      endTime: "9999-12-31T23:59:59.000Z",
+    }),
+    ALICE,
+  );
+
+  const row = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  const projection = storedStoryProjection(row!.attachmentsJson);
+  expect(row?.type).toBe("Story");
+  expect(row?.content).toBe("");
+  expect(projection.caption).toBe("updated story caption");
+  expect(projection.attachment?.url).toBe(
+    "https://remote.example/media/s1-updated.jpg",
+  );
+  expect(projection.attachment?.content_type).toBe("image/webp");
+  expect(projection.displayDuration).toBe("PT12S");
+  expect(projection.overlays?.[0]?.oneOf?.map((o) => o.name)).toEqual([
+    "yes",
+    "no",
+  ]);
+  expect(row?.endTime).toBe(before?.endTime);
+});
+
+test("a content-only Update(Story) preserves media and overlays and can explicitly clear its caption", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  const created = storyActivity();
+  (created.object as Record<string, unknown>).overlays = [
+    {
+      type: "Note",
+      name: "keep me",
+      position: { x: 0.5, y: 0.5, width: 0.5, height: 0.2 },
+    },
+  ];
+  await handleCreateStory(ctx(db), created, ALICE, "https://yuru.test");
+
+  await handleUpdate(
+    ctx(db),
+    storyUpdate({ content: "replacement caption" }),
+    ALICE,
+  );
+  let row = await db
+    .select({ attachmentsJson: objects.attachmentsJson })
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  let projection = storedStoryProjection(row!.attachmentsJson);
+  expect(projection.caption).toBe("replacement caption");
+  expect(projection.attachment?.url).toBe(
+    "https://remote.example/media/s1.jpg",
+  );
+  expect(projection.overlays?.[0]?.name).toBe("keep me");
+
+  await handleUpdate(ctx(db), storyUpdate({ content: "" }), ALICE);
+  row = await db
+    .select({ attachmentsJson: objects.attachmentsJson })
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  projection = storedStoryProjection(row!.attachmentsJson);
+  expect(projection.caption).toBeUndefined();
+  expect(projection.attachment?.url).toBe(
+    "https://remote.example/media/s1.jpg",
+  );
+});
+
+test("Update(Story) clears stale poll votes when its overlays change", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  const created = storyActivity();
+  (created.object as Record<string, unknown>).overlays = [
+    {
+      type: "Question",
+      name: "old question",
+      position: { x: 0.5, y: 0.5, width: 0.8, height: 0.3 },
+      oneOf: [
+        { type: "Note", name: "old zero" },
+        { type: "Note", name: "old one" },
+      ],
+    },
+  ];
+  await handleCreateStory(ctx(db), created, ALICE, "https://yuru.test");
+  await db.insert(storyVotes).values({
+    id: "vote-before-overlay-update",
+    storyApId: STORY_ID,
+    actorApId: "https://viewer.example/users/voter",
+    optionIndex: 0,
+  });
+
+  await handleUpdate(
+    ctx(db),
+    storyUpdate({
+      overlays: [
+        {
+          type: "Question",
+          name: "new question",
+          position: { x: 0.5, y: 0.5, width: 0.8, height: 0.3 },
+          oneOf: [
+            { type: "Note", name: "new zero" },
+            { type: "Note", name: "new one" },
+          ],
+        },
+      ],
+    }),
+    ALICE,
+  );
+
+  const row = await db
+    .select({ attachmentsJson: objects.attachmentsJson })
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  expect(
+    storedStoryProjection(row!.attachmentsJson).overlays?.[0]?.oneOf?.map(
+      (option) => option.name,
+    ),
+  ).toEqual(["new zero", "new one"]);
+  expect(
+    await db
+      .select({ id: storyVotes.id })
+      .from(storyVotes)
+      .where(eq(storyVotes.storyApId, STORY_ID)),
+  ).toEqual([]);
+});
+
+test("an invalid Update(Story) is rejected atomically instead of corrupting its media shape", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await handleCreateStory(ctx(db), storyActivity(), ALICE, "https://yuru.test");
+  const before = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+
+  await handleUpdate(
+    ctx(db),
+    storyUpdate({
+      content: "must not partially apply",
+      attachment: { url: "javascript:alert(1)", mediaType: "image/jpeg" },
+    }),
+    ALICE,
+  );
+
+  const after = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  expect(after?.attachmentsJson).toBe(before?.attachmentsJson);
+  expect(after?.content).toBe(before?.content);
+  expect(after?.updated).toBe(before?.updated);
+});
+
+test("a Note-typed Update cannot rewrite an existing Story through type confusion", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await handleCreateStory(ctx(db), storyActivity(), ALICE, "https://yuru.test");
+  const before = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+
+  await handleUpdate(
+    ctx(db),
+    storyUpdate({
+      type: "Note",
+      content: "type-confused body",
+      attachment: { url: "https://remote.example/media/not-story.jpg" },
+    }),
+    ALICE,
+  );
+
+  const after = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  expect(after?.attachmentsJson).toBe(before?.attachmentsJson);
+  expect(after?.content).toBe(before?.content);
+  expect(after?.updated).toBe(before?.updated);
+});
+
+test("an already-expired inbound Story is dropped instead of bypassing the live-story cap", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  const expired = storyActivity();
+  (expired.object as Record<string, unknown>).published = new Date(
+    Date.now() - 2 * 60 * 60 * 1000,
+  ).toISOString();
+  (expired.object as Record<string, unknown>).endTime = new Date(
+    Date.now() - 60 * 60 * 1000,
+  ).toISOString();
+
+  await handleCreateStory(ctx(db), expired, ALICE, "https://yuru.test");
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, STORY_ID))
+      .get(),
+  ).toBeUndefined();
+});
+
+test("inbound Create(Story) from a muted actor is dropped at write time", async () => {
+  const db = await freshDb();
+  const owner = "https://yuru.test/ap/users/tako";
+  await seedActor(db, owner, "tako");
+  await seedAlice(db);
+  await db.insert(mutes).values({ muterApId: owner, mutedApId: ALICE });
+
+  await handleCreateStory(ctx(db), storyActivity(), ALICE, "https://yuru.test");
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, STORY_ID))
+      .get(),
+  ).toBeUndefined();
+});
+
+test("inbound Update(Story) from a newly muted actor cannot replace retained content", async () => {
+  const db = await freshDb();
+  const owner = "https://yuru.test/ap/users/tako";
+  await seedActor(db, owner, "tako");
+  await seedAlice(db);
+  await handleCreateStory(ctx(db), storyActivity(), ALICE, "https://yuru.test");
+  const before = await db
+    .select({
+      attachmentsJson: objects.attachmentsJson,
+      updated: objects.updated,
+    })
+    .from(objects)
+    .where(eq(objects.apId, STORY_ID))
+    .get();
+  await db.insert(mutes).values({ muterApId: owner, mutedApId: ALICE });
+
+  await handleUpdate(
+    ctx(db),
+    storyUpdate({ content: "must stay suppressed" }),
+    ALICE,
+  );
+
+  expect(
+    await db
+      .select({
+        attachmentsJson: objects.attachmentsJson,
+        updated: objects.updated,
+      })
+      .from(objects)
+      .where(eq(objects.apId, STORY_ID))
+      .get(),
+  ).toEqual(before);
 });
 
 test("an Announce-fetched parent arriving after a reply reconstructs replyCount", async () => {
@@ -508,6 +1058,7 @@ async function seedAlice(db: Database): Promise<void> {
 }
 
 function storyWithEndTime(endTime: string, id: string): Activity {
+  const published = new Date(Date.now() - 60_000).toISOString();
   return {
     id,
     type: "Create",
@@ -520,7 +1071,7 @@ function storyWithEndTime(endTime: string, id: string): Activity {
         url: "https://remote.example/media/s.jpg",
         mediaType: "image/jpeg",
       },
-      published: "2026-06-21T00:00:00.000Z",
+      published,
       endTime,
     },
   } as unknown as Activity;
@@ -540,7 +1091,7 @@ test("handleCreateStory clamps a far-future inbound endTime so the story still e
     .from(objects)
     .where(eq(objects.apId, STORY_ID))
     .get();
-  const publishedMs = Date.parse("2026-06-21T00:00:00.000Z");
+  const publishedMs = Date.parse(row!.published);
   const stored = Date.parse(row!.endTime!);
   expect(Number.isNaN(stored)).toBe(false);
   expect(stored).toBeLessThanOrEqual(publishedMs + 25 * 60 * 60 * 1000);

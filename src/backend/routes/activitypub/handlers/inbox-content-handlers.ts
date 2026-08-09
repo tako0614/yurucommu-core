@@ -21,6 +21,7 @@ import {
   follows,
   inbox as inboxTable,
   likes,
+  mutes,
   objectRecipients,
   objects,
   storyShares,
@@ -32,16 +33,23 @@ import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import { resolveInboundCommunityScope } from "./inbound-community-scope.ts";
 import {
+  buildInboundStoryCreateProjection,
+  buildInboundStoryUpdateProjection,
+  declaresStoryAddressing,
+  hasStoryProjectionUpdate,
+  normalizeInboundStoryCreateEndTime,
+  normalizeInboundStoryUpdateEndTime,
+  storyAddressedCollections,
+} from "./inbound-story-projection.ts";
+import {
   deleteObjectCascade,
   purgeMediaBlobs,
 } from "../../posts/delete-cascade.ts";
 import {
-  boundAttachmentsJson,
   boundInboundContent,
   boundInboundNoteAttachmentsJson,
   boundInboundSummary,
   boundInboundTagsJson,
-  MAX_ATTACHMENTS_JSON_LENGTH,
 } from "../../posts/transformers.ts";
 import {
   activityApId,
@@ -76,7 +84,6 @@ import {
   type ActivityObject,
   getActivityObject,
   getActivityObjectId,
-  type StoryOverlay,
   typeIncludes,
 } from "../inbox-types.ts";
 
@@ -99,6 +106,26 @@ type ActorRow = typeof actors.$inferSelect;
 function isStoryType(type: string | string[] | undefined): boolean {
   if (!type) return false;
   return Array.isArray(type) ? type.includes("Story") : type === "Story";
+}
+
+/** Single-user instance policy: any local owner block/mute suppresses Story writes. */
+async function ownerSuppressesStoryActor(
+  db: Database,
+  actorApId: string,
+): Promise<boolean> {
+  const [block, mute] = await Promise.all([
+    db
+      .select({ actorApId: blocks.blockerApId })
+      .from(blocks)
+      .where(eq(blocks.blockedApId, actorApId))
+      .get(),
+    db
+      .select({ actorApId: mutes.muterApId })
+      .from(mutes)
+      .where(eq(mutes.mutedApId, actorApId))
+      .get(),
+  ]);
+  return Boolean(block || mute);
 }
 
 // The actor object types whose inbound Update represents a remote
@@ -859,12 +886,7 @@ export async function handleCreateStory(
   // stories were still stored (consuming the per-author cap + retrievable via
   // GET /api/posts/:id). Single-user instance: any blocks row blocking this actor
   // is the owner's block.
-  const blockedByOwner = await db
-    .select({ b: blocks.blockerApId })
-    .from(blocks)
-    .where(eq(blocks.blockedApId, actor))
-    .get();
-  if (blockedByOwner) return;
+  if (await ownerSuppressesStoryActor(db, actor)) return;
 
   // Check if story already exists
   const existing = await db
@@ -906,119 +928,42 @@ export async function handleCreateStory(
     return;
   }
 
-  // attachment validation (required)
-  if (!object.attachment) {
-    log.error("Remote story has no attachment", {
-      event: "ap.story.missing_attachment",
+  // Story metadata has a product-specific storage shape; never feed it through
+  // the generic Note attachment projection. Normalize every remote field at
+  // this boundary so malformed URLs/overlays cannot become durable UI data.
+  const storyProjection = buildInboundStoryCreateProjection(object);
+  if (!storyProjection) {
+    log.warn("Create(Story) rejected: invalid story projection", {
+      event: "ap.story.invalid_projection",
+      actor,
       objectId,
     });
     return;
   }
 
-  // Normalize attachment (handle array or single object)
-  const attachmentArray = Array.isArray(object.attachment)
-    ? object.attachment
-    : [object.attachment];
-  const attachment = attachmentArray[0] as {
-    url?: string;
-    mediaType?: string;
-    width?: number;
-    height?: number;
-  };
-
-  if (!attachment || !attachment.url) {
-    log.error("Remote story attachment has no URL", {
-      event: "ap.story.attachment_missing_url",
-      objectId,
-    });
-    return;
-  }
-
-  // overlays validation (optional, validate if present). Cap the COUNT — the
-  // local create path bounds overlays via validateOverlays (MAX_OVERLAYS=20),
-  // and a hostile remote must not pad an unbounded array into attachments_json.
-  const MAX_INBOUND_OVERLAYS = 20;
-  let overlays: StoryOverlay[] | undefined;
-  if (Array.isArray(object.overlays)) {
-    const filtered = (object.overlays as StoryOverlay[])
-      .filter(
-        (o: StoryOverlay) =>
-          o &&
-          o.position &&
-          typeof o.position.x === "number" &&
-          typeof o.position.y === "number",
-      )
-      .slice(0, MAX_INBOUND_OVERLAYS);
-    // Keep at most ONE Question (poll) overlay — votes are keyed only by
-    // (storyApId, actorApId) and tallied by optionIndex with no question
-    // dimension, so a second poll would conflate tallies. Mirror validateOverlays.
-    let seenQuestion = false;
-    const capped = filtered.filter((o: StoryOverlay) => {
-      if (o.type === "Question") {
-        if (seenQuestion) return false;
-        seenQuestion = true;
-      }
-      return true;
-    });
-    if (capped.length > 0) overlays = capped;
-  }
-
-  // Build attachments_json
-  const attachmentData = {
-    attachment: {
-      r2_key: "", // Remote stories don't have local R2 key
-      content_type: attachment.mediaType || "image/jpeg",
-      url: attachment.url,
-      width: attachment.width || 1080,
-      height: attachment.height || 1920,
-    },
-    displayDuration:
-      (object as { displayDuration?: string }).displayDuration || "PT5S",
-    // The remote caption arrives as the AS2 Note `content`; persist it (bounded
-    // to the same local content cap as every other inbound Note path) so the
-    // local renderer shows the same caption as the originating instance.
-    caption:
-      typeof object.content === "string" && object.content.trim().length > 0
-        ? boundInboundContent(object.content)
-        : undefined,
-    overlays,
-  };
-
+  // Clamp+normalize `published` first and anchor the expiry to that durable
+  // value. Already-expired objects are discarded, closing the live-cap bypass
+  // where a sender could churn unlimited rows with a past endTime.
   const now = new Date().toISOString();
-  // Clamp the attacker-controlled `endTime`: a story must expire. A non-ISO or
-  // far-future value stored verbatim would never satisfy the expiry filter
-  // (`lt(endTime, now)`, a lexical compare), so a malicious remote could create
-  // never-expiring stories that accumulate forever. Bound it to published + ~25h
-  // (the ~24h story lifetime + slack) and normalize to ISO so the compare holds.
-  const STORY_MAX_LIFETIME_MS = 25 * 60 * 60 * 1000;
-  // Clamp+normalize the inbound `published` FIRST and anchor the endTime bound to
-  // THAT, not the raw value: a far-future `published` ("9999-…") would otherwise
-  // push maxEndMs far into the future too and defeat this very expiry clamp.
   const publishedAt = normalizeInboundTimestamp(object.published, now);
-  const publishedMs = Date.parse(publishedAt);
-  const maxEndMs =
-    (Number.isNaN(publishedMs) ? Date.now() : publishedMs) +
-    STORY_MAX_LIFETIME_MS;
-  const requestedEndMs = object.endTime ? Date.parse(object.endTime) : NaN;
-  const endTime = new Date(
-    Number.isNaN(requestedEndMs)
-      ? maxEndMs
-      : Math.min(requestedEndMs, maxEndMs),
-  ).toISOString();
+  const endTime = normalizeInboundStoryCreateEndTime(
+    publishedAt,
+    object.endTime,
+    now,
+  );
+  if (!endTime) {
+    log.debug("Create(Story) dropped: already expired", {
+      event: "ap.story.expired_at_ingress",
+      actor,
+      objectId,
+    });
+    return;
+  }
 
   // The early existence check above is best-effort (TOCTOU): two isolates
   // racing the same cold story can both pass it. `onConflictDoNothing` keeps
   // that race insert-safe, and gating follow-on side effects on the returned
   // row mirrors the duplicate guard in handleCreate.
-  // Bound the serialized story data. Caption is capped and overlays are
-  // count-limited above, but per-overlay padding could still inflate it; if the
-  // blob exceeds the attachments cap, drop the (decorative) overlays so the core
-  // attachment + caption still persist within bounds.
-  let storyDataJson = JSON.stringify(attachmentData);
-  if (storyDataJson.length > MAX_ATTACHMENTS_JSON_LENGTH) {
-    storyDataJson = JSON.stringify({ ...attachmentData, overlays: undefined });
-  }
-
   // Carry the community scope across the federation boundary. A story that
   // arrived through community fanout is addressed to the community's followers
   // collection, not the author's; storing it with no scope made the local read
@@ -1027,15 +972,19 @@ export async function handleCreateStory(
   // communities this instance actually knows and only then mark the scope —
   // an unresolvable audience is left unscoped rather than trusted, and the
   // membership gate is still evaluated locally against `community_members`.
-  const addressedCollections = [
-    ...addressList((activity as { audience?: unknown }).audience),
-    ...addressList(object.to),
-    ...addressList((object as { audience?: unknown }).audience),
-  ];
+  const storyAddressing = storyAddressedCollections(activity, object);
+  if (storyAddressing.overflow) {
+    log.warn("Create(Story) rejected: too many addressing entries", {
+      event: "ap.story.addressing_overflow",
+      actor,
+      objectId,
+    });
+    return;
+  }
   const communityScope = await resolveInboundCommunityScope(
     db,
     actor,
-    addressedCollections,
+    storyAddressing.addresses,
   );
   if (!communityScope.allowed) return;
   const storyAudience = communityScope.communityApId
@@ -1049,7 +998,7 @@ export async function handleCreateStory(
       type: "Story",
       attributedTo: actor,
       content: "",
-      attachmentsJson: storyDataJson,
+      attachmentsJson: storyProjection.json,
       ...(communityScope.communityApId
         ? {
             communityApId: communityScope.communityApId,
@@ -1625,14 +1574,123 @@ export async function handleUpdate(
     .select({
       attributedTo: objects.attributedTo,
       inReplyTo: objects.inReplyTo,
+      type: objects.type,
+      attachmentsJson: objects.attachmentsJson,
+      published: objects.published,
+      endTime: objects.endTime,
+      communityApId: objects.communityApId,
     })
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
   if (!existing || existing.attributedTo !== actor) return;
 
+  // Story is deliberately handled before Note: Yurucommu emits
+  // type=["Story","Note"] for interoperability, but its durable projection is
+  // not a Note attachment array. The old generic branch rewrote
+  // attachments_json/content into the wrong shape and corrupted the Story UI.
+  if (existing.type === "Story" || isStoryType(object.type)) {
+    if (existing.type !== "Story" || !isStoryType(object.type)) {
+      log.warn("Update rejected: object type does not match stored Story", {
+        event: "ap.update.story_type_mismatch",
+        actor,
+        objectId,
+      });
+      return;
+    }
+    if (await ownerSuppressesStoryActor(db, actor)) return;
+
+    const now = new Date().toISOString();
+    const endTime = normalizeInboundStoryUpdateEndTime(
+      existing.published,
+      existing.endTime,
+      object.endTime,
+      now,
+    );
+    if (!endTime) {
+      log.debug("Update(Story) dropped: invalid or expired lifetime", {
+        event: "ap.update.story_expired",
+        actor,
+        objectId,
+      });
+      return;
+    }
+
+    // A Story's scope is fixed at creation. Re-authorize the retained community
+    // on every Update (membership/ban policy may have changed) and fold any new
+    // addressing into the same resolution. A second local community is then
+    // ambiguous and rejected; a valid Update never widens or moves scope.
+    const hasAddressingUpdate = declaresStoryAddressing(activity, object);
+    if (hasAddressingUpdate || existing.communityApId !== null) {
+      const storyAddressing = storyAddressedCollections(activity, object);
+      if (storyAddressing.overflow) {
+        log.warn("Update(Story) rejected: too many addressing entries", {
+          event: "ap.update.story_addressing_overflow",
+          actor,
+          objectId,
+        });
+        return;
+      }
+      const scopeAddresses = existing.communityApId
+        ? [...new Set([...storyAddressing.addresses, existing.communityApId])]
+        : storyAddressing.addresses;
+      const communityScope = await resolveInboundCommunityScope(
+        db,
+        actor,
+        scopeAddresses,
+      );
+      if (
+        !communityScope.allowed ||
+        communityScope.communityApId !== existing.communityApId
+      ) {
+        log.warn("Update(Story) rejected: scope is unauthorized or changed", {
+          event: "ap.update.story_scope_mismatch",
+          actor,
+          objectId,
+          existingCommunityApId: existing.communityApId,
+        });
+        return;
+      }
+    }
+
+    const projection = buildInboundStoryUpdateProjection(
+      object,
+      existing.attachmentsJson,
+    );
+    if (!projection) {
+      log.warn("Update(Story) rejected: invalid story projection", {
+        event: "ap.update.story_invalid_projection",
+        actor,
+        objectId,
+      });
+      return;
+    }
+
+    const projectionChanged = hasStoryProjectionUpdate(object);
+    const updateStory = db
+      .update(objects)
+      .set({
+        attachmentsJson: projectionChanged ? projection.json : undefined,
+        endTime,
+        updated: now,
+      })
+      .where(eq(objects.apId, objectId));
+    if (object.overlays !== undefined) {
+      // Poll votes are indexed only by option position. Replacing/clearing the
+      // overlay list must clear old votes in the same D1 batch, otherwise an old
+      // option 0 is silently counted for a different new option 0.
+      await runBatch(db, [
+        updateStory,
+        db.delete(storyVotes).where(eq(storyVotes.storyApId, objectId)),
+      ]);
+    } else {
+      await updateStory;
+    }
+    return;
+  }
+
   // Update object content
-  if (typeIncludes(object.type, "Note")) {
+  if (existing.type === "Note" && typeIncludes(object.type, "Note")) {
     // Content and reach are one authority decision. A remote author can narrow
     // an existing public Note to followers/direct in the same Update; applying
     // only its new body would leave that private content readable through the
