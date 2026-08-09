@@ -8,6 +8,7 @@ import {
   blocks,
   follows,
   likes,
+  mutes,
   objects,
 } from "../../../db/index.ts";
 import {
@@ -184,6 +185,46 @@ test("audit#17 inbound Announce from a personally-blocked actor is dropped", asy
   await db.insert(blocks).values({
     blockerApId: `${APP_URL}/ap/users/bob`,
     blockedApId: REMOTE_ACTOR,
+  });
+
+  await handleAnnounce(
+    ctxFor(db),
+    announceActivity(ANNOUNCE_ACTIVITY, REMOTE_ACTOR),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+
+  const edges = await db
+    .select({ a: announces.actorApId })
+    .from(announces)
+    .where(eq(announces.objectApId, OBJECT_AP_ID));
+  expect(edges.length).toBe(0);
+  expect(await announceCount(db)).toBe(0);
+});
+
+test("audit#17 inbound Like from a personally-muted actor is dropped at write time", async () => {
+  const db = await setup();
+  await db.insert(mutes).values({
+    muterApId: `${APP_URL}/ap/users/bob`,
+    mutedApId: REMOTE_ACTOR,
+  });
+
+  await handleLike(
+    ctxFor(db),
+    likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+
+  expect(await likeEdgeCount(db)).toBe(0);
+  expect(await likeCount(db)).toBe(0);
+});
+
+test("audit#17 inbound Announce from a personally-muted actor is dropped at write time", async () => {
+  const db = await setup();
+  await db.insert(mutes).values({
+    muterApId: `${APP_URL}/ap/users/bob`,
+    mutedApId: REMOTE_ACTOR,
   });
 
   await handleAnnounce(

@@ -6,9 +6,9 @@
 // (bookmarks), and notifications.ts implement the same logic and may migrate to
 // this helper over time.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "../../db/index.ts";
-import { blocks, follows } from "../../db/index.ts";
+import { actors, blocks, follows, mutes } from "../../db/index.ts";
 import { canViewerReadObject } from "./community-visibility.ts";
 import { safeJsonParse } from "../federation-helpers.ts";
 
@@ -183,6 +183,47 @@ export async function actorIsBlockedBy(
       and(
         eq(blocks.blockerApId, targetApId),
         eq(blocks.blockedApId, actorApId),
+      ),
+    )
+    .get();
+  return Boolean(row);
+}
+
+/**
+ * True if `targetApId` has blocked OR muted `actorApId` and therefore does not
+ * want an inbound write from that actor reflected on a locally-owned object.
+ * Keep this separate from `actorIsBlockedBy`: block remains the existence-
+ * hiding authorization rule used by reads and direct local API responses,
+ * while mute is an owner-selected write-suppression rule for federated
+ * interactions such as Like and Announce.
+ */
+export async function actorSuppressesInteractionFrom(
+  db: Database,
+  targetApId: string,
+  actorApId: string,
+): Promise<boolean> {
+  // The target is a local object owner, so its actors row is a stable one-row
+  // anchor for two EXISTS predicates. This keeps the decision to one portable
+  // SQL round trip instead of racing/sequencing independent block and mute
+  // lookups for every inbound interaction.
+  const row = await db
+    .select({ apId: actors.apId })
+    .from(actors)
+    .where(
+      and(
+        eq(actors.apId, targetApId),
+        sql`(
+          EXISTS (
+            SELECT 1 FROM ${blocks}
+            WHERE ${blocks.blockerApId} = ${targetApId}
+              AND ${blocks.blockedApId} = ${actorApId}
+          )
+          OR EXISTS (
+            SELECT 1 FROM ${mutes}
+            WHERE ${mutes.muterApId} = ${targetApId}
+              AND ${mutes.mutedApId} = ${actorApId}
+          )
+        )`,
       ),
     )
     .get();

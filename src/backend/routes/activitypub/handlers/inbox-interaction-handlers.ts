@@ -25,7 +25,7 @@ import { fetchAndPersistAnnouncedNote } from "./inbox-content-handlers.ts";
 import { isLocal } from "../../../lib/ap-ids.ts";
 import { notDeleted } from "../../../../db/index.ts";
 import {
-  actorIsBlockedBy,
+  actorSuppressesInteractionFrom,
   canViewerReadObjectFull,
 } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
@@ -98,8 +98,9 @@ async function handleInteraction(
   // including a remote-authored object delivered to a local recipient. Limiting
   // this check to locally-authored targets let an unrelated signer Like/Announce
   // a cached remote DM or followers-only Note, mutating its edge/counter state
-  // despite having no read access. Personal blocks remain local-owner state, so
-  // that extra guard only applies when the retained object's author is local.
+  // despite having no read access. Personal blocks/mutes remain local-owner
+  // state, so that extra write-suppression guard only applies when the retained
+  // object's author is local.
   const target = await db
     .select({
       attributedTo: objects.attributedTo,
@@ -127,7 +128,7 @@ async function handleInteraction(
 
   if (
     isLocal(target.attributedTo, baseUrl) &&
-    (await actorIsBlockedBy(db, target.attributedTo, actor))
+    (await actorSuppressesInteractionFrom(db, target.attributedTo, actor))
   ) {
     return;
   }

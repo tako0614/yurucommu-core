@@ -136,9 +136,10 @@ export function notificationEligibilityWhere(
   ];
 
   // Suppress notifications whose actor the recipient has blocked or muted.
-  // This is the read-time choke point: mutes are read-only everywhere, and not
-  // every notify WRITE path block-checks, so gating here covers like/repost/
-  // follow/reply/mention (local AND federated) for both blocks and mutes.
+  // This remains the read-time choke point for every notification path even
+  // when a specific inbound write path also suppresses muted interactions, so
+  // like/repost/follow/reply/mention stay covered for both local and federated
+  // producers.
   const blockMute = excludeBlockedMutedAuthors(
     db,
     actorApId,
