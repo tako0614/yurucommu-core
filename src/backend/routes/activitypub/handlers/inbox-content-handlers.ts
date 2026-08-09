@@ -62,7 +62,7 @@ import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { destinationDeclaresAlias } from "../../../lib/account-migration.ts";
 import { chunkForInClause } from "../../../lib/chunk.ts";
 import {
-  actorIsBlockedBy,
+  actorSuppressesInteractionFrom,
   canViewerReadObjectFull,
 } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
@@ -479,25 +479,13 @@ export async function handleCreate(
   // is neither public nor follower-only belongs in the recipient's DM inbox /
   // message-request flow rather than the generic public Note insert.
   if (object.id && isDirectNote(object, recipient)) {
-    // A DM from an actor the recipient has personally BLOCKED must be dropped —
-    // mirror the local DM send guard (dm/messages.ts) so the reject+block remedy
-    // actually stops federated DM harassment (the operator-scoped federation
-    // blocklist checked in verifyAndParseInbox is a SEPARATE mechanism). `actor`
-    // is the HTTP-signature-verified signer, so blockedApId=actor is not
-    // spoofable. The inbox already ACKs, so dropping here causes no retry storm.
-    const blockedBySigner = await db
-      .select({ b: blocks.blockerApId })
-      .from(blocks)
-      .where(
-        and(
-          eq(blocks.blockerApId, recipient.apId),
-          eq(blocks.blockedApId, actor),
-        ),
-      )
-      .get();
-    if (blockedBySigner) {
-      log.info("Dropped inbound DM from a blocked actor", {
-        event: "ap.create.direct_note_blocked",
+    // A remote actor personally blocked OR muted by the local recipient must not
+    // inject a DM row or inbox notification. `actor` is the HTTP-signature-
+    // verified signer. The inbox already ACKs, so dropping here causes no retry
+    // storm and reveals no moderation state to the sender.
+    if (await actorSuppressesInteractionFrom(db, recipient.apId, actor)) {
+      log.info("Dropped inbound DM from a blocked or muted actor", {
+        event: "ap.create.direct_note_suppressed",
         actor,
         recipient: recipient.apId,
       });
@@ -580,14 +568,14 @@ export async function handleCreate(
   // recipient. Restricting this to local authors let an unrelated signer inject
   // a public reply beneath a cached remote DM/followers-only Note, mutate its
   // replyCount, and expose the restricted parent's id through `inReplyTo`.
-  // Personal blocks remain local-owner state, so that extra guard only applies
-  // when the parent author is local. Legitimate followers / explicit recipients
-  // still pass canViewerReadObjectFull and are ingested normally.
+  // Personal block/mute state remains local-owner state, so that extra guard only
+  // applies when the parent author is local. Legitimate followers / explicit
+  // recipients still pass canViewerReadObjectFull and are ingested normally.
   if (object.inReplyTo && parentObj) {
     if (!(await canViewerReadObjectFull(db, parentObj, actor))) return;
     if (
       isLocal(parentObj.attributedTo, baseUrl) &&
-      (await actorIsBlockedBy(db, parentObj.attributedTo, actor))
+      (await actorSuppressesInteractionFrom(db, parentObj.attributedTo, actor))
     ) {
       return;
     }
@@ -681,7 +669,8 @@ export async function handleCreate(
   // that only ever fired for local-origin posts). Runs once (the duplicate
   // delivery short-circuits at `existingBeforeInsert` above). Skips the post
   // author and the parent author (already notified by the reply branch) and
-  // honors the mentioned actor's block of the sender, mirroring the reply gate.
+  // honors the mentioned actor's block/mute of the sender, mirroring the reply
+  // gate.
   const mentionedLocalApIds = new Set<string>();
   for (const href of extractMentionHrefs(object.tag)) {
     if (!isLocal(href, baseUrl)) continue;
@@ -712,7 +701,8 @@ export async function handleCreate(
   ).flat();
 
   for (const { apId: mentionedApId } of existingLocalApIds) {
-    if (await actorIsBlockedBy(db, mentionedApId, actor)) continue;
+    if (await actorSuppressesInteractionFrom(db, mentionedApId, actor))
+      continue;
     await upsertActivityAndNotify(
       db,
       activityApId(baseUrl, generateId()),

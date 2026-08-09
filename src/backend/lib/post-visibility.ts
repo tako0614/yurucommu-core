@@ -195,7 +195,8 @@ export async function actorIsBlockedBy(
  * Keep this separate from `actorIsBlockedBy`: block remains the existence-
  * hiding authorization rule used by reads and direct local API responses,
  * while mute is an owner-selected write-suppression rule for federated
- * interactions such as Like and Announce.
+ * interactions and other targeted inbound writes such as Like, Announce,
+ * Follow, Reply, DM, and Mention.
  */
 export async function actorSuppressesInteractionFrom(
   db: Database,

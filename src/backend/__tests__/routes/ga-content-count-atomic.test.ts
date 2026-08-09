@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
-import { actors, blocks, follows, objects } from "../../../db/index.ts";
+import { actors, blocks, follows, mutes, objects } from "../../../db/index.ts";
 import {
   handleCreate,
   handleDelete,
@@ -187,6 +187,25 @@ test("audit#17 inbound reply to a PUBLIC parent by a personally-blocked actor is
     REMOTE_ACTOR,
     APP_URL,
   );
+  expect(await objectCount(db, REPLY_AP_ID)).toBe(0);
+  expect(await replyCountOf(db, PARENT_AP_ID)).toBe(0);
+});
+
+test("[audit#17 targeted mute] inbound reply to a local parent by a personally-muted actor is dropped at write time", async () => {
+  const db = await setup();
+  await db.insert(mutes).values({
+    muterApId: LOCAL_BOB,
+    mutedApId: REMOTE_ACTOR,
+  });
+
+  await handleCreate(
+    ctxFor(db),
+    createNote(REPLY_AP_ID, REMOTE_ACTOR, PARENT_AP_ID),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+
   expect(await objectCount(db, REPLY_AP_ID)).toBe(0);
   expect(await replyCountOf(db, PARENT_AP_ID)).toBe(0);
 });

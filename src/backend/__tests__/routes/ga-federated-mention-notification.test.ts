@@ -11,6 +11,7 @@ import {
   activities,
   blocks,
   inbox as inboxTable,
+  mutes,
   objects,
 } from "../../../db/index.ts";
 import { handleCreate } from "../../routes/activitypub/handlers/inbox-content-handlers.ts";
@@ -168,6 +169,33 @@ test("a federated @-mention from an actor the mentioned user has BLOCKED is supp
     APP_URL,
   );
 
+  expect((await mentionInboxRows(db, LOCAL_CAROL)).length).toBe(0);
+});
+
+test("[audit#17 targeted mute] a federated @-mention from a muted actor creates no target inbox write", async () => {
+  const db = await freshDb();
+  await seedActor(db, REMOTE_ACTOR, "alice");
+  await seedActor(db, LOCAL_CAROL, "carol");
+  await seedActor(db, LOCAL_BOB, "bob");
+  await db.insert(mutes).values({
+    muterApId: LOCAL_CAROL,
+    mutedApId: REMOTE_ACTOR,
+  });
+
+  const objectId = "https://remote.example/objects/m-muted";
+  await handleCreate(
+    ctxFor(db),
+    mentionNote(objectId, REMOTE_ACTOR, [LOCAL_CAROL]),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+
+  // The public object remains cached for the instance, but Carol's targeted
+  // inbox write is suppressed at ingestion rather than hidden only on read.
+  expect(
+    (await db.select().from(objects).where(eq(objects.apId, objectId))).length,
+  ).toBe(1);
   expect((await mentionInboxRows(db, LOCAL_CAROL)).length).toBe(0);
 });
 

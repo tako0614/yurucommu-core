@@ -230,6 +230,24 @@ test("an inbound DM from a BLOCKED actor is dropped (no object row created)", as
   expect(await countOf(db, id)).toBe(0);
 });
 
+test("[audit#17 targeted mute] an inbound DM from a muted actor is dropped at write time", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/dm-muted";
+  await db
+    .insert(schema.mutes)
+    .values({ muterApId: LOCAL_BOB, mutedApId: REMOTE });
+
+  await handleCreate(
+    ctxFor(db),
+    note(id, [LOCAL_BOB]),
+    recipient(LOCAL_BOB),
+    REMOTE,
+    APP_URL,
+  );
+
+  expect(await countOf(db, id)).toBe(0);
+});
+
 test("a DM addressed to the inbox owner is stored as visibility=direct (DM path), never unlisted", async () => {
   const db = await setup();
   const id = "https://remote.example/objects/dm-2";

@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, blocks, follows } from "../../../db/index.ts";
+import { actors, blocks, follows, mutes } from "../../../db/index.ts";
 import {
   handleFollow,
   handleReject,
@@ -150,6 +150,25 @@ test("[audit#15 #2] an inbound Follow from a blocked actor is dropped (no edge, 
   );
 
   // No edge created, recipient's follower count unchanged.
+  expect(await edgeCount(db, RECIPIENT)).toBe(0);
+  expect(await followerCount(db, RECIPIENT)).toBe(0);
+});
+
+test("[audit#17 targeted mute] an inbound Follow from a muted actor is dropped at write time", async () => {
+  const db = await setup();
+  await db.insert(mutes).values({
+    muterApId: RECIPIENT,
+    mutedApId: LOCAL_FOLLOWER,
+  });
+
+  await handleFollow(
+    ctxFor(db),
+    followActivity(FOLLOW_ACTIVITY, LOCAL_FOLLOWER, RECIPIENT),
+    recipientRow(RECIPIENT, false),
+    LOCAL_FOLLOWER,
+    APP_URL,
+  );
+
   expect(await edgeCount(db, RECIPIENT)).toBe(0);
   expect(await followerCount(db, RECIPIENT)).toBe(0);
 });
