@@ -42,7 +42,11 @@ const LOCAL_BOB = `${APP_URL}/ap/users/bob`;
 const PARENT_AP_ID = `${LOCAL_BOB}/posts/parent-1`;
 const REMOTE_DIRECT_PARENT = "https://parent.example/objects/direct-parent";
 const REPLY_AP_ID = "https://remote.example/objects/reply-1";
+const REPLY_2_AP_ID = "https://remote.example/objects/reply-2";
 const TOP_AP_ID = "https://remote.example/objects/top-1";
+const LATE_PARENT_AP_ID = "https://remote.example/objects/late-parent";
+const LATE_DIRECT_PARENT_AP_ID =
+  "https://parent.example/objects/late-direct-parent";
 
 async function freshDb(): Promise<Database> {
   return (await createTestDb()).db;
@@ -132,6 +136,26 @@ const createNote = (id: string, actor: string, inReplyTo?: string): Activity =>
       content: "hi",
       inReplyTo,
       to: ["https://www.w3.org/ns/activitystreams#Public"],
+    },
+  }) as unknown as Activity;
+
+const createDirectNote = (
+  id: string,
+  actor: string,
+  recipients: string[],
+  inReplyTo?: string,
+): Activity =>
+  ({
+    id: `${id}/activity`,
+    type: "Create",
+    actor,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: actor,
+      content: "private parent",
+      to: recipients,
+      inReplyTo,
     },
   }) as unknown as Activity;
 
@@ -277,6 +301,61 @@ test("audit#17 inbound reply cannot target a remote-authored direct parent the s
   expect(await replyCountOf(db, REMOTE_DIRECT_PARENT)).toBe(1);
 });
 
+test("audit#17 a direct reply cannot bypass the retained-parent read gate", async () => {
+  const db = await setup();
+  await db.insert(objects).values({
+    apId: REMOTE_DIRECT_PARENT,
+    type: "Note",
+    attributedTo: REMOTE_PARENT,
+    content: "private message",
+    visibility: "direct",
+    toJson: JSON.stringify([LOCAL_BOB]),
+    ccJson: "[]",
+    replyCount: 0,
+    isLocal: 0,
+  });
+
+  const reply = createDirectNote(
+    REPLY_AP_ID,
+    REMOTE_ACTOR,
+    [LOCAL_BOB],
+    REMOTE_DIRECT_PARENT,
+  );
+  await handleCreate(ctxFor(db), reply, recipientRow(), REMOTE_ACTOR, APP_URL);
+  expect(await objectCount(db, REPLY_AP_ID)).toBe(0);
+  expect(await replyCountOf(db, REMOTE_DIRECT_PARENT)).toBe(0);
+
+  // Once the parent explicitly addresses Alice, the same reply is legitimate.
+  await db
+    .update(objects)
+    .set({ toJson: JSON.stringify([LOCAL_BOB, REMOTE_ACTOR]) })
+    .where(eq(objects.apId, REMOTE_DIRECT_PARENT));
+  await handleCreate(ctxFor(db), reply, recipientRow(), REMOTE_ACTOR, APP_URL);
+  expect(await objectCount(db, REPLY_AP_ID)).toBe(1);
+  expect(await replyCountOf(db, REMOTE_DIRECT_PARENT)).toBe(1);
+});
+
+test("a direct reply atomically recomputes its retained public parent", async () => {
+  const db = await setup();
+  const reply = createDirectNote(
+    REPLY_AP_ID,
+    REMOTE_ACTOR,
+    [LOCAL_BOB],
+    PARENT_AP_ID,
+  );
+
+  await handleCreate(ctxFor(db), reply, recipientRow(), REMOTE_ACTOR, APP_URL);
+  expect(await objectCount(db, REPLY_AP_ID)).toBe(1);
+  expect(await replyCountOf(db, PARENT_AP_ID)).toBe(1);
+
+  await db
+    .update(objects)
+    .set({ replyCount: 0 })
+    .where(eq(objects.apId, PARENT_AP_ID));
+  await handleCreate(ctxFor(db), reply, recipientRow(), REMOTE_ACTOR, APP_URL);
+  expect(await replyCountOf(db, PARENT_AP_ID)).toBe(1);
+});
+
 test("[R6#3] inbound Create applies the object + postCount atomically, exactly once", async () => {
   const db = await setup();
   await handleCreate(
@@ -376,6 +455,68 @@ test("[R6#3] reply Create after a crash-stale parent replyCount CONVERGES via re
   );
 
   expect(await replyCountOf(db, PARENT_AP_ID)).toBe(1); // converged
+});
+
+test("an inbound parent arriving after its replies reconstructs replyCount and a duplicate repairs drift", async () => {
+  const db = await setup();
+
+  // Federation delivery is not ordered. Both replies are retained before the
+  // parent exists, so their immediate parent UPDATE legitimately matches zero
+  // rows. Parent arrival must discover the already indexed child edges rather
+  // than relying on either child being retried later.
+  await handleCreate(
+    ctxFor(db),
+    createNote(REPLY_AP_ID, REMOTE_ACTOR, LATE_PARENT_AP_ID),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  await handleCreate(
+    ctxFor(db),
+    createNote(REPLY_2_AP_ID, REMOTE_ACTOR, LATE_PARENT_AP_ID),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  expect(await replyCountOf(db, LATE_PARENT_AP_ID)).toBe(-1);
+
+  const parent = createNote(LATE_PARENT_AP_ID, REMOTE_ACTOR);
+  await handleCreate(ctxFor(db), parent, recipientRow(), REMOTE_ACTOR, APP_URL);
+  expect(await replyCountOf(db, LATE_PARENT_AP_ID)).toBe(2);
+
+  // A peer re-delivery is also a repair opportunity for old/stale rows.
+  await db
+    .update(objects)
+    .set({ replyCount: 0 })
+    .where(eq(objects.apId, LATE_PARENT_AP_ID));
+  await handleCreate(ctxFor(db), parent, recipientRow(), REMOTE_ACTOR, APP_URL);
+  expect(await replyCountOf(db, LATE_PARENT_AP_ID)).toBe(2);
+});
+
+test("a direct parent arriving after an authorized reply reconstructs its replyCount", async () => {
+  const db = await setup();
+
+  // Alice is an explicit recipient of Pat's direct parent, so this is a valid
+  // out-of-order reply rather than an unauthorized thread injection.
+  await handleCreate(
+    ctxFor(db),
+    createNote(REPLY_AP_ID, REMOTE_ACTOR, LATE_DIRECT_PARENT_AP_ID),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  await handleCreate(
+    ctxFor(db),
+    createDirectNote(LATE_DIRECT_PARENT_AP_ID, REMOTE_PARENT, [
+      LOCAL_BOB,
+      REMOTE_ACTOR,
+    ]),
+    recipientRow(),
+    REMOTE_PARENT,
+    APP_URL,
+  );
+
+  expect(await replyCountOf(db, LATE_DIRECT_PARENT_AP_ID)).toBe(1);
 });
 
 // ---------------------------------------------------------------------------

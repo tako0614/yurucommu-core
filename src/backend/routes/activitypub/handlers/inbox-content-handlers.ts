@@ -217,6 +217,24 @@ function hiddenRecipientAddresses(addressing: NoteAddressing): string[] {
 }
 
 /**
+ * Derive an object's reply counter from the indexed child edge set.
+ *
+ * Federation delivery is unordered: a child can commit while its parent is
+ * still unknown, making the child's immediate parent UPDATE a legitimate
+ * zero-row no-op. Every later parent insert or duplicate delivery must run this
+ * statement after the insert attempt so both arrival orders — and old stale
+ * rows — converge without depending on a child retry.
+ */
+function recomputeObjectReplyCount(db: Database, objectId: string) {
+  return db
+    .update(objects)
+    .set({
+      replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${objectId})`,
+    })
+    .where(eq(objects.apId, objectId));
+}
+
+/**
  * Recipient-INDEPENDENT visibility classification for an inbound generic Note,
  * mirroring the local outbound addressing contract. CRITICAL invariant: a
  * non-public Note is NEVER classified as "unlisted" (world-readable). Direct
@@ -422,6 +440,15 @@ async function insertDirectNote(
     new Date().toISOString(),
   );
 
+  const replyCountStatements = [
+    ...(object.inReplyTo
+      ? [recomputeObjectReplyCount(db, object.inReplyTo)]
+      : []),
+    // A direct Note can itself be a late-arriving parent. Recompute even when
+    // the insert conflicts so a peer retry repairs a stale legacy counter.
+    recomputeObjectReplyCount(db, objectId),
+  ];
+
   // #3 (atomicity + idempotency): the object insert and the author postCount
   // bump MUST commit together. Previously the row was inserted
   // (onConflictDoNothing) and postCount bumped in a SEPARATE await; under the
@@ -480,6 +507,7 @@ async function insertDirectNote(
         type: "to",
       })
       .onConflictDoNothing(),
+    ...replyCountStatements,
   ]);
 
   // Store the inbound Create and surface it in the recipient's inbox so the DM
@@ -539,6 +567,41 @@ export async function handleCreate(
   // is neither public nor follower-only belongs in the recipient's DM inbox /
   // message-request flow rather than the generic public Note insert.
   const addressing = createNoteAddressing(activity, object);
+
+  const parentObj = object.inReplyTo
+    ? await db
+        .select({
+          apId: objects.apId,
+          attributedTo: objects.attributedTo,
+          visibility: objects.visibility,
+          toJson: objects.toJson,
+          ccJson: objects.ccJson,
+          audienceJson: objects.audienceJson,
+          communityApId: objects.communityApId,
+          type: objects.type,
+          endTime: objects.endTime,
+        })
+        .from(objects)
+        .where(eq(objects.apId, object.inReplyTo))
+        .get()
+    : null;
+
+  // Inbound replies must pass the canonical read gate for EVERY parent retained
+  // by this instance, including direct Notes and remote-authored objects
+  // delivered to a local recipient. Keeping this check before the direct/generic
+  // routing split prevents either storage path from becoming a restricted-thread
+  // injection bypass. Personal block/mute state remains local-owner state, so
+  // that extra guard applies only when the parent author is local.
+  if (object.inReplyTo && parentObj) {
+    if (!(await canViewerReadObjectFull(db, parentObj, actor))) return;
+    if (
+      isLocal(parentObj.attributedTo, baseUrl) &&
+      (await actorSuppressesInteractionFrom(db, parentObj.attributedTo, actor))
+    ) {
+      return;
+    }
+  }
+
   if (object.id && isDirectNote(addressing, recipient)) {
     // A remote actor personally blocked OR muted by the local recipient must not
     // inject a DM row or inbox notification. `actor` is the HTTP-signature-
@@ -607,41 +670,6 @@ export async function handleCreate(
     object.published,
     new Date().toISOString(),
   );
-  const parentObj = object.inReplyTo
-    ? await db
-        .select({
-          apId: objects.apId,
-          attributedTo: objects.attributedTo,
-          visibility: objects.visibility,
-          toJson: objects.toJson,
-          ccJson: objects.ccJson,
-          audienceJson: objects.audienceJson,
-          communityApId: objects.communityApId,
-          type: objects.type,
-          endTime: objects.endTime,
-        })
-        .from(objects)
-        .where(eq(objects.apId, object.inReplyTo))
-        .get()
-    : null;
-
-  // Inbound replies must pass the canonical read gate for EVERY parent retained
-  // by this instance, including remote-authored objects delivered to a local
-  // recipient. Restricting this to local authors let an unrelated signer inject
-  // a public reply beneath a cached remote DM/followers-only Note, mutate its
-  // replyCount, and expose the restricted parent's id through `inReplyTo`.
-  // Personal block/mute state remains local-owner state, so that extra guard only
-  // applies when the parent author is local. Legitimate followers / explicit
-  // recipients still pass canViewerReadObjectFull and are ingested normally.
-  if (object.inReplyTo && parentObj) {
-    if (!(await canViewerReadObjectFull(db, parentObj, actor))) return;
-    if (
-      isLocal(parentObj.attributedTo, baseUrl) &&
-      (await actorSuppressesInteractionFrom(db, parentObj.attributedTo, actor))
-    ) {
-      return;
-    }
-  }
 
   const shouldNotifyParent = !!(
     parentObj && isLocal(parentObj.attributedTo, baseUrl)
@@ -719,18 +747,15 @@ export async function handleCreate(
       bumpPostCount,
       insertObject,
       ...recipientProjectionStatements,
-      db
-        .update(objects)
-        .set({
-          replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
-        })
-        .where(eq(objects.apId, parentId)),
+      recomputeObjectReplyCount(db, parentId),
+      recomputeObjectReplyCount(db, objectId),
     ]);
   } else {
     await runBatch(db, [
       bumpPostCount,
       insertObject,
       ...recipientProjectionStatements,
+      recomputeObjectReplyCount(db, objectId),
     ]);
   }
 
@@ -847,7 +872,12 @@ export async function handleCreateStory(
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
-  if (existing) return;
+  if (existing) {
+    // Duplicate Story delivery is a bounded repair opportunity for a parent
+    // inserted by an older version before one or more child replies arrived.
+    await recomputeObjectReplyCount(db, objectId);
+    return;
+  }
 
   // Per-author flood cap. A hostile remote could Create() an unbounded number of
   // Stories to bloat our feed/storage (each carries an attachment blob + caption).
@@ -1029,6 +1059,9 @@ export async function handleCreateStory(
           ? { audienceJson: JSON.stringify(storyAudience) }
           : {}),
       endTime,
+      // Handles the child-before-parent order without a second transaction.
+      // The child Create path repairs the opposite concurrent order.
+      replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${objectId})`,
       published: publishedAt,
       isLocal: 0,
     })
@@ -1068,9 +1101,10 @@ const ANNOUNCED_OBJECT_FETCH_TIMEOUT_MS = 15_000;
  *     a boost must never widen a followers-only/direct object's audience, and
  *     this instance cannot verify a remote author's follower audience.
  *
- * Depth cap: the object's `inReplyTo` is stored verbatim but NEVER resolved —
- * a single Announce triggers at most one object fetch (plus a best-effort
- * author-profile cache fill), not a thread walk.
+ * Depth cap: the object's `inReplyTo` is stored verbatim and a retained parent
+ * is authority-checked locally, but an unknown parent is NEVER fetched. A
+ * single Announce therefore triggers at most one object fetch (plus a
+ * best-effort author-profile cache fill), not a thread walk.
  *
  * Best-effort by contract: every failure returns false and the Announce is
  * dropped exactly as it was before this path existed.
@@ -1137,6 +1171,46 @@ export async function fetchAndPersistAnnouncedNote(
   );
   if (!communityScope.allowed) return false;
 
+  // A fetched boost target can itself be a reply. If its parent is already
+  // retained, apply the exact same read/suppression authority as ordinary
+  // inbound Create before storing the child. Without this check an Announce of
+  // an otherwise-public Note could inject a reply beneath a local direct or
+  // followers-only parent that its author cannot read. An unknown parent stays
+  // unresolved (the one-fetch depth cap below); later parent arrival repairs
+  // its derived counter through recomputeObjectReplyCount.
+  const parentObj = note.inReplyTo
+    ? await db
+        .select({
+          apId: objects.apId,
+          attributedTo: objects.attributedTo,
+          visibility: objects.visibility,
+          toJson: objects.toJson,
+          ccJson: objects.ccJson,
+          audienceJson: objects.audienceJson,
+          communityApId: objects.communityApId,
+          type: objects.type,
+          endTime: objects.endTime,
+        })
+        .from(objects)
+        .where(eq(objects.apId, note.inReplyTo))
+        .get()
+    : null;
+  if (note.inReplyTo && parentObj) {
+    if (!(await canViewerReadObjectFull(db, parentObj, attributedTo))) {
+      return false;
+    }
+    if (
+      isLocal(parentObj.attributedTo, baseUrl) &&
+      (await actorSuppressesInteractionFrom(
+        db,
+        parentObj.attributedTo,
+        attributedTo,
+      ))
+    ) {
+      return false;
+    }
+  }
+
   // Best-effort author profile fill so the surfaced boost renders with the
   // author's name/icon. Cache-when-absent; a failure never blocks the persist.
   const cachedAuthor = await db
@@ -1156,7 +1230,7 @@ export async function fetchAndPersistAnnouncedNote(
     }
   }
 
-  await db
+  const insertObject = db
     .insert(objects)
     .values({
       apId: objectId,
@@ -1166,8 +1240,8 @@ export async function fetchAndPersistAnnouncedNote(
       summary: boundInboundSummary(note.summary),
       attachmentsJson: boundInboundNoteAttachmentsJson(note.attachment),
       tagsJson: boundInboundTagsJson(note.tag),
-      // Stored verbatim, never resolved (depth cap): a boosted reply keeps its
-      // honest thread link even though the parent may stay unknown here.
+      // Stored verbatim and never remotely resolved (depth cap): a boosted
+      // reply keeps its honest thread link even when the parent stays unknown.
       inReplyTo: note.inReplyTo || null,
       visibility,
       toJson: boundAddressJson(note.to),
@@ -1181,6 +1255,18 @@ export async function fetchAndPersistAnnouncedNote(
       isLocal: 0,
     })
     .onConflictDoNothing();
+
+  if (note.inReplyTo) {
+    await runBatch(db, [
+      insertObject,
+      recomputeObjectReplyCount(db, note.inReplyTo),
+      // Unknown Announce targets race normal Create delivery; the no-op insert
+      // plus recompute keeps both arrival paths idempotent and repairable.
+      recomputeObjectReplyCount(db, objectId),
+    ]);
+  } else {
+    await runBatch(db, [insertObject, recomputeObjectReplyCount(db, objectId)]);
+  }
 
   return true;
 }

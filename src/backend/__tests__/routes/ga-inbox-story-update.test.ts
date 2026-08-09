@@ -14,6 +14,10 @@ import type {
 
 const ALICE = "https://remote.example/users/alice";
 const STORY_ID = "https://remote.example/stories/s1";
+const FETCHED_NOTE_ID = "https://remote.example/objects/fetched-late-parent";
+const FETCHED_REPLY_ID = "https://remote.example/objects/fetched-reply";
+const FETCHED_FORGED_REPLY_ID =
+  "https://remote.example/objects/fetched-forged-reply";
 
 // ---------------------------------------------------------------------------
 // Module mock — the only network seam these handlers reach is
@@ -45,13 +49,47 @@ mock.module("../../lib/federation-fetch.ts", () => ({
         },
       );
     }
+    if (url === FETCHED_NOTE_ID) {
+      return new Response(
+        JSON.stringify({
+          id: FETCHED_NOTE_ID,
+          type: "Note",
+          attributedTo: ALICE,
+          content: "fetched parent",
+          to: ["https://www.w3.org/ns/activitystreams#Public"],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/activity+json" },
+        },
+      );
+    }
+    if (url === FETCHED_REPLY_ID || url === FETCHED_FORGED_REPLY_ID) {
+      return new Response(
+        JSON.stringify({
+          id: url,
+          type: "Note",
+          attributedTo: ALICE,
+          content: "fetched reply",
+          inReplyTo:
+            url === FETCHED_REPLY_ID
+              ? "https://yuru.test/ap/objects/public-parent"
+              : "https://yuru.test/ap/objects/direct-parent",
+          to: ["https://www.w3.org/ns/activitystreams#Public"],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/activity+json" },
+        },
+      );
+    }
     return new Response("not found", { status: 404 });
   },
 }));
 
 // Imported AFTER the mock is registered so the handler + actor-cache modules
 // pick up the stubbed fetch.
-const { handleCreateStory, handleUpdate } =
+const { fetchAndPersistAnnouncedNote, handleCreateStory, handleUpdate } =
   await import("../../routes/activitypub/handlers/inbox-content-handlers.ts");
 
 async function freshDb(): Promise<Database> {
@@ -126,6 +164,156 @@ test("handleCreateStory dedups a redelivered remote story (onConflictDoNothing)"
     .where(eq(objects.apId, STORY_ID));
   expect(rows.length).toBe(1);
   expect(rows[0]?.type).toBe("Story");
+});
+
+test("a Story arriving after an indexed reply reconstructs and repairs replyCount", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  await db.insert(objects).values({
+    apId: "https://remote.example/objects/story-reply",
+    type: "Note",
+    attributedTo: ALICE,
+    content: "early reply",
+    inReplyTo: STORY_ID,
+    isLocal: 0,
+  });
+
+  await handleCreateStory(ctx(db), storyActivity(), ALICE, "https://yuru.test");
+  expect(
+    (
+      await db
+        .select({ replyCount: objects.replyCount })
+        .from(objects)
+        .where(eq(objects.apId, STORY_ID))
+        .get()
+    )?.replyCount,
+  ).toBe(1);
+
+  await db
+    .update(objects)
+    .set({ replyCount: 0 })
+    .where(eq(objects.apId, STORY_ID));
+  await handleCreateStory(ctx(db), storyActivity(), ALICE, "https://yuru.test");
+  expect(
+    (
+      await db
+        .select({ replyCount: objects.replyCount })
+        .from(objects)
+        .where(eq(objects.apId, STORY_ID))
+        .get()
+    )?.replyCount,
+  ).toBe(1);
+});
+
+test("an Announce-fetched parent arriving after a reply reconstructs replyCount", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  await seedAlice(db);
+  await db.insert(objects).values({
+    apId: "https://remote.example/objects/fetched-parent-reply",
+    type: "Note",
+    attributedTo: ALICE,
+    content: "early fetched-parent reply",
+    inReplyTo: FETCHED_NOTE_ID,
+    isLocal: 0,
+  });
+
+  expect(
+    await fetchAndPersistAnnouncedNote(
+      db,
+      FETCHED_NOTE_ID,
+      "https://yuru.test",
+    ),
+  ).toBe(true);
+  expect(fetchedUrls).toContain(FETCHED_NOTE_ID);
+  expect(
+    (
+      await db
+        .select({ replyCount: objects.replyCount })
+        .from(objects)
+        .where(eq(objects.apId, FETCHED_NOTE_ID))
+        .get()
+    )?.replyCount,
+  ).toBe(1);
+});
+
+test("an Announce-fetched reply recomputes its already-retained public parent", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  await seedAlice(db);
+  const bob = "https://yuru.test/ap/users/bob";
+  await seedActor(db, bob, "bob");
+  const parentId = "https://yuru.test/ap/objects/public-parent";
+  await db.insert(objects).values({
+    apId: parentId,
+    type: "Note",
+    attributedTo: bob,
+    content: "public parent",
+    visibility: "public",
+    replyCount: 0,
+    isLocal: 1,
+  });
+
+  expect(
+    await fetchAndPersistAnnouncedNote(
+      db,
+      FETCHED_REPLY_ID,
+      "https://yuru.test",
+    ),
+  ).toBe(true);
+  expect(
+    (
+      await db
+        .select({ replyCount: objects.replyCount })
+        .from(objects)
+        .where(eq(objects.apId, parentId))
+        .get()
+    )?.replyCount,
+  ).toBe(1);
+});
+
+test("an Announce-fetched reply cannot inject beneath an unreadable direct parent", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  await seedAlice(db);
+  const bob = "https://yuru.test/ap/users/bob";
+  await seedActor(db, bob, "bob");
+  const parentId = "https://yuru.test/ap/objects/direct-parent";
+  await db.insert(objects).values({
+    apId: parentId,
+    type: "Note",
+    attributedTo: bob,
+    content: "private parent",
+    visibility: "direct",
+    toJson: JSON.stringify([bob]),
+    ccJson: "[]",
+    replyCount: 0,
+    isLocal: 1,
+  });
+
+  expect(
+    await fetchAndPersistAnnouncedNote(
+      db,
+      FETCHED_FORGED_REPLY_ID,
+      "https://yuru.test",
+    ),
+  ).toBe(false);
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, FETCHED_FORGED_REPLY_ID))
+      .get(),
+  ).toBeUndefined();
+  expect(
+    (
+      await db
+        .select({ replyCount: objects.replyCount })
+        .from(objects)
+        .where(eq(objects.apId, parentId))
+        .get()
+    )?.replyCount,
+  ).toBe(0);
 });
 
 // ---------------------------------------------------------------------------
@@ -297,18 +485,26 @@ test("handleUpdate(actor) re-fetches when no cache row exists yet", async () => 
 // clamps an attacker far-future / non-ISO endTime to published + ~25h.
 // ---------------------------------------------------------------------------
 
-async function seedAlice(db: Database): Promise<void> {
+async function seedActor(
+  db: Database,
+  apId: string,
+  username: string,
+): Promise<void> {
   await db.insert(actors).values({
-    apId: ALICE,
+    apId,
     type: "Person",
-    preferredUsername: "alice",
-    inbox: `${ALICE}/inbox`,
-    outbox: `${ALICE}/outbox`,
-    followersUrl: `${ALICE}/followers`,
-    followingUrl: `${ALICE}/following`,
+    preferredUsername: username,
+    inbox: `${apId}/inbox`,
+    outbox: `${apId}/outbox`,
+    followersUrl: `${apId}/followers`,
+    followingUrl: `${apId}/following`,
     publicKeyPem: "pub",
     privateKeyPem: "priv",
   });
+}
+
+async function seedAlice(db: Database): Promise<void> {
+  await seedActor(db, ALICE, "alice");
 }
 
 function storyWithEndTime(endTime: string, id: string): Activity {
