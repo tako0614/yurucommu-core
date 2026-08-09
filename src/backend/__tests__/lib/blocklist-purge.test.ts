@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
 import { activities, actors, objects } from "../../../db/index.ts";
@@ -123,6 +123,110 @@ test("purgeActorContent removes every cosmetic author spelling but preserves a p
     siblingPost: true,
     remainingActivityActors: [pathCaseSibling],
   });
+});
+
+test("purgeActorContent finds cosmetic actor rows across bounded history pages", async () => {
+  const db = await freshDb();
+  const canonical = "https://remote.example/users/alice";
+  const cosmetic = "https://REMOTE.example:443/users/alice/#legacy";
+  const targetCount = 181;
+  const unrelatedCount = 513;
+
+  for (let index = 0; index < unrelatedCount; index += 1) {
+    const suffix = String(index).padStart(4, "0");
+    const placement = index % 2 === 0 ? "aaa" : "zzz";
+    const actor = `https://unrelated.example/users/${suffix}`;
+    const objectApId = `https://content.example/${placement}-objects/${suffix}`;
+    await seedPost(db, objectApId, actor);
+    await db.insert(activities).values({
+      apId: `https://content.example/${placement}-activities/${suffix}`,
+      type: "Create",
+      actorApId: actor,
+      objectApId,
+      rawJson: "{}",
+      direction: "inbound",
+    });
+  }
+  for (let index = 0; index < targetCount; index += 1) {
+    const suffix = String(index).padStart(4, "0");
+    const objectApId = `https://content.example/middle-objects/${suffix}`;
+    await seedPost(db, objectApId, cosmetic);
+    await db.insert(activities).values({
+      apId: `https://content.example/middle-activities/${suffix}`,
+      type: "Create",
+      actorApId: cosmetic,
+      objectApId,
+      rawJson: "{}",
+      direction: "inbound",
+    });
+  }
+
+  const result = await purgeActorContent(db, canonical);
+
+  expect(result).toEqual({
+    complete: true,
+    deletedObjects: targetCount,
+    deletedActivities: targetCount,
+  });
+  expect(await db.select({ apId: objects.apId }).from(objects)).toHaveLength(
+    unrelatedCount,
+  );
+  expect(
+    await db.select({ apId: activities.apId }).from(activities),
+  ).toHaveLength(unrelatedCount);
+});
+
+test("purgeActorContent reports bounded partial progress and converges on retry", async () => {
+  const db = await freshDb();
+  const actor = "https://retry.example/users/alice";
+  const targetCount = 181;
+
+  for (let index = 0; index < targetCount; index += 1) {
+    const suffix = String(index).padStart(3, "0");
+    const objectApId = `https://retry.example/objects/${suffix}`;
+    await seedPost(db, objectApId, actor);
+    await db.insert(activities).values({
+      apId: `https://retry.example/activities/${suffix}`,
+      type: "Create",
+      actorApId: actor,
+      objectApId,
+      rawJson: "{}",
+      direction: "inbound",
+    });
+  }
+  await db.run(
+    sql.raw(`
+      CREATE TRIGGER reject_second_actor_purge_chunk
+      BEFORE DELETE ON objects
+      WHEN OLD.ap_id = 'https://retry.example/objects/100'
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated second-chunk purge failure');
+      END
+    `),
+  );
+
+  expect(await purgeActorContent(db, actor)).toEqual({
+    complete: false,
+    deletedObjects: 90,
+    deletedActivities: 0,
+  });
+  expect(await db.select({ apId: objects.apId }).from(objects)).toHaveLength(
+    91,
+  );
+  expect(
+    await db.select({ apId: activities.apId }).from(activities),
+  ).toHaveLength(targetCount);
+
+  await db.run(sql`DROP TRIGGER reject_second_actor_purge_chunk`);
+  expect(await purgeActorContent(db, actor)).toEqual({
+    complete: true,
+    deletedObjects: 91,
+    deletedActivities: targetCount,
+  });
+  expect(await db.select({ apId: objects.apId }).from(objects)).toEqual([]);
+  expect(await db.select({ apId: activities.apId }).from(activities)).toEqual(
+    [],
+  );
 });
 
 test("purgeDomainContent removes the host AND its subdomains but NOT a similarly-named domain", async () => {

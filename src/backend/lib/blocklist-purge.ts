@@ -1,11 +1,11 @@
-import { asc, inArray, sql, type SQL } from "drizzle-orm";
+import { asc, gt, inArray, sql, type SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { activities, objects } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import type { IObjectStorage } from "../runtime/types.ts";
 import { chunkForInClause, D1_IN_CHUNK } from "./chunk.ts";
 import { normalizeDomain } from "./blocklist.ts";
-import { activityPubActorIdentityMatchesSql } from "./activitypub-actor-identity-sql.ts";
+import { isSameActivityPubActor } from "./activitypub-actor-identity.ts";
 import {
   deleteObjectsCascade,
   purgeMediaBlobs,
@@ -13,6 +13,12 @@ import {
 import { logger } from "./logger.ts";
 
 const log = logger.child({ component: "blocklist" });
+
+// Actor identity equivalence cannot use a simple indexed equality lookup: the
+// accepted cosmetic spellings include host case, default ports, fragments,
+// and one trailing slash. Scan retained identity columns in fixed-size pages
+// instead of re-materializing the whole table once per delete chunk.
+const ACTOR_IDENTITY_SCAN_PAGE = 512;
 
 export interface BlocklistContentPurgeResult {
   complete: boolean;
@@ -122,6 +128,64 @@ async function purgeMatchingActivities(
 }
 
 /**
+ * Scan retained objects once by stable AP-ID and remove matching actor rows in
+ * D1-sized units. The operator block is active before this cleanup starts, so
+ * the scan does not have to restart from the beginning after every delete.
+ */
+async function purgeActorObjects(
+  db: Database,
+  blockedApId: string,
+  media?: IObjectStorage,
+  onPageDeleted?: (count: number) => void,
+): Promise<void> {
+  let cursor: string | undefined;
+  while (true) {
+    const rows = await db
+      .select({ apId: objects.apId, attributedTo: objects.attributedTo })
+      .from(objects)
+      .where(cursor === undefined ? undefined : gt(objects.apId, cursor))
+      .orderBy(asc(objects.apId))
+      .limit(ACTOR_IDENTITY_SCAN_PAGE);
+    if (rows.length === 0) return;
+    cursor = rows[rows.length - 1]!.apId;
+
+    const targetApIds = rows
+      .filter((row) => isSameActivityPubActor(row.attributedTo, blockedApId))
+      .map((row) => row.apId);
+    for (const chunk of chunkForInClause(targetApIds)) {
+      await purgeObjects(db, chunk, media);
+      onPageDeleted?.(chunk.length);
+    }
+  }
+}
+
+async function purgeActorActivities(
+  db: Database,
+  blockedApId: string,
+  onPageDeleted?: (count: number) => void,
+): Promise<void> {
+  let cursor: string | undefined;
+  while (true) {
+    const rows = await db
+      .select({ apId: activities.apId, actorApId: activities.actorApId })
+      .from(activities)
+      .where(cursor === undefined ? undefined : gt(activities.apId, cursor))
+      .orderBy(asc(activities.apId))
+      .limit(ACTOR_IDENTITY_SCAN_PAGE);
+    if (rows.length === 0) return;
+    cursor = rows[rows.length - 1]!.apId;
+
+    const targetApIds = rows
+      .filter((row) => isSameActivityPubActor(row.actorApId, blockedApId))
+      .map((row) => row.apId);
+    for (const chunk of chunkForInClause(targetApIds)) {
+      await db.delete(activities).where(inArray(activities.apId, chunk));
+      onPageDeleted?.(chunk.length);
+    }
+  }
+}
+
+/**
  * Purge a blocked REMOTE actor's already-ingested content. The operator
  * blocklist is otherwise ingest/delivery-only, so without this a defederated
  * actor's prior posts/replies/stories stay live in timelines, search, and
@@ -138,29 +202,12 @@ export async function purgeActorContent(
   let deletedObjects = 0;
   let deletedActivities = 0;
   try {
-    const retainedObjectAuthors = activityPubActorIdentityMatchesSql(
-      sql`SELECT ${objects.attributedTo} FROM ${objects}`,
-      blockedApId,
-    );
-    await purgeMatchingObjects(
-      db,
-      sql`${objects.attributedTo} IN (${retainedObjectAuthors})`,
-      media,
-      (count) => {
-        deletedObjects += count;
-      },
-    );
-    const retainedActivityActors = activityPubActorIdentityMatchesSql(
-      sql`SELECT ${activities.actorApId} FROM ${activities}`,
-      blockedApId,
-    );
-    await purgeMatchingActivities(
-      db,
-      sql`${activities.actorApId} IN (${retainedActivityActors})`,
-      (count) => {
-        deletedActivities += count;
-      },
-    );
+    await purgeActorObjects(db, blockedApId, media, (count) => {
+      deletedObjects += count;
+    });
+    await purgeActorActivities(db, blockedApId, (count) => {
+      deletedActivities += count;
+    });
     return { complete: true, deletedObjects, deletedActivities };
   } catch (err) {
     log.warn("blocklist.purgeActorContent failed", {
