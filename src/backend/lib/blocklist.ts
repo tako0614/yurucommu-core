@@ -15,7 +15,7 @@
 import { eq, inArray, sql, type SQL } from "drizzle-orm";
 
 import type { Database } from "../../db/index.ts";
-import { blockedActors, blockedDomains } from "../../db/index.ts";
+import { blockedActors, blockedDomains, runBatch } from "../../db/index.ts";
 import { normalizeActivityPubActorId } from "./activitypub-actor-identity.ts";
 import {
   activityPubActorIdentityMatchesSql,
@@ -42,6 +42,23 @@ type RawSqlDatabase = {
 
 function retainedBlockedActorIdsSql() {
   return sql`SELECT ${blockedActors.actorApId} FROM ${blockedActors}`;
+}
+
+function retainedBlockedActorMatchesSql(actorApId: string) {
+  return activityPubActorIdentityMatchesSql(
+    retainedBlockedActorIdsSql(),
+    actorApId,
+  );
+}
+
+function retainedBlockedActorKeySql(actorApId: string) {
+  const matches = retainedBlockedActorMatchesSql(actorApId);
+  return sql`
+    SELECT actor_id
+    FROM (${matches}) AS retained_blocked_actor_matches
+    ORDER BY actor_id
+    LIMIT 1
+  `;
 }
 
 /**
@@ -130,10 +147,7 @@ export async function isActorBlocked(
     // a fixed prefix silently turned an older block into fail-open ingress.
     const rawDb = db as unknown as RawSqlDatabase;
     if (typeof rawDb.get === "function") {
-      const matches = activityPubActorIdentityMatchesSql(
-        retainedBlockedActorIdsSql(),
-        actorApId,
-      );
+      const matches = retainedBlockedActorMatchesSql(actorApId);
       const retained = (await rawDb.get(sql`
         SELECT (${matches}) AS actor_id
       `)) as { actor_id?: string | null } | undefined;
@@ -327,13 +341,24 @@ export async function blockActor(
   if (typeof actorApId !== "string" || actorApId.length === 0) {
     throw new Error("blocklist.blockActor: actorApId is required");
   }
-  await db
-    .insert(blockedActors)
-    .values({ actorApId, reason })
-    .onConflictDoUpdate({
-      target: blockedActors.actorApId,
-      set: { reason },
-    });
+  const retainedKey = sql`COALESCE((${retainedBlockedActorKeySql(actorApId)}), ${actorApId})`;
+  const equivalentRows = retainedBlockedActorMatchesSql(actorApId);
+  await runBatch(db, [
+    db
+      .insert(blockedActors)
+      .values({ actorApId: retainedKey, reason })
+      .onConflictDoUpdate({
+        target: blockedActors.actorApId,
+        set: { reason },
+      }),
+    db.delete(blockedActors).where(sql`
+      ${blockedActors.actorApId} IN (${equivalentRows})
+      AND ${blockedActors.actorApId} <> COALESCE(
+        (${retainedBlockedActorKeySql(actorApId)}),
+        ${actorApId}
+      )
+    `),
+  ]);
 }
 
 /**
@@ -344,5 +369,8 @@ export async function unblockActor(
   actorApId: string,
 ): Promise<void> {
   if (typeof actorApId !== "string" || actorApId.length === 0) return;
-  await db.delete(blockedActors).where(eq(blockedActors.actorApId, actorApId));
+  const equivalentRows = retainedBlockedActorMatchesSql(actorApId);
+  await db
+    .delete(blockedActors)
+    .where(sql`${blockedActors.actorApId} IN (${equivalentRows})`);
 }

@@ -1,9 +1,10 @@
-import { eq, inArray, like, or } from "drizzle-orm";
+import { inArray, like, or, sql } from "drizzle-orm";
 import { activities, objects } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import type { IObjectStorage } from "../runtime/types.ts";
 import { chunkForInClause } from "./chunk.ts";
 import { normalizeDomain } from "./blocklist.ts";
+import { activityPubActorIdentityMatchesSql } from "./activitypub-actor-identity-sql.ts";
 import {
   deleteObjectCascade,
   purgeMediaBlobs,
@@ -44,16 +45,26 @@ export async function purgeActorContent(
   media?: IObjectStorage,
 ): Promise<void> {
   try {
+    const retainedObjectAuthors = activityPubActorIdentityMatchesSql(
+      sql`SELECT ${objects.attributedTo} FROM ${objects}`,
+      blockedApId,
+    );
     const rows = await db
       .select({ apId: objects.apId })
       .from(objects)
-      .where(eq(objects.attributedTo, blockedApId));
+      .where(sql`${objects.attributedTo} IN (${retainedObjectAuthors})`);
     await purgeObjects(
       db,
       rows.map((r) => r.apId),
       media,
     );
-    await db.delete(activities).where(eq(activities.actorApId, blockedApId));
+    const retainedActivityActors = activityPubActorIdentityMatchesSql(
+      sql`SELECT ${activities.actorApId} FROM ${activities}`,
+      blockedApId,
+    );
+    await db
+      .delete(activities)
+      .where(sql`${activities.actorApId} IN (${retainedActivityActors})`);
   } catch (err) {
     log.warn("blocklist.purgeActorContent failed", {
       event: "blocklist.purge_actor_failed",

@@ -6,7 +6,7 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, objects } from "../../../db/index.ts";
+import { activities, actors, objects } from "../../../db/index.ts";
 import {
   purgeActorContent,
   purgeDomainContent,
@@ -80,6 +80,49 @@ test("purgeActorContent removes the blocked actor's posts and leaves others", as
   expect(await objectExists(db, "https://evil.example/objects/2")).toBe(false);
   // An unrelated actor's content is untouched.
   expect(await objectExists(db, "https://other.example/objects/1")).toBe(true);
+});
+
+test("purgeActorContent removes every cosmetic author spelling but preserves a path-case sibling", async () => {
+  const db = await freshDb();
+  const canonical = "https://remote.example/users/alice";
+  const cosmetic = "https://REMOTE.example:443/users/alice/#legacy";
+  const pathCaseSibling = "https://remote.example/users/Alice";
+  const targetPost = "https://remote.example/objects/cosmetic-target";
+  const siblingPost = "https://remote.example/objects/path-case-sibling";
+  await seedPost(db, targetPost, cosmetic);
+  await seedPost(db, siblingPost, pathCaseSibling);
+  await db.insert(activities).values([
+    {
+      apId: "https://remote.example/activities/cosmetic-target",
+      type: "Create",
+      actorApId: cosmetic,
+      objectApId: targetPost,
+      rawJson: "{}",
+      direction: "inbound",
+    },
+    {
+      apId: "https://remote.example/activities/path-case-sibling",
+      type: "Create",
+      actorApId: pathCaseSibling,
+      objectApId: siblingPost,
+      rawJson: "{}",
+      direction: "inbound",
+    },
+  ]);
+
+  await purgeActorContent(db, canonical);
+
+  expect({
+    targetPost: await objectExists(db, targetPost),
+    siblingPost: await objectExists(db, siblingPost),
+    remainingActivityActors: (
+      await db.select({ actorApId: activities.actorApId }).from(activities)
+    ).map((row) => row.actorApId),
+  }).toEqual({
+    targetPost: false,
+    siblingPost: true,
+    remainingActivityActors: [pathCaseSibling],
+  });
 });
 
 test("purgeDomainContent removes the host AND its subdomains but NOT a similarly-named domain", async () => {

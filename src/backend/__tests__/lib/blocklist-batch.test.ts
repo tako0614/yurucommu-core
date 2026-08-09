@@ -6,11 +6,14 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
+import { blockedActors } from "../../../db/index.ts";
+import { isSameActivityPubActor } from "../../lib/activitypub-actor-identity.ts";
 import {
   blockActor,
   blockDomain,
   filterBlockedActorApIds,
   isActorBlocked,
+  unblockActor,
 } from "../../lib/blocklist.ts";
 
 async function freshDb(): Promise<Database> {
@@ -97,6 +100,107 @@ test("operator actor blocks reach a cosmetic identity beyond 512 retained rows",
     sibling: false,
     batch: true,
     batchSibling: false,
+  });
+});
+
+test("actor block mutations converge duplicate spellings and unblock the complete identity", async () => {
+  const db = await freshDb();
+  const canonical = "https://remote.example/users/alice";
+  const cosmeticA = "https://REMOTE.example:443/users/alice/#first";
+  const cosmeticB = "https://remote.example/users/alice/";
+  const pathCaseSibling = "https://remote.example/users/Alice";
+  await db.insert(blockedActors).values([
+    {
+      actorApId: cosmeticA,
+      reason: "old-a",
+      createdAt: "2020-01-01T00:00:00.000Z",
+    },
+    {
+      actorApId: cosmeticB,
+      reason: "old-b",
+      createdAt: "2021-01-01T00:00:00.000Z",
+    },
+    {
+      actorApId: pathCaseSibling,
+      reason: "sibling",
+      createdAt: "2022-01-01T00:00:00.000Z",
+    },
+  ]);
+
+  await blockActor(db, canonical, "refreshed");
+  const afterReblock = await db.select().from(blockedActors);
+  await unblockActor(db, canonical);
+  const afterUnblock = await db.select().from(blockedActors);
+
+  const logicalTargetRows = afterReblock.filter((row) =>
+    isSameActivityPubActor(row.actorApId, canonical),
+  );
+  expect({
+    logicalTargetCount: logicalTargetRows.length,
+    logicalTargetReason: logicalTargetRows[0]?.reason,
+    retainedHistoricalCreatedAt: logicalTargetRows[0]?.createdAt,
+    siblingAfterReblock: afterReblock.some(
+      (row) => row.actorApId === pathCaseSibling && row.reason === "sibling",
+    ),
+    logicalTargetAfterUnblock: afterUnblock.filter((row) =>
+      isSameActivityPubActor(row.actorApId, canonical),
+    ).length,
+    siblingAfterUnblock: afterUnblock.some(
+      (row) => row.actorApId === pathCaseSibling,
+    ),
+  }).toEqual({
+    logicalTargetCount: 1,
+    logicalTargetReason: "refreshed",
+    retainedHistoricalCreatedAt: expect.stringMatching(/^202[01]-/),
+    siblingAfterReblock: true,
+    logicalTargetAfterUnblock: 0,
+    siblingAfterUnblock: true,
+  });
+});
+
+test("actor re-block rolls back its reason update when duplicate convergence fails", async () => {
+  const db = await freshDb();
+  const canonical = "https://remote.example/users/alice";
+  await db.insert(blockedActors).values([
+    {
+      actorApId: "https://REMOTE.example:443/users/alice/#first",
+      reason: "old-a",
+    },
+    {
+      actorApId: "https://remote.example/users/alice/",
+      reason: "old-b",
+    },
+  ]);
+  await db.run(sql`
+    CREATE TRIGGER reject_actor_block_convergence
+    BEFORE DELETE ON blocked_actors
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated block convergence failure');
+    END
+  `);
+
+  let failed = false;
+  try {
+    await blockActor(db, canonical, "must-roll-back");
+  } catch {
+    failed = true;
+  }
+  const retained = (await db.select().from(blockedActors))
+    .map((row) => ({ actorApId: row.actorApId, reason: row.reason }))
+    .sort((a, b) => a.actorApId.localeCompare(b.actorApId));
+
+  expect({ failed, retained }).toEqual({
+    failed: true,
+    retained: [
+      {
+        actorApId: "https://remote.example/users/alice/",
+        reason: "old-b",
+      },
+      {
+        actorApId: "https://REMOTE.example:443/users/alice/#first",
+        reason: "old-a",
+      },
+    ].sort((a, b) => a.actorApId.localeCompare(b.actorApId)),
   });
 });
 
