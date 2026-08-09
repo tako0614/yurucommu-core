@@ -108,8 +108,8 @@ function isStoryType(type: string | string[] | undefined): boolean {
   return Array.isArray(type) ? type.includes("Story") : type === "Story";
 }
 
-/** Single-user instance policy: any local owner block/mute suppresses Story writes. */
-async function ownerSuppressesStoryActor(
+/** Single-user instance policy: any local owner block/mute suppresses content writes. */
+async function ownerSuppressesInboundActor(
   db: Database,
   actorApId: string,
 ): Promise<boolean> {
@@ -629,19 +629,21 @@ export async function handleCreate(
     }
   }
 
+  // Root/public/followers/community Notes are still writes into this local
+  // recipient's feed. Apply the same block/mute policy as DM, reply, mention,
+  // Follow, Like, Announce, and Story before any durable projection is created.
+  // The shared inbox invokes this handler once per resolved local recipient, so
+  // the decision remains recipient-specific on that path.
+  if (await actorSuppressesInteractionFrom(db, recipient.apId, actor)) {
+    log.info("Dropped inbound Note from a blocked or muted actor", {
+      event: "ap.create.note_suppressed",
+      actor,
+      recipient: recipient.apId,
+    });
+    return;
+  }
+
   if (object.id && isDirectNote(addressing, recipient)) {
-    // A remote actor personally blocked OR muted by the local recipient must not
-    // inject a DM row or inbox notification. `actor` is the HTTP-signature-
-    // verified signer. The inbox already ACKs, so dropping here causes no retry
-    // storm and reveals no moderation state to the sender.
-    if (await actorSuppressesInteractionFrom(db, recipient.apId, actor)) {
-      log.info("Dropped inbound DM from a blocked or muted actor", {
-        event: "ap.create.direct_note_suppressed",
-        actor,
-        recipient: recipient.apId,
-      });
-      return;
-    }
     await insertDirectNote(
       db,
       activity,
@@ -886,7 +888,7 @@ export async function handleCreateStory(
   // stories were still stored (consuming the per-author cap + retrievable via
   // GET /api/posts/:id). Single-user instance: any blocks row blocking this actor
   // is the owner's block.
-  if (await ownerSuppressesStoryActor(db, actor)) return;
+  if (await ownerSuppressesInboundActor(db, actor)) return;
 
   // Check if story already exists
   const existing = await db
@@ -1598,7 +1600,7 @@ export async function handleUpdate(
       });
       return;
     }
-    if (await ownerSuppressesStoryActor(db, actor)) return;
+    if (await ownerSuppressesInboundActor(db, actor)) return;
 
     const now = new Date().toISOString();
     const endTime = normalizeInboundStoryUpdateEndTime(
@@ -1691,6 +1693,12 @@ export async function handleUpdate(
 
   // Update object content
   if (existing.type === "Note" && typeIncludes(object.type, "Note")) {
+    // Update is instance-dispatched and therefore has no single recipient row.
+    // Yurucommu's default deployment has one local owner, so the same owner-wide
+    // block/mute policy used by Story Update must stop a newly suppressed remote
+    // actor from replacing already-retained Note content or reach.
+    if (await ownerSuppressesInboundActor(db, actor)) return;
+
     // Content and reach are one authority decision. A remote author can narrow
     // an existing public Note to followers/direct in the same Update; applying
     // only its new body would leave that private content readable through the
@@ -1708,8 +1716,16 @@ export async function handleUpdate(
       : undefined;
     const communityScope = hasAudienceUpdate
       ? await resolveInboundCommunityScope(db, actor, updatedAudience ?? [])
-      : { allowed: true as const, communityApId: null };
-    if (!communityScope.allowed) {
+      : existing.communityApId
+        ? await resolveInboundCommunityScope(db, actor, [
+            existing.communityApId,
+          ])
+        : { allowed: true as const, communityApId: null };
+    if (
+      !communityScope.allowed ||
+      (!hasAudienceUpdate &&
+        communityScope.communityApId !== existing.communityApId)
+    ) {
       log.warn("Update(Note) rejected: actor cannot project into community", {
         event: "ap.update.note_community_unauthorized",
         actor,

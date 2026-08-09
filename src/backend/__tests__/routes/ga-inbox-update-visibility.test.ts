@@ -7,9 +7,11 @@ import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
   actors,
+  blocks,
   communities,
   communityMembers,
   follows,
+  mutes,
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
@@ -453,6 +455,42 @@ test("a content-only partial Update preserves the Note's existing reach", async 
   expect(await getPostStatus(db, null, id)).toBe(404);
 });
 
+test("Update(Note) from a newly muted actor cannot replace retained content", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/muted-update";
+  await insertRemoteNote(db, id, { visibility: "public", to: [PUBLIC] });
+  await db.insert(mutes).values({
+    muterApId: LOCAL_BOB,
+    mutedApId: REMOTE,
+  });
+
+  await handleUpdate(
+    ctxFor(db),
+    updateNote(id, "must stay suppressed"),
+    REMOTE,
+  );
+
+  expect(await reachRow(db, id)).toMatchObject({ content: "old body" });
+});
+
+test("Update(Note) from a newly blocked actor cannot replace retained content", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/blocked-update";
+  await insertRemoteNote(db, id, { visibility: "public", to: [PUBLIC] });
+  await db.insert(blocks).values({
+    blockerApId: LOCAL_BOB,
+    blockedApId: REMOTE,
+  });
+
+  await handleUpdate(
+    ctxFor(db),
+    updateNote(id, "must stay suppressed"),
+    REMOTE,
+  );
+
+  expect(await reachRow(db, id)).toMatchObject({ content: "old body" });
+});
+
 test("explicit empty Update fields clear stale content, warning, media, and tags", async () => {
   const db = await setup();
   const id = "https://remote.example/objects/clear-projections";
@@ -653,6 +691,58 @@ test("inbound Create caps attachment and tag arrays before persistence", async (
   expect(JSON.parse(row!.tagsJson)).toHaveLength(64);
 });
 
+test("inbound public Create(Note) from a muted actor is dropped at write time", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/muted-public-create";
+  await db.insert(mutes).values({
+    muterApId: LOCAL_BOB,
+    mutedApId: REMOTE,
+  });
+  const create = parseActivity({
+    id: `${id}/activity`,
+    type: "Create",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "must not be retained",
+      to: [PUBLIC],
+      cc: [],
+    },
+  }) as Activity;
+
+  await handleCreate(ctxFor(db), create, recipient(LOCAL_BOB), REMOTE, APP_URL);
+
+  expect(await reachRow(db, id)).toBeUndefined();
+});
+
+test("inbound public Create(Note) from a blocked actor is dropped at write time", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/blocked-public-create";
+  await db.insert(blocks).values({
+    blockerApId: LOCAL_BOB,
+    blockedApId: REMOTE,
+  });
+  const create = parseActivity({
+    id: `${id}/activity`,
+    type: "Create",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "must not be retained",
+      to: [PUBLIC],
+      cc: [],
+    },
+  }) as Activity;
+
+  await handleCreate(ctxFor(db), create, recipient(LOCAL_BOB), REMOTE, APP_URL);
+
+  expect(await reachRow(db, id)).toBeUndefined();
+});
+
 test("inbound Create preserves an authorized private-community audience and its read gate", async () => {
   const db = await setup();
   const communityApId = await seedCommunity(db, "private-create", {
@@ -769,6 +859,57 @@ test("Update(Note) cannot partially apply content while injecting an unauthorize
     content: "old body",
     audienceJson: "[]",
     communityApId: null,
+  });
+});
+
+test("content-only Update(Note) rechecks retained community membership", async () => {
+  const db = await setup();
+  const communityApId = await seedCommunity(db, "private-retained-update", {
+    remoteMember: true,
+  });
+  const id = "https://remote.example/objects/private-retained-update";
+  await insertRemoteNote(db, id, {
+    visibility: "public",
+    to: [PUBLIC],
+    audience: [communityApId],
+    communityApId,
+  });
+  await db
+    .delete(follows)
+    .where(
+      sql`${follows.followerApId} = ${REMOTE} AND ${follows.followingApId} = ${communityApId}`,
+    );
+
+  await handleUpdate(
+    ctxFor(db),
+    updateNote(id, "must stay suppressed"),
+    REMOTE,
+  );
+
+  expect(await threadScopeRow(db, id)).toMatchObject({
+    content: "old body",
+    communityApId,
+  });
+});
+
+test("content-only Update(Note) keeps working while retained community authority is current", async () => {
+  const db = await setup();
+  const communityApId = await seedCommunity(db, "private-retained-authorized", {
+    remoteMember: true,
+  });
+  const id = "https://remote.example/objects/private-retained-authorized";
+  await insertRemoteNote(db, id, {
+    visibility: "public",
+    to: [PUBLIC],
+    audience: [communityApId],
+    communityApId,
+  });
+
+  await handleUpdate(ctxFor(db), updateNote(id, "authorized edit"), REMOTE);
+
+  expect(await threadScopeRow(db, id)).toMatchObject({
+    content: "authorized edit",
+    communityApId,
   });
 });
 
