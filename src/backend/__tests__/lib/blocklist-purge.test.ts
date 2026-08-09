@@ -241,16 +241,37 @@ test("purgeDomainContent cascades more than two D1 parameter chunks", async () =
   // Seed one statement per object so the fixture itself obeys D1's 100-bound-
   // parameter ceiling. The purge must independently chunk its read, child
   // cascade, and final object delete at the real production boundary.
-  for (const apId of targetApIds) await seedPost(db, apId, actor);
+  for (const [index, apId] of targetApIds.entries()) {
+    await seedPost(db, apId, actor);
+    await db.insert(activities).values({
+      apId: `https://${domain}/activities/${index}`,
+      type: "Create",
+      actorApId: actor,
+      objectApId: apId,
+      rawJson: "{}",
+      direction: "inbound",
+    });
+  }
   await seedPost(db, survivorApId, "https://safe.example/users/b");
 
-  await purgeDomainContent(db, domain);
+  const result = await purgeDomainContent(db, domain);
 
+  expect(result).toEqual({
+    complete: true,
+    deletedObjects: 181,
+    deletedActivities: 181,
+  });
   expect(
     await db
       .select({ apId: objects.apId })
       .from(objects)
       .where(eq(objects.attributedTo, actor)),
+  ).toEqual([]);
+  expect(
+    await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(eq(activities.actorApId, actor)),
   ).toEqual([]);
   expect(await objectExists(db, survivorApId)).toBe(true);
 });

@@ -1,9 +1,9 @@
-import { inArray, sql, type SQL } from "drizzle-orm";
+import { asc, inArray, sql, type SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { activities, objects } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import type { IObjectStorage } from "../runtime/types.ts";
-import { chunkForInClause } from "./chunk.ts";
+import { chunkForInClause, D1_IN_CHUNK } from "./chunk.ts";
 import { normalizeDomain } from "./blocklist.ts";
 import { activityPubActorIdentityMatchesSql } from "./activitypub-actor-identity-sql.ts";
 import {
@@ -13,6 +13,12 @@ import {
 import { logger } from "./logger.ts";
 
 const log = logger.child({ component: "blocklist" });
+
+export interface BlocklistContentPurgeResult {
+  complete: boolean;
+  deletedObjects: number;
+  deletedActivities: number;
+}
 
 /**
  * Match an HTTPS ActivityPub URL by its exact hostname or a real subdomain.
@@ -61,45 +67,108 @@ async function purgeObjects(
 }
 
 /**
+ * Delete a predicate's objects in bounded, retryable units.
+ *
+ * Selecting every matching id before the first delete made a large domain
+ * block consume memory in direct proportion to retained history. Keeping each
+ * unit at D1_IN_CHUNK also means a failed statement leaves at most one page
+ * incomplete; retrying the idempotent operator block resumes from the rows that
+ * remain instead of rebuilding an unbounded in-memory id set.
+ */
+async function purgeMatchingObjects(
+  db: Database,
+  where: SQL,
+  media?: IObjectStorage,
+  onPageDeleted?: (count: number) => void,
+): Promise<void> {
+  while (true) {
+    const rows = await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(where)
+      .orderBy(asc(objects.apId))
+      .limit(D1_IN_CHUNK);
+    if (rows.length === 0) return;
+    await purgeObjects(
+      db,
+      rows.map((row) => row.apId),
+      media,
+    );
+    onPageDeleted?.(rows.length);
+  }
+}
+
+async function purgeMatchingActivities(
+  db: Database,
+  where: SQL,
+  onPageDeleted?: (count: number) => void,
+): Promise<void> {
+  while (true) {
+    const rows = await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(where)
+      .orderBy(asc(activities.apId))
+      .limit(D1_IN_CHUNK);
+    if (rows.length === 0) return;
+    await db.delete(activities).where(
+      inArray(
+        activities.apId,
+        rows.map((row) => row.apId),
+      ),
+    );
+    onPageDeleted?.(rows.length);
+  }
+}
+
+/**
  * Purge a blocked REMOTE actor's already-ingested content. The operator
  * blocklist is otherwise ingest/delivery-only, so without this a defederated
  * actor's prior posts/replies/stories stay live in timelines, search, and
  * object serving — contradicting the operator's "they're gone" expectation.
  * Removes the actor's authored objects (cascade) + their activity ledger rows.
- * Best-effort; never throws into the operator's response path.
+ * Failures are logged and returned to the operator route. The block mutation
+ * remains active, while a non-success response makes retry converge cleanup.
  */
 export async function purgeActorContent(
   db: Database,
   blockedApId: string,
   media?: IObjectStorage,
-): Promise<void> {
+): Promise<BlocklistContentPurgeResult> {
+  let deletedObjects = 0;
+  let deletedActivities = 0;
   try {
     const retainedObjectAuthors = activityPubActorIdentityMatchesSql(
       sql`SELECT ${objects.attributedTo} FROM ${objects}`,
       blockedApId,
     );
-    const rows = await db
-      .select({ apId: objects.apId })
-      .from(objects)
-      .where(sql`${objects.attributedTo} IN (${retainedObjectAuthors})`);
-    await purgeObjects(
+    await purgeMatchingObjects(
       db,
-      rows.map((r) => r.apId),
+      sql`${objects.attributedTo} IN (${retainedObjectAuthors})`,
       media,
+      (count) => {
+        deletedObjects += count;
+      },
     );
     const retainedActivityActors = activityPubActorIdentityMatchesSql(
       sql`SELECT ${activities.actorApId} FROM ${activities}`,
       blockedApId,
     );
-    await db
-      .delete(activities)
-      .where(sql`${activities.actorApId} IN (${retainedActivityActors})`);
+    await purgeMatchingActivities(
+      db,
+      sql`${activities.actorApId} IN (${retainedActivityActors})`,
+      (count) => {
+        deletedActivities += count;
+      },
+    );
+    return { complete: true, deletedObjects, deletedActivities };
   } catch (err) {
     log.warn("blocklist.purgeActorContent failed", {
       event: "blocklist.purge_actor_failed",
       actor: blockedApId,
       error: err,
     });
+    return { complete: false, deletedObjects, deletedActivities };
   }
 }
 
@@ -107,34 +176,44 @@ export async function purgeActorContent(
  * Purge already-ingested content authored by any actor on a blocked DOMAIN (the
  * host itself OR a subdomain). Host-boundary matching means `evil.com` matches
  * `https://evil.com/...` and `https://node1.evil.com/...` but NOT `notevil.com`.
- * Best-effort. Local content is never matched (local objects carry the local
- * host; the operator never blocks their own domain).
+ * Failures are logged and returned to the operator route so its response can
+ * require a retry. Local content is never matched (local objects carry the
+ * local host; the operator never blocks their own domain).
  */
 export async function purgeDomainContent(
   db: Database,
   domainOrUrl: string,
   media?: IObjectStorage,
-): Promise<void> {
+): Promise<BlocklistContentPurgeResult> {
   const domain = normalizeDomain(domainOrUrl);
-  if (!domain) return;
+  if (!domain) {
+    return { complete: true, deletedObjects: 0, deletedActivities: 0 };
+  }
+  let deletedObjects = 0;
+  let deletedActivities = 0;
   try {
-    const rows = await db
-      .select({ apId: objects.apId })
-      .from(objects)
-      .where(activityPubUrlHostMatchesDomain(objects.attributedTo, domain));
-    await purgeObjects(
+    await purgeMatchingObjects(
       db,
-      rows.map((r) => r.apId),
+      activityPubUrlHostMatchesDomain(objects.attributedTo, domain),
       media,
+      (count) => {
+        deletedObjects += count;
+      },
     );
-    await db
-      .delete(activities)
-      .where(activityPubUrlHostMatchesDomain(activities.actorApId, domain));
+    await purgeMatchingActivities(
+      db,
+      activityPubUrlHostMatchesDomain(activities.actorApId, domain),
+      (count) => {
+        deletedActivities += count;
+      },
+    );
+    return { complete: true, deletedObjects, deletedActivities };
   } catch (err) {
     log.warn("blocklist.purgeDomainContent failed", {
       event: "blocklist.purge_domain_failed",
       domain,
       error: err,
     });
+    return { complete: false, deletedObjects, deletedActivities };
   }
 }

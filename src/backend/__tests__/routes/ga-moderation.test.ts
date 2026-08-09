@@ -11,12 +11,19 @@ import { readFile } from "node:fs/promises";
 
 import { Hono } from "hono";
 
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { blockedDomains, reports } from "../../../db/index.ts";
+import {
+  actors,
+  blockedActors,
+  blockedDomains,
+  objects,
+  reports,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import { moderationRoutes } from "../../routes/moderation.ts";
 
@@ -120,6 +127,176 @@ test("owner can block, list, and unblock a domain", async () => {
 
   const remaining = await db.select().from(blockedDomains);
   expect(remaining).toHaveLength(0);
+});
+
+test("domain block reports incomplete retained-content cleanup and converges on retry", async () => {
+  const db = await freshDb();
+  const domain = "partial-purge.example";
+  const remoteActor = `https://${domain}/users/alice`;
+  const remoteObject = `https://${domain}/objects/1`;
+  await db.insert(actors).values({
+    apId: remoteActor,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${remoteActor}/inbox`,
+    outbox: `${remoteActor}/outbox`,
+    followersUrl: `${remoteActor}/followers`,
+    followingUrl: `${remoteActor}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db.insert(objects).values({
+    apId: remoteObject,
+    type: "Note",
+    attributedTo: remoteActor,
+    content: "must be purged",
+    visibility: "public",
+    isLocal: 0,
+  });
+  await db.run(
+    sql.raw(`
+    CREATE TRIGGER reject_domain_purge_object_delete
+    BEFORE DELETE ON objects
+    WHEN OLD.ap_id = 'https://partial-purge.example/objects/1'
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated retained-content purge failure');
+    END
+  `),
+  );
+
+  const app = appWith(db, fakeActor("owner"));
+  const first = await app.request(
+    "/domains",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ domain, reason: "abuse" }),
+    },
+    env,
+  );
+
+  expect(first.status).toBe(503);
+  expect(first.headers.get("Retry-After")).toBe("1");
+  expect(await first.json()).toEqual({
+    error:
+      "Domain block is active, but retained content cleanup did not finish. Retry this block to complete cleanup.",
+    block_applied: true,
+    cleanup_complete: false,
+  });
+  expect(
+    await db
+      .select({ domain: blockedDomains.domain })
+      .from(blockedDomains)
+      .where(eq(blockedDomains.domain, domain))
+      .get(),
+  ).toEqual({ domain });
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, remoteObject))
+      .get(),
+  ).toEqual({ apId: remoteObject });
+
+  await db.run(sql`DROP TRIGGER reject_domain_purge_object_delete`);
+  const retry = await app.request(
+    "/domains",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ domain, reason: "abuse" }),
+    },
+    env,
+  );
+  expect(retry.status).toBe(200);
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, remoteObject))
+      .get(),
+  ).toBeUndefined();
+});
+
+test("actor block reports incomplete retained-content cleanup and converges on retry", async () => {
+  const db = await freshDb();
+  const remoteActor = "https://actor-purge.example/users/alice";
+  const remoteObject = "https://actor-purge.example/objects/1";
+  await db.insert(actors).values({
+    apId: remoteActor,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${remoteActor}/inbox`,
+    outbox: `${remoteActor}/outbox`,
+    followersUrl: `${remoteActor}/followers`,
+    followingUrl: `${remoteActor}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db.insert(objects).values({
+    apId: remoteObject,
+    type: "Note",
+    attributedTo: remoteActor,
+    content: "must be purged",
+    visibility: "public",
+    isLocal: 0,
+  });
+  await db.run(
+    sql.raw(`
+    CREATE TRIGGER reject_actor_purge_object_delete
+    BEFORE DELETE ON objects
+    WHEN OLD.ap_id = 'https://actor-purge.example/objects/1'
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated retained-content purge failure');
+    END
+  `),
+  );
+
+  const app = appWith(db, fakeActor("owner"));
+  const first = await app.request(
+    "/actors",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ap_id: remoteActor, reason: "abuse" }),
+    },
+    env,
+  );
+
+  expect(first.status).toBe(503);
+  expect(first.headers.get("Retry-After")).toBe("1");
+  expect(await first.json()).toEqual({
+    error:
+      "Actor block is active, but retained content cleanup did not finish. Retry this block to complete cleanup.",
+    block_applied: true,
+    cleanup_complete: false,
+  });
+  expect(
+    await db
+      .select({ actorApId: blockedActors.actorApId })
+      .from(blockedActors)
+      .where(eq(blockedActors.actorApId, remoteActor))
+      .get(),
+  ).toEqual({ actorApId: remoteActor });
+
+  await db.run(sql`DROP TRIGGER reject_actor_purge_object_delete`);
+  const retry = await app.request(
+    "/actors",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ap_id: remoteActor, reason: "abuse" }),
+    },
+    env,
+  );
+  expect(retry.status).toBe(200);
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, remoteObject))
+      .get(),
+  ).toBeUndefined();
 });
 
 test("owner can list a persisted report", async () => {

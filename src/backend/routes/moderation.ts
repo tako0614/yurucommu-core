@@ -133,8 +133,24 @@ moderationRoutes.post("/domains", async (c) => {
   }
   // Defederation also purges the domain's already-ingested content so it stops
   // being served (the blocklist is otherwise ingest/delivery-only).
-  await purgeDomainContent(c.get("db"), parsed.value, c.env.MEDIA);
-  return c.json({ success: true });
+  const purge = await purgeDomainContent(
+    c.get("db"),
+    parsed.value,
+    c.env.MEDIA,
+  );
+  if (!purge.complete) {
+    c.header("Retry-After", "1");
+    return c.json(
+      {
+        error:
+          "Domain block is active, but retained content cleanup did not finish. Retry this block to complete cleanup.",
+        block_applied: true,
+        cleanup_complete: false,
+      },
+      503,
+    );
+  }
+  return c.json({ success: true, cleanup_complete: true });
 });
 
 moderationRoutes.delete("/domains", async (c) => {
@@ -193,8 +209,20 @@ moderationRoutes.post("/actors", async (c) => {
     return c.json({ error: "Invalid actor" }, 400);
   }
   // Purge the blocked actor's already-ingested content so it stops being served.
-  await purgeActorContent(c.get("db"), parsed.value, c.env.MEDIA);
-  return c.json({ success: true });
+  const purge = await purgeActorContent(c.get("db"), parsed.value, c.env.MEDIA);
+  if (!purge.complete) {
+    c.header("Retry-After", "1");
+    return c.json(
+      {
+        error:
+          "Actor block is active, but retained content cleanup did not finish. Retry this block to complete cleanup.",
+        block_applied: true,
+        cleanup_complete: false,
+      },
+      503,
+    );
+  }
+  return c.json({ success: true, cleanup_complete: true });
 });
 
 moderationRoutes.delete("/actors", async (c) => {
