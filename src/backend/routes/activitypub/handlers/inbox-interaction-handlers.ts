@@ -513,8 +513,11 @@ export async function handleFlag(
   // made the append-only table a storage-amplification surface. Each IN list is
   // capped by MAX_ACTIVITY_OBJECT_IDS, below D1's 100-bind ceiling.
   //
-  // Best-effort: never let a storage error 5xx the inbox (which would make the
-  // sender retry on a backoff). Log the failure for the operator.
+  // A storage failure MUST escape to the inbox route. The shared dispatch
+  // contract releases its fenced claim and returns retryable 503, leaving the
+  // activity ledger uncommitted so the peer can complete the report later.
+  // Swallowing this error would ACK 202 and mark the activity processed even
+  // though no moderation row exists, permanently losing a valid abuse report.
   try {
     const db = c.get("db");
     if (reportedIds.length === 0) {
@@ -591,6 +594,7 @@ export async function handleFlag(
       target: targetId,
       error: err,
     });
+    throw err;
   }
 
   log.warn("Flag received", {

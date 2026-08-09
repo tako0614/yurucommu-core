@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 
 import { assertSpyCalls, spy } from "#test/mock";
@@ -465,6 +465,109 @@ test("activitypub inbox - retains an actionable standard Flag and drops unowned 
   );
   expect(unowned.status).toEqual(202);
   expect(await db.select({ id: reports.id }).from(reports)).toHaveLength(1);
+});
+
+test("activitypub inbox - retries an actionable Flag after transient report storage failure", async () => {
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const actorApId = "https://remote.example/users/alice";
+  const localActor = "https://test.local/ap/users/bob";
+  const localObject = "https://test.local/ap/objects/retry-reported-note";
+  const { db } = await createTestDb();
+  await db.insert(actors).values({
+    apId: localActor,
+    type: "Person",
+    preferredUsername: "bob",
+    inbox: `${localActor}/inbox`,
+    outbox: `${localActor}/outbox`,
+    followersUrl: `${localActor}/followers`,
+    followingUrl: `${localActor}/following`,
+    publicKeyPem: "local-public",
+    privateKeyPem: "local-private",
+  });
+  await db.insert(objects).values({
+    apId: localObject,
+    type: "Note",
+    attributedTo: localActor,
+    content: "reported content",
+    isLocal: 1,
+  });
+  await db.insert(actorCache).values({
+    apId: actorApId,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${actorApId}/inbox`,
+    publicKeyId: `${actorApId}#main-key`,
+    publicKeyPem,
+    rawJson: "{}",
+    lastFetchedAt: new Date().toISOString(),
+  });
+  await db.run(sql`
+    CREATE TRIGGER reject_inbound_flag_report
+    BEFORE INSERT ON reports
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated report storage failure');
+    END
+  `);
+
+  const app = new Hono();
+  app.use("*", async (c, next) => {
+    (c as unknown as { set: (key: string, value: unknown) => void }).set(
+      "db",
+      db,
+    );
+    await next();
+  });
+  app.route("/", inboxRoutes);
+
+  const body = JSON.stringify({
+    id: "https://remote.example/activities/flag-storage-retry",
+    type: "Flag",
+    actor: actorApId,
+    object: [localObject, localActor],
+    content: "must survive a transient D1 failure",
+  });
+  const first = await app.fetch(
+    await signedInboxRequest(body, privateKeyPem, `${actorApId}#main-key`),
+    { APP_URL: "https://test.local" },
+  );
+  expect(first.status).toEqual(503);
+  expect(first.headers.get("retry-after")).toEqual("30");
+  expect(await db.select({ id: reports.id }).from(reports)).toHaveLength(0);
+  expect(
+    (
+      await db
+        .select({ processed: activities.processed })
+        .from(activities)
+        .where(eq(activities.type, "Flag"))
+        .get()
+    )?.processed,
+  ).toEqual(0);
+
+  await db.run(sql`DROP TRIGGER reject_inbound_flag_report`);
+  const retry = await app.fetch(
+    await signedInboxRequest(body, privateKeyPem, `${actorApId}#main-key`),
+    { APP_URL: "https://test.local" },
+  );
+  expect(retry.status).toEqual(202);
+  expect(
+    await db
+      .select({ target: reports.targetApId, content: reports.content })
+      .from(reports),
+  ).toEqual([
+    {
+      target: localObject,
+      content: "must survive a transient D1 failure",
+    },
+  ]);
+  expect(
+    (
+      await db
+        .select({ processed: activities.processed })
+        .from(activities)
+        .where(eq(activities.type, "Flag"))
+        .get()
+    )?.processed,
+  ).toEqual(1);
 });
 
 function createSharedInboxDbMock(
