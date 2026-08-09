@@ -560,6 +560,31 @@ test("a non-member CAN post to a postPolicy=anyone PUBLIC community (gate is com
   expect(audience.length).toBe(1);
 });
 
+test("a BANNED remote actor cannot post through a postPolicy=anyone community", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "open-mic", "open", {
+    postPolicy: "anyone",
+  });
+  await db
+    .insert(communityBans)
+    .values({ communityApId: apId, bannedApId: REMOTE });
+
+  await handleGroupCreate(
+    ctx(db),
+    groupCreate(apId, "ban bypass attempt"),
+    INSTANCE_ACTOR,
+    REMOTE,
+    APP_URL,
+  );
+
+  expect(
+    await db.query.objects.findFirst({
+      where: eq(objects.apId, "https://remote.example/notes/1"),
+    }),
+  ).toBeUndefined();
+  expect(await chatMessages(db, apId)).toEqual([]);
+});
+
 // Audit #25 finding C — a kicked member is durably BANNED: a re-Follow into an
 // OPEN community must NOT auto-rejoin (no accepted edge), and the group emits a
 // Reject instead of an Accept.

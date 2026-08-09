@@ -274,6 +274,11 @@ export async function handleGroupCreate(
     .get();
   if (!community) return;
 
+  // A durable community ban overrides every posting policy, including
+  // `anyone`. Check it before membership and policy evaluation so a banned
+  // actor cannot keep injecting messages through a stale accepted Follow.
+  if (await isMemberBanned(db, community.apId, actorApIdStr)) return;
+
   const memberFollow = await db.query.follows.findFirst({
     where: and(
       eq(follows.followerApId, actorApIdStr),
