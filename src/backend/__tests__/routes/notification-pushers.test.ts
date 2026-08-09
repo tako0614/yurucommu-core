@@ -556,6 +556,65 @@ test("a dead-lettered notification_push raw body resets its durable outbox row",
   expect(row?.attempts).toBe(3);
 });
 
+test("a transient raw notification_push recovery failure retries the DLQ message", async () => {
+  const db = await freshDb();
+  const alice = actor("alice");
+  await seedActor(db, alice);
+  await db.insert(notificationPushJobs).values({
+    id: "dlq-recovery-failure",
+    actorApId: alice.ap_id,
+    activityApId: `${APP_URL}/ap/activities/dlq-recovery-failure`,
+    status: "queued",
+    attempts: 1,
+    nextAttemptAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  await db.run(
+    sql.raw(`
+      CREATE TRIGGER reject_notification_push_recovery
+      BEFORE UPDATE ON notification_push_jobs
+      WHEN OLD.id = 'dlq-recovery-failure'
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated push recovery failure');
+      END
+    `),
+  );
+
+  let acknowledgements = 0;
+  const retryDelays: number[] = [];
+  const message = {
+    body: buildNotificationPushMessage("dlq-recovery-failure"),
+    id: "raw-push-recovery-failure",
+    timestamp: new Date(),
+    attempts: 1,
+    ack: () => {
+      acknowledgements += 1;
+    },
+    retry: (options?: { delaySeconds?: number }) => {
+      retryDelays.push(options?.delaySeconds ?? 0);
+    },
+  };
+  const { env } = queueEnv(db);
+
+  await handleDeliveryDlqBatch(
+    { messages: [message], queue: "dlq", ackAll() {}, retryAll() {} } as never,
+    env,
+  );
+
+  expect(acknowledgements).toBe(0);
+  expect(retryDelays).toEqual([60]);
+  const row = await db
+    .select({
+      status: notificationPushJobs.status,
+      attempts: notificationPushJobs.attempts,
+    })
+    .from(notificationPushJobs)
+    .where(eq(notificationPushJobs.id, "dlq-recovery-failure"))
+    .get();
+  expect(row).toEqual({ status: "queued", attempts: 1 });
+});
+
 async function seedNotification(
   db: Database,
   recipient: Actor,

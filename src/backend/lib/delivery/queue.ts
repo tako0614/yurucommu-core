@@ -554,8 +554,15 @@ export async function handleDeliveryDlqBatch(
       // "invalid": a lost fanout/resolve drops local notifications or delivery
       // planning, and a lost notification_push strands its durable outbox row.
       if (isDeliveryQueueMessageV1(body)) {
-        await handleAutoDeadLetteredMessage(env, body);
-        message.ack();
+        try {
+          await handleAutoDeadLetteredMessage(env, body);
+          message.ack();
+        } catch {
+          // The recovery helper already emitted the failure log + metric. Keep
+          // the raw DLQ message alive until its durable repair succeeds instead
+          // of ACKing a still-stranded notification outbox row.
+          message.retry({ delaySeconds: 60 });
+        }
         continue;
       }
       log.warn("Invalid DLQ message format, skipping", {
@@ -607,6 +614,14 @@ export async function handleDeliveryDlqBatch(
         jobId: body.jobId,
         error: e,
       });
+      // The dead-letter row is already the durable evidence that delivery did
+      // not complete. ACKing its DLQ message here used to discard the only
+      // trigger that can revive it after a transient main-queue outage, leaving
+      // the ActivityPub delivery permanently dead_letter. Ask Cloudflare
+      // Queues to redeliver this exact DLQ message instead; the successful path
+      // below remains the sole ACK point.
+      message.retry({ delaySeconds: 60 });
+      continue;
     }
 
     message.ack();
@@ -642,6 +657,7 @@ async function handleAutoDeadLetteredMessage(
         error,
       });
       emitMetric("delivery.dlq.notification_push_recover_failed", 1, {});
+      throw error;
     }
     return;
   }

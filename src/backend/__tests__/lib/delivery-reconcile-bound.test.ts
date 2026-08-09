@@ -112,6 +112,49 @@ test("a DLQ message with no reconcileAttempt (legacy/first dead-letter) seeds re
   expect(reconciles[0].reconcileAttempt).toBe(1);
 });
 
+test("a transient reconcile scheduling failure retries the DLQ message instead of dropping it", async () => {
+  const queue = {
+    send: async (body: DeliveryQueueMessageV1) => {
+      if (body.type === "reconcile_job") {
+        throw new Error("simulated delivery queue outage");
+      }
+    },
+    sendBatch: async () => {},
+  };
+  const env = {
+    DELIVERY_QUEUE: queue,
+    DELIVERY_DLQ: queue,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+  let acknowledgements = 0;
+  const retryDelays: number[] = [];
+  const body = dlqMsg(0);
+
+  await handleDeliveryDlqBatch(
+    {
+      messages: [
+        {
+          body,
+          id: "transient-schedule-failure",
+          timestamp: new Date(0),
+          attempts: 1,
+          ack: () => {
+            acknowledgements += 1;
+          },
+          retry: (options?: { delaySeconds?: number }) => {
+            retryDelays.push(options?.delaySeconds ?? 0);
+          },
+        },
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+    env,
+  );
+
+  expect(acknowledgements).toBe(0);
+  expect(retryDelays).toEqual([60]);
+});
+
 test("processReconcileJob revives the job and carries the generation into the new deliver_endpoint", async () => {
   const db = await freshDb();
   await db.insert(deliveryQueue).values({
