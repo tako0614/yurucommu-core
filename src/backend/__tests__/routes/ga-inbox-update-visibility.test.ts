@@ -804,6 +804,47 @@ test("inbound Create(Note) rejects addressing that cannot be retained whole", as
   );
 });
 
+test("inbound Create(Note) rejects malformed, unsafe, and oversized reply targets", async () => {
+  const db = await setup();
+  const invalidTargets: unknown[] = [
+    "",
+    "javascript:alert(1)",
+    "https://user:pass@remote.example/objects/credential-parent",
+    `https://remote.example/objects/${"x".repeat(2050)}`,
+    42,
+    { id: "https://remote.example/objects/embedded-parent" },
+  ];
+
+  for (const [index, inReplyTo] of invalidTargets.entries()) {
+    const id = `https://remote.example/objects/invalid-reply-target-${index}`;
+    const create = parseActivity({
+      id: `${id}/activity`,
+      type: "Create",
+      actor: REMOTE,
+      object: {
+        id,
+        type: "Note",
+        attributedTo: REMOTE,
+        content: "must not become a root post",
+        inReplyTo,
+        to: [PUBLIC],
+        cc: [],
+      },
+    }) as Activity;
+    await handleCreate(
+      ctxFor(db),
+      create,
+      recipient(LOCAL_BOB),
+      REMOTE,
+      APP_URL,
+    );
+  }
+
+  expect(await db.select({ apId: objects.apId }).from(objects).all()).toEqual(
+    [],
+  );
+});
+
 test("Update(Note) rejects addressing overflow without replacing old reach or content", async () => {
   const db = await setup();
   const id = "https://remote.example/objects/update-addressing-overflow";
@@ -1088,6 +1129,44 @@ test("Update(Note) rejects a reparent to a retained parent the signer cannot rea
     inReplyTo: null,
   });
   expect((await threadScopeRow(db, parentId))?.replyCount).toBe(0);
+});
+
+test("Update(Note) rejects invalid reply targets without applying content", async () => {
+  const db = await setup();
+  const oldParent = "https://remote.example/objects/valid-old-parent";
+  const invalidTargets: unknown[] = [
+    "https://user:pass@remote.example/objects/credential-parent",
+    `https://remote.example/objects/${"x".repeat(2050)}`,
+    42,
+  ];
+
+  for (const [index, inReplyTo] of invalidTargets.entries()) {
+    const id = `https://remote.example/objects/invalid-reparent-${index}`;
+    await insertRemoteNote(db, id, {
+      visibility: "public",
+      to: [PUBLIC],
+      content: `old body ${index}`,
+      inReplyTo: oldParent,
+    });
+    const update = parseActivity({
+      id: `${id}/updates/invalid-parent`,
+      type: "Update",
+      actor: REMOTE,
+      object: {
+        id,
+        type: "Note",
+        attributedTo: REMOTE,
+        content: "must not be partially applied",
+        inReplyTo,
+      },
+    }) as Activity;
+
+    await handleUpdate(ctxFor(db), update, REMOTE);
+    expect(await threadScopeRow(db, id)).toMatchObject({
+      content: `old body ${index}`,
+      inReplyTo: oldParent,
+    });
+  }
 });
 
 test("Update(Note) reparent, retry, and explicit clear keep both parent counters exact", async () => {

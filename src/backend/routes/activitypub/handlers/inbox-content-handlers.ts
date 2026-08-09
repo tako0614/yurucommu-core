@@ -40,6 +40,7 @@ import {
   MAX_INBOUND_OBJECT_ID_LENGTH,
   validateInboundObjectIdentity,
 } from "./inbound-object-identity.ts";
+import { validateInboundReplyTarget } from "./inbound-reply-target.ts";
 import {
   buildInboundStoryCreateProjection,
   buildInboundStoryUpdateProjection,
@@ -399,6 +400,7 @@ async function insertDirectNote(
   recipient: ActorRow,
   baseUrl: string,
   addressing: NoteAddressing,
+  parentId: string | null,
 ): Promise<void> {
   // Derive the conversation. Honour a sender-supplied `object.conversation`
   // only when it matches the value yurucommu itself would compute for this
@@ -421,9 +423,7 @@ async function insertDirectNote(
   );
 
   const replyCountStatements = [
-    ...(object.inReplyTo
-      ? [recomputeObjectReplyCount(db, object.inReplyTo)]
-      : []),
+    ...(parentId ? [recomputeObjectReplyCount(db, parentId)] : []),
     // A direct Note can itself be a late-arriving parent. Recompute even when
     // the insert conflicts so a peer retry repairs a stale legacy counter.
     recomputeObjectReplyCount(db, objectId),
@@ -456,7 +456,7 @@ async function insertDirectNote(
         summary: boundInboundSummary(object.summary),
         attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
         tagsJson: boundInboundTagsJson(object.tag),
-        inReplyTo: object.inReplyTo || null,
+        inReplyTo: parentId,
         visibility: "direct",
         // Only visible audience fields are serialized. Hidden `bto` / `bcc`
         // recipients live exclusively in object_recipients and must never be
@@ -552,12 +552,24 @@ export async function handleCreate(
     return;
   }
 
+  const replyTarget = validateInboundReplyTarget(object.inReplyTo);
+  if (!replyTarget.ok) {
+    log.warn("Create(Note) rejected: invalid reply target", {
+      event: "ap.create.note_reply_target_invalid",
+      actor,
+      objectId: identity.objectId,
+      reason: replyTarget.reason,
+    });
+    return;
+  }
+  const parentId = replyTarget.parentId ?? null;
+
   // Direct (DM) Note routing: a Note addressed to the local inbox owner that
   // is neither public nor follower-only belongs in the recipient's DM inbox /
   // message-request flow rather than the generic public Note insert.
   const addressing = createNoteAddressing(activity, object);
 
-  const parentObj = object.inReplyTo
+  const parentObj = parentId
     ? await db
         .select({
           apId: objects.apId,
@@ -571,7 +583,7 @@ export async function handleCreate(
           endTime: objects.endTime,
         })
         .from(objects)
-        .where(eq(objects.apId, object.inReplyTo))
+        .where(eq(objects.apId, parentId))
         .get()
     : null;
 
@@ -581,7 +593,7 @@ export async function handleCreate(
   // routing split prevents either storage path from becoming a restricted-thread
   // injection bypass. Personal block/mute state remains local-owner state, so
   // that extra guard applies only when the parent author is local.
-  if (object.inReplyTo && parentObj) {
+  if (parentId && parentObj) {
     if (!(await canViewerReadObjectFull(db, parentObj, actor))) return;
     if (
       isLocal(parentObj.attributedTo, baseUrl) &&
@@ -615,6 +627,7 @@ export async function handleCreate(
       recipient,
       baseUrl,
       addressing,
+      parentId,
     );
     return;
   }
@@ -695,7 +708,7 @@ export async function handleCreate(
       summary: boundInboundSummary(object.summary),
       attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
       tagsJson: boundInboundTagsJson(object.tag),
-      inReplyTo: object.inReplyTo || null,
+      inReplyTo: parentId,
       // Recipient-independent classification: a non-public Note is never stored
       // as world-readable "unlisted". A followers-only post → "followers" (gated
       // by the accepted-follow edge), preserving the remote author's audience.
@@ -732,8 +745,7 @@ export async function handleCreate(
     { conflict: "ignore" },
   );
 
-  if (object.inReplyTo) {
-    const parentId = object.inReplyTo;
+  if (parentId) {
     await runBatch(db, [
       bumpPostCount,
       insertObject,
@@ -1076,6 +1088,10 @@ export async function fetchAndPersistAnnouncedNote(
   const addressingContract = collectBoundedInboundAddresses([note]);
   if (!addressingContract.ok) return false;
 
+  const replyTarget = validateInboundReplyTarget(note.inReplyTo);
+  if (!replyTarget.ok) return false;
+  const parentId = replyTarget.parentId ?? null;
+
   // Addressing gates: a DM-shaped object must never be stored world-readable,
   // and a non-public classification is refused outright (see doc comment).
   const addressing = noteAddressing(note);
@@ -1098,7 +1114,7 @@ export async function fetchAndPersistAnnouncedNote(
   // followers-only parent that its author cannot read. An unknown parent stays
   // unresolved (the one-fetch depth cap below); later parent arrival repairs
   // its derived counter through recomputeObjectReplyCount.
-  const parentObj = note.inReplyTo
+  const parentObj = parentId
     ? await db
         .select({
           apId: objects.apId,
@@ -1112,10 +1128,10 @@ export async function fetchAndPersistAnnouncedNote(
           endTime: objects.endTime,
         })
         .from(objects)
-        .where(eq(objects.apId, note.inReplyTo))
+        .where(eq(objects.apId, parentId))
         .get()
     : null;
-  if (note.inReplyTo && parentObj) {
+  if (parentId && parentObj) {
     if (!(await canViewerReadObjectFull(db, parentObj, attributedTo))) {
       return false;
     }
@@ -1162,7 +1178,7 @@ export async function fetchAndPersistAnnouncedNote(
       tagsJson: boundInboundTagsJson(note.tag),
       // Stored verbatim and never remotely resolved (depth cap): a boosted
       // reply keeps its honest thread link even when the parent stays unknown.
-      inReplyTo: note.inReplyTo || null,
+      inReplyTo: parentId,
       visibility,
       toJson: boundAddressJson(note.to),
       ccJson: boundAddressJson(note.cc),
@@ -1176,10 +1192,10 @@ export async function fetchAndPersistAnnouncedNote(
     })
     .onConflictDoNothing();
 
-  if (note.inReplyTo) {
+  if (parentId) {
     await runBatch(db, [
       insertObject,
-      recomputeObjectReplyCount(db, note.inReplyTo),
+      recomputeObjectReplyCount(db, parentId),
       // Unknown Announce targets race normal Create delivery; the no-op insert
       // plus recompute keeps both arrival paths idempotent and repairable.
       recomputeObjectReplyCount(db, objectId),
@@ -1679,6 +1695,17 @@ export async function handleUpdate(
       return;
     }
 
+    const replyTarget = validateInboundReplyTarget(object.inReplyTo);
+    if (!replyTarget.ok) {
+      log.warn("Update(Note) rejected: invalid reply target", {
+        event: "ap.update.note_reply_target_invalid",
+        actor,
+        objectId,
+        reason: replyTarget.reason,
+      });
+      return;
+    }
+
     // Content and reach are one authority decision. A remote author can narrow
     // an existing public Note to followers/direct in the same Update; applying
     // only its new body would leave that private content readable through the
@@ -1714,8 +1741,8 @@ export async function handleUpdate(
       return;
     }
 
-    const hasThreadUpdate = object.inReplyTo !== undefined;
-    const updatedParentId = hasThreadUpdate ? object.inReplyTo : undefined;
+    const hasThreadUpdate = replyTarget.parentId !== undefined;
+    const updatedParentId = replyTarget.parentId;
     if (updatedParentId === objectId) {
       log.warn("Update(Note) rejected: object cannot reply to itself", {
         event: "ap.update.note_self_reply",

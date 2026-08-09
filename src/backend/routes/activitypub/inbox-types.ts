@@ -7,7 +7,8 @@ export type ActivityObject = {
   id?: string;
   type?: string | string[];
   object?: string;
-  inReplyTo?: string | null;
+  /** Raw ingress value; Note handlers must validate before SQL or storage. */
+  inReplyTo?: unknown;
   to?: string[];
   cc?: string[];
   bto?: string[];

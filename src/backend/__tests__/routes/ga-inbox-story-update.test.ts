@@ -31,6 +31,8 @@ const FETCHED_FORGED_REPLY_ID =
   "https://remote.example/objects/fetched-forged-reply";
 const FETCHED_OVERSIZED_ADDRESSING_ID =
   "https://remote.example/objects/fetched-oversized-addressing";
+const FETCHED_OVERSIZED_REPLY_ID =
+  "https://remote.example/objects/fetched-oversized-reply";
 
 // ---------------------------------------------------------------------------
 // Module mock — the only network seam these handlers reach is
@@ -110,6 +112,22 @@ mock.module("../../lib/federation-fetch.ts", () => ({
               (_, index) => `https://remote.example/users/boost-${index}`,
             ),
           ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/activity+json" },
+        },
+      );
+    }
+    if (url === FETCHED_OVERSIZED_REPLY_ID) {
+      return new Response(
+        JSON.stringify({
+          id: FETCHED_OVERSIZED_REPLY_ID,
+          type: "Note",
+          attributedTo: ALICE,
+          content: "must not retain an oversized reply edge",
+          inReplyTo: `https://remote.example/objects/${"x".repeat(2050)}`,
+          to: ["https://www.w3.org/ns/activitystreams#Public"],
         }),
         {
           status: 200,
@@ -920,6 +938,28 @@ test("an Announce-fetched Note with addressing overflow is rejected whole", asyn
       .select({ apId: objects.apId })
       .from(objects)
       .where(eq(objects.apId, FETCHED_OVERSIZED_ADDRESSING_ID))
+      .get(),
+  ).toBeUndefined();
+});
+
+test("an Announce-fetched Note with an oversized reply target is rejected whole", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  await seedAlice(db);
+
+  expect(
+    await fetchAndPersistAnnouncedNote(
+      db,
+      FETCHED_OVERSIZED_REPLY_ID,
+      "https://yuru.test",
+    ),
+  ).toBe(false);
+  expect(fetchedUrls).toContain(FETCHED_OVERSIZED_REPLY_ID);
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, FETCHED_OVERSIZED_REPLY_ID))
       .get(),
   ).toBeUndefined();
 });

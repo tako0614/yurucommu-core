@@ -11,8 +11,11 @@
  * - ActivityPub is lenient about extension fields; parsers accept unknown
  *   extra fields and copy through only the keys we care about.
  * - Required-but-wrong-type fields fail closed.
- * - Optional fields that are present but malformed are dropped silently
- *   (treated as absent) rather than rejecting the whole document.
+ * - Optional display fields that are present but malformed are dropped
+ *   silently (treated as absent) rather than rejecting the whole document.
+ * - Optional authority fields whose presence changes behavior may be preserved
+ *   as `unknown` so their owning handler can reject them instead of confusing a
+ *   malformed value with omission.
  */
 
 /** Error thrown when a remote ActivityPub document violates our contract. */
@@ -204,7 +207,8 @@ export interface ActivityObjectDocument {
   id?: string;
   type?: string | string[];
   object?: string;
-  inReplyTo?: string | null;
+  /** Preserved raw so malformed explicit reply edges cannot become roots. */
+  inReplyTo?: unknown;
   to?: string[];
   cc?: string[];
   bto?: string[];
@@ -248,17 +252,14 @@ function parseActivityObjectFields(
   record: Record<string, unknown>,
 ): ActivityObjectDocument {
   const summaryRaw = record["summary"];
-  const inReplyToRaw = record["inReplyTo"];
   return {
     id: getString(record, "id"),
     type: getStringOrStringArray(record, "type"),
     object: getString(record, "object"),
-    inReplyTo:
-      typeof inReplyToRaw === "string"
-        ? inReplyToRaw
-        : inReplyToRaw === null
-          ? null
-          : undefined,
+    // This is an authority-bearing thread edge. Preserve a malformed explicit
+    // value for the Note ingress validator instead of silently converting it
+    // to absence (which would persist a root post or allow a partial Update).
+    inReplyTo: record["inReplyTo"],
     to: getStringArray(record, "to"),
     cc: getStringArray(record, "cc"),
     bto: getStringArray(record, "bto"),

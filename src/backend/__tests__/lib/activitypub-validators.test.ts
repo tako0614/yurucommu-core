@@ -372,6 +372,17 @@ test("parseActivity drops null/wrong-typed summary on nested object gracefully",
   expect(obj.content).toEqual("text");
 });
 
+test("parseActivity preserves a malformed explicit reply edge for fail-closed handling", () => {
+  const activity = parseActivity({
+    type: "Create",
+    actor: "https://example/u/a",
+    object: { type: "Note", inReplyTo: { id: "https://example/parent" } },
+  });
+  const obj = activity.object;
+  if (typeof obj === "string" || !obj) throw new Error("nested object missing");
+  expect(obj.inReplyTo).toEqual({ id: "https://example/parent" });
+});
+
 test("parseActivity drops nested object when neither IRI nor record", () => {
   const malformed = {
     type: "Create",
