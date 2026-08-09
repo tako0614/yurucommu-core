@@ -88,31 +88,35 @@ function requireBatchable(db: Database, context: string): BatchableDb {
   return candidate as BatchableDb;
 }
 
-/**
- * Bound parameters Drizzle emits for one row of `rows`.
- *
- * Drizzle builds ONE column list for the whole `values([...])` call (the union
- * of the keys present across the rows) and binds a parameter per column per
- * row, so the budget must be divided by that union — not by the keys of the
- * first row.
- */
-function paramsPerRow(
+/** Reject row keys that do not belong to the target table. */
+function assertKnownRowKeys(
   table: SQLiteTable,
   rows: readonly Record<string, unknown>[],
-): number {
-  const keys = new Set<string>();
-  for (const row of rows) {
-    for (const key of Object.keys(row)) keys.add(key);
-  }
+): void {
   const known = new Set(Object.keys(getTableColumns(table)));
-  for (const key of keys) {
-    if (!known.has(key)) {
-      throw new D1WriteShapeError(
-        `insertMany: row key "${key}" is not a column of the target table`,
-      );
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      if (!known.has(key)) {
+        throw new D1WriteShapeError(
+          `insertMany: row key "${key}" is not a column of the target table`,
+        );
+      }
     }
   }
-  return keys.size;
+}
+
+/** Count the exact parameters Drizzle compiled into an insert statement. */
+function boundParameterCount(statement: D1Statement): number {
+  const candidate = statement as unknown as {
+    toSQL(): { readonly params: readonly unknown[] };
+  };
+  if (typeof candidate.toSQL !== "function") {
+    throw new D1WriteShapeError(
+      "insertMany: the active insert builder exposes no toSQL(); the D1 " +
+        "parameter budget cannot be proven before execution",
+    );
+  }
+  return candidate.toSQL().params.length;
 }
 
 /**
@@ -132,35 +136,47 @@ export function insertMany<TTable extends SQLiteTable>(
 ): readonly D1Statement[] {
   if (rows.length === 0) return [];
 
-  const perRow = paramsPerRow(
-    table,
-    rows as readonly Record<string, unknown>[],
-  );
-  if (perRow === 0) {
-    throw new D1WriteShapeError("insertMany: rows bind no columns");
-  }
-  if (perRow > D1_SAFE_PARAM_BUDGET) {
-    throw new D1WriteShapeError(
-      `insertMany: a single row binds ${perRow} parameters, over the D1 ` +
-        `budget of ${D1_SAFE_PARAM_BUDGET}; no chunking can make this fit`,
-    );
-  }
+  assertKnownRowKeys(table, rows as readonly Record<string, unknown>[]);
 
-  const chunkSize = Math.floor(D1_SAFE_PARAM_BUDGET / perRow);
-  const statements: D1Statement[] = [];
-  for (let offset = 0; offset < rows.length; offset += chunkSize) {
-    const chunk = rows.slice(offset, offset + chunkSize);
-    // Drizzle's insert builder is generic over the table; the concrete row type
-    // is already checked by the public signature, so the builder-local widening
-    // here is the narrowest cast that keeps the call site typed.
+  const buildStatement = (chunk: readonly TTable["$inferInsert"][]) => {
     const builder = db
       .insert(table)
       .values(chunk as TTable["$inferInsert"][]) as unknown as D1Statement & {
       onConflictDoNothing(): D1Statement;
     };
-    statements.push(
-      opts?.conflict === "ignore" ? builder.onConflictDoNothing() : builder,
-    );
+    return opts?.conflict === "ignore"
+      ? builder.onConflictDoNothing()
+      : builder;
+  };
+
+  const statements: D1Statement[] = [];
+  for (let offset = 0; offset < rows.length;) {
+    // Start at no more than the parameter budget in rows, then compile and
+    // shrink. Inspecting the actual query is essential: Drizzle fills omitted
+    // `$defaultFn`, primitive `.default(...)`, and on-update defaults at compile
+    // time, each of which can add a bound parameter that is absent from the
+    // caller's row keys. The former key-count heuristic under-budgeted those
+    // hidden values and emitted production-invalid 105/120-parameter inserts.
+    let chunkSize = Math.min(D1_SAFE_PARAM_BUDGET, rows.length - offset);
+    let statement: D1Statement;
+    while (true) {
+      statement = buildStatement(rows.slice(offset, offset + chunkSize));
+      const parameters = boundParameterCount(statement);
+      if (parameters <= D1_SAFE_PARAM_BUDGET) break;
+      if (chunkSize === 1) {
+        throw new D1WriteShapeError(
+          `insertMany: a single row compiles to ${parameters} parameters, ` +
+            `over the D1 budget of ${D1_SAFE_PARAM_BUDGET}; no chunking can ` +
+            `make this fit`,
+        );
+      }
+      const scaled = Math.floor(
+        (chunkSize * D1_SAFE_PARAM_BUDGET) / parameters,
+      );
+      chunkSize = Math.max(1, Math.min(chunkSize - 1, scaled));
+    }
+    statements.push(statement);
+    offset += chunkSize;
   }
 
   if (statements.length > D1_MAX_BATCH_STATEMENTS) {

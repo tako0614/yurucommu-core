@@ -10,7 +10,6 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
   actorCache,
@@ -28,6 +27,7 @@ import {
   storyViews,
   storyVotes,
 } from "../../../../db/index.ts";
+import { insertMany, runBatch } from "../../../../db/d1-write.ts";
 import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import {
@@ -86,29 +86,6 @@ type ActorRow = typeof actors.$inferSelect;
 
 // normalizeInboundTimestamp now lives in ./inbound-timestamp.ts (shared with the
 // federated group-chat path) — imported at the top of this file.
-
-// ---------------------------------------------------------------------------
-// Atomic multi-statement commit (mirrors posts/interactions.ts `runBatch` and
-// the inbox-interaction / inbox-shared helper). D1 has no interactive
-// transactions, but both the D1 and libsql drivers expose `db.batch([...])`,
-// which commits a list of prepared statements atomically. The shared
-// `Database` union aliases the abstract `BaseSQLiteDatabase` base (which does
-// not surface `batch`), so we narrow to the concrete batch surface here.
-// ---------------------------------------------------------------------------
-
-type BatchStatement = BatchItem<"sqlite">;
-interface BatchableDb {
-  batch(
-    statements: readonly [BatchStatement, ...BatchStatement[]],
-  ): Promise<unknown>;
-}
-
-async function runBatch(
-  db: Database,
-  statements: readonly [BatchStatement, ...BatchStatement[]],
-): Promise<void> {
-  await (db as unknown as BatchableDb).batch(statements);
-}
 
 // Federation blocklist enforcement lives centrally in
 // `verifyAndParseInbox` (routes/activitypub/inbox.ts): every inbound
@@ -171,25 +148,26 @@ export function addressesFollowers(addresses: string[]): boolean {
  * Recipient-INDEPENDENT visibility classification for an inbound generic Note,
  * mirroring the local outbound addressing contract. CRITICAL invariant: a
  * non-public Note is NEVER classified as "unlisted" (world-readable). Direct
- * (addressed-to-specific-actors-only) Notes are diverted BEFORE this is reached
- * (insertDirectNote / the direct-shaped skip), so the residual here is:
+ * addressed Notes are normally diverted before the generic Create insert, but
+ * the classifier itself remains total so every caller fails closed:
  *   - "public"    — the Public collection is in `to`;
- *   - "unlisted"  — Public is only in `cc` (Mastodon-style unlisted), or the
- *                   note carries no usable addressing at all;
+ *   - "unlisted"  — Public is only in `cc` (Mastodon-style unlisted);
  *   - "followers" — a followers collection is addressed and Public is absent.
+ *   - "direct"    — only actor IRIs, or no usable addressing at all. The empty
+ *                   case is intentionally unreadable rather than world-readable.
  * Previously this was derived solely from `to.includes(Public)`, so a remote
  * followers-only post (Public absent) was silently downgraded to "unlisted" and
  * became world-readable. */
 function classifyInboundNoteVisibility(object: {
   to?: string[];
   cc?: string[];
-}): "public" | "unlisted" | "followers" {
+}): "public" | "unlisted" | "followers" | "direct" {
   const to = object.to ?? [];
   const cc = object.cc ?? [];
   if (addressesPublic(to)) return "public";
   if (addressesPublic(cc)) return "unlisted";
   if (addressesFollowers([...to, ...cc])) return "followers";
-  return "unlisted";
+  return "direct";
 }
 
 /**
@@ -1474,7 +1452,20 @@ export async function handleUpdate(
         ? "direct"
         : classifyInboundNoteVisibility(object)
       : undefined;
-    await db
+    const directToRecipients =
+      hasAddressingUpdate && updatedVisibility === "direct"
+        ? [...new Set(addressList(object.to))]
+        : [];
+    // DM conversation ids are pair authority. Never carry an old recipient's
+    // thread id across a re-address; only a single `to` recipient has a 1:1
+    // conversation in Yurucommu's model. Public/followers/multi-recipient/empty
+    // reach clears the old DM conversation.
+    const updatedConversation = hasAddressingUpdate
+      ? updatedVisibility === "direct" && directToRecipients.length === 1
+        ? getConversationId(c.env.APP_URL, actor, directToRecipients[0])
+        : null
+      : undefined;
+    const updateObject = db
       .update(objects)
       .set({
         content:
@@ -1491,9 +1482,45 @@ export async function handleUpdate(
         visibility: updatedVisibility,
         toJson: hasAddressingUpdate ? boundAddressJson(object.to) : undefined,
         ccJson: hasAddressingUpdate ? boundAddressJson(object.cc) : undefined,
+        conversation: updatedConversation,
         updated: new Date().toISOString(),
       })
       .where(eq(objects.apId, objectId));
+
+    if (!hasAddressingUpdate) {
+      await updateObject;
+      return;
+    }
+
+    // `object_recipients(type=to)` is the indexed DM-read authority used by
+    // contacts, requests, unread counts, and conversation discovery. Updating
+    // only toJson would revoke canonical object GET while the old recipient
+    // still received the NEW private body in their contact preview. Replace the
+    // projection in the same D1 batch as the object row so neither old nor new
+    // reach can be observed half-applied. insertMany keeps every statement
+    // below D1's parameter ceiling for the bounded 64-address input.
+    const recipientInserts = insertMany(
+      db,
+      objectRecipients,
+      directToRecipients.map((recipientApId) => ({
+        objectApId: objectId,
+        recipientApId,
+        type: "to",
+      })),
+      { conflict: "ignore" },
+    );
+    await runBatch(db, [
+      updateObject,
+      db
+        .delete(objectRecipients)
+        .where(
+          and(
+            eq(objectRecipients.objectApId, objectId),
+            eq(objectRecipients.type, "to"),
+          ),
+        ),
+      ...recipientInserts,
+    ]);
   }
 }
 

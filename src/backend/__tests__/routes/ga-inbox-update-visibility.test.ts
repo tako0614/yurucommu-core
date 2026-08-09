@@ -1,22 +1,30 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 
-import { createClient } from "@libsql/client";
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
+import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actorCache, actors, follows, objects } from "../../../db/index.ts";
+import {
+  actorCache,
+  actors,
+  follows,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import { parseActivity } from "../../lib/activitypub-validators.ts";
-import { handleUpdate } from "../../routes/activitypub/handlers/inbox-content-handlers.ts";
+import {
+  handleCreate,
+  handleUpdate,
+} from "../../routes/activitypub/handlers/inbox-content-handlers.ts";
 import type {
   Activity,
   ActivityContext,
 } from "../../routes/activitypub/inbox-types.ts";
+import dmContactRoutes from "../../routes/dm/conversations.ts";
+import { getConversationId } from "../../routes/dm/query-helpers.ts";
 import postsRoutes from "../../routes/posts/routes.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 /**
  * Audit #19 — Update(Note) reach parity.
@@ -39,38 +47,8 @@ const LOCAL_BOB = `${APP_URL}/ap/users/bob`;
 const LOCAL_CAROL = `${APP_URL}/ap/users/carol`;
 const PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0003_activity_remote_object_edges.sql",
-  "0004_blocklist.sql",
-  "0005_story_community_scope.sql",
-  "0006_dm_community_read_status.sql",
-  "0007_moderation_reports.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-  "0010_object_recipients_drop_actor_fk.sql",
-  "0011_drop_remote_actor_fks.sql",
-  "0012_objects_content_fts.sql",
-  "0013_efficiency_indexes.sql",
-  "0014_inbox_actor_created_idx.sql",
-  "0015_community_bans.sql",
-  "0016_namespace_takos_oidc_subject.sql",
-  "0017_mobile_push_registrations.sql",
-  "0018_actor_notes.sql",
-  "0019_notification_push_delivery.sql",
-  "0020_call_sessions.sql",
-  "0022_inbound_dispatch_claims.sql",
-];
-
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function seedLocalActor(
@@ -139,6 +117,17 @@ function postsApp(db: Database, actor: Actor | null) {
   return app;
 }
 
+function dmContactsApp(db: Database, actor: Actor | null) {
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", actor);
+    await next();
+  });
+  app.route("/api/dm", dmContactRoutes);
+  return app;
+}
+
 async function getPostStatus(
   db: Database,
   actor: Actor | null,
@@ -155,6 +144,27 @@ async function getPostStatus(
   ).status;
 }
 
+type ContactsResponse = {
+  mutual_followers: Array<{
+    conversation_id: string;
+    last_message: { content: string; is_mine: boolean } | null;
+  }>;
+  request_count: number;
+};
+
+async function getContacts(
+  db: Database,
+  actor: Actor,
+): Promise<ContactsResponse> {
+  const env = envFor(db);
+  const response = await dmContactsApp(db, actor).fetch(
+    new Request(`${APP_URL}/api/dm/contacts`, { method: "GET" }),
+    env,
+  );
+  expect(response.status).toBe(200);
+  return (await response.json()) as ContactsResponse;
+}
+
 async function insertRemoteNote(
   db: Database,
   id: string,
@@ -162,6 +172,7 @@ async function insertRemoteNote(
     visibility: "public" | "unlisted" | "followers" | "direct";
     to: string[];
     cc?: string[];
+    conversation?: string;
   },
 ): Promise<void> {
   await db.insert(objects).values({
@@ -173,9 +184,31 @@ async function insertRemoteNote(
     toJson: JSON.stringify(reach.to),
     ccJson: JSON.stringify(reach.cc ?? []),
     audienceJson: "[]",
+    conversation: reach.conversation ?? null,
     isLocal: 0,
     published: "2026-08-09T00:00:00.000Z",
   });
+}
+
+function createNoteWithoutAddressing(id: string): Activity {
+  return parseActivity({
+    id: `${id}/activity`,
+    type: "Create",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "addressless secret",
+    },
+  }) as Activity;
+}
+
+function recipient(apId: string) {
+  return {
+    apId,
+    followersUrl: `${apId}/followers`,
+  } as unknown as Parameters<typeof handleCreate>[2];
 }
 
 function updateNote(
@@ -328,4 +361,235 @@ test("the verified signer cannot update another actor's Note or its reach", asyn
     toJson: JSON.stringify([PUBLIC]),
     ccJson: "[]",
   });
+});
+
+test("an explicit empty audience Update fails closed instead of widening to unlisted", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/empty-audience-update";
+  await insertRemoteNote(db, id, {
+    visibility: "followers",
+    to: [FOLLOWERS],
+  });
+
+  await handleUpdate(
+    ctxFor(db),
+    updateNote(id, "nobody secret", { to: [], cc: [] }),
+    REMOTE,
+  );
+
+  expect((await reachRow(db, id))?.content).toBe("nobody secret");
+  expect(await getPostStatus(db, null, id)).toBe(404);
+  expect(await reachRow(db, id)).toMatchObject({
+    visibility: "direct",
+    toJson: "[]",
+    ccJson: "[]",
+  });
+});
+
+test("an inbound Create(Note) with no usable addressing is never world-readable", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/addressless-create";
+
+  await handleCreate(
+    ctxFor(db),
+    createNoteWithoutAddressing(id),
+    recipient(LOCAL_BOB),
+    REMOTE,
+    APP_URL,
+  );
+
+  expect((await reachRow(db, id))?.content).toBe("addressless secret");
+  expect(await getPostStatus(db, null, id)).toBe(404);
+  expect(await reachRow(db, id)).toMatchObject({
+    visibility: "direct",
+    toJson: "[]",
+    ccJson: "[]",
+  });
+});
+
+test("readdressing a direct Note revokes the old recipient's contact preview atomically", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/readdress-direct";
+  const oldConversation = getConversationId(APP_URL, REMOTE, LOCAL_BOB);
+  const newConversation = getConversationId(APP_URL, REMOTE, LOCAL_CAROL);
+  await insertRemoteNote(db, id, {
+    visibility: "direct",
+    to: [LOCAL_BOB],
+    conversation: oldConversation,
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: id,
+    recipientApId: LOCAL_BOB,
+    type: "to",
+  });
+
+  expect(
+    (await getContacts(db, fakeActor(LOCAL_BOB, "bob"))).mutual_followers[0]
+      ?.last_message?.content,
+  ).toBe("old body");
+
+  await handleUpdate(
+    ctxFor(db),
+    updateNote(id, "carol secret", { to: [LOCAL_CAROL], cc: [] }),
+    REMOTE,
+  );
+
+  const bobContacts = await getContacts(db, fakeActor(LOCAL_BOB, "bob"));
+  expect(bobContacts.mutual_followers).toEqual([]);
+  expect(bobContacts.request_count).toBe(0);
+
+  const carolContacts = await getContacts(db, fakeActor(LOCAL_CAROL, "carol"));
+  expect(carolContacts.mutual_followers).toEqual([
+    expect.objectContaining({
+      conversation_id: newConversation,
+      last_message: {
+        content: "carol secret",
+        is_mine: false,
+      },
+    }),
+  ]);
+  expect(carolContacts.request_count).toBe(1);
+
+  const links = await db
+    .select({ recipientApId: objectRecipients.recipientApId })
+    .from(objectRecipients)
+    .where(eq(objectRecipients.objectApId, id));
+  expect(links).toEqual([{ recipientApId: LOCAL_CAROL }]);
+});
+
+test("widening a direct Note to public removes its old DM projection", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/direct-to-public";
+  const oldConversation = getConversationId(APP_URL, REMOTE, LOCAL_BOB);
+  await insertRemoteNote(db, id, {
+    visibility: "direct",
+    to: [LOCAL_BOB],
+    conversation: oldConversation,
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: id,
+    recipientApId: LOCAL_BOB,
+    type: "to",
+  });
+
+  await handleUpdate(
+    ctxFor(db),
+    updateNote(id, "now public", { to: [PUBLIC], cc: [] }),
+    REMOTE,
+  );
+
+  expect(await reachRow(db, id)).toMatchObject({
+    content: "now public",
+    visibility: "public",
+    toJson: JSON.stringify([PUBLIC]),
+    ccJson: "[]",
+  });
+  expect(await getPostStatus(db, null, id)).toBe(200);
+  expect(
+    (await getContacts(db, fakeActor(LOCAL_BOB, "bob"))).mutual_followers,
+  ).toEqual([]);
+  expect(
+    await db
+      .select({ recipientApId: objectRecipients.recipientApId })
+      .from(objectRecipients)
+      .where(eq(objectRecipients.objectApId, id)),
+  ).toEqual([]);
+  expect(
+    (
+      await db
+        .select({ conversation: objects.conversation })
+        .from(objects)
+        .where(eq(objects.apId, id))
+        .get()
+    )?.conversation,
+  ).toBeNull();
+});
+
+test("a recipient projection failure rolls back the Note body, reach, conversation, and old link", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/readdress-rollback";
+  const oldConversation = getConversationId(APP_URL, REMOTE, LOCAL_BOB);
+  await insertRemoteNote(db, id, {
+    visibility: "direct",
+    to: [LOCAL_BOB],
+    conversation: oldConversation,
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: id,
+    recipientApId: LOCAL_BOB,
+    type: "to",
+  });
+  await db.run(
+    sql.raw(`
+      CREATE TRIGGER reject_readdress_recipient
+      BEFORE INSERT ON object_recipients
+      WHEN NEW.recipient_ap_id = '${LOCAL_CAROL}'
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated recipient projection failure');
+      END
+    `),
+  );
+
+  await expect(
+    handleUpdate(
+      ctxFor(db),
+      updateNote(id, "must roll back", { to: [LOCAL_CAROL], cc: [] }),
+      REMOTE,
+    ),
+  ).rejects.toThrow("simulated recipient projection failure");
+
+  expect(await reachRow(db, id)).toMatchObject({
+    content: "old body",
+    visibility: "direct",
+    toJson: JSON.stringify([LOCAL_BOB]),
+    ccJson: "[]",
+  });
+  const row = await db
+    .select({ conversation: objects.conversation })
+    .from(objects)
+    .where(eq(objects.apId, id))
+    .get();
+  expect(row?.conversation).toBe(oldConversation);
+  const links = await db
+    .select({ recipientApId: objectRecipients.recipientApId })
+    .from(objectRecipients)
+    .where(eq(objectRecipients.objectApId, id));
+  expect(links).toEqual([{ recipientApId: LOCAL_BOB }]);
+});
+
+test("a 64-recipient direct Update stays within D1 parameter and batch ceilings", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/readdress-max";
+  await insertRemoteNote(db, id, { visibility: "public", to: [PUBLIC] });
+  const recipients = Array.from(
+    { length: 64 },
+    (_, index) => `${APP_URL}/ap/users/recipient-${index}`,
+  );
+
+  await handleUpdate(
+    ctxFor(db),
+    updateNote(id, "bounded group secret", { to: recipients, cc: [] }),
+    REMOTE,
+  );
+
+  expect(await reachRow(db, id)).toMatchObject({
+    content: "bounded group secret",
+    visibility: "direct",
+    toJson: JSON.stringify(recipients),
+    ccJson: "[]",
+  });
+  const links = await db
+    .select({ recipientApId: objectRecipients.recipientApId })
+    .from(objectRecipients)
+    .where(eq(objectRecipients.objectApId, id));
+  expect(links).toHaveLength(64);
+  expect(new Set(links.map((link) => link.recipientApId))).toEqual(
+    new Set(recipients),
+  );
+  const row = await db
+    .select({ conversation: objects.conversation })
+    .from(objects)
+    .where(eq(objects.apId, id))
+    .get();
+  expect(row?.conversation).toBeNull();
 });
