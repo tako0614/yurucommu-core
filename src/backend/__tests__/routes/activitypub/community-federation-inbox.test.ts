@@ -18,6 +18,11 @@ import {
   handleGroupUndo,
 } from "../../../routes/activitypub/handlers/actor-inbox-handlers.ts";
 import { canActorPostToInboundCommunity } from "../../../routes/activitypub/handlers/inbound-community-scope.ts";
+import {
+  banMember,
+  isMemberBanned,
+  unbanMember,
+} from "../../../routes/communities/membership-shared.ts";
 import { canViewerReadObject } from "../../../lib/community-visibility.ts";
 import type { InstanceActorResult } from "../../../routes/activitypub/query-helpers.ts";
 import type {
@@ -733,6 +738,60 @@ test("a BANNED remote actor cannot post through a postPolicy=anyone community", 
     }),
   ).toBeUndefined();
   expect(await chatMessages(db, apId)).toEqual([]);
+});
+
+test("community ban mutations reach a cosmetic actor behind 64 sibling bans", async () => {
+  const db = await freshDb();
+  const apId = await insertCommunity(db, "complete-ban-set", "open", {
+    postPolicy: "anyone",
+  });
+  const cosmetic = "https://ZZ-remote.example:443/users/alice/#profile";
+  const canonical = "https://zz-remote.example/users/alice";
+  await db.run(sql`
+    WITH digits(d) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+    numbers(n) AS (
+      SELECT a.d + b.d * 10
+      FROM digits a CROSS JOIN digits b
+    )
+    INSERT INTO community_bans (
+      community_ap_id, banned_ap_id, created_at
+    )
+    SELECT ${apId}, 'https://a-banned-' || n || '.example/users/actor',
+      '2026-08-09T00:00:00.000Z'
+    FROM numbers WHERE n < 64
+    UNION ALL
+    SELECT ${apId}, ${cosmetic}, '2020-01-01T00:00:00.000Z'
+  `);
+
+  expect(await isMemberBanned(db, apId, canonical)).toBe(true);
+  expect(
+    await canActorPostToInboundCommunity(db, canonical, {
+      apId,
+      visibility: "public",
+      postPolicy: "anyone",
+    }),
+  ).toBe(false);
+
+  // Re-banning the verified spelling must retain one logical ban rather than
+  // creating a second primary-key spelling for the same actor.
+  await banMember(db, apId, canonical);
+  expect(
+    await db
+      .select({ bannedApId: communityBans.bannedApId })
+      .from(communityBans)
+      .where(eq(communityBans.communityApId, apId)),
+  ).toHaveLength(65);
+
+  // Explicit re-admission clears every historical spelling, not just the
+  // spelling carried by the current request.
+  await unbanMember(db, apId, canonical);
+  expect(await isMemberBanned(db, apId, canonical)).toBe(false);
+  expect(
+    await db
+      .select({ bannedApId: communityBans.bannedApId })
+      .from(communityBans)
+      .where(eq(communityBans.communityApId, apId)),
+  ).toHaveLength(64);
 });
 
 // Audit #25 finding C — a kicked member is durably BANNED: a re-Follow into an

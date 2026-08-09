@@ -2,10 +2,8 @@ import { and, eq, gt, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { actors, blocks, follows } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
-import { isSameActivityPubActor } from "./activitypub-actor-identity.ts";
+import { activityPubActorIdentityMatchesSql } from "./activitypub-actor-identity-sql.ts";
 import { resolveRetainedPersonalBlockTarget } from "./personal-actor-moderation.ts";
-
-const LEGACY_FOLLOW_EDGE_CANDIDATE_LIMIT = 64;
 
 type BatchStatement = BatchItem<"sqlite">;
 interface BatchableDb {
@@ -79,26 +77,47 @@ async function resolveRetainedFollowEdge(
     .get();
   if (exact) return exact;
 
-  const candidates = await db
-    .select({
-      followerApId: follows.followerApId,
-      followingApId: follows.followingApId,
-    })
-    .from(follows)
-    .where(
-      or(
-        eq(follows.followerApId, followerApId),
-        eq(follows.followingApId, followingApId),
-      ),
-    )
-    .limit(LEGACY_FOLLOW_EDGE_CANDIDATE_LIMIT)
-    .all();
+  // Every personal follow edge has at least one exact local endpoint. Narrow on
+  // that indexed endpoint, then compare the retained remote endpoint through
+  // the complete verified-actor identity set. The previous 64-row JS scan
+  // forgot older edges and let a block leave follower delivery authority alive.
+  const followingMatches = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${follows.followingApId}
+      FROM ${follows}
+      WHERE ${follows.followerApId} = ${followerApId}
+    `,
+    followingApId,
+  );
+  const followerMatches = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${follows.followerApId}
+      FROM ${follows}
+      WHERE ${follows.followingApId} = ${followingApId}
+    `,
+    followerApId,
+  );
   return (
-    candidates.find(
-      (candidate) =>
-        isSameActivityPubActor(candidate.followerApId, followerApId) &&
-        isSameActivityPubActor(candidate.followingApId, followingApId),
-    ) ?? { followerApId, followingApId }
+    (await db
+      .select({
+        followerApId: follows.followerApId,
+        followingApId: follows.followingApId,
+      })
+      .from(follows)
+      .where(
+        or(
+          and(
+            eq(follows.followerApId, followerApId),
+            sql`${follows.followingApId} IN (${followingMatches})`,
+          ),
+          and(
+            eq(follows.followingApId, followingApId),
+            sql`${follows.followerApId} IN (${followerMatches})`,
+          ),
+        ),
+      )
+      .limit(1)
+      .get()) ?? { followerApId, followingApId }
   );
 }
 

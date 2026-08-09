@@ -12,9 +12,7 @@ import {
 import type { Env, Variables } from "../../types.ts";
 import { communityApId } from "../../federation-helpers.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
-import { isSameActivityPubActor } from "../../lib/activitypub-actor-identity.ts";
-
-const LEGACY_COMMUNITY_BAN_CANDIDATE_LIMIT = 64;
+import { activityPubActorIdentityMatchesSql } from "../../lib/activitypub-actor-identity-sql.ts";
 
 export const managerRoles = new Set(["owner", "moderator"]);
 
@@ -27,10 +25,27 @@ export async function banMember(
   communityApIdVal: string,
   bannedApId: string,
 ): Promise<void> {
-  await db
-    .insert(communityBans)
-    .values({ communityApId: communityApIdVal, bannedApId })
-    .onConflictDoNothing();
+  const retainedBans = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${communityBans.bannedApId}
+      FROM ${communityBans}
+      WHERE ${communityBans.communityApId} = ${communityApIdVal}
+    `,
+    bannedApId,
+  );
+  await db.run(sql`
+    INSERT INTO ${communityBans} (
+      community_ap_id, banned_ap_id, created_at
+    )
+    SELECT ${communityApIdVal}, ${bannedApId}, ${new Date().toISOString()}
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM ${communityBans}
+      WHERE ${communityBans.communityApId} = ${communityApIdVal}
+        AND ${communityBans.bannedApId} IN (${retainedBans})
+    )
+    ON CONFLICT DO NOTHING
+  `);
 }
 
 /**
@@ -42,12 +57,20 @@ export async function unbanMember(
   communityApIdVal: string,
   bannedApId: string,
 ): Promise<void> {
+  const retainedBans = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${communityBans.bannedApId}
+      FROM ${communityBans}
+      WHERE ${communityBans.communityApId} = ${communityApIdVal}
+    `,
+    bannedApId,
+  );
   await db
     .delete(communityBans)
     .where(
       and(
         eq(communityBans.communityApId, communityApIdVal),
-        eq(communityBans.bannedApId, bannedApId),
+        sql`${communityBans.bannedApId} IN (${retainedBans})`,
       ),
     );
 }
@@ -70,15 +93,26 @@ export async function isMemberBanned(
     .get();
   if (row) return true;
 
-  const candidates = await db
+  const retainedBans = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${communityBans.bannedApId}
+      FROM ${communityBans}
+      WHERE ${communityBans.communityApId} = ${communityApIdVal}
+    `,
+    actorApId,
+  );
+  const retained = await db
     .select({ bannedApId: communityBans.bannedApId })
     .from(communityBans)
-    .where(eq(communityBans.communityApId, communityApIdVal))
-    .limit(LEGACY_COMMUNITY_BAN_CANDIDATE_LIMIT)
-    .all();
-  return candidates.some((candidate) =>
-    isSameActivityPubActor(candidate.bannedApId, actorApId),
-  );
+    .where(
+      and(
+        eq(communityBans.communityApId, communityApIdVal),
+        sql`${communityBans.bannedApId} IN (${retainedBans})`,
+      ),
+    )
+    .limit(1)
+    .get();
+  return retained !== undefined;
 }
 
 // `Database` is a union whose `.batch` lives only on the concrete D1/libsql

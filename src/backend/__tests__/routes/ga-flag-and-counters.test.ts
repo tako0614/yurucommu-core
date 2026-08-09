@@ -121,7 +121,10 @@ function createMockDb(options: {
           const directRows = flagTargetApId ? [{ apId: flagTargetApId }] : [];
           return {
             get: () => Promise.resolve(followRow),
-            limit: () => ({ all: () => Promise.resolve([]) }),
+            limit: () => ({
+              all: () => Promise.resolve([]),
+              get: () => Promise.resolve(followRow),
+            }),
             then: (resolve: (value: unknown[]) => unknown) =>
               Promise.resolve(directRows).then(resolve),
           };

@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 
 import { Hono } from "hono";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
@@ -31,7 +31,12 @@ import dmRoutes from "../../routes/dm/messages.ts";
 import storyRoutes from "../../routes/stories/interactions.ts";
 import postsRoutes from "../../routes/posts/routes.ts";
 import followRoutes from "../../routes/follow.ts";
-import { undoInteraction } from "../../routes/activitypub/handlers/inbox-shared-helpers.ts";
+import {
+  findFollowByActivityId,
+  findFollowByFollowerIdentity,
+  findFollowByFollowingIdentity,
+  undoInteraction,
+} from "../../routes/activitypub/handlers/inbox-shared-helpers.ts";
 import {
   handleAccept,
   handleUndo,
@@ -459,6 +464,209 @@ test("double Undo of a Like does not drift likeCount below the real value", asyn
     .where(eq(objects.apId, storyApId))
     .get();
   expect(after?.likeCount).toEqual(0);
+});
+
+test("follow identity lookups reach cosmetic edges behind 64 sibling relations", async () => {
+  const db = await freshDb();
+  const localActor = await insertLocalActor(db, "identity-owner");
+  const cosmetic = "https://ZZ-remote.example:443/users/alice/#profile";
+  const canonical = "https://zz-remote.example/users/alice";
+
+  await db.run(sql`
+    WITH digits(d) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+    numbers(n) AS (
+      SELECT a.d + b.d * 10
+      FROM digits a CROSS JOIN digits b
+    )
+    INSERT INTO follows (
+      follower_ap_id, following_ap_id, status, created_at
+    )
+    SELECT 'https://a-follower-' || n || '.example/users/actor', ${localActor},
+      'accepted', '2026-08-09T00:00:00.000Z'
+    FROM numbers WHERE n < 64
+    UNION ALL
+    SELECT ${localActor}, 'https://a-following-' || n || '.example/users/actor',
+      'pending', '2026-08-09T00:00:00.000Z'
+    FROM numbers WHERE n < 64
+    UNION ALL
+    SELECT ${cosmetic}, ${localActor}, 'accepted',
+      '2020-01-01T00:00:00.000Z'
+    UNION ALL
+    SELECT ${localActor}, ${cosmetic}, 'pending',
+      '2020-01-01T00:00:00.000Z'
+  `);
+
+  const followerEdge = await findFollowByFollowerIdentity(
+    db,
+    canonical,
+    localActor,
+  );
+  const followingEdge = await findFollowByFollowingIdentity(
+    db,
+    localActor,
+    canonical,
+  );
+  expect(followerEdge?.followerApId).toBe(cosmetic);
+  expect(followerEdge?.status).toBe("accepted");
+  expect(followingEdge?.followingApId).toBe(cosmetic);
+  expect(followingEdge?.status).toBe("pending");
+});
+
+test("actor-owned follow lookup reaches a cosmetic edge behind 64 reused activity IDs", async () => {
+  const db = await freshDb();
+  const localActor = await insertLocalActor(db, "activity-owner");
+  const activityId = "https://remote.example/activities/reused-follow-id";
+  const cosmetic = "https://ZZ-remote.example:443/users/alice/#profile";
+  const canonical = "https://zz-remote.example/users/alice";
+
+  await db.run(sql`
+    WITH digits(d) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+    numbers(n) AS (
+      SELECT a.d + b.d * 10
+      FROM digits a CROSS JOIN digits b
+    )
+    INSERT INTO follows (
+      follower_ap_id, following_ap_id, status, activity_ap_id, created_at
+    )
+    SELECT 'https://a-follower-' || n || '.example/users/actor',
+      ${localActor} || '/decoy-' || n, 'pending', ${activityId},
+      '2026-08-09T00:00:00.000Z'
+    FROM numbers WHERE n < 64
+    UNION ALL
+    SELECT ${cosmetic}, ${localActor}, 'accepted', ${activityId},
+      '2020-01-01T00:00:00.000Z'
+  `);
+
+  const retained = await findFollowByActivityId(db, activityId, {
+    actorApId: canonical,
+    localBaseUrl: APP_URL,
+  });
+  expect(retained).toEqual({
+    followerApId: cosmetic,
+    followingApId: localActor,
+    status: "accepted",
+  });
+});
+
+test("Undo reaches cosmetic interaction edges behind 64 sibling relations", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "undo-author");
+  const cosmetic = "https://ZZ-remote.example:443/users/alice/#profile";
+  const canonical = "https://zz-remote.example/users/alice";
+  const directObject = `${APP_URL}/ap/objects/direct-undo`;
+  const activityObject = `${APP_URL}/ap/objects/activity-undo`;
+  const reusedActivityId =
+    "https://remote.example/activities/reused-interaction-id";
+
+  await db.insert(objects).values([
+    {
+      apId: directObject,
+      type: "Note",
+      attributedTo: authorApId,
+      visibility: "public",
+      likeCount: 65,
+    },
+    {
+      apId: activityObject,
+      type: "Note",
+      attributedTo: authorApId,
+      visibility: "public",
+      likeCount: 65,
+    },
+  ]);
+  await db.run(sql`
+    WITH digits(d) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+    numbers(n) AS (
+      SELECT a.d + b.d * 10
+      FROM digits a CROSS JOIN digits b
+    ),
+    remote_actors(ap_id, username) AS (
+      SELECT 'https://a-direct-' || n || '.example/users/actor',
+        'undo-direct-' || n
+      FROM numbers WHERE n < 64
+      UNION ALL
+      SELECT 'https://a-activity-' || n || '.example/users/actor',
+        'undo-activity-' || n
+      FROM numbers WHERE n < 64
+      UNION ALL
+      SELECT ${cosmetic}, 'undo-cosmetic'
+    )
+    INSERT INTO actors (
+      ap_id, preferred_username, inbox, outbox, followers_url, following_url,
+      public_key_pem, private_key_pem, created_at, updated_at
+    )
+    SELECT ap_id, username, ap_id || '/inbox', ap_id || '/outbox',
+      ap_id || '/followers', ap_id || '/following', 'pub', 'priv',
+      '2026-08-09T00:00:00.000Z', '2026-08-09T00:00:00.000Z'
+    FROM remote_actors
+  `);
+  await db.run(sql`
+    WITH digits(d) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+    numbers(n) AS (
+      SELECT a.d + b.d * 10
+      FROM digits a CROSS JOIN digits b
+    )
+    INSERT INTO likes (
+      actor_ap_id, object_ap_id, activity_ap_id, created_at
+    )
+    SELECT 'https://a-direct-' || n || '.example/users/actor', ${directObject},
+      'https://a-direct.example/activities/' || n,
+      '2026-08-09T00:00:00.000Z'
+    FROM numbers WHERE n < 64
+    UNION ALL
+    SELECT ${cosmetic}, ${directObject},
+      'https://remote.example/activities/cosmetic-direct',
+      '2020-01-01T00:00:00.000Z'
+    UNION ALL
+    SELECT 'https://a-activity-' || n || '.example/users/actor',
+      ${activityObject}, ${reusedActivityId},
+      '2026-08-09T00:00:00.000Z'
+    FROM numbers WHERE n < 64
+    UNION ALL
+    SELECT ${cosmetic}, ${activityObject}, ${reusedActivityId},
+      '2020-01-01T00:00:00.000Z'
+  `);
+
+  expect(
+    await undoInteraction(
+      db,
+      "like",
+      "likeCount",
+      directObject,
+      null,
+      canonical,
+    ),
+  ).toBe(true);
+  expect(
+    await undoInteraction(
+      db,
+      "like",
+      "likeCount",
+      undefined,
+      reusedActivityId,
+      canonical,
+    ),
+  ).toBe(true);
+
+  const retainedTargets = await db
+    .select()
+    .from(likes)
+    .where(eq(likes.actorApId, cosmetic));
+  expect(retainedTargets).toEqual([]);
+  expect(
+    await db
+      .select({ likeCount: objects.likeCount })
+      .from(objects)
+      .where(eq(objects.apId, directObject))
+      .get(),
+  ).toEqual({ likeCount: 64 });
+  expect(
+    await db
+      .select({ likeCount: objects.likeCount })
+      .from(objects)
+      .where(eq(objects.apId, activityObject))
+      .get(),
+  ).toEqual({ likeCount: 64 });
 });
 
 test("duplicate Accept does not over-count follower/following counts", async () => {

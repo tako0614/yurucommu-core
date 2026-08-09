@@ -10,6 +10,7 @@ import {
   objects,
 } from "../../../../db/index.ts";
 import { isLocal } from "../../../federation-helpers.ts";
+import { activityPubActorIdentityMatchesSql } from "../../../lib/activitypub-actor-identity-sql.ts";
 import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
 import { isBoundedHttpActivityId } from "../../../lib/remote-activity-id.ts";
 import { resolveInboundActivityReference } from "../inbound-activity-reference.ts";
@@ -86,11 +87,9 @@ const INTERACTION_TABLES: Record<"like" | "announce", InteractionTable> = {
   announce: announces,
 };
 
-const LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT = 64;
-
 /**
  * Resolve a follow edge owned by the verified follower identity. Exact DB keys
- * are the steady-state path; the bounded fallback keeps pre-invariant rows
+ * are the steady-state path; the fallback keeps every pre-invariant row
  * reachable without treating a same-origin sibling as the same actor.
  */
 export async function findFollowByFollowerIdentity(
@@ -110,15 +109,25 @@ export async function findFollowByFollowerIdentity(
     .get();
   if (exact) return exact;
 
-  const candidates = await db
+  const retainedFollowers = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${follows.followerApId}
+      FROM ${follows}
+      WHERE ${follows.followingApId} = ${followingApId}
+    `,
+    followerApId,
+  );
+  return await db
     .select()
     .from(follows)
-    .where(eq(follows.followingApId, followingApId))
-    .limit(LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT)
-    .all();
-  return candidates.find((candidate) =>
-    isSameActivityPubActor(candidate.followerApId, followerApId),
-  );
+    .where(
+      and(
+        eq(follows.followingApId, followingApId),
+        sql`${follows.followerApId} IN (${retainedFollowers})`,
+      ),
+    )
+    .limit(1)
+    .get();
 }
 
 /** Same compatibility lookup when the verified actor owns the followee side. */
@@ -139,15 +148,25 @@ export async function findFollowByFollowingIdentity(
     .get();
   if (exact) return exact;
 
-  const candidates = await db
+  const retainedFollowing = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${follows.followingApId}
+      FROM ${follows}
+      WHERE ${follows.followerApId} = ${followerApId}
+    `,
+    followingApId,
+  );
+  return await db
     .select()
     .from(follows)
-    .where(eq(follows.followerApId, followerApId))
-    .limit(LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT)
-    .all();
-  return candidates.find((candidate) =>
-    isSameActivityPubActor(candidate.followingApId, followingApId),
-  );
+    .where(
+      and(
+        eq(follows.followerApId, followerApId),
+        sql`${follows.followingApId} IN (${retainedFollowing})`,
+      ),
+    )
+    .limit(1)
+    .get();
 }
 
 type FollowLookupRow = {
@@ -178,19 +197,30 @@ async function findActorOwnedFollowByActivityId(
     .get();
   if (exact) return exact;
 
-  // Current ingress stores the verified key owner spelling, so this only
-  // serves rows created before that invariant. Keep it bounded and compare in
-  // JS so path case remains identity-significant while host case does not.
-  const candidates = await db
-    .select(columns)
-    .from(follows)
-    .where(eq(follows.activityApId, activityApIdValue))
-    .limit(LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT)
-    .all();
+  // Current ingress stores the verified key-owner spelling, so this only
+  // serves rows created before that invariant. Match the complete retained set:
+  // a public activity id may be repeated and must not make an older legitimate
+  // edge unreachable or authorize a same-origin sibling.
+  const retainedFollowers = activityPubActorIdentityMatchesSql(
+    sql`
+      SELECT ${follows.followerApId}
+      FROM ${follows}
+      WHERE ${follows.activityApId} = ${activityApIdValue}
+    `,
+    actorApId,
+  );
   return (
-    candidates.find((candidate) =>
-      isSameActivityPubActor(candidate.followerApId, actorApId),
-    ) ?? null
+    (await db
+      .select(columns)
+      .from(follows)
+      .where(
+        and(
+          eq(follows.activityApId, activityApIdValue),
+          sql`${follows.followerApId} IN (${retainedFollowers})`,
+        ),
+      )
+      .limit(1)
+      .get()) ?? null
   );
 }
 
@@ -347,15 +377,27 @@ export async function undoInteraction(
       .get();
     let retainedActorApId = exact?.actorApId ?? null;
     if (!retainedActorApId) {
-      const candidates = await db
-        .select({ actorApId: table.actorApId })
-        .from(table)
-        .where(eq(table.objectApId, directObjectId))
-        .limit(LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT)
-        .all();
+      const retainedActors = activityPubActorIdentityMatchesSql(
+        sql`
+          SELECT ${table.actorApId}
+          FROM ${table}
+          WHERE ${table.objectApId} = ${directObjectId}
+        `,
+        actor,
+      );
       retainedActorApId =
-        candidates.find((candidate) =>
-          isSameActivityPubActor(candidate.actorApId, actor),
+        (
+          await db
+            .select({ actorApId: table.actorApId })
+            .from(table)
+            .where(
+              and(
+                eq(table.objectApId, directObjectId),
+                sql`${table.actorApId} IN (${retainedActors})`,
+              ),
+            )
+            .limit(1)
+            .get()
         )?.actorApId ?? null;
     }
 
@@ -395,19 +437,28 @@ export async function undoInteraction(
     .where(and(eq(table.activityApId, activityId), eq(table.actorApId, actor)))
     .get();
   if (!record) {
-    const candidates = await db
+    const retainedActors = activityPubActorIdentityMatchesSql(
+      sql`
+        SELECT ${table.actorApId}
+        FROM ${table}
+        WHERE ${table.activityApId} = ${activityId}
+      `,
+      actor,
+    );
+    record = await db
       .select({
         actorApId: table.actorApId,
         objectApId: table.objectApId,
       })
       .from(table)
-      .where(eq(table.activityApId, activityId))
-      .limit(LEGACY_ACTOR_EDGE_CANDIDATE_LIMIT)
-      .all();
-    record =
-      candidates.find((candidate) =>
-        isSameActivityPubActor(candidate.actorApId, actor),
-      ) ?? undefined;
+      .where(
+        and(
+          eq(table.activityApId, activityId),
+          sql`${table.actorApId} IN (${retainedActors})`,
+        ),
+      )
+      .limit(1)
+      .get();
   }
   if (record) {
     // Bind the undo to the VERIFIED signer. The activity id is public, so a

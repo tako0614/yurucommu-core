@@ -782,6 +782,71 @@ test("POST /me/blocked severs both follow edges and decrements both counters", a
   expect((await countOf(db, mallory))?.followingCount).toBe(0);
 });
 
+test("POST /me/blocked severs cosmetic follow edges behind 64 sibling relations", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako", {
+    followerCount: 65,
+    followingCount: 65,
+  });
+  const cosmetic = "https://zz-remote.example:443/users/victim/#profile";
+  const canonical = "https://zz-remote.example/users/victim";
+  await db.run(sql`
+    WITH digits(d) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+    numbers(n) AS (
+      SELECT a.d + b.d * 10
+      FROM digits a CROSS JOIN digits b
+    )
+    INSERT INTO follows (
+      follower_ap_id, following_ap_id, status, created_at, accepted_at
+    )
+    SELECT ${tako}, 'https://a-following-' || n || '.example/users/actor',
+      'accepted', '2026-08-09T00:00:00.000Z', '2026-08-09T00:00:00.000Z'
+    FROM numbers WHERE n < 64
+    UNION ALL
+    SELECT 'https://a-follower-' || n || '.example/users/actor', ${tako},
+      'accepted', '2026-08-09T00:00:00.000Z', '2026-08-09T00:00:00.000Z'
+    FROM numbers WHERE n < 64
+    UNION ALL
+    SELECT ${tako}, ${cosmetic}, 'accepted',
+      '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z'
+    UNION ALL
+    SELECT ${cosmetic}, ${tako}, 'accepted',
+      '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z'
+  `);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const response = await app.fetch(
+    new Request(`${APP_URL}/me/blocked`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ap_id: canonical }),
+    }),
+    envFor(db),
+  );
+  expect(response.status).toBe(200);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(
+        or(
+          eq(follows.followerApId, cosmetic),
+          eq(follows.followingApId, cosmetic),
+        ),
+      ),
+  ).toEqual([]);
+  expect(await rowCount(db, db.select().from(follows))).toBe(128);
+  expect((await countOf(db, tako))?.followerCount).toBe(64);
+  expect((await countOf(db, tako))?.followingCount).toBe(64);
+});
+
 test("personal block/mute routes retain one presented identity and remove equivalent rows", async () => {
   const db = await freshDb();
   const tako = await insertActor(db, "tako");
