@@ -321,9 +321,9 @@ test("handleBlock decrements counters per removed accepted edge", async () => {
         status: "accepted",
       },
     ],
-    // Block runs two severFollowEdge batches (recipient->actor, actor->recipient);
-    // both directions were accepted => each batch's two -1s fire => 4 updates.
-    batchUpdatesFire: [true, true],
+    // Block severs both directions in one batch; both accepted edges make all
+    // four guarded counter updates fire.
+    batchUpdatesFire: [true],
   });
   const ctx = createMockContext(db);
 
@@ -348,9 +348,9 @@ test("handleBlock skips counter updates for pending edges", async () => {
         status: "pending",
       },
     ],
-    // Both severFollowEdge batches see only pending/absent accepted edges =>
-    // the `acceptedEdgeExists` guard is false in each => no -1s.
-    batchUpdatesFire: [false, false],
+    // The pair batch sees only pending/absent accepted edges, so every
+    // `acceptedEdgeExists` guard is false and no -1 fires.
+    batchUpdatesFire: [false],
   });
   const ctx = createMockContext(db);
 

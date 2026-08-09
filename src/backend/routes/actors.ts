@@ -47,7 +47,7 @@ import {
   resolveMoveTarget,
 } from "../lib/account-migration.ts";
 import { getInstanceFetchSigner } from "./activitypub/query-helpers.ts";
-import { severFollowEdge } from "./activitypub/handlers/inbox-interaction-handlers.ts";
+import { blockActorAndSeverFollowPair } from "../lib/follow-edge-mutations.ts";
 import {
   finalizeActorDeletionAndSessions,
   teardownActor,
@@ -397,20 +397,11 @@ actorsRoute.post("/me/blocked", async (c) => {
     c,
     "block",
     async (db, actorId, targetId) => {
-      await db
-        .insert(blocks)
-        .values({ blockerApId: actorId, blockedApId: targetId })
-        .onConflictDoNothing();
-      // Sever BOTH follow edges + reconcile counts (mirrors the federated
-      // handleBlock). Without this a blocked actor who was an accepted follower
-      // stays in the fan-out set and keeps receiving the blocker's posts, and
-      // both actors' follower/following counts stay inflated — defeating the
-      // whole point of the block. severFollowEdge gates each decrement on an
-      // EXISTS(... status='accepted') subquery so a pending/absent edge is a
-      // clean no-op (no under-count). Pending follow-request rows are deleted by
-      // the edge delete inside severFollowEdge regardless of status.
-      await severFollowEdge(db, targetId, actorId); // target follows actor
-      await severFollowEdge(db, actorId, targetId); // actor follows target
+      // The block row, both follow-edge removals, and all four counter
+      // reconciliations are one D1 commit. Without that boundary a failure
+      // between the two directions can leave follower-only delivery authority
+      // half alive even though the API reports failure.
+      await blockActorAndSeverFollowPair(db, actorId, targetId);
     },
     async (db, actorId) =>
       (

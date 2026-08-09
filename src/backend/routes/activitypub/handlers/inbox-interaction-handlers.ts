@@ -30,6 +30,7 @@ import {
 } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
 import { MAX_ACTIVITY_OBJECT_IDS } from "../../../lib/activitypub-validators.ts";
+import { severFollowPair } from "../../../lib/follow-edge-mutations.ts";
 
 type ActorRow = typeof actors.$inferSelect;
 
@@ -407,61 +408,9 @@ export async function handleBlock(
   // Only act when the recipient is being blocked.
   if (blockedId !== recipient.apId) return;
 
-  // Best-effort: sever follow relations in both directions. #COUNTER-SYM
-  // (crash-retry convergence): handle each direction as its own atomic
-  // edge-delete + counter reconcile so a crash between the delete and the
-  // decrements cannot leave a counter permanently over-counted (the peer's
-  // retry would otherwise match 0 rows and skip the decrement).
-  await severFollowEdge(db, recipient.apId, actor); // recipient follows actor
-  await severFollowEdge(db, actor, recipient.apId); // actor follows recipient
-}
-
-/**
- * Atomically delete a (followerApId -> followingApId) follow edge and reconcile
- * both denormalized counters in a single batch.
- *
- * #COUNTER-SYM: the decrements run BEFORE the delete, each guarded by a
- * correlated `EXISTS(... status='accepted')` subquery (pending edges were never
- * counted) plus a `count > 0` underflow guard, so a pending edge, a duplicate
- * Block, a never-existing edge, or a crash-then-retry is a clean no-op rather
- * than permanently over-counting.
- */
-export async function severFollowEdge(
-  db: Database,
-  followerApId: string,
-  followingApId: string,
-): Promise<void> {
-  const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${followerApId} AND ${follows.followingApId} = ${followingApId} AND ${follows.status} = 'accepted')`;
-  await runBatch(db, [
-    db
-      .update(actors)
-      .set({ followingCount: sql`${actors.followingCount} - 1` })
-      .where(
-        and(
-          eq(actors.apId, followerApId),
-          gt(actors.followingCount, 0),
-          acceptedEdgeExists,
-        ),
-      ),
-    db
-      .update(actors)
-      .set({ followerCount: sql`${actors.followerCount} - 1` })
-      .where(
-        and(
-          eq(actors.apId, followingApId),
-          gt(actors.followerCount, 0),
-          acceptedEdgeExists,
-        ),
-      ),
-    db
-      .delete(follows)
-      .where(
-        and(
-          eq(follows.followerApId, followerApId),
-          eq(follows.followingApId, followingApId),
-        ),
-      ),
-  ]);
+  // Commit both directions together. The inbox dispatch retries failures, but
+  // there must be no interval where only one direction has been severed.
+  await severFollowPair(db, recipient.apId, actor);
 }
 
 // ---------------------------------------------------------------------------

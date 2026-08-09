@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile, readdir } from "node:fs/promises";
-import { eq, or } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import { Hono } from "hono";
@@ -778,6 +778,91 @@ test("POST /me/blocked severs both follow edges and decrements both counters", a
   expect((await countOf(db, tako))?.followingCount).toBe(0);
   expect((await countOf(db, mallory))?.followerCount).toBe(0);
   expect((await countOf(db, mallory))?.followingCount).toBe(0);
+});
+
+test("POST /me/blocked rolls back the block and both follow removals when the second edge delete fails", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako", {
+    followerCount: 1,
+    followingCount: 1,
+  });
+  const mallory = await insertActor(db, "mallory", {
+    followerCount: 1,
+    followingCount: 1,
+  });
+  await follow(db, mallory, tako);
+  await follow(db, tako, mallory);
+
+  // The pre-fix implementation removed mallory -> tako first and tako ->
+  // mallory second. Fail only that historically-second DELETE so this catches
+  // a block row and one severed edge being committed before the route reports
+  // failure.
+  await db.run(sql`
+    CREATE TRIGGER reject_second_block_edge_delete
+    BEFORE DELETE ON follows
+    WHEN OLD.follower_ap_id = 'https://yuru.test/ap/users/tako'
+      AND OLD.following_ap_id = 'https://yuru.test/ap/users/mallory'
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated second follow-edge delete failure');
+    END
+  `);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.onError(() => new Response("storage failed", { status: 500 }));
+  app.route("/", actorsRoute);
+
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me/blocked`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ap_id: mallory }),
+    }),
+    envFor(db),
+  );
+  expect(res.status).toBe(500);
+
+  // A failed moderation mutation must not leave a half-applied authority
+  // state. The caller can retry safely after storage recovers.
+  expect({
+    blocks: await rowCount(db, db.select().from(blocks)),
+    edges: (await db.select().from(follows)).map(
+      (edge) => `${edge.followerApId}->${edge.followingApId}`,
+    ),
+    tako: await countOf(db, tako),
+    mallory: await countOf(db, mallory),
+  }).toEqual({
+    blocks: 0,
+    edges: [`${mallory}->${tako}`, `${tako}->${mallory}`],
+    tako: { followerCount: 1, followingCount: 1 },
+    mallory: { followerCount: 1, followingCount: 1 },
+  });
+
+  await db.run(sql`DROP TRIGGER reject_second_block_edge_delete`);
+  const retry = await app.fetch(
+    new Request(`${APP_URL}/me/blocked`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ap_id: mallory }),
+    }),
+    envFor(db),
+  );
+  expect(retry.status).toBe(200);
+  expect({
+    blocks: await rowCount(db, db.select().from(blocks)),
+    edges: await rowCount(db, db.select().from(follows)),
+    tako: await countOf(db, tako),
+    mallory: await countOf(db, mallory),
+  }).toEqual({
+    blocks: 1,
+    edges: 0,
+    tako: { followerCount: 0, followingCount: 0 },
+    mallory: { followerCount: 0, followingCount: 0 },
+  });
 });
 
 // Audit #24 finding C (HIGH): owner account-deletion must FULLY tear down each

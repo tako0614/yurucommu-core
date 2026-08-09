@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
@@ -614,6 +614,76 @@ test("COUNTER-SYM: Block severs both follow directions and reconciles counts, re
 
   // Duplicate Block (peer retry): all edges gone, guarded -1 cannot underflow.
   await handleBlock(ctxFor(db), block, recipientRow(LOCAL_BOB), REMOTE_ALICE);
+  expect(await followerCount(db, LOCAL_BOB)).toBe(0);
+  expect(await followingCount(db, LOCAL_BOB)).toBe(0);
+  expect(await followerCount(db, REMOTE_ALICE)).toBe(0);
+  expect(await followingCount(db, REMOTE_ALICE)).toBe(0);
+});
+
+test("COUNTER-SYM: Block rolls back both directions when the second edge delete fails", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob", {
+    followerCount: 1,
+    followingCount: 1,
+  });
+  await seedActor(db, REMOTE_ALICE, "alice", {
+    followerCount: 1,
+    followingCount: 1,
+  });
+  await db.insert(follows).values({
+    followerApId: LOCAL_BOB,
+    followingApId: REMOTE_ALICE,
+    status: "accepted",
+  });
+  await db.insert(follows).values({
+    followerApId: REMOTE_ALICE,
+    followingApId: LOCAL_BOB,
+    status: "accepted",
+  });
+  await db.run(sql`
+    CREATE TRIGGER reject_second_federated_block_edge_delete
+    BEFORE DELETE ON follows
+    WHEN OLD.follower_ap_id = 'https://remote.example/users/alice'
+      AND OLD.following_ap_id = 'https://yuru.test/ap/users/bob'
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated second federated edge delete failure');
+    END
+  `);
+
+  const block = {
+    id: "https://remote.example/activities/block-atomic-failure",
+    type: "Block",
+    actor: REMOTE_ALICE,
+    object: LOCAL_BOB,
+  } as unknown as Activity;
+
+  let failed = false;
+  try {
+    await handleBlock(ctxFor(db), block, recipientRow(LOCAL_BOB), REMOTE_ALICE);
+  } catch {
+    failed = true;
+  }
+  expect(failed).toBe(true);
+  expect({
+    bobToAlice: await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE),
+    aliceToBob: await followEdgeStatus(db, REMOTE_ALICE, LOCAL_BOB),
+    bobFollowerCount: await followerCount(db, LOCAL_BOB),
+    bobFollowingCount: await followingCount(db, LOCAL_BOB),
+    aliceFollowerCount: await followerCount(db, REMOTE_ALICE),
+    aliceFollowingCount: await followingCount(db, REMOTE_ALICE),
+  }).toEqual({
+    bobToAlice: "accepted",
+    aliceToBob: "accepted",
+    bobFollowerCount: 1,
+    bobFollowingCount: 1,
+    aliceFollowerCount: 1,
+    aliceFollowingCount: 1,
+  });
+
+  await db.run(sql`DROP TRIGGER reject_second_federated_block_edge_delete`);
+  await handleBlock(ctxFor(db), block, recipientRow(LOCAL_BOB), REMOTE_ALICE);
+  expect(await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE)).toBeNull();
+  expect(await followEdgeStatus(db, REMOTE_ALICE, LOCAL_BOB)).toBeNull();
   expect(await followerCount(db, LOCAL_BOB)).toBe(0);
   expect(await followingCount(db, LOCAL_BOB)).toBe(0);
   expect(await followerCount(db, REMOTE_ALICE)).toBe(0);
