@@ -7,6 +7,7 @@ import {
   communities,
   communityBans,
   communityMembers,
+  follows,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { communityApId } from "../../federation-helpers.ts";
@@ -103,6 +104,69 @@ export async function removeMemberAtomic(
 }
 
 /**
+ * Atomically remove a LOCAL member, reconcile memberCount, and record the
+ * durable community ban that makes a moderator removal stick. This is distinct
+ * from removeMemberAtomic because a voluntary leave must not ban the actor.
+ *
+ * Put the idempotent ban insert inside the same D1 batch as the removal. If the
+ * ban cannot commit, neither the member row nor the count is changed, avoiding
+ * an expelled-but-immediately-rejoinable partial state.
+ */
+export async function removeMemberAndBanAtomic(
+  db: Database,
+  communityApIdVal: string,
+  actorApIdVal: string,
+): Promise<void> {
+  const memberExists = sql`EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${communityApIdVal} AND ${communityMembers.actorApId} = ${actorApIdVal})`;
+  await (db as unknown as Batchable).batch([
+    db
+      .update(communities)
+      .set({ memberCount: sql`${communities.memberCount} - 1` })
+      .where(
+        and(
+          eq(communities.apId, communityApIdVal),
+          gt(communities.memberCount, 0),
+          memberExists,
+        ),
+      ),
+    db
+      .insert(communityBans)
+      .values({ communityApId: communityApIdVal, bannedApId: actorApIdVal })
+      .onConflictDoNothing(),
+    db
+      .delete(communityMembers)
+      .where(memberWhere(communityApIdVal, actorApIdVal)),
+  ]);
+}
+
+/**
+ * Atomically remove a REMOTE community member's accepted/pending Follow and
+ * record the same durable ban used for local removals. Remote actors have no
+ * communityMembers row, so this is the federation-side counterpart to
+ * removeMemberAndBanAtomic.
+ */
+export async function removeRemoteMemberAndBanAtomic(
+  db: Database,
+  communityApIdVal: string,
+  actorApIdVal: string,
+): Promise<void> {
+  await (db as unknown as Batchable).batch([
+    db
+      .insert(communityBans)
+      .values({ communityApId: communityApIdVal, bannedApId: actorApIdVal })
+      .onConflictDoNothing(),
+    db
+      .delete(follows)
+      .where(
+        and(
+          eq(follows.followerApId, actorApIdVal),
+          eq(follows.followingApId, communityApIdVal),
+        ),
+      ),
+  ]);
+}
+
+/**
  * Atomically remove an OWNER only if ANOTHER owner still remains. Returns false
  * (nothing removed) when the actor is the last owner.
  *
@@ -113,14 +177,15 @@ export async function removeMemberAtomic(
  * statement closes the window: D1 serializes the two deletes, so the second one
  * to execute sees the first already gone and matches 0 rows.
  */
-export async function removeOwnerIfAnotherExists(
+async function removeOwnerIfAnotherExistsInternal(
   db: Database,
   communityApIdVal: string,
   actorApIdVal: string,
+  banOnRemove: boolean,
 ): Promise<boolean> {
   const anotherOwnerExists = sql`EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${communityApIdVal} AND ${communityMembers.role} = 'owner' AND ${communityMembers.actorApId} <> ${actorApIdVal})`;
   const memberExists = sql`EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${communityApIdVal} AND ${communityMembers.actorApId} = ${actorApIdVal})`;
-  await (db as unknown as Batchable).batch([
+  const statements: unknown[] = [
     db
       .update(communities)
       .set({ memberCount: sql`${communities.memberCount} - 1` })
@@ -132,12 +197,35 @@ export async function removeOwnerIfAnotherExists(
           anotherOwnerExists,
         ),
       ),
+  ];
+  if (banOnRemove) {
+    // The ban must be conditional on the SAME last-owner predicate as the
+    // delete. Insert it before the delete so the target row still exists for
+    // the SELECT. Under D1's atomic batch serialization, a concurrent removal
+    // that would leave zero owners matches neither this insert nor the delete.
+    const banCandidate = db
+      .select({
+        communityApId: sql<string>`${communityApIdVal}`.as("community_ap_id"),
+        bannedApId: sql<string>`${actorApIdVal}`.as("banned_ap_id"),
+        createdAt: sql<string>`${new Date().toISOString()}`.as("created_at"),
+      })
+      .from(communityMembers)
+      .where(
+        and(memberWhere(communityApIdVal, actorApIdVal), anotherOwnerExists),
+      )
+      .limit(1);
+    statements.push(
+      db.insert(communityBans).select(banCandidate).onConflictDoNothing(),
+    );
+  }
+  statements.push(
     db
       .delete(communityMembers)
       .where(
         and(memberWhere(communityApIdVal, actorApIdVal), anotherOwnerExists),
       ),
-  ]);
+  );
+  await (db as unknown as Batchable).batch(statements);
   // Re-read whether the row is gone rather than trusting a batch affected-row
   // count (its shape differs between D1 and the libsql test driver). The member
   // row is keyed by (community, actor) and only this actor's leave touches it,
@@ -149,6 +237,37 @@ export async function removeOwnerIfAnotherExists(
     .where(memberWhere(communityApIdVal, actorApIdVal))
     .get();
   return !stillMember;
+}
+
+export async function removeOwnerIfAnotherExists(
+  db: Database,
+  communityApIdVal: string,
+  actorApIdVal: string,
+): Promise<boolean> {
+  return removeOwnerIfAnotherExistsInternal(
+    db,
+    communityApIdVal,
+    actorApIdVal,
+    false,
+  );
+}
+
+/**
+ * Moderation counterpart to removeOwnerIfAnotherExists: remove a co-owner only
+ * when another owner survives, and atomically record the durable ban. A failed
+ * last-owner guard records no ban and leaves the owner untouched.
+ */
+export async function removeOwnerAndBanIfAnotherExists(
+  db: Database,
+  communityApIdVal: string,
+  actorApIdVal: string,
+): Promise<boolean> {
+  return removeOwnerIfAnotherExistsInternal(
+    db,
+    communityApIdVal,
+    actorApIdVal,
+    true,
+  );
 }
 
 /**

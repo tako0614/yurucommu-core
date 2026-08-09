@@ -10,13 +10,13 @@ import {
   parseOffset,
 } from "../../federation-helpers.ts";
 import {
-  banMember,
   batchLoadActorInfo,
   demoteOwnerIfAnotherExists,
   fetchCommunityId,
   memberWhere,
-  removeMemberAtomic,
-  removeOwnerIfAnotherExists,
+  removeMemberAndBanAtomic,
+  removeOwnerAndBanIfAnotherExists,
+  removeRemoteMemberAndBanAtomic,
   requireManager,
   resolveCommunityApId,
 } from "./membership-shared.ts";
@@ -100,17 +100,10 @@ export function registerMembershipMemberRoutes(
         if (!remoteFollow) {
           return c.json({ error: "User is not a member" }, 404);
         }
-        await db
-          .delete(follows)
-          .where(
-            and(
-              eq(follows.followerApId, targetApId),
-              eq(follows.followingApId, community.apId),
-            ),
-          );
-        // Durable ban so the removed remote actor cannot simply re-Follow back
-        // into an open community (handleGroupFollow consults it).
-        await banMember(db, community.apId, targetApId);
+        // Removing the relay edge and recording the durable ban are one D1
+        // commit. A ban-write failure must not leave an expelled remote actor
+        // able to re-Follow through the open auto-accept path.
+        await removeRemoteMemberAndBanAtomic(db, community.apId, targetApId);
         return c.json({ success: true });
       }
 
@@ -136,7 +129,7 @@ export function registerMembershipMemberRoutes(
       // last-owner LEAVE guard. D1 serializes the deletes, so the second sees
       // the first already gone and matches 0 rows.
       if (targetMembership.role === "owner") {
-        const removed = await removeOwnerIfAnotherExists(
+        const removed = await removeOwnerAndBanIfAnotherExists(
           db,
           community.apId,
           targetApId,
@@ -144,12 +137,10 @@ export function registerMembershipMemberRoutes(
         if (!removed) {
           return c.json({ error: "Cannot remove the last owner" }, 400);
         }
-        await banMember(db, community.apId, targetApId);
         return c.json({ success: true });
       }
 
-      await removeMemberAtomic(db, community.apId, targetApId);
-      await banMember(db, community.apId, targetApId);
+      await removeMemberAndBanAtomic(db, community.apId, targetApId);
 
       return c.json({ success: true });
     },
@@ -402,7 +393,7 @@ export function registerMembershipMemberRoutes(
           // concurrently both succeeded → ZERO owners. Gate owner removals on
           // another owner still existing, exactly like the single DELETE path.
           if (targetMembership.role === "owner") {
-            const removed = await removeOwnerIfAnotherExists(
+            const removed = await removeOwnerAndBanIfAnotherExists(
               db,
               community.apId,
               targetApId,
@@ -419,7 +410,7 @@ export function registerMembershipMemberRoutes(
             continue;
           }
 
-          await removeMemberAtomic(db, community.apId, targetApId);
+          await removeMemberAndBanAtomic(db, community.apId, targetApId);
 
           results.push({ ap_id: targetApId, success: true });
         } catch {

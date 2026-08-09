@@ -1,19 +1,18 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
   communities,
+  communityBans,
   communityMembers,
   follows,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
+import { registerMembershipJoinRoutes } from "../../routes/communities/membership-join.ts";
 import { registerMembershipMemberRoutes } from "../../routes/communities/membership-members.ts";
 
 // Audit #10 finding #3: a REMOTE community member has no communityMembers row —
@@ -29,19 +28,7 @@ const OWNER = `${APP_URL}/ap/users/owner`;
 const REMOTE = "https://remote.example/users/raider";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const f of [
-    "0001_init.sql",
-    "0002_social_remote_actor_edges.sql",
-    "0004_blocklist.sql",
-    "0008_actor_fields_aka.sql",
-    "0009_object_tags.sql",
-    "0015_community_bans.sql",
-  ]) {
-    await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function seed(db: Database): Promise<void> {
@@ -81,21 +68,57 @@ async function seed(db: Database): Promise<void> {
   });
 }
 
-function ownerActor(): Actor {
-  return { ap_id: OWNER, role: "member" } as unknown as Actor;
+function localActor(apId: string = OWNER): Actor {
+  return { ap_id: apId, role: "member" } as unknown as Actor;
 }
 
-function appFor(db: Database) {
+function appFor(db: Database, actorApId: string = OWNER) {
   const router = new Hono<{ Bindings: Env; Variables: Variables }>();
+  registerMembershipJoinRoutes(router);
   registerMembershipMemberRoutes(router);
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();
   app.use("*", async (c, next) => {
     c.set("db", db);
-    c.set("actor", ownerActor());
+    c.set("actor", localActor(actorApId));
     await next();
   });
   app.route("/api/communities", router);
   return app;
+}
+
+async function seedLocalMember(
+  db: Database,
+  apId: string,
+  role: "owner" | "moderator" | "member" = "member",
+): Promise<void> {
+  await db.insert(actors).values({
+    apId,
+    type: "Person",
+    preferredUsername: apId.split("/").pop()!,
+    inbox: `${apId}/inbox`,
+    outbox: `${apId}/outbox`,
+    followersUrl: `${apId}/followers`,
+    followingUrl: `${apId}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db
+    .insert(communityMembers)
+    .values({ communityApId: GROUP, actorApId: apId, role });
+  await db
+    .update(communities)
+    .set({ memberCount: sql`${communities.memberCount} + 1` })
+    .where(eq(communities.apId, GROUP));
+}
+
+async function rejectCommunityBanWrites(db: Database): Promise<void> {
+  await db.run(sql`
+    CREATE TRIGGER reject_community_ban
+    BEFORE INSERT ON community_bans
+    BEGIN
+      SELECT RAISE(ABORT, 'injected community ban failure');
+    END
+  `);
 }
 
 const env = { APP_URL, DB_INSTANCE: undefined } as unknown as Env;
@@ -217,6 +240,119 @@ test("a moderator CANNOT remove a peer moderator (single DELETE) but CAN remove 
   ).toBeUndefined();
 });
 
+test("batch-remove durably bans a local member so an open join cannot immediately re-admit them", async () => {
+  const db = await freshDb();
+  await seed(db);
+  const member = `${APP_URL}/ap/users/member`;
+  await seedLocalMember(db, member);
+
+  const ownerApp = appFor(db);
+  const removed = await ownerApp.fetch(
+    new Request(`${APP_URL}/api/communities/town/members/batch/remove`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor_ap_ids: [member] }),
+    }),
+    env,
+  );
+  expect(removed.status).toBe(200);
+  expect((await removed.json()) as unknown).toMatchObject({
+    results: [{ ap_id: member, success: true }],
+    removed_count: 1,
+  });
+
+  const memberApp = appFor(db, member);
+  const rejoin = await memberApp.fetch(
+    new Request(`${APP_URL}/api/communities/town/join`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }),
+    env,
+  );
+  expect(rejoin.status).toBe(403);
+  expect((await rejoin.json()) as unknown).toMatchObject({ status: "banned" });
+  expect(
+    await db
+      .select()
+      .from(communityBans)
+      .where(
+        and(
+          eq(communityBans.communityApId, GROUP),
+          eq(communityBans.bannedApId, member),
+        ),
+      )
+      .get(),
+  ).toBeDefined();
+});
+
+test("batch-remove rolls back the member removal when its durable ban cannot commit", async () => {
+  const db = await freshDb();
+  await seed(db);
+  const member = `${APP_URL}/ap/users/member`;
+  await seedLocalMember(db, member);
+  await rejectCommunityBanWrites(db);
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/town/members/batch/remove`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor_ap_ids: [member] }),
+    }),
+    env,
+  );
+  expect(res.status).toBe(200);
+  expect((await res.json()) as unknown).toMatchObject({
+    results: [{ ap_id: member, success: false, error: "Internal error" }],
+    removed_count: 0,
+  });
+  expect(
+    await db
+      .select()
+      .from(communityMembers)
+      .where(
+        and(
+          eq(communityMembers.communityApId, GROUP),
+          eq(communityMembers.actorApId, member),
+        ),
+      )
+      .get(),
+  ).toBeDefined();
+  expect(
+    (
+      await db
+        .select({ memberCount: communities.memberCount })
+        .from(communities)
+        .where(eq(communities.apId, GROUP))
+        .get()
+    )?.memberCount,
+  ).toBe(2);
+});
+
+test("single remote-member removal rolls back its follows edge when the durable ban cannot commit", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await rejectCommunityBanWrites(db);
+
+  const res = await appFor(db).fetch(
+    new Request(
+      `${APP_URL}/api/communities/town/members/${encodeURIComponent(REMOTE)}`,
+      { method: "DELETE" },
+    ),
+    env,
+  );
+  expect(res.status).toBe(500);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(
+        and(eq(follows.followerApId, REMOTE), eq(follows.followingApId, GROUP)),
+      )
+      .get(),
+  ).toBeDefined();
+});
+
 test("batch-remove routes an owner target through the last-owner guard (co-owner removable, count preserved)", async () => {
   const db = await freshDb();
   await seed(db);
@@ -267,4 +403,16 @@ test("batch-remove routes an owner target through the last-owner guard (co-owner
         .get()
     )?.role,
   ).toBe("owner");
+  expect(
+    await db
+      .select()
+      .from(communityBans)
+      .where(
+        and(
+          eq(communityBans.communityApId, GROUP),
+          eq(communityBans.bannedApId, owner2),
+        ),
+      )
+      .get(),
+  ).toBeDefined();
 });

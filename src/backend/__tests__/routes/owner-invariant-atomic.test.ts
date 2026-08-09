@@ -1,14 +1,17 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, communities, communityMembers } from "../../../db/index.ts";
+import {
+  actors,
+  communities,
+  communityBans,
+  communityMembers,
+} from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import {
   demoteOwnerIfAnotherExists,
+  removeOwnerAndBanIfAnotherExists,
   removeOwnerIfAnotherExists,
 } from "../../routes/communities/membership-shared.ts";
 
@@ -20,20 +23,7 @@ import {
 const APP = "https://yuru.test";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  await client.execute("PRAGMA foreign_keys = ON");
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const f of [
-    "0001_init.sql",
-    "0002_social_remote_actor_edges.sql",
-    "0003_activity_remote_object_edges.sql",
-    "0004_blocklist.sql",
-    "0008_actor_fields_aka.sql",
-    "0009_object_tags.sql",
-  ]) {
-    await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function seedActor(db: Database, apId: string): Promise<void> {
@@ -135,6 +125,69 @@ test("removeOwnerIfAnotherExists: a SECOND last-owner removal is a no-op (race c
   expect(await removeOwnerIfAnotherExists(db, community, a)).toBe(true);
   expect(await removeOwnerIfAnotherExists(db, community, b)).toBe(false);
   expect(await ownerCount(db, community)).toBe(1); // b kept — never zero owners
+});
+
+test("removeOwnerAndBanIfAnotherExists bans only the co-owner that was actually removed", async () => {
+  const db = await freshDb();
+  const a = `${APP}/ap/users/a`;
+  const b = `${APP}/ap/users/b`;
+  const community = await seedCommunityWithOwners(db, [a, b]);
+
+  expect(await removeOwnerAndBanIfAnotherExists(db, community, a)).toBe(true);
+  expect(await removeOwnerAndBanIfAnotherExists(db, community, b)).toBe(false);
+  expect(await ownerCount(db, community)).toBe(1);
+  expect(
+    await db
+      .select()
+      .from(communityBans)
+      .where(
+        and(
+          eq(communityBans.communityApId, community),
+          eq(communityBans.bannedApId, a),
+        ),
+      )
+      .get(),
+  ).toBeDefined();
+  expect(
+    await db
+      .select()
+      .from(communityBans)
+      .where(
+        and(
+          eq(communityBans.communityApId, community),
+          eq(communityBans.bannedApId, b),
+        ),
+      )
+      .get(),
+  ).toBeUndefined();
+});
+
+test("removeOwnerAndBanIfAnotherExists rolls back owner removal when the ban cannot commit", async () => {
+  const db = await freshDb();
+  const a = `${APP}/ap/users/a`;
+  const b = `${APP}/ap/users/b`;
+  const community = await seedCommunityWithOwners(db, [a, b]);
+  await db.run(sql`
+    CREATE TRIGGER reject_owner_ban
+    BEFORE INSERT ON community_bans
+    BEGIN
+      SELECT RAISE(ABORT, 'injected owner ban failure');
+    END
+  `);
+
+  await expect(
+    removeOwnerAndBanIfAnotherExists(db, community, a),
+  ).rejects.toThrow("injected owner ban failure");
+  expect(await ownerCount(db, community)).toBe(2);
+  expect(
+    (
+      await db
+        .select({ memberCount: communities.memberCount })
+        .from(communities)
+        .where(eq(communities.apId, community))
+        .get()
+    )?.memberCount,
+  ).toBe(2);
 });
 
 // demoteOwnerIfAnotherExists guards the ROLE-CHANGE path with the same ">=1
