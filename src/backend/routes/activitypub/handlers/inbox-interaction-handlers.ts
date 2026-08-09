@@ -591,16 +591,12 @@ function resolveCollectionTarget(
   const followingApId = normalizeCollectionTarget(targetId || actor) || null;
   if (!followingApId) return null;
 
-  // SECURITY (federated follow-graph forgery): `activity.target` is
-  // attacker-controlled and only the signing actor is authenticated, NOT the
-  // target. Without this check a signed Add/Remove could forge or delete a local
-  // user's follow edge to an ARBITRARY third party (followingApId on any host).
-  // Constrain the resolved target to the signing actor's own origin, so an
-  // Add/Remove can only affect a relationship involving the sending actor.
-  try {
-    if (getDomain(followingApId) !== getDomain(actor)) return null;
-  } catch {
-    return null;
-  }
+  // SECURITY (same-host actor authority): `activity.target` is
+  // attacker-controlled and only the exact signing actor is authenticated.
+  // Same-origin is insufficient: one account on a multi-user remote host must
+  // not Accept or Remove a local user's follow edge to a sibling account. Once
+  // an optional `/followers` collection suffix is normalized, the target actor
+  // id must therefore equal the verified signer exactly.
+  if (followingApId !== actor) return null;
   return followingApId;
 }

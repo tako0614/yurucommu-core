@@ -58,6 +58,7 @@ import type {
 const APP_URL = "https://yuru.test";
 const LOCAL_BOB = `${APP_URL}/ap/users/bob`;
 const REMOTE_ALICE = "https://remote.example/users/alice";
+const SAME_HOST_MALLORY = "https://remote.example/users/mallory";
 const OBJECT_AP_ID = `${APP_URL}/ap/objects/post-1`;
 
 async function freshDb(): Promise<Database> {
@@ -65,6 +66,8 @@ async function freshDb(): Promise<Database> {
   const root = new URL("../../../../migrations/", import.meta.url);
   for (const file of [
     "0001_init.sql",
+    "0002_social_remote_actor_edges.sql",
+    "0003_activity_remote_object_edges.sql",
     "0004_blocklist.sql",
     "0008_actor_fields_aka.sql",
     "0009_object_tags.sql",
@@ -510,6 +513,37 @@ test("SECURITY: an unsolicited Add (no prior Follow) cannot forge an accepted fo
   expect(await followerCount(db, REMOTE_ALICE)).toBe(0);
 });
 
+test("SECURITY: same-host sibling Add cannot accept another actor's pending follow", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob");
+  await db.insert(follows).values({
+    followerApId: LOCAL_BOB,
+    followingApId: REMOTE_ALICE,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  });
+
+  const forgedAdd = {
+    id: "https://remote.example/activities/add-sibling-forge",
+    type: "Add",
+    actor: SAME_HOST_MALLORY,
+    object: LOCAL_BOB,
+    target: `${REMOTE_ALICE}/followers`,
+  } as unknown as Activity;
+
+  // SAME_HOST_MALLORY is the verified signer, but the target collection belongs
+  // to REMOTE_ALICE. Same-origin is not same-account authority.
+  await handleAdd(
+    ctxFor(db),
+    forgedAdd,
+    recipientRow(LOCAL_BOB),
+    SAME_HOST_MALLORY,
+  );
+
+  expect(await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE)).toBe("pending");
+  expect(await followingCount(db, LOCAL_BOB)).toBe(0);
+});
+
 test("COUNTER-SYM: crash-then-retry of Add (edge present, counts not bumped) does NOT double-count", async () => {
   const db = await freshDb();
   await seedActor(db, LOCAL_BOB, "bob");
@@ -565,6 +599,35 @@ test("COUNTER-SYM: Remove decrements once and a duplicate Remove does not underf
   await handleRemove(ctxFor(db), remove, recipientRow(LOCAL_BOB), REMOTE_ALICE);
   expect(await followingCount(db, LOCAL_BOB)).toBe(0);
   expect(await followerCount(db, REMOTE_ALICE)).toBe(0);
+});
+
+test("SECURITY: same-host sibling Remove cannot sever another actor's accepted follow", async () => {
+  const db = await freshDb();
+  await seedActor(db, LOCAL_BOB, "bob", { followingCount: 1 });
+  await db.insert(follows).values({
+    followerApId: LOCAL_BOB,
+    followingApId: REMOTE_ALICE,
+    status: "accepted",
+    acceptedAt: new Date().toISOString(),
+  });
+
+  const forgedRemove = {
+    id: "https://remote.example/activities/remove-sibling-forge",
+    type: "Remove",
+    actor: SAME_HOST_MALLORY,
+    object: LOCAL_BOB,
+    target: `${REMOTE_ALICE}/followers`,
+  } as unknown as Activity;
+
+  await handleRemove(
+    ctxFor(db),
+    forgedRemove,
+    recipientRow(LOCAL_BOB),
+    SAME_HOST_MALLORY,
+  );
+
+  expect(await followEdgeStatus(db, LOCAL_BOB, REMOTE_ALICE)).toBe("accepted");
+  expect(await followingCount(db, LOCAL_BOB)).toBe(1);
 });
 
 // ---------------------------------------------------------------------------
