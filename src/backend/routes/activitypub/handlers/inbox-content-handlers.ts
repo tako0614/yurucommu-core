@@ -1460,6 +1460,20 @@ export async function handleUpdate(
     const attachments = object.attachment
       ? JSON.stringify(object.attachment)
       : undefined;
+    // Content and reach are one authority decision. A remote author can narrow
+    // an existing public Note to followers/direct in the same Update; applying
+    // only its new body would leave that private content readable through the
+    // stale public single-object gate. Treat the presence of either addressing
+    // field as a complete reach update (an omitted counterpart is empty), while
+    // preserving both old fields for peers that send a legacy content-only
+    // partial Update.
+    const hasAddressingUpdate =
+      object.to !== undefined || object.cc !== undefined;
+    const updatedVisibility = hasAddressingUpdate
+      ? isDirectShapedNote(object)
+        ? "direct"
+        : classifyInboundNoteVisibility(object)
+      : undefined;
     await db
       .update(objects)
       .set({
@@ -1474,6 +1488,9 @@ export async function handleUpdate(
         attachmentsJson: attachments
           ? boundAttachmentsJson(attachments)
           : undefined,
+        visibility: updatedVisibility,
+        toJson: hasAddressingUpdate ? boundAddressJson(object.to) : undefined,
+        ccJson: hasAddressingUpdate ? boundAddressJson(object.cc) : undefined,
         updated: new Date().toISOString(),
       })
       .where(eq(objects.apId, objectId));
