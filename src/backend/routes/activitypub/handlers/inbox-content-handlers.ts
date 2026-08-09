@@ -575,24 +575,22 @@ export async function handleCreate(
         .get()
     : null;
 
-  // Inbound reply to a LOCAL parent the sending actor cannot read (or that has
-  // blocked them) is REFUSED — mirroring the local reply 404 gate
-  // (routes/posts/routes.ts). Without this, a remote who merely learns a
-  // followers-only / direct(DM) / private-community post's apId could inflate its
-  // replyCount, deliver a reply notification to the owner (bypassing a personal
-  // block), and — because the stored reply's in_reply_to discloses the parent —
-  // build an existence oracle for the restricted post. A legitimate follower /
-  // addressed recipient still passes canViewerReadObjectFull, so their reply is
-  // ingested normally. (Only gated for LOCAL parents: a remote parent's audience
-  // is the remote instance's concern, and we hold no counter/notification for it.)
-  if (
-    object.inReplyTo &&
-    parentObj &&
-    isLocal(parentObj.attributedTo, baseUrl) &&
-    (!(await canViewerReadObjectFull(db, parentObj, actor)) ||
-      (await actorIsBlockedBy(db, parentObj.attributedTo, actor)))
-  ) {
-    return;
+  // Inbound replies must pass the canonical read gate for EVERY parent retained
+  // by this instance, including remote-authored objects delivered to a local
+  // recipient. Restricting this to local authors let an unrelated signer inject
+  // a public reply beneath a cached remote DM/followers-only Note, mutate its
+  // replyCount, and expose the restricted parent's id through `inReplyTo`.
+  // Personal blocks remain local-owner state, so that extra guard only applies
+  // when the parent author is local. Legitimate followers / explicit recipients
+  // still pass canViewerReadObjectFull and are ingested normally.
+  if (object.inReplyTo && parentObj) {
+    if (!(await canViewerReadObjectFull(db, parentObj, actor))) return;
+    if (
+      isLocal(parentObj.attributedTo, baseUrl) &&
+      (await actorIsBlockedBy(db, parentObj.attributedTo, actor))
+    ) {
+      return;
+    }
   }
 
   const shouldNotifyParent = !!(

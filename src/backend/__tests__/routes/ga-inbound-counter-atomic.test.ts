@@ -1,10 +1,6 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
@@ -22,6 +18,7 @@ import type {
   Activity,
   ActivityContext,
 } from "../../routes/activitypub/inbox-types.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 // ---------------------------------------------------------------------------
 // GA-fix Wave-9 cluster COUNTER
@@ -47,23 +44,14 @@ import type {
 const APP_URL = "https://yuru.test";
 const REMOTE_ACTOR = "https://remote.example/users/alice";
 const REMOTE_ACTOR_2 = "https://remote.example/users/carol";
+const REMOTE_PARENT = "https://parent.example/users/pat";
 const OBJECT_AP_ID = `${APP_URL}/ap/objects/post-1`;
+const REMOTE_DIRECT_OBJECT = "https://parent.example/objects/direct-1";
 const LIKE_ACTIVITY = "https://remote.example/activities/like-1";
 const ANNOUNCE_ACTIVITY = "https://remote.example/activities/announce-1";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of [
-    "0001_init.sql",
-    "0004_blocklist.sql",
-    "0008_actor_fields_aka.sql",
-    "0009_object_tags.sql",
-  ]) {
-    const migration = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(migration);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function seedActor(
@@ -112,11 +100,14 @@ function recipientRow() {
   >[2];
 }
 
-async function likeCount(db: Database): Promise<number> {
+async function likeCount(
+  db: Database,
+  objectApId: string = OBJECT_AP_ID,
+): Promise<number> {
   const row = await db
     .select({ likeCount: objects.likeCount })
     .from(objects)
-    .where(eq(objects.apId, OBJECT_AP_ID))
+    .where(eq(objects.apId, objectApId))
     .get();
   return row?.likeCount ?? -1;
 }
@@ -130,20 +121,27 @@ async function announceCount(db: Database): Promise<number> {
   return row?.announceCount ?? -1;
 }
 
-async function likeEdgeCount(db: Database): Promise<number> {
+async function likeEdgeCount(
+  db: Database,
+  objectApId: string = OBJECT_AP_ID,
+): Promise<number> {
   const rows = await db
     .select({ a: likes.actorApId })
     .from(likes)
-    .where(eq(likes.objectApId, OBJECT_AP_ID));
+    .where(eq(likes.objectApId, objectApId));
   return rows.length;
 }
 
-const likeActivity = (id: string, actor: string): Activity =>
+const likeActivity = (
+  id: string,
+  actor: string,
+  objectApId: string = OBJECT_AP_ID,
+): Activity =>
   ({
     id,
     type: "Like",
     actor,
-    object: OBJECT_AP_ID,
+    object: objectApId,
   }) as unknown as Activity;
 
 const announceActivity = (id: string, actor: string): Activity =>
@@ -229,6 +227,51 @@ test("audit#17 inbound Like of a followers-only post by a non-follower is droppe
   );
   expect(await likeEdgeCount(db)).toBe(1);
   expect(await likeCount(db)).toBe(1);
+});
+
+test("audit#17 inbound Like cannot target a remote-authored direct object the signer cannot read", async () => {
+  const db = await setup();
+  await db.insert(objects).values({
+    apId: REMOTE_DIRECT_OBJECT,
+    type: "Note",
+    attributedTo: REMOTE_PARENT,
+    content: "private message",
+    visibility: "direct",
+    toJson: JSON.stringify([`${APP_URL}/ap/users/bob`]),
+    ccJson: "[]",
+    likeCount: 0,
+    isLocal: 0,
+  });
+
+  await handleLike(
+    ctxFor(db),
+    likeActivity(LIKE_ACTIVITY, REMOTE_ACTOR, REMOTE_DIRECT_OBJECT),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+
+  expect(await likeEdgeCount(db, REMOTE_DIRECT_OBJECT)).toBe(0);
+  expect(await likeCount(db, REMOTE_DIRECT_OBJECT)).toBe(0);
+
+  // Addressing the same object to the signer makes the interaction legitimate.
+  await db
+    .update(objects)
+    .set({
+      toJson: JSON.stringify([`${APP_URL}/ap/users/bob`, REMOTE_ACTOR]),
+    })
+    .where(eq(objects.apId, REMOTE_DIRECT_OBJECT));
+  await handleLike(
+    ctxFor(db),
+    likeActivity(
+      "https://remote.example/activities/like-direct-recipient",
+      REMOTE_ACTOR,
+      REMOTE_DIRECT_OBJECT,
+    ),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  expect(await likeEdgeCount(db, REMOTE_DIRECT_OBJECT)).toBe(1);
+  expect(await likeCount(db, REMOTE_DIRECT_OBJECT)).toBe(1);
 });
 
 test("#7 inbound Like applies the edge + count atomically, exactly once", async () => {

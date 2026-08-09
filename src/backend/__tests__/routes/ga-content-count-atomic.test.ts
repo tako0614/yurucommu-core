@@ -1,10 +1,6 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actors, blocks, follows, objects } from "../../../db/index.ts";
 import {
@@ -15,6 +11,7 @@ import type {
   Activity,
   ActivityContext,
 } from "../../routes/activitypub/inbox-types.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 // ---------------------------------------------------------------------------
 // GA-fix Wave-11 cluster CONTENT-COUNT
@@ -40,24 +37,15 @@ import type {
 
 const APP_URL = "https://yuru.test";
 const REMOTE_ACTOR = "https://remote.example/users/alice";
+const REMOTE_PARENT = "https://parent.example/users/pat";
 const LOCAL_BOB = `${APP_URL}/ap/users/bob`;
 const PARENT_AP_ID = `${LOCAL_BOB}/posts/parent-1`;
+const REMOTE_DIRECT_PARENT = "https://parent.example/objects/direct-parent";
 const REPLY_AP_ID = "https://remote.example/objects/reply-1";
 const TOP_AP_ID = "https://remote.example/objects/top-1";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of [
-    "0001_init.sql",
-    "0004_blocklist.sql",
-    "0008_actor_fields_aka.sql",
-    "0009_object_tags.sql",
-  ]) {
-    const migration = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(migration);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function seedActor(
@@ -226,6 +214,48 @@ test("audit#17 inbound reply to a followers-only parent by an ACCEPTED follower 
   );
   expect(await objectCount(db, REPLY_AP_ID)).toBe(1);
   expect(await replyCountOf(db, PARENT_AP_ID)).toBe(1);
+});
+
+test("audit#17 inbound reply cannot target a remote-authored direct parent the signer cannot read", async () => {
+  const db = await setup();
+  await db.insert(objects).values({
+    apId: REMOTE_DIRECT_PARENT,
+    type: "Note",
+    attributedTo: REMOTE_PARENT,
+    content: "private message",
+    visibility: "direct",
+    toJson: JSON.stringify([LOCAL_BOB]),
+    ccJson: "[]",
+    replyCount: 0,
+    isLocal: 0,
+  });
+
+  await handleCreate(
+    ctxFor(db),
+    createNote(REPLY_AP_ID, REMOTE_ACTOR, REMOTE_DIRECT_PARENT),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+
+  expect(await objectCount(db, REPLY_AP_ID)).toBe(0);
+  expect(await replyCountOf(db, REMOTE_DIRECT_PARENT)).toBe(0);
+
+  // The same reply is legitimate once the remote parent explicitly addresses
+  // the signer; the canonical gate must not reject a real recipient.
+  await db
+    .update(objects)
+    .set({ toJson: JSON.stringify([LOCAL_BOB, REMOTE_ACTOR]) })
+    .where(eq(objects.apId, REMOTE_DIRECT_PARENT));
+  await handleCreate(
+    ctxFor(db),
+    createNote(REPLY_AP_ID, REMOTE_ACTOR, REMOTE_DIRECT_PARENT),
+    recipientRow(),
+    REMOTE_ACTOR,
+    APP_URL,
+  );
+  expect(await objectCount(db, REPLY_AP_ID)).toBe(1);
+  expect(await replyCountOf(db, REMOTE_DIRECT_PARENT)).toBe(1);
 });
 
 test("[R6#3] inbound Create applies the object + postCount atomically, exactly once", async () => {

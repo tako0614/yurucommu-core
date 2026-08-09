@@ -91,13 +91,12 @@ async function handleInteraction(
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
-  // Block + read gate for a LOCAL target. Every LOCAL interaction path (like /
-  // repost / reply / story like-vote-share) refuses an actor the owner has
-  // blocked or who cannot read the object; the inbound federated Like/Announce
-  // path did neither, so a personally-blocked remote could still bump the
-  // owner's like/boost counter AND deliver a "X liked your post" notification
-  // (defeating the block as a harassment remedy), and a remote that cannot read a
-  // restricted post could still interact with it. Mirror the local guards.
+  // Apply the canonical read gate to EVERY object retained by this instance,
+  // including a remote-authored object delivered to a local recipient. Limiting
+  // this check to locally-authored targets let an unrelated signer Like/Announce
+  // a cached remote DM or followers-only Note, mutating its edge/counter state
+  // despite having no read access. Personal blocks remain local-owner state, so
+  // that extra guard only applies when the retained object's author is local.
   const target = await db
     .select({
       attributedTo: objects.attributedTo,
@@ -112,8 +111,13 @@ async function handleInteraction(
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
-  if (target && isLocal(target.attributedTo, baseUrl)) {
-    if (await actorIsBlockedBy(db, target.attributedTo, actor)) return;
+  if (target) {
+    if (
+      isLocal(target.attributedTo, baseUrl) &&
+      (await actorIsBlockedBy(db, target.attributedTo, actor))
+    ) {
+      return;
+    }
     if (!(await canViewerReadObjectFull(db, target, actor))) return;
   }
 
