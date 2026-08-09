@@ -6,17 +6,15 @@
 // (bookmarks), and notifications.ts implement the same logic and may migrate to
 // this helper over time.
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Database } from "../../db/index.ts";
-import {
-  actors,
-  blocks,
-  follows,
-  mutes,
-  objectRecipients,
-} from "../../db/index.ts";
+import { follows, objectRecipients } from "../../db/index.ts";
 import { canViewerReadObject } from "./community-visibility.ts";
 import { safeJsonParse } from "../federation-helpers.ts";
+import {
+  personalActorIsBlockedBy,
+  personalActorIsSuppressedBy,
+} from "./personal-actor-moderation.ts";
 
 export type ReadGateObject = {
   apId?: string;
@@ -226,17 +224,7 @@ export async function actorIsBlockedBy(
   targetApId: string,
   actorApId: string,
 ): Promise<boolean> {
-  const row = await db
-    .select({ blockerApId: blocks.blockerApId })
-    .from(blocks)
-    .where(
-      and(
-        eq(blocks.blockerApId, targetApId),
-        eq(blocks.blockedApId, actorApId),
-      ),
-    )
-    .get();
-  return Boolean(row);
+  return personalActorIsBlockedBy(db, targetApId, actorApId);
 }
 
 /**
@@ -253,30 +241,5 @@ export async function actorSuppressesInteractionFrom(
   targetApId: string,
   actorApId: string,
 ): Promise<boolean> {
-  // The target is a local object owner, so its actors row is a stable one-row
-  // anchor for two EXISTS predicates. This keeps the decision to one portable
-  // SQL round trip instead of racing/sequencing independent block and mute
-  // lookups for every inbound interaction.
-  const row = await db
-    .select({ apId: actors.apId })
-    .from(actors)
-    .where(
-      and(
-        eq(actors.apId, targetApId),
-        sql`(
-          EXISTS (
-            SELECT 1 FROM ${blocks}
-            WHERE ${blocks.blockerApId} = ${targetApId}
-              AND ${blocks.blockedApId} = ${actorApId}
-          )
-          OR EXISTS (
-            SELECT 1 FROM ${mutes}
-            WHERE ${mutes.muterApId} = ${targetApId}
-              AND ${mutes.mutedApId} = ${actorApId}
-          )
-        )`,
-      ),
-    )
-    .get();
-  return Boolean(row);
+  return personalActorIsSuppressedBy(db, targetApId, actorApId);
 }

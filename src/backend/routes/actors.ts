@@ -49,6 +49,11 @@ import {
 import { getInstanceFetchSigner } from "./activitypub/query-helpers.ts";
 import { blockActorAndSeverFollowPair } from "../lib/follow-edge-mutations.ts";
 import {
+  deletePersonalActorBlock,
+  deletePersonalActorMute,
+  resolveRetainedPersonalMuteTarget,
+} from "../lib/personal-actor-moderation.ts";
+import {
   finalizeActorDeletionAndSessions,
   teardownActor,
 } from "./account-teardown.ts";
@@ -417,11 +422,7 @@ actorsRoute.post("/me/blocked", async (c) => {
 // Unblock a user
 actorsRoute.delete("/me/blocked", async (c) => {
   return deleteRelation(c, "block", (db, actorId, targetId) =>
-    db
-      .delete(blocks)
-      .where(
-        and(eq(blocks.blockerApId, actorId), eq(blocks.blockedApId, targetId)),
-      ),
+    deletePersonalActorBlock(db, actorId, targetId),
   );
 });
 
@@ -452,11 +453,20 @@ actorsRoute.post("/me/muted", async (c) => {
   return createRelation(
     c,
     "mute",
-    (db, actorId, targetId) =>
-      db
+    async (db, actorId, targetId) => {
+      const retainedTarget = await resolveRetainedPersonalMuteTarget(
+        db,
+        actorId,
+        targetId,
+      );
+      await db
         .insert(mutes)
-        .values({ muterApId: actorId, mutedApId: targetId })
-        .onConflictDoNothing(),
+        .values({
+          muterApId: actorId,
+          mutedApId: retainedTarget ?? targetId,
+        })
+        .onConflictDoNothing();
+    },
     async (db, actorId) =>
       (
         await db
@@ -471,9 +481,7 @@ actorsRoute.post("/me/muted", async (c) => {
 // Unmute a user
 actorsRoute.delete("/me/muted", async (c) => {
   return deleteRelation(c, "mute", (db, actorId, targetId) =>
-    db
-      .delete(mutes)
-      .where(and(eq(mutes.muterApId, actorId), eq(mutes.mutedApId, targetId))),
+    deletePersonalActorMute(db, actorId, targetId),
   );
 });
 

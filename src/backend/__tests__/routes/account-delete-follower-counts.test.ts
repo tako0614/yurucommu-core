@@ -20,6 +20,7 @@ import {
   follows,
   likes,
   mediaUploads,
+  mutes,
   objectRecipients,
   objects,
   sessions,
@@ -778,6 +779,70 @@ test("POST /me/blocked severs both follow edges and decrements both counters", a
   expect((await countOf(db, tako))?.followingCount).toBe(0);
   expect((await countOf(db, mallory))?.followerCount).toBe(0);
   expect((await countOf(db, mallory))?.followingCount).toBe(0);
+});
+
+test("personal block/mute routes canonicalize actor identity and remove legacy-equivalent rows", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako");
+  const cosmetic = "https://REMOTE.example:443/users/alice/#profile";
+  const canonical = "https://remote.example/users/alice";
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  for (const relation of ["blocked", "muted"]) {
+    const create = await app.fetch(
+      new Request(`${APP_URL}/me/${relation}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ap_id: cosmetic }),
+      }),
+      envFor(db),
+    );
+    expect(create.status).toBe(200);
+  }
+  expect(
+    (await db.select().from(blocks)).map((row) => row.blockedApId),
+  ).toEqual([canonical]);
+  expect((await db.select().from(mutes)).map((row) => row.mutedApId)).toEqual([
+    canonical,
+  ]);
+
+  // Simulate a pre-normalization duplicate. One canonical unblock/unmute must
+  // remove every equivalent row so the user's moderation intent really ends.
+  await db.insert(blocks).values({
+    blockerApId: tako,
+    blockedApId: cosmetic,
+  });
+  await db.insert(mutes).values({ muterApId: tako, mutedApId: cosmetic });
+  for (const relation of ["blocked", "muted"]) {
+    const remove = await app.fetch(
+      new Request(`${APP_URL}/me/${relation}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ap_id: canonical }),
+      }),
+      envFor(db),
+    );
+    expect(remove.status).toBe(200);
+  }
+  expect(await db.select().from(blocks)).toEqual([]);
+  expect(await db.select().from(mutes)).toEqual([]);
+
+  const selfBlock = await app.fetch(
+    new Request(`${APP_URL}/me/blocked`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ap_id: "https://YURU.test/ap/users/tako/" }),
+    }),
+    envFor(db),
+  );
+  expect(selfBlock.status).toBe(400);
 });
 
 test("POST /me/blocked rolls back the block and both follow removals when the second edge delete fails", async () => {

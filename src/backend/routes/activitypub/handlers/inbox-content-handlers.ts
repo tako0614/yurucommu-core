@@ -1,4 +1,5 @@
 import type { Database } from "../../../../db/index.ts";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import {
   and,
   count,
@@ -15,13 +16,11 @@ import {
   actorCache,
   actors,
   announces,
-  blocks,
   bookmarks,
   communities,
   follows,
   inbox as inboxTable,
   likes,
-  mutes,
   objectRecipients,
   objects,
   storyShares,
@@ -71,7 +70,10 @@ import {
   fetchAndUpsertActorCache,
   getInstanceFetchSignerByDb,
 } from "../../../lib/activitypub-actor-cache.ts";
-import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
+import {
+  isSameActivityPubActor,
+  normalizeActivityPubActorId,
+} from "../../../lib/activitypub-actor-identity.ts";
 import { fetchWithTimeout } from "../../../lib/federation-fetch.ts";
 import { signRequest } from "../../../lib/ap-signing.ts";
 import {
@@ -86,6 +88,7 @@ import {
   canViewerReadObjectFull,
 } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
+import { anyOwnerSuppressesInboundActor } from "../../../lib/personal-actor-moderation.ts";
 import {
   type Activity,
   type ActivityContext,
@@ -121,19 +124,7 @@ async function ownerSuppressesInboundActor(
   db: Database,
   actorApId: string,
 ): Promise<boolean> {
-  const [block, mute] = await Promise.all([
-    db
-      .select({ actorApId: blocks.blockerApId })
-      .from(blocks)
-      .where(eq(blocks.blockedApId, actorApId))
-      .get(),
-    db
-      .select({ actorApId: mutes.muterApId })
-      .from(mutes)
-      .where(eq(mutes.mutedApId, actorApId))
-      .get(),
-  ]);
-  return Boolean(block || mute);
+  return anyOwnerSuppressesInboundActor(db, actorApId);
 }
 
 // The actor object types whose inbound Update represents a remote
@@ -1212,6 +1203,79 @@ export async function fetchAndPersistAnnouncedNote(
 // Delete handler
 // ---------------------------------------------------------------------------
 
+const LEGACY_REMOTE_ACTOR_ALIAS_LIMIT = 32;
+
+function legacyRemoteActorCandidateWhere(
+  column: SQLiteColumn,
+  actorId: string,
+) {
+  const normalized = normalizeActivityPubActorId(actorId) ?? actorId;
+  const candidateForms = [normalized];
+  try {
+    const url = new URL(normalized);
+    const defaultPort =
+      url.protocol === "https:"
+        ? "443"
+        : url.protocol === "http:"
+          ? "80"
+          : null;
+    if (defaultPort && !url.port) {
+      let withDefaultPort = `${url.protocol}//${url.hostname}:${defaultPort}${url.pathname}${url.search}`;
+      if (withDefaultPort.endsWith("/")) {
+        withDefaultPort = withDefaultPort.slice(0, -1);
+      }
+      candidateForms.push(withDefaultPort);
+    }
+  } catch {
+    // A malformed actor can only match its exact spelling below.
+  }
+  const foldedCandidateForms = sql.join(
+    [...new Set(candidateForms)].map(
+      (candidate) => sql`${candidate.toLowerCase()}`,
+    ),
+    sql`, `,
+  );
+  // SQL narrows the rare legacy scan without becoming the authority boundary.
+  // lower() may also fold path case, so every returned row is still checked by
+  // isSameActivityPubActor below before it can affect a delete.
+  return sql`lower(rtrim(CASE WHEN instr(${column}, '#') > 0 THEN substr(${column}, 1, instr(${column}, '#') - 1) ELSE ${column} END, '/')) IN (${foldedCandidateForms})`;
+}
+
+async function resolveRetainedRemoteActorAliases(
+  db: Database,
+  actorId: string,
+): Promise<string[]> {
+  const candidateColumns = [
+    actorCache.apId,
+    objects.attributedTo,
+    follows.followerApId,
+    follows.followingApId,
+    likes.actorApId,
+    announces.actorApId,
+    bookmarks.actorApId,
+    storyShares.actorApId,
+    storyVotes.actorApId,
+    storyViews.actorApId,
+  ] as const;
+  const aliases = new Set([actorId]);
+
+  for (const column of candidateColumns) {
+    if (aliases.size >= LEGACY_REMOTE_ACTOR_ALIAS_LIMIT) break;
+    const rows = await db
+      .select({ actorApId: column })
+      .from(column.table)
+      .where(legacyRemoteActorCandidateWhere(column, actorId))
+      .limit(LEGACY_REMOTE_ACTOR_ALIAS_LIMIT);
+    for (const row of rows) {
+      if (isSameActivityPubActor(row.actorApId, actorId)) {
+        aliases.add(row.actorApId);
+        if (aliases.size >= LEGACY_REMOTE_ACTOR_ALIAS_LIMIT) break;
+      }
+    }
+  }
+  return [...aliases];
+}
+
 /**
  * Tombstone a remote actor locally in response to a verified inbound
  * Delete(Actor). Mirrors the local /me/delete teardown for the federation-facing
@@ -1226,6 +1290,11 @@ async function handleRemoteActorDelete(
   actorId: string,
 ): Promise<void> {
   const db = c.get("db");
+  const actorAliases = await resolveRetainedRemoteActorAliases(db, actorId);
+  const actorAliasSql = sql.join(
+    actorAliases.map((alias) => sql`${alias}`),
+    sql`, `,
+  );
 
   // A Delete(actor) is one authority transition: the remote identity, its
   // relationship authority, cached content, and every denormalized counter
@@ -1237,7 +1306,7 @@ async function handleRemoteActorDelete(
     db
       .select({ id: objects.apId })
       .from(objects)
-      .where(eq(objects.attributedTo, actorId));
+      .where(inArray(objects.attributedTo, actorAliases));
 
   // Counterpart count reconcile BEFORE dropping edges (mirrors actors.ts):
   // everyone the deleted remote followed loses a follower; everyone who followed
@@ -1246,7 +1315,9 @@ async function handleRemoteActorDelete(
   await runBatch(db, [
     db
       .update(actors)
-      .set({ followerCount: sql`${actors.followerCount} - 1` })
+      .set({
+        followerCount: sql`MAX(0, ${actors.followerCount} - (SELECT COUNT(*) FROM ${follows} WHERE ${follows.followingApId} = ${actors.apId} AND ${inArray(follows.followerApId, actorAliases)} AND ${follows.status} = 'accepted'))`,
+      })
       .where(
         and(
           inArray(
@@ -1254,14 +1325,21 @@ async function handleRemoteActorDelete(
             db
               .select({ id: follows.followingApId })
               .from(follows)
-              .where(eq(follows.followerApId, actorId)),
+              .where(
+                and(
+                  inArray(follows.followerApId, actorAliases),
+                  eq(follows.status, "accepted"),
+                ),
+              ),
           ),
           gt(actors.followerCount, 0),
         ),
       ),
     db
       .update(actors)
-      .set({ followingCount: sql`${actors.followingCount} - 1` })
+      .set({
+        followingCount: sql`MAX(0, ${actors.followingCount} - (SELECT COUNT(*) FROM ${follows} WHERE ${follows.followerApId} = ${actors.apId} AND ${inArray(follows.followingApId, actorAliases)} AND ${follows.status} = 'accepted'))`,
+      })
       .where(
         and(
           inArray(
@@ -1269,7 +1347,12 @@ async function handleRemoteActorDelete(
             db
               .select({ id: follows.followerApId })
               .from(follows)
-              .where(eq(follows.followingApId, actorId)),
+              .where(
+                and(
+                  inArray(follows.followingApId, actorAliases),
+                  eq(follows.status, "accepted"),
+                ),
+              ),
           ),
           gt(actors.followingCount, 0),
         ),
@@ -1278,8 +1361,8 @@ async function handleRemoteActorDelete(
       .delete(follows)
       .where(
         or(
-          eq(follows.followerApId, actorId),
-          eq(follows.followingApId, actorId),
+          inArray(follows.followerApId, actorAliases),
+          inArray(follows.followingApId, actorAliases),
         ),
       ),
 
@@ -1288,7 +1371,7 @@ async function handleRemoteActorDelete(
     db
       .update(objects)
       .set({
-        replyCount: sql`(SELECT COUNT(*) FROM objects AS child WHERE child.in_reply_to = ${objects.apId} AND child.attributed_to <> ${actorId})`,
+        replyCount: sql`(SELECT COUNT(*) FROM objects AS child WHERE child.in_reply_to = ${objects.apId} AND child.attributed_to NOT IN (${actorAliasSql}))`,
       })
       .where(
         inArray(
@@ -1298,7 +1381,7 @@ async function handleRemoteActorDelete(
             .from(objects)
             .where(
               and(
-                eq(objects.attributedTo, actorId),
+                inArray(objects.attributedTo, actorAliases),
                 isNotNull(objects.inReplyTo),
               ),
             ),
@@ -1309,7 +1392,9 @@ async function handleRemoteActorDelete(
     // dropping those edges. The subqueries stay bounded and D1-param-safe.
     db
       .update(objects)
-      .set({ likeCount: sql`${objects.likeCount} - 1` })
+      .set({
+        likeCount: sql`MAX(0, ${objects.likeCount} - (SELECT COUNT(*) FROM ${likes} WHERE ${likes.objectApId} = ${objects.apId} AND ${inArray(likes.actorApId, actorAliases)}))`,
+      })
       .where(
         and(
           inArray(
@@ -1317,14 +1402,16 @@ async function handleRemoteActorDelete(
             db
               .select({ id: likes.objectApId })
               .from(likes)
-              .where(eq(likes.actorApId, actorId)),
+              .where(inArray(likes.actorApId, actorAliases)),
           ),
           gt(objects.likeCount, 0),
         ),
       ),
     db
       .update(objects)
-      .set({ announceCount: sql`${objects.announceCount} - 1` })
+      .set({
+        announceCount: sql`MAX(0, ${objects.announceCount} - (SELECT COUNT(*) FROM ${announces} WHERE ${announces.objectApId} = ${objects.apId} AND ${inArray(announces.actorApId, actorAliases)}))`,
+      })
       .where(
         and(
           inArray(
@@ -1332,14 +1419,16 @@ async function handleRemoteActorDelete(
             db
               .select({ id: announces.objectApId })
               .from(announces)
-              .where(eq(announces.actorApId, actorId)),
+              .where(inArray(announces.actorApId, actorAliases)),
           ),
           gt(objects.announceCount, 0),
         ),
       ),
     db
       .update(objects)
-      .set({ shareCount: sql`${objects.shareCount} - 1` })
+      .set({
+        shareCount: sql`MAX(0, ${objects.shareCount} - (SELECT COUNT(*) FROM ${storyShares} WHERE ${storyShares.storyApId} = ${objects.apId} AND ${inArray(storyShares.actorApId, actorAliases)}))`,
+      })
       .where(
         and(
           inArray(
@@ -1347,19 +1436,19 @@ async function handleRemoteActorDelete(
             db
               .select({ id: storyShares.storyApId })
               .from(storyShares)
-              .where(eq(storyShares.actorApId, actorId)),
+              .where(inArray(storyShares.actorApId, actorAliases)),
           ),
           gt(objects.shareCount, 0),
         ),
       ),
 
     // Delete interaction edges the remote authored on other objects.
-    db.delete(likes).where(eq(likes.actorApId, actorId)),
-    db.delete(announces).where(eq(announces.actorApId, actorId)),
-    db.delete(bookmarks).where(eq(bookmarks.actorApId, actorId)),
-    db.delete(storyShares).where(eq(storyShares.actorApId, actorId)),
-    db.delete(storyVotes).where(eq(storyVotes.actorApId, actorId)),
-    db.delete(storyViews).where(eq(storyViews.actorApId, actorId)),
+    db.delete(likes).where(inArray(likes.actorApId, actorAliases)),
+    db.delete(announces).where(inArray(announces.actorApId, actorAliases)),
+    db.delete(bookmarks).where(inArray(bookmarks.actorApId, actorAliases)),
+    db.delete(storyShares).where(inArray(storyShares.actorApId, actorAliases)),
+    db.delete(storyVotes).where(inArray(storyVotes.actorApId, actorAliases)),
+    db.delete(storyViews).where(inArray(storyViews.actorApId, actorAliases)),
 
     // Cascade child rows keyed by the remote's authored objects (no FK cascade
     // is assumed), then remove the objects and cached identity itself. A fresh
@@ -1383,8 +1472,8 @@ async function handleRemoteActorDelete(
     db
       .delete(storyShares)
       .where(inArray(storyShares.storyApId, remoteObjectIds())),
-    db.delete(objects).where(eq(objects.attributedTo, actorId)),
-    db.delete(actorCache).where(eq(actorCache.apId, actorId)),
+    db.delete(objects).where(inArray(objects.attributedTo, actorAliases)),
+    db.delete(actorCache).where(inArray(actorCache.apId, actorAliases)),
   ]);
 
   log.info("Processed inbound Delete(actor)", {

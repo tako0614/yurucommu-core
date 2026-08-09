@@ -20,6 +20,7 @@ import {
   parseLimit,
   parseOffset,
 } from "../federation-helpers.ts";
+import { canonicalPersonalModerationActorId } from "../lib/personal-actor-moderation.ts";
 
 // Hono context with our app's bindings and variables
 export type AppContext = Context<
@@ -360,7 +361,8 @@ export async function createRelation(
 
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: "ap_id required" }, 400);
-  if (body.ap_id === actor.ap_id) {
+  const targetApId = canonicalPersonalModerationActorId(body.ap_id);
+  if (targetApId === canonicalPersonalModerationActorId(actor.ap_id)) {
     return c.json({ error: `Cannot ${verb} yourself` }, 400);
   }
 
@@ -371,7 +373,7 @@ export async function createRelation(
   if ((await countExisting(db, actor.ap_id)) >= MAX_RELATIONS_PER_ACTOR) {
     return c.json({ error: `${verb} limit reached` }, 429);
   }
-  await upsert(db, actor.ap_id, body.ap_id);
+  await upsert(db, actor.ap_id, targetApId);
 
   return c.json({ success: true });
 }
@@ -394,9 +396,10 @@ export async function deleteRelation(
 
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: "ap_id required" }, 400);
+  const targetApId = canonicalPersonalModerationActorId(body.ap_id);
 
   const db = c.get("db");
-  await remove(db, actor.ap_id, body.ap_id);
+  await remove(db, actor.ap_id, targetApId);
 
   return c.json({ success: true });
 }

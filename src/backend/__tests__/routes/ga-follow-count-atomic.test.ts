@@ -173,6 +173,25 @@ test("[audit#17 targeted mute] an inbound Follow from a muted actor is dropped a
   expect(await followerCount(db, RECIPIENT)).toBe(0);
 });
 
+test("actor identity: a cosmetic mute spelling still suppresses inbound Follow", async () => {
+  const db = await setup();
+  await db.insert(mutes).values({
+    muterApId: RECIPIENT,
+    mutedApId: "https://YURU.test/ap/users/alice/",
+  });
+
+  await handleFollow(
+    ctxFor(db),
+    followActivity(FOLLOW_ACTIVITY, LOCAL_FOLLOWER, RECIPIENT),
+    recipientRow(RECIPIENT, false),
+    LOCAL_FOLLOWER,
+    APP_URL,
+  );
+
+  expect(await edgeCount(db, RECIPIENT)).toBe(0);
+  expect(await followerCount(db, RECIPIENT)).toBe(0);
+});
+
 test("[R6 #2] auto-accepted Follow applies the edge + followerCount atomically, once", async () => {
   const db = await setup();
   await handleFollow(

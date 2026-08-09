@@ -899,6 +899,32 @@ test("inbound public Create(Note) from a muted actor is dropped at write time", 
   expect(await reachRow(db, id)).toBeUndefined();
 });
 
+test("actor identity: a cosmetic owner mute spelling suppresses public Create(Note)", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/cosmetic-muted-public-create";
+  await db.insert(mutes).values({
+    muterApId: LOCAL_BOB,
+    mutedApId: "https://REMOTE.example/users/alice/",
+  });
+  const create = parseActivity({
+    id: `${id}/activity`,
+    type: "Create",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "must not be retained",
+      to: [PUBLIC],
+      cc: [],
+    },
+  }) as Activity;
+
+  await handleCreate(ctxFor(db), create, recipient(LOCAL_BOB), REMOTE, APP_URL);
+
+  expect(await reachRow(db, id)).toBeUndefined();
+});
+
 test("inbound public Create(Note) from a blocked actor is dropped at write time", async () => {
   const db = await setup();
   const id = "https://remote.example/objects/blocked-public-create";

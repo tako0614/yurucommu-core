@@ -3,6 +3,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { actors, blocks, follows } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import { isSameActivityPubActor } from "./activitypub-actor-identity.ts";
+import { resolveRetainedPersonalBlockTarget } from "./personal-actor-moderation.ts";
 
 const LEGACY_FOLLOW_EDGE_CANDIDATE_LIMIT = 64;
 
@@ -137,14 +138,19 @@ export async function blockActorAndSeverFollowPair(
   blockerApId: string,
   blockedApId: string,
 ): Promise<void> {
-  const [blockedToBlocker, blockerToBlocked] = await Promise.all([
-    resolveRetainedFollowEdge(db, blockedApId, blockerApId),
-    resolveRetainedFollowEdge(db, blockerApId, blockedApId),
-  ]);
+  const [retainedBlockTarget, blockedToBlocker, blockerToBlocked] =
+    await Promise.all([
+      resolveRetainedPersonalBlockTarget(db, blockerApId, blockedApId),
+      resolveRetainedFollowEdge(db, blockedApId, blockerApId),
+      resolveRetainedFollowEdge(db, blockerApId, blockedApId),
+    ]);
   await runBatch(db, [
     db
       .insert(blocks)
-      .values({ blockerApId, blockedApId })
+      .values({
+        blockerApId,
+        blockedApId: retainedBlockTarget ?? blockedApId,
+      })
       .onConflictDoNothing(),
     ...severFollowEdgeStatements(
       db,

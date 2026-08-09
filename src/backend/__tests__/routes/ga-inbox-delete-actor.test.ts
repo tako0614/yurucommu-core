@@ -164,6 +164,96 @@ test("Delete(Actor) uses the verified actor spelling for cosmetic object ids", a
   ).toEqual([]);
 });
 
+test("Delete(Actor) removes retained state under a legacy cosmetic actor spelling", async () => {
+  const db = await freshDb();
+  const cosmetic = "https://REMOTE.example/users/alice/";
+  const remotePost = "https://remote.example/objects/legacy-cosmetic-post";
+  const localPost = "https://yuru.test/ap/objects/local-cosmetic-target";
+
+  await db.insert(actors).values({
+    apId: LOCAL,
+    type: "Person",
+    preferredUsername: "bob",
+    inbox: `${LOCAL}/inbox`,
+    outbox: `${LOCAL}/outbox`,
+    followersUrl: `${LOCAL}/followers`,
+    followingUrl: `${LOCAL}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    followerCount: 2,
+    followingCount: 2,
+  });
+  await db.insert(actorCache).values({
+    apId: cosmetic,
+    type: "Person",
+    inbox: `${cosmetic}inbox`,
+    rawJson: "{}",
+  });
+  await db.insert(follows).values([
+    { followerApId: LOCAL, followingApId: cosmetic, status: "accepted" },
+    { followerApId: cosmetic, followingApId: LOCAL, status: "accepted" },
+    { followerApId: LOCAL, followingApId: REMOTE, status: "accepted" },
+    { followerApId: REMOTE, followingApId: LOCAL, status: "accepted" },
+  ]);
+  await db.insert(objects).values([
+    {
+      apId: remotePost,
+      type: "Note",
+      attributedTo: cosmetic,
+      content: "legacy remote",
+      visibility: "public",
+      isLocal: 0,
+    },
+    {
+      apId: localPost,
+      type: "Note",
+      attributedTo: LOCAL,
+      content: "local",
+      visibility: "public",
+      isLocal: 1,
+      likeCount: 2,
+    },
+  ]);
+  await db.insert(likes).values([
+    {
+      actorApId: cosmetic,
+      objectApId: localPost,
+      activityApId: `${cosmetic}likes/1`,
+    },
+    {
+      actorApId: REMOTE,
+      objectApId: localPost,
+      activityApId: `${REMOTE}/likes/2`,
+    },
+  ]);
+
+  await handleDelete(ctxFor(db), deleteActor(REMOTE));
+
+  expect(await db.select().from(actorCache)).toEqual([]);
+  expect(await db.select().from(follows)).toEqual([]);
+  expect(
+    await db.select().from(objects).where(eq(objects.apId, remotePost)),
+  ).toEqual([]);
+  expect(await db.select().from(likes)).toEqual([]);
+  expect(
+    await db
+      .select({
+        followerCount: actors.followerCount,
+        followingCount: actors.followingCount,
+      })
+      .from(actors)
+      .where(eq(actors.apId, LOCAL))
+      .get(),
+  ).toEqual({ followerCount: 0, followingCount: 0 });
+  expect(
+    await db
+      .select({ likeCount: objects.likeCount })
+      .from(objects)
+      .where(eq(objects.apId, localPost))
+      .get(),
+  ).toEqual({ likeCount: 0 });
+});
+
 test("Delete(Actor) rolls back counterpart counters when a later teardown statement fails, then retries exactly", async () => {
   const db = await freshDb();
   const otherRemote = "https://other.example/users/carol";
