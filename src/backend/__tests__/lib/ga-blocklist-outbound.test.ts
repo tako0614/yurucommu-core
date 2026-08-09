@@ -4,8 +4,8 @@
  * receive no outbound delivery:
  *   - planEndpointsFromActorCache (fanout to followers / community) drops
  *     blocked recipients BEFORE grouping endpoints, and
- *   - enqueueDeliveryToActor (DMs, Accept/Follow, targeted interactions) skips
- *     a blocked actor instead of enqueueing a resolve_actor job.
+ *   - singular and batched targeted delivery skip a blocked actor instead of
+ *     enqueueing resolve_actor jobs.
  */
 
 import { expect, test } from "bun:test";
@@ -18,7 +18,10 @@ import {
 } from "../../../db/index.ts";
 import type { Env } from "../../types.ts";
 import { planEndpointsFromActorCache } from "../../lib/delivery/planner.ts";
-import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import {
+  enqueueDeliveriesToActor,
+  enqueueDeliveryToActor,
+} from "../../lib/delivery/queue.ts";
 
 type ActorCacheRow = {
   apId: string;
@@ -254,4 +257,47 @@ test("blocklist-out: enqueueDeliveryToActor still delivers to an allowed actor",
   );
 
   expect(sent.length).toEqual(1);
+});
+
+test("blocklist-out: batched Move re-Follows skip a blocked target", async () => {
+  const sent: unknown[] = [];
+  const target = "https://blocked.example/ap/users/moved";
+  const db = createMockDb([], { actors: [target] });
+  const env = {
+    DB_INSTANCE: db as unknown as Database,
+    DELIVERY_QUEUE: {
+      send: () => Promise.resolve(),
+      sendBatch: (messages: readonly unknown[]) => {
+        sent.push(...messages);
+        return Promise.resolve();
+      },
+    },
+    DELIVERY_DLQ: {
+      send: () => Promise.resolve(),
+      sendBatch: () => Promise.resolve(),
+    },
+  } as unknown as Env;
+
+  await enqueueDeliveriesToActor(
+    env,
+    [
+      "https://local.example/ap/activities/move-follow-1",
+      "https://local.example/ap/activities/move-follow-2",
+    ],
+    target,
+  );
+
+  expect(sent).toEqual([]);
+});
+
+test("batched Move re-Follows fail retryably when queue bindings are absent", async () => {
+  await expect(
+    enqueueDeliveriesToActor(
+      {} as Env,
+      ["https://local.example/ap/activities/move-follow-1"],
+      "https://remote.example/ap/users/moved",
+    ),
+  ).rejects.toThrow(
+    "DELIVERY_QUEUE and DELIVERY_DLQ bindings are required for batched delivery",
+  );
 });

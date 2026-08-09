@@ -58,8 +58,12 @@ import {
 } from "../../../lib/activitypub-actor-cache.ts";
 import { fetchWithTimeout } from "../../../lib/federation-fetch.ts";
 import { signRequest } from "../../../lib/ap-signing.ts";
-import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
-import { destinationDeclaresAlias } from "../../../lib/account-migration.ts";
+import {
+  destinationDeclaresAlias,
+  enqueuePersistedMoveRefollows,
+  moveRefollowPrefix,
+  rewriteMovedFollowGraph,
+} from "../../../lib/account-migration.ts";
 import { chunkForInClause } from "../../../lib/chunk.ts";
 import {
   actorSuppressesInteractionFrom,
@@ -1504,6 +1508,31 @@ export async function handleMove(
     return;
   }
 
+  const baseUrl = c.env.APP_URL;
+  const refollowPrefix = await moveRefollowPrefix({
+    baseUrl,
+    inboundActivityId: activity.id,
+    oldActorApId,
+    newActorApId,
+  });
+
+  // The graph + outbound Follow activities commit atomically below, while the
+  // external Queue send necessarily happens afterwards. If that send threw,
+  // the inbox row remains processed=0 and a peer retry reaches this handler.
+  // Resume from the durable activity namespace BEFORE re-fetching the alias:
+  // the old edges are already gone, and a temporary destination fetch outage
+  // must not turn a retryable Queue failure into a silently completed no-op.
+  if (
+    (await enqueuePersistedMoveRefollows({
+      db,
+      env: c.env,
+      newActorApId,
+      refollowPrefix,
+    })) > 0
+  ) {
+    return;
+  }
+
   // SECURITY (account-migration follow-graph hijack): a signed Move only proves
   // the OLD actor consents to move; it does NOT prove the destination is the same
   // person. Without verifying the destination's `alsoKnownAs` back-reference, a
@@ -1529,266 +1558,22 @@ export async function handleMove(
   // Refresh/cache the new actor document (best-effort).
   await refreshActorCache(db, newActorApId);
 
-  // Rewrite follow graph references from old -> new in batches.
-  const followerRows = await db
-    .select({
-      followingApId: follows.followingApId,
-      status: follows.status,
-      activityApId: follows.activityApId,
-      createdAt: follows.createdAt,
-      acceptedAt: follows.acceptedAt,
-    })
-    .from(follows)
-    .where(eq(follows.followerApId, oldActorApId));
+  await rewriteMovedFollowGraph({
+    db,
+    oldActorApId,
+    newActorApId,
+    refollowPrefix,
+  });
 
-  const followingRows = await db
-    .select({
-      followerApId: follows.followerApId,
-      status: follows.status,
-      activityApId: follows.activityApId,
-      createdAt: follows.createdAt,
-      acceptedAt: follows.acceptedAt,
-    })
-    .from(follows)
-    .where(eq(follows.followingApId, oldActorApId));
-
-  const followerTargets = followerRows.map((row) => row.followingApId);
-  const followingSources = followingRows.map((row) => row.followerApId);
-
-  const existingFollowerPairs =
-    followerTargets.length > 0
-      ? await db
-          .select({ followingApId: follows.followingApId })
-          .from(follows)
-          .where(
-            and(
-              eq(follows.followerApId, newActorApId),
-              // Subquery, not `inArray(followerTargets)`: the old actor's follow
-              // graph can exceed D1's 100-bound-parameter ceiling. Same set as
-              // followerTargets (the old actor's followees).
-              inArray(
-                follows.followingApId,
-                db
-                  .select({ id: follows.followingApId })
-                  .from(follows)
-                  .where(eq(follows.followerApId, oldActorApId)),
-              ),
-            ),
-          )
-      : [];
-  const existingFollowingPairs =
-    followingSources.length > 0
-      ? await db
-          .select({ followerApId: follows.followerApId })
-          .from(follows)
-          .where(
-            and(
-              // Subquery, not `inArray(followingSources)`: the old actor's
-              // follower graph can exceed D1's 100-bound-parameter ceiling. Same
-              // set as followingSources (the old actor's followers).
-              inArray(
-                follows.followerApId,
-                db
-                  .select({ id: follows.followerApId })
-                  .from(follows)
-                  .where(eq(follows.followingApId, oldActorApId)),
-              ),
-              eq(follows.followingApId, newActorApId),
-            ),
-          )
-      : [];
-
-  const existingFollowerTargetSet = new Set(
-    existingFollowerPairs.map((row) => row.followingApId),
-  );
-  const existingFollowingSourceSet = new Set(
-    existingFollowingPairs.map((row) => row.followerApId),
-  );
-
-  // Drop self-edges in addition to the existing-pair dedup: if the old and new
-  // actor were already connected (old followed/was-followed-by new, or vice
-  // versa), rewriting the endpoint to the new actor would produce a row where
-  // followerApId === followingApId (a self-follow). Filter those out so the
-  // migration never materializes a self-follow.
-  const followerRewrites = followerRows
-    .filter(
-      (row) =>
-        !existingFollowerTargetSet.has(row.followingApId) &&
-        row.followingApId !== newActorApId,
-    )
-    .map((row) => ({
-      followerApId: newActorApId,
-      followingApId: row.followingApId,
-      status: row.status,
-      activityApId: row.activityApId,
-      createdAt: row.createdAt,
-      acceptedAt: row.acceptedAt,
-    }));
-  // For followers that are LOCAL to this instance, a bare edge rewrite is not
-  // enough: the destination server has no record of the follow, so it would
-  // never deliver the migrated account's posts (the local user's following list
-  // would point at the new actor but silently receive nothing). Re-issue a
-  // fresh, *pending* Follow to the new actor and enqueue outbound delivery —
-  // the standard Mastodon "follow the move target on the user's behalf"
-  // behavior; the destination's Accept flips it to accepted. Remote followers
-  // are left as a plain edge rewrite: re-establishing their follow is their own
-  // server's responsibility.
-  const baseUrl = c.env.APP_URL;
-  const localReFollows: { followerApId: string; followId: string }[] = [];
-  const followingRewrites = followingRows
-    .filter(
-      (row) =>
-        !existingFollowingSourceSet.has(row.followerApId) &&
-        row.followerApId !== newActorApId,
-    )
-    .map((row) => {
-      if (isLocal(row.followerApId, baseUrl)) {
-        const followId = activityApId(baseUrl, generateId());
-        localReFollows.push({ followerApId: row.followerApId, followId });
-        return {
-          followerApId: row.followerApId,
-          followingApId: newActorApId,
-          status: "pending",
-          activityApId: followId,
-          createdAt: row.createdAt,
-          acceptedAt: null,
-        };
-      }
-      return {
-        followerApId: row.followerApId,
-        followingApId: newActorApId,
-        status: row.status,
-        activityApId: row.activityApId,
-        createdAt: row.createdAt,
-        acceptedAt: row.acceptedAt,
-      };
-    });
-
-  // LOCAL followers whose ACCEPTED edge to the old actor we are about to delete.
-  // Each such edge was counted in that follower's followingCount; the re-issued
-  // Follow to the new actor is created PENDING (uncounted) and only re-adds the
-  // +1 when the destination Accepts (handleAccept). So the old +1 must be removed
-  // now, otherwise the eventual Accept stacks a second +1 on the never-removed
-  // old count → a permanent over-count of 1 per migrated follow. Decrementing at
-  // delete time is correct in every Accept-timing case: during the pending window
-  // the follower counts 0 of this relationship (right — it is pending), after the
-  // Accept it is back to 1, and if the Accept never arrives it stays decremented
-  // (right — the edge is perpetually pending). Remote followers' counts are not
-  // ours to manage; only local followingCount is authoritative here.
-  const localAcceptedFollowerApIds = Array.from(
-    new Set(
-      followingRows
-        .filter(
-          (row) =>
-            row.status === "accepted" && isLocal(row.followerApId, baseUrl),
-        )
-        .map((row) => row.followerApId),
-    ),
-  );
-
-  // Symmetric to the above, on the FOLLOWEE side: the old actor's ACCEPTED follow
-  // of a LOCAL actor L incremented L.followerCount (handleFollow). When the
-  // (old→L) rewrite is DROPPED as a duplicate (the NEW actor already follows L,
-  // i.e. L ∈ existingFollowerTargetSet) or as a self-edge (L === newActor), the
-  // delete below still removes (old→L) but NO rewrite re-adds an (new→L) edge for
-  // it — so L would keep a permanent +1 over-count. Decrement those dropped,
-  // accepted, local followees' followerCount once (the non-dropped case is
-  // count-preserving: delete old→L + insert new→L). gt(>0) guards underflow.
-  const droppedAcceptedLocalFolloweeApIds = Array.from(
-    new Set(
-      followerRows
-        .filter(
-          (row) =>
-            row.status === "accepted" &&
-            isLocal(row.followingApId, baseUrl) &&
-            (existingFollowerTargetSet.has(row.followingApId) ||
-              row.followingApId === newActorApId),
-        )
-        .map((row) => row.followingApId),
-    ),
-  );
-
-  // Co-commit the four edge mutations + the per-follower followingCount
-  // decrements in ONE atomic batch. D1 has no interactive transactions, and the
-  // OLD sequential form was non-convergent: a crash between "delete old edges"
-  // and "decrement" left the old edges gone, so a re-dispatch (the row is still
-  // processed=0) re-read EMPTY follower/following rows, skipped the decrement,
-  // and left every migrated local follower's followingCount permanently +1 over.
-  // Batching makes delete+decrement all-or-nothing: a crash before commit changes
-  // nothing (retry re-runs cleanly from the still-present old edges); a crash
-  // after commit re-reads no old edges (the batch is then a no-op) → the
-  // decrement is applied exactly once.
-  const moveOps = [];
-  if (followerRewrites.length > 0) {
-    moveOps.push(db.insert(follows).values(followerRewrites));
-  }
-  if (followerRows.length > 0) {
-    moveOps.push(
-      db.delete(follows).where(eq(follows.followerApId, oldActorApId)),
-    );
-  }
-  if (followingRewrites.length > 0) {
-    moveOps.push(db.insert(follows).values(followingRewrites));
-  }
-  if (followingRows.length > 0) {
-    moveOps.push(
-      db.delete(follows).where(eq(follows.followingApId, oldActorApId)),
-    );
-  }
-  for (const followerApId of localAcceptedFollowerApIds) {
-    moveOps.push(
-      db
-        .update(actors)
-        .set({ followingCount: sql`${actors.followingCount} - 1` })
-        .where(
-          and(eq(actors.apId, followerApId), gt(actors.followingCount, 0)),
-        ),
-    );
-  }
-  for (const followeeApId of droppedAcceptedLocalFolloweeApIds) {
-    moveOps.push(
-      db
-        .update(actors)
-        .set({ followerCount: sql`${actors.followerCount} - 1` })
-        .where(and(eq(actors.apId, followeeApId), gt(actors.followerCount, 0))),
-    );
-  }
-  if (moveOps.length > 0) {
-    await runBatch(db, moveOps as unknown as Parameters<typeof runBatch>[1]);
-  }
-
-  // Record + deliver the outbound Follow activities for migrated local
-  // followers so the destination server registers them as followers and starts
-  // delivering. Best-effort per follower: a delivery enqueue failure must not
-  // abort the rest of the migration (the follow row is already pending and will
-  // simply lack delivery until retried).
-  for (const { followerApId, followId } of localReFollows) {
-    const followActivity = {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: followId,
-      type: "Follow",
-      actor: followerApId,
-      object: newActorApId,
-    };
-    try {
-      await db.insert(activities).values({
-        apId: followId,
-        type: "Follow",
-        actorApId: followerApId,
-        objectApId: newActorApId,
-        rawJson: JSON.stringify(followActivity),
-        direction: "outbound",
-      });
-      await enqueueDeliveryToActor(c.env, followId, newActorApId);
-    } catch (e) {
-      log.warn("Failed to issue migration re-follow to move target", {
-        event: "ap.move.refollow_failed",
-        follower: followerApId,
-        newActor: newActorApId,
-        error: e,
-      });
-    }
-  }
+  // Queue delivery is the only non-transactional step. Do not swallow a real
+  // producer failure: the inbox claim remains uncommitted and a retry resumes
+  // the durable activities through the prefix check at the top of this handler.
+  await enqueuePersistedMoveRefollows({
+    db,
+    env: c.env,
+    newActorApId,
+    refollowPrefix,
+  });
 }
 
 // ---------------------------------------------------------------------------

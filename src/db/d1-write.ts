@@ -215,6 +215,14 @@ export async function runBatch(
   db: Database,
   statements: readonly [D1Statement, ...D1Statement[]],
 ): Promise<void> {
+  if (statements.length > D1_MAX_BATCH_STATEMENTS) {
+    throw new D1BatchTooLargeError(
+      `runBatch: ${statements.length} statements exceed the atomic batch cap ` +
+        `of ${D1_MAX_BATCH_STATEMENTS}. Do not split a logical mutation across ` +
+        `batches; make the writes set-based or use the generational-replace ` +
+        `pattern in docs/quality/d1-write.md §3.`,
+    );
+  }
   await requireBatchable(db, "runBatch").batch(statements);
 }
 

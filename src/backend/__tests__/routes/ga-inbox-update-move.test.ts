@@ -1,12 +1,9 @@
 import { expect, mock, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actors, actorCache, activities, follows } from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import type {
   Activity,
   ActivityContext,
@@ -79,33 +76,27 @@ const { handleUpdate, handleMove } =
   await import("../../routes/activitypub/handlers/inbox-content-handlers.ts");
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of [
-    "0001_init.sql",
-    // 0003 rebuilds `activities` dropping the object_ap_id -> objects FK, so the
-    // migration re-follow can record an outbound Follow whose object is a remote
-    // actor (present only in actor_cache). Production applied this; the fixture
-    // must mirror it or D1-style FK enforcement rejects the insert.
-    "0003_activity_remote_object_edges.sql",
-    "0008_actor_fields_aka.sql",
-    "0009_object_tags.sql",
-  ]) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
-function ctx(db: Database): ActivityContext {
+function ctx(
+  db: Database,
+  bindings: Record<string, unknown> = {},
+): ActivityContext {
   return {
     get: (key: string) => (key === "db" ? db : undefined),
-    env: { APP_URL, DB_INSTANCE: db },
+    env: {
+      APP_URL,
+      DB_INSTANCE: db,
+      DELIVERY_QUEUE: { async send() {}, async sendBatch() {} },
+      DELIVERY_DLQ: { async send() {}, async sendBatch() {} },
+      ...bindings,
+    },
   } as unknown as ActivityContext;
 }
 
-// `follows.follower_ap_id` / `following_ap_id` both FK -> actors(ap_id), so the
-// migration endpoints must exist as actor rows before seeding follow edges.
+// `actors` contains only actors hosted by this instance. Remote endpoints live
+// in actor_cache and follow-edge AP-ID strings deliberately have no actors FK.
 async function seedActor(
   db: Database,
   apId: string,
@@ -203,8 +194,6 @@ test("handleMove does not create self-follow rows when old/new were already conn
 
   const localFollower = `${APP_URL}/ap/users/bob`;
 
-  await seedActor(db, OLD_ACTOR, "old");
-  await seedActor(db, NEW_ACTOR, "new");
   await seedActor(db, localFollower, "bob");
 
   // Pre-existing connections that, after the migration, would collapse into a
@@ -307,8 +296,6 @@ test("handleMove decrements a migrated local follower's followingCount so the re
 
   const localFollower = `${APP_URL}/ap/users/carol`;
 
-  await seedActor(db, OLD_ACTOR, "old");
-  await seedActor(db, NEW_ACTOR, "new");
   await seedActor(db, localFollower, "carol");
 
   // Carol follows the old (migrating) actor — an ACCEPTED edge counted in her
@@ -367,8 +354,6 @@ test("handleMove decrements a dedup-dropped local followee's followerCount", asy
   const db = await freshDb();
 
   const localFollowee = `${APP_URL}/ap/users/lia`;
-  await seedActor(db, OLD_ACTOR, "old");
-  await seedActor(db, NEW_ACTOR, "new");
   await seedActor(db, localFollowee, "lia");
   // L is followed by BOTH old and new (each +1'd L.followerCount → 2).
   await db
@@ -410,4 +395,286 @@ test("handleMove decrements a dedup-dropped local followee's followerCount", asy
     .where(eq(actors.apId, localFollowee))
     .get();
   expect(l?.fc).toBe(1);
+});
+
+test("handleMove preserves remote followers without forging local re-Follows", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  const remoteFollower = "https://elsewhere.example/users/remote-follower";
+  const originalFollowId =
+    "https://elsewhere.example/activities/original-follow";
+  await db.insert(follows).values({
+    followerApId: remoteFollower,
+    followingApId: OLD_ACTOR,
+    status: "accepted",
+    activityApId: originalFollowId,
+    acceptedAt: "2026-08-01T00:00:00.000Z",
+  });
+
+  await handleMove(
+    ctx(db),
+    { type: "Move", actor: OLD_ACTOR, object: OLD_ACTOR, target: NEW_ACTOR },
+    OLD_ACTOR,
+  );
+
+  const migrated = await db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, remoteFollower),
+        eq(follows.followingApId, NEW_ACTOR),
+      ),
+    )
+    .get();
+  expect(migrated?.status).toBe("accepted");
+  expect(migrated?.activityApId).toBe(originalFollowId);
+  expect(migrated?.acceptedAt).toBe("2026-08-01T00:00:00.000Z");
+  expect(
+    await db
+      .select()
+      .from(activities)
+      .where(eq(activities.objectApId, NEW_ACTOR)),
+  ).toHaveLength(0);
+});
+
+test("handleMove rolls back graph, counters, and activities when one statement fails", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  const localFollower = `${APP_URL}/ap/users/rollback-follower`;
+  await seedActor(db, localFollower, "rollback-follower");
+  await db
+    .update(actors)
+    .set({ followingCount: 1 })
+    .where(eq(actors.apId, localFollower));
+  await db.insert(follows).values({
+    followerApId: localFollower,
+    followingApId: OLD_ACTOR,
+    status: "accepted",
+  });
+  await db.run(sql`
+    CREATE TRIGGER reject_move_edge_delete
+    BEFORE DELETE ON follows
+    WHEN OLD.following_ap_id = 'https://remote.example/users/old'
+    BEGIN
+      SELECT RAISE(ABORT, 'injected move rollback');
+    END
+  `);
+
+  await expect(
+    handleMove(
+      ctx(db),
+      { type: "Move", actor: OLD_ACTOR, object: OLD_ACTOR, target: NEW_ACTOR },
+      OLD_ACTOR,
+    ),
+  ).rejects.toThrow("injected move rollback");
+
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followerApId, localFollower),
+          eq(follows.followingApId, OLD_ACTOR),
+        ),
+      ),
+  ).toHaveLength(1);
+  expect(
+    await db.select().from(follows).where(eq(follows.followingApId, NEW_ACTOR)),
+  ).toHaveLength(0);
+  expect(
+    (
+      await db
+        .select({ count: actors.followingCount })
+        .from(actors)
+        .where(eq(actors.apId, localFollower))
+        .get()
+    )?.count,
+  ).toBe(1);
+  expect(
+    await db
+      .select()
+      .from(activities)
+      .where(eq(activities.objectApId, NEW_ACTOR)),
+  ).toHaveLength(0);
+});
+
+test("[audit#20 Move D1] migrates a graph larger than parameter and batch-statement limits", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  // Seventeen six-column rows already bind 102 parameters. Use 120 here so the
+  // regression also exceeds the shared 50-statement atomic-batch ceiling if a
+  // fix merely chunks INSERTs but keeps one counter UPDATE per local follower.
+  // The set-based implementation still emits exactly eight graph statements.
+  const localFollowers = Array.from(
+    { length: 120 },
+    (_, index) => `${APP_URL}/ap/users/move-follower-${index}`,
+  );
+  for (const [index, followerApId] of localFollowers.entries()) {
+    await seedActor(db, followerApId, `move-follower-${index}`);
+    await db
+      .update(actors)
+      .set({ followingCount: 1 })
+      .where(eq(actors.apId, followerApId));
+    await db.insert(follows).values({
+      followerApId,
+      followingApId: OLD_ACTOR,
+      status: "accepted",
+    });
+  }
+
+  const queueBatchSizes: number[] = [];
+  const queuedBodies: unknown[] = [];
+  const deliveryQueue = {
+    async send() {},
+    async sendBatch(messages: readonly { body: unknown }[]) {
+      queueBatchSizes.push(messages.length);
+      queuedBodies.push(...messages.map((message) => message.body));
+    },
+  };
+
+  await handleMove(
+    ctx(db, {
+      DELIVERY_QUEUE: deliveryQueue,
+      DELIVERY_DLQ: { async send() {}, async sendBatch() {} },
+    }),
+    { type: "Move", actor: OLD_ACTOR, object: OLD_ACTOR, target: NEW_ACTOR },
+    OLD_ACTOR,
+  );
+
+  const oldEdges = await db
+    .select()
+    .from(follows)
+    .where(eq(follows.followingApId, OLD_ACTOR));
+  const migratedEdges = await db
+    .select()
+    .from(follows)
+    .where(eq(follows.followingApId, NEW_ACTOR));
+  const reFollows = await db
+    .select()
+    .from(activities)
+    .where(
+      and(eq(activities.type, "Follow"), eq(activities.objectApId, NEW_ACTOR)),
+    );
+
+  expect(oldEdges).toHaveLength(0);
+  expect(migratedEdges).toHaveLength(localFollowers.length);
+  expect(migratedEdges.every((edge) => edge.status === "pending")).toBe(true);
+  expect(reFollows).toHaveLength(localFollowers.length);
+  expect(queueBatchSizes).toEqual([100, 20]);
+  expect(queuedBodies).toHaveLength(localFollowers.length);
+  for (const followerApId of localFollowers) {
+    const row = await db
+      .select({ followingCount: actors.followingCount })
+      .from(actors)
+      .where(eq(actors.apId, followerApId))
+      .get();
+    expect(row?.followingCount).toBe(0);
+  }
+});
+
+test("handleMove resumes durable re-Follows after a Queue send failure", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  const localFollowers = Array.from(
+    { length: 17 },
+    (_, index) => `${APP_URL}/ap/users/retry-follower-${index}`,
+  );
+  for (const [index, followerApId] of localFollowers.entries()) {
+    await seedActor(db, followerApId, `retry-follower-${index}`);
+    await db
+      .update(actors)
+      .set({ followingCount: 1 })
+      .where(eq(actors.apId, followerApId));
+    await db.insert(follows).values({
+      followerApId,
+      followingApId: OLD_ACTOR,
+      status: "accepted",
+    });
+  }
+
+  let failNextBatch = true;
+  const sentBodies: unknown[] = [];
+  const deliveryQueue = {
+    async send() {},
+    async sendBatch(messages: readonly { body: unknown }[]) {
+      if (failNextBatch) {
+        failNextBatch = false;
+        throw new Error("injected Queue send failure");
+      }
+      sentBodies.push(...messages.map((message) => message.body));
+    },
+  };
+  const deliveryDlq = {
+    async send() {},
+    async sendBatch() {},
+  };
+  const context = ctx(db, {
+    DELIVERY_QUEUE: deliveryQueue,
+    DELIVERY_DLQ: deliveryDlq,
+  });
+  const activity: Activity = {
+    id: `${APP_URL}/ap/activities/inbound-move-retry`,
+    type: "Move",
+    actor: OLD_ACTOR,
+    object: OLD_ACTOR,
+    target: NEW_ACTOR,
+  };
+
+  await expect(handleMove(context, activity, OLD_ACTOR)).rejects.toThrow(
+    "injected Queue send failure",
+  );
+
+  // The external send failed, but the graph and outbound activities committed
+  // together. A retry must use those durable rows rather than the deleted old
+  // edges, and must not need a second destination alias fetch to do so.
+  expect(
+    await db.select().from(follows).where(eq(follows.followingApId, OLD_ACTOR)),
+  ).toHaveLength(0);
+  const persisted = await db
+    .select()
+    .from(activities)
+    .where(
+      and(eq(activities.type, "Follow"), eq(activities.objectApId, NEW_ACTOR)),
+    );
+  expect(persisted).toHaveLength(localFollowers.length);
+  const fetchCountAfterFirstAttempt = fetchedUrls.length;
+
+  await handleMove(context, activity, OLD_ACTOR);
+
+  expect(fetchedUrls).toHaveLength(fetchCountAfterFirstAttempt);
+  expect(sentBodies).toHaveLength(localFollowers.length);
+  expect(
+    new Set(
+      sentBodies.map(
+        (body) => (body as { activityId?: string }).activityId ?? "",
+      ),
+    ).size,
+  ).toBe(localFollowers.length);
+  expect(
+    sentBodies.every(
+      (body) =>
+        (body as { type?: string; recipientActorApId?: string }).type ===
+          "resolve_actor" &&
+        (body as { recipientActorApId?: string }).recipientActorApId ===
+          NEW_ACTOR,
+    ),
+  ).toBe(true);
+  expect(
+    persisted.every((row) => {
+      const raw = JSON.parse(row.rawJson) as {
+        id?: string;
+        type?: string;
+        actor?: string;
+        object?: string;
+      };
+      return (
+        raw.id === row.apId &&
+        raw.type === "Follow" &&
+        raw.actor === row.actorApId &&
+        raw.object === NEW_ACTOR
+      );
+    }),
+  ).toBe(true);
 });

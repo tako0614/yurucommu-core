@@ -429,6 +429,54 @@ export async function enqueueDeliveryToActor(
 }
 
 /**
+ * Enqueue several distinct activities to the same actor without one Queue RPC
+ * per activity. Cloudflare Queues accepts at most 100 messages per sendBatch;
+ * keep the provider-neutral port bounded to that same size. Replaying a batch
+ * is safe: endpoint resolution later derives the durable delivery-job id from
+ * activity id + endpoint and upserts it idempotently.
+ */
+export async function enqueueDeliveriesToActor(
+  env: Env,
+  activityIds: readonly string[],
+  recipientActorApId: string,
+): Promise<void> {
+  if (activityIds.length === 0) return;
+  if (!queueAvailable(env)) {
+    reportProducerUnavailable("enqueueDeliveriesToActor");
+    // This batched path is used by account Move after its pending edges and
+    // outbound activities have already committed. A silent no-op would make
+    // those local users follow a destination that never learned about them,
+    // with no remaining old edges from which to reconstruct delivery. Throw so
+    // the inbound dispatch stays retryable and can resume the durable activity
+    // namespace after the operator restores the producer bindings.
+    throw new Error(
+      "DELIVERY_QUEUE and DELIVERY_DLQ bindings are required for batched delivery",
+    );
+  }
+  producerUnavailableReported = false;
+
+  const db = (env as Partial<Env>).DB_INSTANCE;
+  if (db && (await isActorBlocked(db, recipientActorApId))) {
+    log.info("Skipping outbound deliveries to blocked actor", {
+      event: "delivery.blocklist.actor_batch_skip",
+      actor: recipientActorApId,
+      activityCount: activityIds.length,
+    });
+    emitMetric("delivery.blocklist.actor_batch_skip", activityIds.length, {});
+    return;
+  }
+
+  const SEND_BATCH_SIZE = 100;
+  for (let offset = 0; offset < activityIds.length; offset += SEND_BATCH_SIZE) {
+    await env.DELIVERY_QUEUE.sendBatch(
+      activityIds.slice(offset, offset + SEND_BATCH_SIZE).map((activityId) => ({
+        body: buildResolveActorMessage(activityId, recipientActorApId),
+      })),
+    );
+  }
+}
+
+/**
  * Fan an activity out to a community's audience (members + community
  * followers) instead of the author's personal follower graph. Used for
  * community-scoped posts so reach == community.
