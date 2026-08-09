@@ -18,7 +18,8 @@ import {
 } from "../../federation-helpers.ts";
 import { sha256Hex } from "../../lib/delivery/transformers.ts";
 import { getInstanceActor, loadFederatedCommunity } from "./query-helpers.ts";
-import { communityApId, getDomain } from "../../lib/ap-ids.ts";
+import { communityApId } from "../../lib/ap-ids.ts";
+import { isTrustedRemoteActivityId } from "../../lib/remote-activity-id.ts";
 import type { Activity } from "./inbox-types.ts";
 import {
   getActivityObject,
@@ -74,7 +75,6 @@ const log = logger.child({ component: "activitypub.inbox" });
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 const MAX_PAYLOAD_BYTES = 512 * 1024;
-const MAX_REMOTE_ACTIVITY_ID_LENGTH = 2_048;
 const INBOUND_DISPATCH_LEASE_MS = 2 * 60 * 1000;
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 
@@ -208,14 +208,6 @@ type ParsedActivity = {
   activityObjectId: string | null;
 };
 
-function isBoundedProtocolActivityId(value: string): boolean {
-  return (
-    value.length > 0 &&
-    value.length <= MAX_REMOTE_ACTIVITY_ID_LENGTH &&
-    !/[\u0000-\u001f\u007f]/u.test(value)
-  );
-}
-
 async function internalInboundActivityId(
   baseUrl: string,
   actor: string,
@@ -298,29 +290,26 @@ async function verifyAndParseInbox(
   // id from actor + source. The original envelope remains in rawJson (bounded by
   // MAX_PAYLOAD_BYTES) for protocol evidence.
   const rawActivityId = typeof activity.id === "string" ? activity.id : null;
-  let activityIdTrusted = false;
-  if (
+  const trustedActivityId =
     rawActivityId !== null &&
-    isBoundedProtocolActivityId(rawActivityId) &&
-    !isLocal(rawActivityId, baseUrl)
-  ) {
-    try {
-      activityIdTrusted = getDomain(rawActivityId) === getDomain(actor);
-    } catch {
-      activityIdTrusted = false;
-    }
-  }
-  const sourceActivityId =
-    rawActivityId !== null && activityIdTrusted
+    isTrustedRemoteActivityId(rawActivityId, actor, baseUrl)
       ? rawActivityId
+      : null;
+  const identitySource =
+    trustedActivityId !== null
+      ? trustedActivityId
       : `synthetic:${await sha256Hex(
           `${actor}\0${activityType}\0${getActivityObjectId(activity) ?? ""}\0${body}`,
         )}`;
   const activityId = await internalInboundActivityId(
     baseUrl,
     actor,
-    sourceActivityId,
+    identitySource,
   );
+  // Only a safe, actor-owned wire id may cross back out in an Accept/Reject.
+  // When the peer omitted or supplied an unsafe id, use our stable retained
+  // ledger IRI instead of leaking an invalid `synthetic:<hash>` pseudo-IRI.
+  const sourceActivityId = trustedActivityId ?? activityId;
 
   // Handlers persist activity ids on interaction/follow edges. Stamp the
   // canonical internal id before dispatch so no remote string escapes into

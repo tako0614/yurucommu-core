@@ -26,8 +26,9 @@ import followRoutes from "../../routes/follow.ts";
  * follower's edge stayed `pending` forever while ours said `accepted`.
  *
  * The fix resolves the peer-facing id from the retained inbound envelope
- * (activities.raw_json), echoing it only when it is a bounded id on the
- * requester's own origin — the same trust rule the inbox applies inbound.
+ * (activities.raw_json), echoing it only when it is a bounded, safe HTTP(S)
+ * id on the requester's exact origin — the same trust rule the inbox applies
+ * inbound.
  */
 
 const APP_URL = "https://yuru.test";
@@ -226,6 +227,39 @@ test("an envelope id on a foreign origin is NOT echoed (falls back to stored id)
   const accept = await latestOutbound(db, "Accept");
   expect(accept.object).toBe(INTERNAL_FOLLOW_ID);
 });
+
+for (const [label, unsafeWireId] of [
+  [
+    "scheme-downgraded",
+    "http://peer.example/ap/activities/not-the-same-origin",
+  ],
+  ["non-HTTP", "ftp://peer.example/ap/activities/not-http"],
+  [
+    "credential-bearing",
+    "https://alice:secret@peer.example/ap/activities/credential-leak",
+  ],
+] as const) {
+  test(`a ${label} same-host envelope id is NOT echoed`, async () => {
+    const db = await freshDb();
+    const recipient = await insertActor(db, "unsafe-id-target");
+    await seedPendingRemoteFollow(db, recipient, unsafeWireId);
+
+    const app = appAs(db, actorObj(recipient));
+    const res = await app.request(
+      "/accept",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requester_ap_id: REMOTE_ACTOR }),
+      },
+      ENV,
+    );
+    expect(res.status).toBe(200);
+
+    const accept = await latestOutbound(db, "Accept");
+    expect(accept.object).toBe(INTERNAL_FOLLOW_ID);
+  });
+}
 
 test("an envelope without an id falls back to the stored id", async () => {
   const db = await freshDb();

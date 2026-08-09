@@ -17,7 +17,7 @@ import {
   isSafeRemoteUrl,
 } from "../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../lib/delivery/queue.ts";
-import { getDomain } from "../lib/ap-ids.ts";
+import { isTrustedRemoteActivityId } from "../lib/remote-activity-id.ts";
 import {
   isUniqueConstraintError,
   parseJsonObject,
@@ -146,10 +146,6 @@ export async function createAndDeliverActivity(
   await enqueueDeliveryToActor(env, id, recipientApId);
 }
 
-// Mirrors the inbox's MAX_REMOTE_ACTIVITY_ID_LENGTH bound for ids we echo
-// back out to a peer.
-const MAX_PEER_ACTIVITY_ID_LENGTH = 2_048;
-
 /**
  * Resolve the peer-facing id for a follow edge's stored activity id.
  *
@@ -194,18 +190,7 @@ export async function resolvePeerFollowActivityId(
   } catch {
     return storedActivityApId;
   }
-  if (
-    wireId.length === 0 ||
-    wireId.length > MAX_PEER_ACTIVITY_ID_LENGTH ||
-    /[\u0000-\u001f\u007f]/u.test(wireId)
-  ) {
-    return storedActivityApId;
-  }
-  try {
-    if (getDomain(wireId) !== getDomain(requesterApId)) {
-      return storedActivityApId;
-    }
-  } catch {
+  if (!isTrustedRemoteActivityId(wireId, requesterApId)) {
     return storedActivityApId;
   }
   return wireId;

@@ -40,6 +40,8 @@ const realHandlers: Record<string, unknown> = {
   ...(await import(HANDLERS_MODULE)),
 };
 
+const observedFollowSourceActivityIds: string[] = [];
+
 // Stub every handler to a no-op so the dispatch succeeds (processed=1 committed)
 // without any real DB effect — the test only inspects the dedup ledger keying.
 mock.module(HANDLERS_MODULE, () => {
@@ -52,7 +54,9 @@ mock.module(HANDLERS_MODULE, () => {
     handleCreate: noop,
     handleDelete: noop,
     handleFlag: noop,
-    handleFollow: noop,
+    handleFollow: async (...args: unknown[]) => {
+      observedFollowSourceActivityIds.push(String(args[5]));
+    },
     handleLike: noop,
     handleMove: noop,
     handleReject: noop,
@@ -166,6 +170,58 @@ test("a cross-origin envelope id does NOT occupy the foreign instance's dedup na
     .where(like(activities.apId, `${APP_URL}/ap/activities/inbound-%`))
     .get();
   expect(localSynthetic?.apId).toMatch(
+    new RegExp(
+      `^${APP_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/ap/activities/inbound-[a-f0-9]{64}$`,
+    ),
+  );
+});
+
+test("a same-host but unsafe Follow id is not exposed as the peer-facing source id", async () => {
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const db = await freshDb();
+  const recipient = `${APP_URL}/ap/users/bob`;
+  await seedActor(db, recipient, "bob");
+  await seedActor(db, EVIL_ACTOR, "evil");
+  await db.insert(actorCache).values({
+    apId: EVIL_ACTOR,
+    type: "Person",
+    preferredUsername: "evil",
+    inbox: `${EVIL_ACTOR}/inbox`,
+    publicKeyId: `${EVIL_ACTOR}#main-key`,
+    publicKeyPem,
+    rawJson: "{}",
+    lastFetchedAt: new Date().toISOString(),
+  });
+
+  const unsafeWireId = "ftp://evil.example/ap/activities/follow-unsafe";
+  const body = JSON.stringify({
+    id: unsafeWireId,
+    type: "Follow",
+    actor: EVIL_ACTOR,
+    object: recipient,
+  });
+  const url = `${recipient}/inbox`;
+  const headers = await signRequest(
+    privateKeyPem,
+    `${EVIL_ACTOR}#main-key`,
+    "POST",
+    url,
+    body,
+  );
+  const before = observedFollowSourceActivityIds.length;
+  const res = await appWith(db).fetch(
+    new Request(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/activity+json" },
+      body,
+    }),
+    { APP_URL },
+  );
+
+  expect(res.status).toEqual(202);
+  expect(observedFollowSourceActivityIds).toHaveLength(before + 1);
+  expect(observedFollowSourceActivityIds.at(-1)).not.toBe(unsafeWireId);
+  expect(observedFollowSourceActivityIds.at(-1)).toMatch(
     new RegExp(
       `^${APP_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/ap/activities/inbound-[a-f0-9]{64}$`,
     ),
