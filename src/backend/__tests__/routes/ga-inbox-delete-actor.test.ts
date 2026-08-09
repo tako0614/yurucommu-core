@@ -254,6 +254,115 @@ test("Delete(Actor) removes retained state under a legacy cosmetic actor spellin
   ).toEqual({ likeCount: 0 });
 });
 
+test("Delete(Actor) removes every cosmetic alias beyond the legacy 32-row prefix", async () => {
+  const db = await freshDb();
+  const pathCaseSibling = "https://remote.example/users/Alice";
+  const localPost = `${APP_URL}/ap/objects/alias-limit-target`;
+  const siblingPost = "https://remote.example/objects/path-case-sibling";
+  const targetLikeActor = "https://REMOTE.example:443/users/alice/#interaction";
+
+  await db.insert(actors).values({
+    apId: LOCAL,
+    type: "Person",
+    preferredUsername: "bob",
+    inbox: `${LOCAL}/inbox`,
+    outbox: `${LOCAL}/outbox`,
+    followersUrl: `${LOCAL}/followers`,
+    followingUrl: `${LOCAL}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db.insert(actorCache).values([
+    {
+      apId: REMOTE,
+      type: "Person",
+      inbox: `${REMOTE}/inbox`,
+      rawJson: "{}",
+    },
+    {
+      apId: pathCaseSibling,
+      type: "Person",
+      inbox: `${pathCaseSibling}/inbox`,
+      rawJson: "{}",
+    },
+  ]);
+  await db.run(sql`
+    WITH RECURSIVE numbers(n) AS (
+      VALUES (0)
+      UNION ALL
+      SELECT n + 1 FROM numbers WHERE n < 32
+    )
+    INSERT INTO objects (
+      ap_id, type, attributed_to, content, visibility, is_local
+    )
+    SELECT
+      'https://remote.example/objects/legacy-alias-' || n,
+      'Note',
+      'https://REMOTE.example:443/users/alice/#legacy-' || n,
+      'legacy remote',
+      'public',
+      0
+    FROM numbers
+  `);
+  await db.insert(objects).values([
+    {
+      apId: siblingPost,
+      type: "Note",
+      attributedTo: pathCaseSibling,
+      content: "path-case sibling",
+      visibility: "public",
+      isLocal: 0,
+    },
+    {
+      apId: localPost,
+      type: "Note",
+      attributedTo: LOCAL,
+      content: "local target",
+      visibility: "public",
+      isLocal: 1,
+      likeCount: 2,
+    },
+  ]);
+  await db.insert(likes).values([
+    {
+      actorApId: targetLikeActor,
+      objectApId: localPost,
+      activityApId: `${REMOTE}/likes/alias-limit`,
+    },
+    {
+      actorApId: pathCaseSibling,
+      objectApId: localPost,
+      activityApId: `${pathCaseSibling}/likes/1`,
+    },
+  ]);
+
+  await handleDelete(ctxFor(db), deleteActor(REMOTE));
+
+  const retainedRemoteObjects = (await db.select().from(objects)).filter(
+    (object) => object.apId.includes("/objects/legacy-alias-"),
+  );
+  expect(retainedRemoteObjects).toEqual([]);
+  expect(await db.select({ actorApId: likes.actorApId }).from(likes)).toEqual([
+    { actorApId: pathCaseSibling },
+  ]);
+  expect(
+    await db
+      .select({ likeCount: objects.likeCount })
+      .from(objects)
+      .where(eq(objects.apId, localPost))
+      .get(),
+  ).toEqual({ likeCount: 1 });
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, siblingPost)),
+  ).toEqual([{ apId: siblingPost }]);
+  expect(await db.select({ apId: actorCache.apId }).from(actorCache)).toEqual([
+    { apId: pathCaseSibling },
+  ]);
+});
+
 test("Delete(Actor) rolls back counterpart counters when a later teardown statement fails, then retries exactly", async () => {
   const db = await freshDb();
   const otherRemote = "https://other.example/users/carol";
