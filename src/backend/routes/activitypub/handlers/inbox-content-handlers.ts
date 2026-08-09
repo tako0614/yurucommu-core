@@ -37,11 +37,10 @@ import {
 import {
   boundAttachmentsJson,
   boundInboundContent,
+  boundInboundNoteAttachmentsJson,
   boundInboundSummary,
+  boundInboundTagsJson,
   MAX_ATTACHMENTS_JSON_LENGTH,
-  MAX_POST_CONTENT_LENGTH,
-  MAX_POST_SUMMARY_LENGTH,
-  truncate,
 } from "../../posts/transformers.ts";
 import {
   activityApId,
@@ -329,9 +328,6 @@ async function insertDirectNote(
       ? object.conversation
       : computedConversation;
 
-  const attachments = object.attachment
-    ? JSON.stringify(object.attachment)
-    : "[]";
   const publishedAt = normalizeInboundTimestamp(
     object.published,
     new Date().toISOString(),
@@ -374,7 +370,8 @@ async function insertDirectNote(
         attributedTo: actor,
         content: boundInboundContent(object.content),
         summary: boundInboundSummary(object.summary),
-        attachmentsJson: boundAttachmentsJson(attachments),
+        attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
+        tagsJson: boundInboundTagsJson(object.tag),
         inReplyTo: object.inReplyTo || null,
         visibility: "direct",
         toJson,
@@ -521,9 +518,6 @@ export async function handleCreate(
     .where(eq(objects.apId, objectId))
     .get();
 
-  const attachments = object.attachment
-    ? JSON.stringify(object.attachment)
-    : "[]";
   const publishedAt = normalizeInboundTimestamp(
     object.published,
     new Date().toISOString(),
@@ -594,7 +588,8 @@ export async function handleCreate(
       attributedTo: actor,
       content: boundInboundContent(object.content),
       summary: boundInboundSummary(object.summary),
-      attachmentsJson: boundAttachmentsJson(attachments),
+      attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
+      tagsJson: boundInboundTagsJson(object.tag),
       inReplyTo: object.inReplyTo || null,
       // Recipient-independent classification: a non-public Note is never stored
       // as world-readable "unlisted". A followers-only post → "followers" (gated
@@ -1048,7 +1043,6 @@ export async function fetchAndPersistAnnouncedNote(
     }
   }
 
-  const attachments = note.attachment ? JSON.stringify(note.attachment) : "[]";
   await db
     .insert(objects)
     .values({
@@ -1057,7 +1051,8 @@ export async function fetchAndPersistAnnouncedNote(
       attributedTo,
       content: boundInboundContent(note.content),
       summary: boundInboundSummary(note.summary),
-      attachmentsJson: boundAttachmentsJson(attachments),
+      attachmentsJson: boundInboundNoteAttachmentsJson(note.attachment),
+      tagsJson: boundInboundTagsJson(note.tag),
       // Stored verbatim, never resolved (depth cap): a boosted reply keeps its
       // honest thread link even though the parent may stay unknown here.
       inReplyTo: note.inReplyTo || null,
@@ -1435,9 +1430,6 @@ export async function handleUpdate(
 
   // Update object content
   if (typeIncludes(object.type, "Note")) {
-    const attachments = object.attachment
-      ? JSON.stringify(object.attachment)
-      : undefined;
     // Content and reach are one authority decision. A remote author can narrow
     // an existing public Note to followers/direct in the same Update; applying
     // only its new body would leave that private content readable through the
@@ -1469,16 +1461,21 @@ export async function handleUpdate(
       .update(objects)
       .set({
         content:
-          typeof object.content === "string" && object.content
-            ? truncate(object.content, MAX_POST_CONTENT_LENGTH)
+          object.content !== undefined
+            ? boundInboundContent(object.content)
             : undefined,
         summary:
-          typeof object.summary === "string" && object.summary
-            ? truncate(object.summary, MAX_POST_SUMMARY_LENGTH)
+          object.summary !== undefined
+            ? boundInboundSummary(object.summary)
             : undefined,
-        attachmentsJson: attachments
-          ? boundAttachmentsJson(attachments)
-          : undefined,
+        attachmentsJson:
+          object.attachment !== undefined
+            ? boundInboundNoteAttachmentsJson(object.attachment)
+            : undefined,
+        tagsJson:
+          object.tag !== undefined
+            ? boundInboundTagsJson(object.tag)
+            : undefined,
         visibility: updatedVisibility,
         toJson: hasAddressingUpdate ? boundAddressJson(object.to) : undefined,
         ccJson: hasAddressingUpdate ? boundAddressJson(object.cc) : undefined,

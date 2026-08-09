@@ -144,6 +144,27 @@ async function getPostStatus(
   ).status;
 }
 
+type PostProjection = {
+  content: string;
+  summary: string | null;
+  attachments: unknown[];
+};
+
+async function getPost(
+  db: Database,
+  actor: Actor | null,
+  objectApId: string,
+): Promise<PostProjection> {
+  const response = await postsApp(db, actor).fetch(
+    new Request(`${APP_URL}/api/posts/${encodeURIComponent(objectApId)}`, {
+      method: "GET",
+    }),
+    envFor(db),
+  );
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { post: PostProjection }).post;
+}
+
 type ContactsResponse = {
   mutual_followers: Array<{
     conversation_id: string;
@@ -173,13 +194,20 @@ async function insertRemoteNote(
     to: string[];
     cc?: string[];
     conversation?: string;
+    content?: string;
+    summary?: string | null;
+    attachments?: unknown[];
+    tags?: unknown[];
   },
 ): Promise<void> {
   await db.insert(objects).values({
     apId: id,
     type: "Note",
     attributedTo: REMOTE,
-    content: "old body",
+    content: reach.content ?? "old body",
+    summary: reach.summary ?? null,
+    attachmentsJson: JSON.stringify(reach.attachments ?? []),
+    tagsJson: JSON.stringify(reach.tags ?? []),
     visibility: reach.visibility,
     toJson: JSON.stringify(reach.to),
     ccJson: JSON.stringify(reach.cc ?? []),
@@ -237,6 +265,19 @@ async function reachRow(db: Database, id: string) {
       visibility: objects.visibility,
       toJson: objects.toJson,
       ccJson: objects.ccJson,
+    })
+    .from(objects)
+    .where(eq(objects.apId, id))
+    .get();
+}
+
+async function projectionRow(db: Database, id: string) {
+  return db
+    .select({
+      content: objects.content,
+      summary: objects.summary,
+      attachmentsJson: objects.attachmentsJson,
+      tagsJson: objects.tagsJson,
     })
     .from(objects)
     .where(eq(objects.apId, id))
@@ -318,6 +359,206 @@ test("a content-only partial Update preserves the Note's existing reach", async 
     ccJson: JSON.stringify([LOCAL_BOB]),
   });
   expect(await getPostStatus(db, null, id)).toBe(404);
+});
+
+test("explicit empty Update fields clear stale content, warning, media, and tags", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/clear-projections";
+  await insertRemoteNote(db, id, {
+    visibility: "public",
+    to: [PUBLIC],
+    content: "remove every old projection",
+    summary: "old warning",
+    attachments: [
+      {
+        type: "Document",
+        mediaType: "image/png",
+        url: "https://remote.example/media/old.png",
+      },
+    ],
+    tags: [
+      {
+        type: "Hashtag",
+        name: "#old",
+        href: "https://remote.example/tags/old",
+      },
+    ],
+  });
+
+  const update = parseActivity({
+    id: `${id}/updates/clear`,
+    type: "Update",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "",
+      summary: null,
+      attachment: null,
+      tag: [],
+    },
+  }) as Activity;
+  await handleUpdate(ctxFor(db), update, REMOTE);
+
+  expect(await projectionRow(db, id)).toMatchObject({
+    content: "",
+    summary: null,
+    attachmentsJson: "[]",
+    tagsJson: "[]",
+  });
+  expect(await getPost(db, null, id)).toEqual(
+    expect.objectContaining({ content: "", summary: null, attachments: [] }),
+  );
+});
+
+test("Update normalizes a single attachment object and replaces the tag projection", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/replace-projections";
+  const attachment = {
+    type: "Document",
+    mediaType: "image/jpeg",
+    url: "https://remote.example/media/new.jpg",
+    name: "new image",
+  };
+  const tag = {
+    type: "Hashtag",
+    name: "#new",
+    href: "https://remote.example/tags/new",
+  };
+  await insertRemoteNote(db, id, {
+    visibility: "public",
+    to: [PUBLIC],
+    summary: "old warning",
+    attachments: [{ url: "https://remote.example/media/old.jpg" }],
+    tags: [{ type: "Hashtag", name: "#old" }],
+  });
+
+  const update = parseActivity({
+    id: `${id}/updates/replace`,
+    type: "Update",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "new body",
+      summary: "new warning",
+      attachment,
+      tag: [tag],
+    },
+  }) as Activity;
+  await handleUpdate(ctxFor(db), update, REMOTE);
+
+  expect(await projectionRow(db, id)).toMatchObject({
+    content: "new body",
+    summary: "new warning",
+    attachmentsJson: JSON.stringify([attachment]),
+    tagsJson: JSON.stringify([tag]),
+  });
+  expect(await getPost(db, null, id)).toEqual(
+    expect.objectContaining({
+      content: "new body",
+      summary: "new warning",
+      attachments: [attachment],
+    }),
+  );
+});
+
+test("a partial Update preserves omitted warning, media, and tag projections", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/preserve-projections";
+  const attachments = [{ url: "https://remote.example/media/keep.jpg" }];
+  const tags = [{ type: "Hashtag", name: "#keep" }];
+  await insertRemoteNote(db, id, {
+    visibility: "public",
+    to: [PUBLIC],
+    summary: "keep warning",
+    attachments,
+    tags,
+  });
+
+  await handleUpdate(ctxFor(db), updateNote(id, "new body only"), REMOTE);
+
+  expect(await projectionRow(db, id)).toMatchObject({
+    content: "new body only",
+    summary: "keep warning",
+    attachmentsJson: JSON.stringify(attachments),
+    tagsJson: JSON.stringify(tags),
+  });
+});
+
+test("inbound Create normalizes single media and persists bounded tag projection", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/create-projections";
+  const attachment = {
+    type: "Document",
+    mediaType: "image/webp",
+    url: "https://remote.example/media/create.webp",
+  };
+  const tag = {
+    type: "Hashtag",
+    name: "#created",
+    href: "https://remote.example/tags/created",
+  };
+  const create = parseActivity({
+    id: `${id}/activity`,
+    type: "Create",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "created projection",
+      attachment,
+      tag: [tag],
+      to: [PUBLIC],
+      cc: [],
+    },
+  }) as Activity;
+
+  await handleCreate(ctxFor(db), create, recipient(LOCAL_BOB), REMOTE, APP_URL);
+
+  expect(await projectionRow(db, id)).toMatchObject({
+    attachmentsJson: JSON.stringify([attachment]),
+    tagsJson: JSON.stringify([tag]),
+  });
+  expect(await getPost(db, null, id)).toEqual(
+    expect.objectContaining({ attachments: [attachment] }),
+  );
+});
+
+test("inbound Create caps attachment and tag arrays before persistence", async () => {
+  const db = await setup();
+  const id = "https://remote.example/objects/bounded-projections";
+  const attachments = Array.from({ length: 20 }, (_, index) => ({
+    url: `https://remote.example/media/${index}.png`,
+  }));
+  const tags = Array.from({ length: 80 }, (_, index) => ({
+    type: "Hashtag",
+    name: `#tag${index}`,
+  }));
+  const create = parseActivity({
+    id: `${id}/activity`,
+    type: "Create",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "bounded projection",
+      attachment: attachments,
+      tag: tags,
+      to: [PUBLIC],
+      cc: [],
+    },
+  }) as Activity;
+
+  await handleCreate(ctxFor(db), create, recipient(LOCAL_BOB), REMOTE, APP_URL);
+
+  const row = await projectionRow(db, id);
+  expect(JSON.parse(row!.attachmentsJson)).toHaveLength(8);
+  expect(JSON.parse(row!.tagsJson)).toHaveLength(64);
 });
 
 test("Update(Note) widening followers to public updates the canonical GET gate", async () => {

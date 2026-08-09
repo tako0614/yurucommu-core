@@ -5,8 +5,11 @@ import { validateOverlays } from "../../routes/stories/query-helpers.ts";
 import {
   boundAttachmentsJson,
   boundInboundContent,
+  boundInboundNoteAttachmentsJson,
   boundInboundSummary,
+  boundInboundTagsJson,
   MAX_ATTACHMENTS,
+  MAX_INBOUND_TAGS,
   MAX_POST_CONTENT_LENGTH,
   MAX_POST_SUMMARY_LENGTH,
   truncate,
@@ -100,6 +103,37 @@ test("boundAttachmentsJson drops an oversized blob to []", () => {
   const small = JSON.stringify([{ url: "https://a/" }]);
   expect(boundAttachmentsJson(small)).toBe(small);
   expect(boundAttachmentsJson("x".repeat(20_000))).toBe("[]");
+});
+
+test("inbound Note attachments normalize cardinality and filter invalid entries", () => {
+  const attachment = { url: "https://a/image.png" };
+  expect(JSON.parse(boundInboundNoteAttachmentsJson(attachment))).toEqual([
+    attachment,
+  ]);
+  expect(
+    JSON.parse(
+      boundInboundNoteAttachmentsJson([
+        null,
+        "not-an-object",
+        attachment,
+        ...Array.from({ length: MAX_ATTACHMENTS }, (_, index) => ({ index })),
+      ]),
+    ),
+  ).toHaveLength(MAX_ATTACHMENTS);
+  expect(boundInboundNoteAttachmentsJson(null)).toBe("[]");
+  expect(boundInboundNoteAttachmentsJson([{ name: "x".repeat(20_000) }])).toBe(
+    "[]",
+  );
+});
+
+test("inbound Note tags are object-only and bounded by count and bytes", () => {
+  const tags = Array.from({ length: MAX_INBOUND_TAGS + 10 }, (_, index) => ({
+    type: "Hashtag",
+    name: `#tag${index}`,
+  }));
+  expect(JSON.parse(boundInboundTagsJson(tags))).toHaveLength(MAX_INBOUND_TAGS);
+  expect(boundInboundTagsJson([null, "bad"])).toBe("[]");
+  expect(boundInboundTagsJson([{ name: "x".repeat(20_000) }])).toBe("[]");
 });
 
 test("truncate is a no-op within bounds", () => {

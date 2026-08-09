@@ -472,7 +472,9 @@ test("editing content re-derives tags: an added #hashtag federates + persists, r
   const u2 = JSON.parse(updates2[updates2.length - 1].rawJson) as {
     object: { tag?: unknown[] };
   };
-  expect(u2.object.tag).toBeUndefined();
+  // Explicit [] distinguishes "all tags removed" from a legacy partial Update
+  // that omitted the tag projection and asks the receiver to preserve it.
+  expect(u2.object.tag).toEqual([]);
   const objRow = await db
     .select({ tagsJson: objects.tagsJson })
     .from(objects)

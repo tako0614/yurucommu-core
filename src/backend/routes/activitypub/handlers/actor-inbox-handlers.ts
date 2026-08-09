@@ -18,9 +18,10 @@ import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { communityRequiresMembership } from "../../../lib/community-visibility.ts";
 import { isMemberBanned } from "../../communities/membership-shared.ts";
 import {
-  boundAttachmentsJson,
   boundInboundContent,
+  boundInboundNoteAttachmentsJson,
   boundInboundSummary,
+  boundInboundTagsJson,
 } from "../../posts/transformers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
 import { runBatch } from "./inbox-shared-helpers.ts";
@@ -307,9 +308,6 @@ export async function handleGroupCreate(
   const newObjectId = object.id || objectApId(baseUrl, generateId());
   const audienceJson = JSON.stringify([community.apId]);
 
-  const attachments = object.attachment
-    ? JSON.stringify(object.attachment)
-    : "[]";
   // Clamp + normalize the remote-controlled `published` exactly like the other
   // inbound Note paths (handleCreate / insertDirectNote / handleCreateStory). The
   // community chat reader sorts + keyset-paginates on `desc(objects.published)`
@@ -342,7 +340,8 @@ export async function handleGroupCreate(
         attributedTo: actorApIdStr,
         content: boundInboundContent(object.content),
         summary: boundInboundSummary(object.summary),
-        attachmentsJson: boundAttachmentsJson(attachments),
+        attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
+        tagsJson: boundInboundTagsJson(object.tag),
         visibility: "group",
         // Record the community in audienceJson too (not just the
         // object_recipients row): the canonical single-object read-gate

@@ -1,15 +1,16 @@
 import { formatUsername, safeJsonParse } from "../../federation-helpers.ts";
+import {
+  boundAttachmentsJson,
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENTS_JSON_LENGTH,
+} from "../../lib/attachments.ts";
 
 export const MAX_POST_CONTENT_LENGTH = 5000;
 export const MAX_POST_SUMMARY_LENGTH = 500;
 // Attachment bounds live in lib/attachments.ts (shared with the DM and
 // community-chat validators); re-exported here for the existing post-route and
 // inbound-handler importers.
-export {
-  boundAttachmentsJson,
-  MAX_ATTACHMENTS,
-  MAX_ATTACHMENTS_JSON_LENGTH,
-} from "../../lib/attachments.ts";
+export { boundAttachmentsJson, MAX_ATTACHMENTS, MAX_ATTACHMENTS_JSON_LENGTH };
 
 /** Truncate a string to `max` characters (no-op when already within bounds). */
 export function truncate(s: string, max: number): string {
@@ -29,6 +30,60 @@ export function boundInboundSummary(summary: unknown): string | null {
   return typeof summary === "string" && summary.length > 0
     ? truncate(summary, MAX_POST_SUMMARY_LENGTH)
     : null;
+}
+
+/** Maximum persisted ActivityStreams tag objects on one inbound Note. */
+export const MAX_INBOUND_TAGS = 64;
+export const MAX_INBOUND_TAGS_JSON_LENGTH = 16 * 1024;
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeBoundedRecordArray(
+  value: unknown,
+  maxItems: number,
+  maxJsonLength: number,
+): string {
+  const candidates =
+    value === undefined || value === null
+      ? []
+      : Array.isArray(value)
+        ? value
+        : [value];
+  const records: Record<string, unknown>[] = [];
+  for (const candidate of candidates) {
+    if (!isJsonRecord(candidate)) continue;
+    records.push(candidate);
+    if (records.length >= maxItems) break;
+  }
+  const json = JSON.stringify(records);
+  return json.length <= maxJsonLength ? json : "[]";
+}
+
+/**
+ * Normalize the AS2 `attachment` cardinality before it reaches the SQL/API
+ * projection. ActivityStreams permits a single object or an array, while the
+ * Yurucommu post contract is always an array. Invalid entries are ignored and
+ * both count and serialized size are bounded at the local post limits.
+ */
+export function boundInboundNoteAttachmentsJson(attachment: unknown): string {
+  return boundAttachmentsJson(
+    normalizeBoundedRecordArray(
+      attachment,
+      MAX_ATTACHMENTS,
+      MAX_ATTACHMENTS_JSON_LENGTH,
+    ),
+  );
+}
+
+/** Persist only a bounded array of object-shaped AS2 tag entries. */
+export function boundInboundTagsJson(tag: unknown): string {
+  return normalizeBoundedRecordArray(
+    tag,
+    MAX_INBOUND_TAGS,
+    MAX_INBOUND_TAGS_JSON_LENGTH,
+  );
 }
 // Capped at 90 (not 100): a page's object ids are re-queried via
 // `inArray(col, objectApIds)` for like/bookmark enrichment, and Cloudflare D1

@@ -678,7 +678,10 @@ posts.patch("/:id", async (c) => {
       sensitive: Boolean(nextSummary),
       // Carry the re-derived tags so a receiver updating the Note keeps its
       // Hashtag/Mention tags instead of dropping them on edit.
-      ...(nextTags.length > 0 ? { tag: nextTags } : {}),
+      // Always carry the projection. `[]` is an explicit clear; omission is
+      // reserved for partial third-party Updates that ask receivers to preserve
+      // their existing tag projection.
+      tag: nextTags,
       to: updateTo,
       cc: updateCc,
       ...(updateAudience.length > 0 ? { audience: updateAudience } : {}),
