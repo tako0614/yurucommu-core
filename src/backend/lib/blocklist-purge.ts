@@ -7,7 +7,7 @@ import { chunkForInClause } from "./chunk.ts";
 import { normalizeDomain } from "./blocklist.ts";
 import { activityPubActorIdentityMatchesSql } from "./activitypub-actor-identity-sql.ts";
 import {
-  deleteObjectCascade,
+  deleteObjectsCascade,
   purgeMediaBlobs,
 } from "../routes/posts/delete-cascade.ts";
 import { logger } from "./logger.ts";
@@ -53,10 +53,7 @@ async function purgeObjects(
   media?: IObjectStorage,
 ): Promise<void> {
   if (apIds.length === 0) return;
-  const mediaKeys: string[] = [];
-  for (const apId of apIds) {
-    mediaKeys.push(...(await deleteObjectCascade(db, apId, media)));
-  }
+  const mediaKeys = await deleteObjectsCascade(db, apIds, media);
   for (const chunk of chunkForInClause(apIds)) {
     await db.delete(objects).where(inArray(objects.apId, chunk));
   }

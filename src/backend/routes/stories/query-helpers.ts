@@ -15,7 +15,7 @@ import {
   safeJsonParse,
 } from "../../federation-helpers.ts";
 import {
-  deleteObjectCascade,
+  deleteObjectsCascade,
   purgeMediaBlobs,
 } from "../posts/delete-cascade.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
@@ -310,17 +310,14 @@ export async function cleanupExpiredStories(
 
   const expiredApIds = expiredStories.map((s) => s.apId);
 
-  // Reap every child edge for each expired story through the shared object
+  // Reap every child edge for the expired set through the shared batched object
   // cascade (likes / announces / bookmarks / object_recipients / story_views /
   // story_votes / story_shares + attached media_uploads), so expiry can't
-  // orphan rows the hand-rolled list previously missed (announces, bookmarks,
-  // media). The helper reads each object row, so run it before deleting them.
-  // When a `media` binding is threaded in, the backing R2 blobs are best-effort
-  // purged too so expired-story storage does not leak.
-  const mediaKeys: string[] = [];
-  for (const apId of expiredApIds) {
-    mediaKeys.push(...(await deleteObjectCascade(db, apId, media)));
-  }
+  // orphan rows the hand-rolled list previously missed or make one D1 round
+  // trip per child table per story. The helper reads the object rows, so run it
+  // before deleting them. When a `media` binding is threaded in, the backing R2
+  // blobs are best-effort purged too so expired-story storage does not leak.
+  const mediaKeys = await deleteObjectsCascade(db, expiredApIds, media);
 
   // Delete EXACTLY the cascaded set (chunked for D1's 100-bound-param cap), not a
   // broad `endTime < now` — with the per-run limit a broad delete could remove a

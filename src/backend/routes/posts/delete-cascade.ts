@@ -19,7 +19,7 @@
  * the remote `handleDelete` inbox path so neither can orphan rows.
  */
 
-import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import {
@@ -33,10 +33,18 @@ import {
   mediaUploads,
   objectRecipients,
   objects,
+  runBatch,
   storyShares,
   storyViews,
   storyVotes,
 } from "../../../db/index.ts";
+import { chunkForInClause, D1_IN_CHUNK } from "../../lib/chunk.ts";
+
+type CascadeObject = {
+  apId: string;
+  attributedTo: string;
+  attachmentsJson: string;
+};
 
 /**
  * Reap the `media_uploads` rows attached to a single object.
@@ -51,8 +59,8 @@ import {
  * `attachmentMatches` semantics. There is no engine-level CASCADE for this edge,
  * so without this the upload rows orphan on every runtime.
  *
- * Returns silently when the object row is already gone (caller may delete the
- * object before or after calling this) or has no attachments.
+ * The caller supplies a still-present object snapshot; this returns silently
+ * when that snapshot has no attachments.
  *
  * When a `media` object-store binding is provided, the backing R2 blobs for the
  * reaped uploads are best-effort deleted by `r2_key` (mirroring the
@@ -67,22 +75,14 @@ import {
  * dropping to zero. The DB-row delete is unconditional (the reaped rows belong
  * to this object's reap set regardless).
  */
-async function deleteAttachedMediaUploads(
+async function deleteAttachedMediaUploadsForObject(
   db: Database,
-  objectApId: string,
+  obj: CascadeObject,
+  removedObjectApIds: ReadonlySet<string>,
   media?: IObjectStorage,
 ): Promise<string[]> {
-  const obj = await db
-    .select({
-      attributedTo: objects.attributedTo,
-      attachmentsJson: objects.attachmentsJson,
-    })
-    .from(objects)
-    .where(eq(objects.apId, objectApId))
-    .get();
-
-  // No object row (already deleted) or no attachment payload: nothing to reap.
-  if (!obj || !obj.attachmentsJson || obj.attachmentsJson === "[]") return [];
+  // No attachment payload: nothing to reap.
+  if (!obj.attachmentsJson || obj.attachmentsJson === "[]") return [];
 
   const attachmentsJson = obj.attachmentsJson;
 
@@ -112,40 +112,43 @@ async function deleteAttachedMediaUploads(
 
   if (orphaned.length === 0) return [];
 
-  // Before any R2 purge, find which of these `r2_key`s are still referenced by
-  // ANOTHER (different `ap_id`), still-present object of the same author. Such
-  // a key must NOT have its blob deleted — another object still shows it. We
-  // run this read while the rows are still present so an OTHER object whose
-  // `attachments_json` happens to point back at this object's reap set is
-  // honoured; the lookup is scoped to the author's own objects (indexed) and
-  // excludes the object being reaped.
+  // Before any R2 purge, find which keys are still referenced by an object of
+  // the same author OUTSIDE the complete set being removed. This matters for a
+  // batch containing two posts that share one blob: checking only "another
+  // object" would make each target keep the other target's key, then leak the
+  // row and blob after both objects disappear.
   const stillReferencedKeys = new Set<string>();
   if (media) {
-    // For each orphaned key, ask SQL (indexed by attributedTo) whether ANOTHER
-    // present object of this author still references it — instead of loading
-    // EVERY other object's attachmentsJson into memory and substring-scanning
-    // them all (O(objects × keys), unbounded for a prolific author). `orphaned`
-    // is only this object's own attachments (a handful), so this is a small,
-    // bounded set of indexed lookups. Uses instr() (literal substring), NOT
-    // `LIKE '%<key>%'`: a 73-char `uploads/<64-hex>.png` key in a `%...%` pattern
-    // exceeds D1's LIKE pattern-complexity limit (SQLITE_ERROR 7500, ~50 chars).
-    // Mirrors media.ts findReferencingObject.
+    // Page only matching AP-IDs and stop at the first survivor. A NOT IN list
+    // cannot safely carry an unbounded removal set through D1's 100-parameter
+    // ceiling; keyset pages keep every query constant-sized without loading a
+    // prolific author's complete object history. instr() is literal and avoids
+    // D1's long-LIKE complexity failure.
     for (const m of orphaned) {
-      const ref = await db
-        .select({ apId: objects.apId })
-        .from(objects)
-        .where(
-          and(
-            eq(objects.attributedTo, obj.attributedTo),
-            ne(objects.apId, objectApId),
-            or(
-              sql`instr(${objects.attachmentsJson}, ${m.r2Key}) > 0`,
-              sql`instr(${objects.attachmentsJson}, ${mediaUrlForKey(m.r2Key)}) > 0`,
-            ),
+      let cursor: string | undefined;
+      while (true) {
+        const referenceMatch = and(
+          eq(objects.attributedTo, obj.attributedTo),
+          or(
+            sql`instr(${objects.attachmentsJson}, ${m.r2Key}) > 0`,
+            sql`instr(${objects.attachmentsJson}, ${mediaUrlForKey(m.r2Key)}) > 0`,
           ),
-        )
-        .get();
-      if (ref) stillReferencedKeys.add(m.r2Key);
+          cursor ? gt(objects.apId, cursor) : undefined,
+        );
+        const refs = await db
+          .select({ apId: objects.apId })
+          .from(objects)
+          .where(referenceMatch)
+          .orderBy(asc(objects.apId))
+          .limit(D1_IN_CHUNK);
+        if (refs.some((ref) => !removedObjectApIds.has(ref.apId))) {
+          stillReferencedKeys.add(m.r2Key);
+          break;
+        }
+        if (refs.length < D1_IN_CHUNK) break;
+        cursor = refs.at(-1)?.apId;
+        if (!cursor) break;
+      }
     }
   }
 
@@ -293,38 +296,107 @@ export async function deleteObjectCascade(
   objectApId: string,
   media?: IObjectStorage,
 ): Promise<string[]> {
-  // Reap the media_uploads rows + child rows while the object row (and its
-  // attachments_json) is still readable. Returns the R2 keys whose blobs are now
-  // unreferenced — the caller MUST purge them via purgeMediaBlobs AFTER it has
-  // deleted the objects row, so the irreversible R2 delete is the trailing step.
-  const mediaKeys = await deleteAttachedMediaUploads(db, objectApId, media);
-  await db.delete(likes).where(eq(likes.objectApId, objectApId));
-  await db.delete(announces).where(eq(announces.objectApId, objectApId));
-  await db.delete(bookmarks).where(eq(bookmarks.objectApId, objectApId));
-  await db
-    .delete(objectRecipients)
-    .where(eq(objectRecipients.objectApId, objectApId));
-  await db.delete(storyViews).where(eq(storyViews.storyApId, objectApId));
-  await db.delete(storyVotes).where(eq(storyVotes.storyApId, objectApId));
-  await db.delete(storyShares).where(eq(storyShares.storyApId, objectApId));
+  return await deleteObjectsCascade(db, [objectApId], media);
+}
 
-  // Reap NOTIFICATION inbox rows that pointed at this object (a Like / Announce /
-  // reply-Create that notified a local user). After the object row is gone the
-  // notifications query's leftJoin(objects) yields NULL, so these would otherwise
-  // render as dangling notifications (blank content, dead link) AND keep inflating
-  // the unread badge (the inbox row stays read=0). Delete the INBOX rows only, via
-  // a subquery (D1-param-safe) — NOT the `activities` rows, which may include the
-  // outbound federation Delete that must survive to be delivered.
-  await db
-    .delete(inboxTable)
-    .where(
-      inArray(
-        inboxTable.activityApId,
-        db
-          .select({ id: activities.apId })
-          .from(activities)
-          .where(eq(activities.objectApId, objectApId)),
-      ),
+/**
+ * Reap every child row for a set of objects without deleting the object rows.
+ * This is the set-shaped counterpart to {@link deleteObjectCascade}; callers
+ * still own the final object delete and trailing {@link purgeMediaBlobs}.
+ *
+ * The old bulk callers invoked the singular helper once per object. On D1 that
+ * meant one attachment read plus eight serial delete round-trips per post: five
+ * empty posts took about ten seconds in a real workerd probe and larger domain
+ * purges could outlive the request. Here each <=90-id D1-safe chunk issues one
+ * atomic eight-statement batch, so latency scales by chunks rather than posts.
+ */
+export async function deleteObjectsCascade(
+  db: Database,
+  objectApIds: string[],
+  media?: IObjectStorage,
+): Promise<string[]> {
+  const uniqueApIds = [...new Set(objectApIds)];
+  if (uniqueApIds.length === 0) return [];
+
+  const cascadeObjects: CascadeObject[] = [];
+  for (const chunk of chunkForInClause(uniqueApIds)) {
+    cascadeObjects.push(
+      ...(await db
+        .select({
+          apId: objects.apId,
+          attributedTo: objects.attributedTo,
+          attachmentsJson: objects.attachmentsJson,
+        })
+        .from(objects)
+        .where(inArray(objects.apId, chunk))),
     );
+  }
+  if (cascadeObjects.length === 0) return [];
+  const existingApIds = cascadeObjects.map((obj) => obj.apId);
+  const removedObjectApIds = new Set(existingApIds);
+
+  // Remote attachments are normally ordinary remote URLs with no local
+  // media_uploads rows. Discover the small set of authors that actually own a
+  // managed upload before entering the per-object media GC, otherwise every
+  // image post would reintroduce one serial indexed read during defederation.
+  const objectsWithAttachments = cascadeObjects.filter(
+    (obj) => obj.attachmentsJson && obj.attachmentsJson !== "[]",
+  );
+  const authorsWithUploads = new Set<string>();
+  if (objectsWithAttachments.length > 0) {
+    const authors = [
+      ...new Set(objectsWithAttachments.map((obj) => obj.attributedTo)),
+    ];
+    for (const chunk of chunkForInClause(authors)) {
+      const rows = await db
+        .selectDistinct({ uploaderApId: mediaUploads.uploaderApId })
+        .from(mediaUploads)
+        .where(inArray(mediaUploads.uploaderApId, chunk));
+      for (const row of rows) authorsWithUploads.add(row.uploaderApId);
+    }
+  }
+
+  const mediaKeys: string[] = [];
+  for (const obj of objectsWithAttachments) {
+    if (!authorsWithUploads.has(obj.attributedTo)) continue;
+    mediaKeys.push(
+      ...(await deleteAttachedMediaUploadsForObject(
+        db,
+        obj,
+        removedObjectApIds,
+        media,
+      )),
+    );
+  }
+
+  for (const chunk of chunkForInClause(existingApIds)) {
+    // Reap NOTIFICATION inbox rows that pointed at these objects (a Like /
+    // Announce / reply-Create that notified a local user). Delete only inbox
+    // projections, not activities: an outbound federation Delete may still
+    // need its retained ledger row for delivery.
+    await runBatch(db, [
+      db.delete(likes).where(inArray(likes.objectApId, chunk)),
+      db.delete(announces).where(inArray(announces.objectApId, chunk)),
+      db.delete(bookmarks).where(inArray(bookmarks.objectApId, chunk)),
+      db
+        .delete(objectRecipients)
+        .where(inArray(objectRecipients.objectApId, chunk)),
+      db.delete(storyViews).where(inArray(storyViews.storyApId, chunk)),
+      db.delete(storyVotes).where(inArray(storyVotes.storyApId, chunk)),
+      db.delete(storyShares).where(inArray(storyShares.storyApId, chunk)),
+      db
+        .delete(inboxTable)
+        .where(
+          inArray(
+            inboxTable.activityApId,
+            db
+              .select({ id: activities.apId })
+              .from(activities)
+              .where(inArray(activities.objectApId, chunk)),
+          ),
+        ),
+    ]);
+  }
+
   return mediaKeys;
 }

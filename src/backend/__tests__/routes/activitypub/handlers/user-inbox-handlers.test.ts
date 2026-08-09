@@ -44,19 +44,23 @@ function createMockDb(options: {
     callTracker.selects.push(args);
     const result = selectResults[selectCallIndex] ?? undefined;
     selectCallIndex++;
-    const limit = spy(() =>
-      Promise.resolve(
-        Array.isArray(result) ? result : result == null ? [] : [result],
-      ),
-    );
+    const rows = Array.isArray(result)
+      ? result
+      : result == null
+        ? []
+        : [result];
+    const limit = spy(() => Promise.resolve(rows));
     const orderBy = spy(() => ({ limit }));
+    const where = spy(() =>
+      Object.assign(Promise.resolve(rows), {
+        get: spy(() => Promise.resolve(result)),
+        limit,
+        orderBy,
+      }),
+    );
     const chain = {
       from: spy(() => ({
-        where: spy(() => ({
-          get: spy(() => Promise.resolve(result)),
-          limit,
-          orderBy,
-        })),
+        where,
         get: spy(() => Promise.resolve(result)),
       })),
     };
@@ -248,6 +252,11 @@ test("userInboxHandlers hardening - handleDelete performs dependent deletes and 
         type: "Note",
         replyCount: 0,
       },
+      {
+        apId: "https://example.com/ap/objects/note-3",
+        attributedTo: "https://example.com/ap/users/alice",
+        attachmentsJson: "[]",
+      },
     ],
   });
 
@@ -263,10 +272,8 @@ test("userInboxHandlers hardening - handleDelete performs dependent deletes and 
   await handleDelete(context, activity);
 
   // Verify select was called 3 times: once in handleDelete (lookup object
-  // owner/type), once inside deleteObjectCascade's media reaper (the object's
-  // attachments_json — returns undefined here so it short-circuits before any
-  // media delete), and once for the notification-reap subquery (the activities
-  // referencing this object whose inbox rows are deleted).
+  // owner/type), once for the cascade's object/attachment snapshot, and once
+  // for the notification-reap subquery (activities referencing this object).
   assertSpyCalls(db.select, 3);
   // Verify delete was called for the full object cascade (likes, announces,
   // bookmarks, object_recipients, story_views, story_votes, story_shares) + the
@@ -274,6 +281,9 @@ test("userInboxHandlers hardening - handleDelete performs dependent deletes and 
   // runs for every object type via the shared deleteObjectCascade helper so no
   // child rows (or dangling notifications) are orphaned.
   assertSpyCalls(db.delete, 9);
+  // One batch commits the eight child projections; the handler's existing
+  // second batch co-commits the object row with its counter transition.
+  assertSpyCalls(db.batch, 2);
   // Verify update was called (actor postCount decrement)
   assertSpyCalls(db.update, 1);
 });

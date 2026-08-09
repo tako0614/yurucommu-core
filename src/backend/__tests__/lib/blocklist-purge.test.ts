@@ -1,12 +1,9 @@
 import { expect, test } from "bun:test";
-import { readFile, readdir } from "node:fs/promises";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { activities, actors, objects } from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import {
   purgeActorContent,
   purgeDomainContent,
@@ -21,13 +18,7 @@ import { blockDomain, isActorBlocked } from "../../lib/blocklist.ts";
 // ---------------------------------------------------------------------------
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  const files = (await readdir(root)).filter((f) => f.endsWith(".sql")).sort();
-  for (const f of files) {
-    await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function seedActor(db: Database, apId: string, username: string) {
@@ -235,6 +226,33 @@ test("purgeDomainContent handles a long valid D1 domain without matching path te
     pathOnlyActivity: true,
     credentialActivity: true,
   });
+});
+
+test("purgeDomainContent cascades more than two D1 parameter chunks", async () => {
+  const db = await freshDb();
+  const domain = "bulk-blocked.example";
+  const actor = `https://${domain}/users/a`;
+  const targetApIds = Array.from(
+    { length: 181 },
+    (_, index) => `https://${domain}/objects/${index}`,
+  );
+  const survivorApId = "https://safe.example/objects/survivor";
+
+  // Seed one statement per object so the fixture itself obeys D1's 100-bound-
+  // parameter ceiling. The purge must independently chunk its read, child
+  // cascade, and final object delete at the real production boundary.
+  for (const apId of targetApIds) await seedPost(db, apId, actor);
+  await seedPost(db, survivorApId, "https://safe.example/users/b");
+
+  await purgeDomainContent(db, domain);
+
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.attributedTo, actor)),
+  ).toEqual([]);
+  expect(await objectExists(db, survivorApId)).toBe(true);
 });
 
 test("a domain block is enforced on subdomains (isActorBlocked)", async () => {

@@ -24,7 +24,7 @@ import { readFile } from "node:fs/promises";
 
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
@@ -32,6 +32,7 @@ import { actors, mediaUploads, objects } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import {
   deleteObjectCascade,
+  deleteObjectsCascade,
   purgeMediaBlobs,
 } from "../../routes/posts/delete-cascade.ts";
 
@@ -196,4 +197,35 @@ test("deleting the last post referencing a shared r2_key finally purges the blob
 
   // No other present object references sharedKey now — purge it.
   expect(second.deleted).toContain(sharedKey);
+});
+
+test("deleting every sharer in one cascade purges the shared blob once", async () => {
+  const db = await freshDb();
+  const author = await insertActor(db, "batch-author");
+  const postA = `${APP_URL}/ap/objects/batch-a`;
+  const postB = `${APP_URL}/ap/objects/batch-b`;
+  const sharedKey = "uploads/batch-shared.jpg";
+
+  await insertObjectRefingKey(db, postA, author, sharedKey);
+  await insertObjectRefingKey(db, postB, author, sharedKey);
+  await db.insert(mediaUploads).values({
+    id: "media-batch-shared",
+    r2Key: sharedKey,
+    uploaderApId: author,
+    contentType: "image/jpeg",
+    size: 123,
+  });
+
+  const { storage, deleted } = recordingStorage();
+  const keys = await deleteObjectsCascade(db, [postA, postB], storage);
+  await db.delete(objects).where(inArray(objects.apId, [postA, postB]));
+  await purgeMediaBlobs(storage, keys);
+
+  expect(deleted).toEqual([sharedKey]);
+  expect(
+    await db
+      .select({ id: mediaUploads.id })
+      .from(mediaUploads)
+      .where(eq(mediaUploads.r2Key, sharedKey)),
+  ).toEqual([]);
 });
