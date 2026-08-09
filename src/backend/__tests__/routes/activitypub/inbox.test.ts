@@ -4,7 +4,14 @@ import { Hono } from "hono";
 
 import { assertSpyCalls, spy } from "#test/mock";
 import { createTestDb } from "../../helpers/d1-semantics.ts";
-import { activities, actorCache, actors, likes } from "../../../../db/index.ts";
+import {
+  activities,
+  actorCache,
+  actors,
+  likes,
+  objects,
+  reports,
+} from "../../../../db/index.ts";
 import inboxRoutes from "../../../routes/activitypub/inbox.ts";
 import { generateKeyPair, signRequest } from "../../../federation-helpers.ts";
 
@@ -332,6 +339,132 @@ test("activitypub inbox - ACKs an unknown-target Like without retaining a dangli
       .from(likes)
       .where(eq(likes.objectApId, unknownObject)),
   ).toHaveLength(0);
+});
+
+test("activitypub inbox - retains an actionable standard Flag and drops unowned targets", async () => {
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const actorApId = "https://remote.example/users/alice";
+  const localActor = "https://test.local/ap/users/bob";
+  const localObject = "https://test.local/ap/objects/reported-note";
+  const { db } = await createTestDb();
+  await db.insert(actors).values({
+    apId: localActor,
+    type: "Person",
+    preferredUsername: "bob",
+    inbox: `${localActor}/inbox`,
+    outbox: `${localActor}/outbox`,
+    followersUrl: `${localActor}/followers`,
+    followingUrl: `${localActor}/following`,
+    publicKeyPem: "local-public",
+    privateKeyPem: "local-private",
+  });
+  await db.insert(objects).values({
+    apId: localObject,
+    type: "Note",
+    attributedTo: localActor,
+    content: "reported content",
+    isLocal: 1,
+  });
+  await db.insert(actorCache).values({
+    apId: actorApId,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${actorApId}/inbox`,
+    publicKeyId: `${actorApId}#main-key`,
+    publicKeyPem,
+    rawJson: "{}",
+    lastFetchedAt: new Date().toISOString(),
+  });
+
+  const app = new Hono();
+  app.use("*", async (c, next) => {
+    (c as unknown as { set: (key: string, value: unknown) => void }).set(
+      "db",
+      db,
+    );
+    await next();
+  });
+  app.route("/", inboxRoutes);
+
+  const actionableBody = JSON.stringify({
+    id: "https://remote.example/activities/flag-actionable",
+    type: "Flag",
+    actor: actorApId,
+    // Mastodon-compatible Flag shape: reported post first, actor second.
+    object: [localObject, localActor],
+    content: "coordinated harassment",
+  });
+  const actionable = await app.fetch(
+    await signedInboxRequest(
+      actionableBody,
+      privateKeyPem,
+      `${actorApId}#main-key`,
+    ),
+    { APP_URL: "https://test.local" },
+  );
+  expect(actionable.status).toEqual(202);
+  const actionableLedger = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(eq(activities.type, "Flag"))
+    .get();
+  const actionableActivityId = actionableLedger?.apId;
+  expect(typeof actionableActivityId).toBe("string");
+  if (!actionableActivityId) throw new Error("Flag ledger row was not stored");
+  expect(
+    await db
+      .select({
+        id: reports.id,
+        target: reports.targetApId,
+        content: reports.content,
+      })
+      .from(reports),
+  ).toEqual([
+    {
+      id: actionableActivityId,
+      target: localObject,
+      content: "coordinated harassment",
+    },
+  ]);
+
+  // Simulate a dispatch that applied the handler effect but lost its terminal
+  // ledger commit. The peer retry must re-run safely without appending a second
+  // moderation row.
+  await db
+    .update(activities)
+    .set({ processed: 0 })
+    .where(eq(activities.apId, actionableActivityId));
+  const retried = await app.fetch(
+    await signedInboxRequest(
+      actionableBody,
+      privateKeyPem,
+      `${actorApId}#main-key`,
+    ),
+    { APP_URL: "https://test.local" },
+  );
+  expect(retried.status).toEqual(202);
+  expect(await db.select({ id: reports.id }).from(reports)).toHaveLength(1);
+
+  const unownedBody = JSON.stringify({
+    id: "https://remote.example/activities/flag-unowned",
+    type: "Flag",
+    actor: actorApId,
+    object: [
+      "https://attacker-chosen.example/objects/not-here",
+      "https://remote.example/users/not-local",
+    ],
+    content: "storage-only noise",
+  });
+  const unowned = await app.fetch(
+    await signedInboxRequest(
+      unownedBody,
+      privateKeyPem,
+      `${actorApId}#main-key`,
+    ),
+    { APP_URL: "https://test.local" },
+  );
+  expect(unowned.status).toEqual(202);
+  expect(await db.select({ id: reports.id }).from(reports)).toHaveLength(1);
 });
 
 function createSharedInboxDbMock(

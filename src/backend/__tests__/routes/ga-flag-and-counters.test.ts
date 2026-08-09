@@ -23,8 +23,7 @@ type ActorRow = typeof actors.$inferSelect;
  * eagerly — they return inert statement descriptors that `db.batch()` runs.
  *
  * Shapes:
- *   db.insert().values().onConflictDoNothing()  -> batch statement descriptor
- *   db.insert().values()                         (Flag, executes eagerly)
+ *   db.insert().values().onConflictDoNothing()  -> batch / idempotent Flag descriptor
  *   db.delete().where()                          -> batch statement descriptor
  *   db.update().set().where()                    -> batch statement descriptor
  *   db.batch([...])                              -> executes the descriptors
@@ -54,11 +53,14 @@ function createMockDb(options: {
   // count; `false` => the SQL guard makes them no-ops. Consumed in order.
   // Defaults to firing every batch when omitted.
   batchUpdatesFire?: boolean[];
+  // Actionable local target returned by Flag authority-resolution queries.
+  flagTargetApId?: string;
 }) {
   const {
     insertReturningResult = undefined,
     deleteReturningRows = [],
     batchUpdatesFire,
+    flagTargetApId,
   } = options;
 
   const tracker = {
@@ -74,8 +76,8 @@ function createMockDb(options: {
         tracker.insertedValues.push(vals);
         const returningGet = () => Promise.resolve(insertReturningResult);
         const returning = () => ({ get: returningGet });
-        // Used both as a batch statement (Add edge insert) and as an
-        // eagerly-awaited insert (Flag report persist).
+        // Used both as a batch statement and as the eagerly-awaited,
+        // conflict-safe Flag report insert.
         const descriptor: StatementDescriptor = {
           kind: "insert",
           values: vals,
@@ -88,7 +90,7 @@ function createMockDb(options: {
             get: returningGet,
           }),
           returning,
-          // Make the eager Flag insert (`await db.insert().values()`) resolve.
+          // Keep direct values inserts awaitable too.
           then: (resolve: (v: unknown) => unknown) =>
             Promise.resolve(undefined).then(resolve),
         };
@@ -100,6 +102,12 @@ function createMockDb(options: {
       } => ({
         kind: "delete",
         returning: () => Promise.resolve(deleteReturningRows),
+      }),
+    }),
+    select: () => ({
+      from: () => ({
+        where: () =>
+          Promise.resolve(flagTargetApId ? [{ apId: flagTargetApId }] : []),
       }),
     }),
     update: () => ({
@@ -145,7 +153,8 @@ function recipientRow(): ActorRow {
 // ---------------------------------------------------------------------------
 
 test("handleFlag caps inbound content at 2000 chars at ingest", async () => {
-  const { db, tracker } = createMockDb({});
+  const target = "https://local.example/ap/objects/note-1";
+  const { db, tracker } = createMockDb({ flagTargetApId: target });
   const ctx = createMockContext(db);
 
   const longReason = "x".repeat(5000);
@@ -153,7 +162,7 @@ test("handleFlag caps inbound content at 2000 chars at ingest", async () => {
     id: "https://remote.example/ap/activities/flag-1",
     type: "Flag",
     actor: REMOTE_ACTOR,
-    object: "https://local.example/ap/objects/note-1",
+    object: target,
     content: longReason,
   } as unknown as Activity;
 
@@ -166,14 +175,15 @@ test("handleFlag caps inbound content at 2000 chars at ingest", async () => {
 });
 
 test("handleFlag persists null content when no reason is present", async () => {
-  const { db, tracker } = createMockDb({});
+  const target = "https://local.example/ap/objects/note-2";
+  const { db, tracker } = createMockDb({ flagTargetApId: target });
   const ctx = createMockContext(db);
 
   const activity = {
     id: "https://remote.example/ap/activities/flag-2",
     type: "Flag",
     actor: REMOTE_ACTOR,
-    object: "https://local.example/ap/objects/note-2",
+    object: target,
   } as unknown as Activity;
 
   await handleFlag(ctx, activity, REMOTE_ACTOR);

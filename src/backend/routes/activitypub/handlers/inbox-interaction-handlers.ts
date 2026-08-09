@@ -1,8 +1,9 @@
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import {
   actors,
   announces,
+  communities,
   follows,
   likes,
   objects,
@@ -28,6 +29,7 @@ import {
   canViewerReadObjectFull,
 } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
+import { MAX_ACTIVITY_OBJECT_IDS } from "../../../lib/activitypub-validators.ts";
 
 type ActorRow = typeof actors.$inferSelect;
 
@@ -473,17 +475,25 @@ export async function handleFlag(
 ) {
   const objectId = getActivityObjectId(activity);
   const targetId = getActivityTargetId(activity);
-  // Flag activities carry a free-text reason in `content` (not part of the
-  // narrowed Activity type, so read it defensively).
-  const rawContent = (activity as { content?: unknown }).content;
+  // Flag activities carry a free-text reason at envelope-level `content`.
+  const rawContent = activity.content;
   // Cap the inbound reason length at ingest. The Flag `content` is fully
   // attacker-controlled free text, so without a bound the reports table grows
   // unbounded under report spam. 2000 chars is ample for a moderation reason.
   const content =
     typeof rawContent === "string" ? rawContent.slice(0, 2000) : null;
 
-  // The report target is the flagged object (preferred) or the activity target.
-  const reportTarget = objectId ?? targetId ?? null;
+  // Standard AS2 / Mastodon Flag uses an object ARRAY (usually the reported
+  // post followed by its actor). The parser projects those references into a
+  // bounded list; retain the scalar fallback for older callers/fixtures and the
+  // target fallback for peers that use it instead of object.
+  const reportedIds = [
+    ...(activity.objectIds ?? []),
+    ...(objectId ? [objectId] : []),
+    ...(targetId ? [targetId] : []),
+  ]
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .slice(0, MAX_ACTIVITY_OBJECT_IDS);
 
   let instance: string | null = null;
   try {
@@ -492,18 +502,87 @@ export async function handleFlag(
     instance = null;
   }
 
-  // Persist the report so operators can triage it via the moderation API.
-  // Best-effort: never let a storage error 5xx the inbox (which would make
-  // the sender retry on a backoff). Log the failure for the operator.
+  // Persist only a target this instance can actually moderate:
+  //   - an object authored by a local actor;
+  //   - an object scoped to a live local community; or
+  //   - a local actor/community itself.
+  //
+  // Before this authority check, every signed Flag — including one containing
+  // no usable object at all — appended a permanent report row for an arbitrary
+  // attacker-chosen id. Besides filling the queue with unactionable noise, that
+  // made the append-only table a storage-amplification surface. Each IN list is
+  // capped by MAX_ACTIVITY_OBJECT_IDS, below D1's 100-bind ceiling.
+  //
+  // Best-effort: never let a storage error 5xx the inbox (which would make the
+  // sender retry on a backoff). Log the failure for the operator.
   try {
     const db = c.get("db");
-    await db.insert(reports).values({
-      id: generateId(),
-      reporterApId: actor,
-      targetApId: reportTarget,
-      content,
-      instance,
-    });
+    if (reportedIds.length === 0) {
+      log.info("Dropped inbound Flag with no reportable target", {
+        event: "ap.flag.no_target",
+        actor,
+      });
+      return;
+    }
+
+    const objectTargets = await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(
+        and(
+          inArray(objects.apId, reportedIds),
+          or(
+            sql`EXISTS (SELECT 1 FROM ${actors} WHERE ${actors.apId} = ${objects.attributedTo})`,
+            sql`EXISTS (
+              SELECT 1 FROM ${communities}
+              WHERE ${communities.apId} = ${objects.communityApId}
+                AND ${communities.deletedAt} IS NULL
+            )`,
+          ),
+        ),
+      );
+    const actorTargets = await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(inArray(actors.apId, reportedIds));
+    const communityTargets = await db
+      .select({ apId: communities.apId })
+      .from(communities)
+      .where(
+        and(inArray(communities.apId, reportedIds), notDeleted(communities)),
+      );
+
+    // Prefer a specific actionable object over its actor when both are present
+    // in a standard `[post, actor]` Flag array.
+    const actionableObjects = new Set(objectTargets.map((row) => row.apId));
+    const actionableEntities = new Set([
+      ...actorTargets.map((row) => row.apId),
+      ...communityTargets.map((row) => row.apId),
+    ]);
+    const reportTarget =
+      reportedIds.find((id) => actionableObjects.has(id)) ??
+      reportedIds.find((id) => actionableEntities.has(id));
+    if (!reportTarget) {
+      log.info("Dropped inbound Flag outside local moderation authority", {
+        event: "ap.flag.unowned_target",
+        actor,
+      });
+      return;
+    }
+
+    await db
+      .insert(reports)
+      .values({
+        // verifyAndParseInbox stamps an origin-bound internal activity id.
+        // Reusing it makes a dispatch retry idempotent instead of appending a
+        // second random report after a commit/lease failure.
+        id: activity.id || generateId(),
+        reporterApId: actor,
+        targetApId: reportTarget,
+        content,
+        instance,
+      })
+      .onConflictDoNothing();
   } catch (err) {
     log.warn("Failed to persist Flag report", {
       event: "ap.flag.persist_failed",

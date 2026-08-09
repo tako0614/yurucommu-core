@@ -27,7 +27,15 @@ export type Activity = {
   type?: string;
   actor?: string;
   object?: string | ActivityObject;
+  /**
+   * Bounded object references extracted from scalar, embedded, or array-valued
+   * AS2 `object`. Standard Flag activities use an array; keeping the normalized
+   * ids separately lets ordinary handlers retain their scalar/object model.
+   */
+  objectIds?: string[];
   target?: string | ActivityObject;
+  /** Envelope-level content, used by Flag as the moderation reason. */
+  content?: string;
   room?: string;
   // Envelope addressing, preserved by parseActivity. Shared-inbox routing is
   // derived from these (inbox-addressing.ts); before they were parsed the
@@ -76,7 +84,7 @@ export function getActivityObject(activity: Activity): ActivityObject | null {
 }
 
 export function getActivityObjectId(activity: Activity): string | null {
-  if (!activity.object) return null;
+  if (!activity.object) return activity.objectIds?.[0] ?? null;
   if (typeof activity.object === "string") return activity.object;
   return activity.object.id || null;
 }

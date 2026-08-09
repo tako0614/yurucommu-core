@@ -228,7 +228,11 @@ export interface ActivityDocument {
   type?: string;
   actor?: string;
   object?: string | ActivityObjectDocument;
+  /** Bounded IRI projection of scalar/embedded/array-valued AS2 `object`. */
+  objectIds?: string[];
   target?: string | ActivityObjectDocument;
+  /** Envelope-level Flag reason. */
+  content?: string;
   room?: string;
 }
 
@@ -269,6 +273,35 @@ function parseActivityObjectOrIri(
   return undefined;
 }
 
+// Below D1's 100-bound-parameter ceiling when a handler resolves all reported
+// entities in one IN (...) query. The request body itself is bounded separately.
+export const MAX_ACTIVITY_OBJECT_IDS = 64;
+
+/**
+ * Normalize every usable `object` reference without widening the existing
+ * scalar/embedded `Activity.object` model. In particular, Mastodon-compatible
+ * Flag activities carry `[reportedPost, reportedActor]`; the old parser dropped
+ * that array completely, leaving an unactionable target-less report.
+ */
+function parseActivityObjectIds(value: unknown): string[] | undefined {
+  const values = Array.isArray(value) ? value : [value];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const item of values) {
+    const id =
+      typeof item === "string"
+        ? item
+        : isJsonRecord(item)
+          ? getString(item, "id")
+          : undefined;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+    if (ids.length >= MAX_ACTIVITY_OBJECT_IDS) break;
+  }
+  return ids.length > 0 ? ids : undefined;
+}
+
 /**
  * Narrow an `unknown` (an already-`JSON.parse`d inbox body) into an
  * {@link ActivityDocument}. Throws if the value is not a JSON object.
@@ -283,7 +316,9 @@ export function parseActivity(value: unknown, path = "$"): ActivityDocument {
     type: getString(record, "type"),
     actor: getString(record, "actor"),
     object: parseActivityObjectOrIri(record["object"]),
+    objectIds: parseActivityObjectIds(record["object"]),
     target: parseActivityObjectOrIri(record["target"]),
+    content: getString(record, "content"),
     room: getString(record, "room"),
   };
 }

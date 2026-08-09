@@ -7,6 +7,7 @@ import {
 } from "#test/assert";
 import {
   ActivityPubContractError,
+  MAX_ACTIVITY_OBJECT_IDS,
   parseActivity,
   parseRemoteActor,
   parseWebFinger,
@@ -155,6 +156,34 @@ test("parseActivity parses Mastodon Follow activity (object as IRI)", () => {
   expect(activity.type).toEqual("Follow");
   expect(activity.actor).toEqual("https://mastodon.example/users/alice");
   expect(activity.object).toEqual("https://yurucommu.example/users/bob");
+});
+
+test("parseActivity preserves a standard Flag reason and bounded object references", () => {
+  const reportedPost = "https://yurucommu.example/objects/reported";
+  const reportedActor = "https://yurucommu.example/users/bob";
+  const activity = parseActivity({
+    id: "https://mastodon.example/activities/flag-1",
+    type: "Flag",
+    actor: "https://mastodon.example/users/alice",
+    object: [
+      reportedPost,
+      { id: reportedActor, type: "Person" },
+      reportedPost,
+      ...Array.from(
+        { length: 100 },
+        (_, index) => `https://noise.example/objects/${index}`,
+      ),
+    ],
+    content: "coordinated harassment",
+  });
+
+  expect(activity.object).toBeUndefined();
+  expect(activity.content).toBe("coordinated harassment");
+  expect(activity.objectIds?.slice(0, 2)).toEqual([
+    reportedPost,
+    reportedActor,
+  ]);
+  expect(activity.objectIds).toHaveLength(MAX_ACTIVITY_OBJECT_IDS);
 });
 
 test("parseActivity parses Pleroma Create(Note) activity (nested object)", () => {
