@@ -80,6 +80,7 @@ import { safeUrlJoin } from "../lib/activitypub-helpers.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../lib/feed-cursor.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
 import { logger } from "../lib/logger.ts";
+import { excludeBlockedMutedAuthors } from "../lib/feed-exclude.ts";
 
 const log = logger.child({ component: "actors" });
 
@@ -591,6 +592,8 @@ actorsRoute.get("/:identifier/posts", async (c) => {
     conditions.push(eq(objects.visibility, "public"));
     conditions.push(eq(objects.audienceJson, "[]"));
   }
+  const excludeAuthor = excludeBlockedMutedAuthors(currentActor?.ap_id ?? "");
+  if (excludeAuthor) conditions.push(excludeAuthor);
   // Composite (published, apId) cursor so posts sharing a published millisecond
   // aren't skipped at a page boundary (see lib/feed-cursor.ts).
   const profileCursor = feedCursorWhere(

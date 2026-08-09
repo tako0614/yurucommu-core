@@ -20,7 +20,7 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, objects } from "../../../db/index.ts";
+import { actors, blocks, mutes, objects } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import actorsRoute from "../../routes/actors.ts";
 
@@ -53,19 +53,20 @@ async function freshDb(): Promise<Database> {
 const ALICE = `${APP_URL}/ap/users/alice`;
 const COMMUNITY = `${APP_URL}/ap/groups/g`;
 
-async function insertActor(db: Database): Promise<Actor> {
+async function insertActor(db: Database, username = "alice"): Promise<Actor> {
+  const apId = `${APP_URL}/ap/users/${username}`;
   await db.insert(actors).values({
-    apId: ALICE,
+    apId,
     type: "Person",
-    preferredUsername: "alice",
-    inbox: `${ALICE}/inbox`,
-    outbox: `${ALICE}/outbox`,
-    followersUrl: `${ALICE}/followers`,
-    followingUrl: `${ALICE}/following`,
+    preferredUsername: username,
+    inbox: `${apId}/inbox`,
+    outbox: `${apId}/outbox`,
+    followersUrl: `${apId}/followers`,
+    followingUrl: `${apId}/following`,
     publicKeyPem: "pub",
     privateKeyPem: "priv",
   });
-  return { ap_id: ALICE } as Actor;
+  return { ap_id: apId } as Actor;
 }
 
 async function insertNote(
@@ -77,12 +78,13 @@ async function insertNote(
     visibility: string;
     content: string;
     published?: string;
+    author?: string;
   },
 ): Promise<void> {
   await db.insert(objects).values({
     apId: `${APP_URL}/ap/objects/${opts.id}`,
     type: "Note",
-    attributedTo: ALICE,
+    attributedTo: opts.author ?? ALICE,
     content: opts.content,
     visibility: opts.visibility,
     audienceJson: JSON.stringify(opts.audience),
@@ -204,4 +206,61 @@ test("profile posts paginate: has_more + composite cursor reach every post (no s
 
   expect(seen.size).toEqual(all.size);
   for (const id of all) expect(seen.has(id)).toBe(true);
+});
+
+test("profile posts suppress legacy cosmetic block/mute identities without folding path case", async () => {
+  const db = await freshDb();
+  const viewer = await insertActor(db, "viewer");
+  const alice = await insertActor(db, "alice");
+  const bob = await insertActor(db, "bob");
+  const pathCaseSibling = await insertActor(db, "Alice");
+
+  await insertNote(db, {
+    id: "blocked-profile-post",
+    author: alice.ap_id,
+    audience: [],
+    communityApId: null,
+    visibility: "public",
+    content: "blocked profile post",
+  });
+  await insertNote(db, {
+    id: "muted-profile-post",
+    author: bob.ap_id,
+    audience: [],
+    communityApId: null,
+    visibility: "public",
+    content: "muted profile post",
+  });
+  await insertNote(db, {
+    id: "sibling-profile-post",
+    author: pathCaseSibling.ap_id,
+    audience: [],
+    communityApId: null,
+    visibility: "public",
+    content: "path-case sibling post",
+  });
+  await db.insert(blocks).values({
+    blockerApId: viewer.ap_id,
+    blockedApId: "https://YURU.test:443/ap/users/alice/#profile",
+  });
+  await db.insert(mutes).values({
+    muterApId: viewer.ap_id,
+    mutedApId: "https://YURU.test/ap/users/bob/",
+  });
+
+  const readContents = async (targetApId: string): Promise<string[]> => {
+    const res = await app(db, viewer).fetch(
+      new Request(`${APP_URL}/${encodeURIComponent(targetApId)}/posts`),
+      { APP_URL, DB_INSTANCE: db } as unknown as Env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { posts: Array<{ content: string }> };
+    return body.posts.map((post) => post.content);
+  };
+
+  expect(await readContents(alice.ap_id)).toEqual([]);
+  expect(await readContents(bob.ap_id)).toEqual([]);
+  expect(await readContents(pathCaseSibling.ap_id)).toEqual([
+    "path-case sibling post",
+  ]);
 });

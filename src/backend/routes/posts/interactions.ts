@@ -39,6 +39,7 @@ import {
   passesPostVisibilitySync,
 } from "../../lib/post-visibility.ts";
 import { logger } from "../../lib/logger.ts";
+import { excludeBlockedMutedAuthors } from "../../lib/feed-exclude.ts";
 
 const log = logger.child({ component: "posts.interactions" });
 
@@ -641,20 +642,28 @@ posts.get("/bookmarks", async (c) => {
   // Fetch limit+1 and advance the cursor by the last SCANNED row, so the
   // visibility gate dropping rows can only shorten a page, never make a readable
   // bookmark permanently unreachable (load-more continues past the dropped ones).
-  const scanned = await db.query.bookmarks.findMany({
-    where: cursorPredicate
-      ? and(eq(bookmarks.actorApId, actor.ap_id), cursorPredicate)
-      : eq(bookmarks.actorApId, actor.ap_id),
-    with: { object: true },
-    orderBy: [desc(bookmarks.createdAt), desc(bookmarks.objectApId)],
-    limit: limit + 1,
-  });
+  const scanned = await db
+    .select({ bookmark: bookmarks, object: objects })
+    .from(bookmarks)
+    .innerJoin(objects, eq(bookmarks.objectApId, objects.apId))
+    .where(
+      and(
+        eq(bookmarks.actorApId, actor.ap_id),
+        cursorPredicate,
+        excludeBlockedMutedAuthors(actor.ap_id),
+      ),
+    )
+    .orderBy(desc(bookmarks.createdAt), desc(bookmarks.objectApId))
+    .limit(limit + 1);
   const hasMore = scanned.length > limit;
   const allBookmarkRows = hasMore ? scanned.slice(0, limit) : scanned;
   const lastScanned = allBookmarkRows[allBookmarkRows.length - 1];
   const nextCursor =
     hasMore && lastScanned
-      ? encodeFeedCursor(lastScanned.createdAt, lastScanned.objectApId)
+      ? encodeFeedCursor(
+          lastScanned.bookmark.createdAt,
+          lastScanned.bookmark.objectApId,
+        )
       : null;
 
   // Re-check read-access at read time so a bookmark can never resurface a post

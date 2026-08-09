@@ -29,7 +29,6 @@ import {
   AUTHOR_WITH,
   buildAddressing,
   buildCommunityObjectAddressing,
-  loadCachedAuthorMap,
   loadInteractionFlags,
   mergeCc,
   persistActivity,
@@ -37,7 +36,6 @@ import {
   persistAndFanoutToCommunity,
   type PostDetailRow,
   postWhereByIdOrApId,
-  type PostWithAuthor,
   resolveAuthor,
   resolveAuthorWithCache,
   toPostRow,
@@ -55,7 +53,7 @@ import {
   validateEditBody,
   validateSummaryEdit,
 } from "./post-helpers.ts";
-import { requireActor } from "../actors-helpers.ts";
+import { loadActorInfoMap, requireActor } from "../actors-helpers.ts";
 import { communityReadableApIds } from "../../lib/community-visibility.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
 import {
@@ -66,6 +64,7 @@ import {
 } from "../../lib/post-visibility.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { logger } from "../../lib/logger.ts";
+import { excludeBlockedMutedAuthors } from "../../lib/feed-exclude.ts";
 
 const log = logger.child({ component: "posts.routes" });
 
@@ -469,6 +468,24 @@ posts.get("/:id", async (c) => {
   });
 
   if (!post) return c.json({ error: "Post not found" }, 404);
+  if (currentActor) {
+    // Drizzle's relational query aliases every embedded column reference to the
+    // outer table, so keep the moderation CTE in this ordinary select instead
+    // of injecting it into findFirst({ with: ... }).
+    const moderationReadable = await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(
+        and(
+          eq(objects.apId, post.apId),
+          excludeBlockedMutedAuthors(currentActor.ap_id),
+        ),
+      )
+      .get();
+    if (!moderationReadable) {
+      return c.json({ error: "Post not found" }, 404);
+    }
+  }
 
   // Resolve author and interaction flags in parallel
   const [author, { likedIds, bookmarkedIds }] = await Promise.all([
@@ -515,7 +532,12 @@ posts.get("/:id/replies", async (c) => {
       endTime: objects.endTime,
     })
     .from(objects)
-    .where(postWhereByIdOrApId(baseUrl, postId)!)
+    .where(
+      and(
+        postWhereByIdOrApId(baseUrl, postId),
+        excludeBlockedMutedAuthors(currentActor?.ap_id ?? ""),
+      ),
+    )
     .get();
 
   if (!parentPost) return c.json({ error: "Post not found" }, 404);
@@ -542,14 +564,18 @@ posts.get("/:id/replies", async (c) => {
   // last readable one) means unreadable replies are skipped without ever
   // skipping a readable one — so load-more reaches every readable reply, and
   // the gate dropping rows can only make a page short, never lose a reply.
-  const scanned = await db.query.objects.findMany({
-    where: cursorPredicate
-      ? and(eq(objects.inReplyTo, parentPost.apId), cursorPredicate)
-      : eq(objects.inReplyTo, parentPost.apId),
-    with: AUTHOR_WITH,
-    orderBy: [desc(objects.published), desc(objects.apId)],
-    limit: limit + 1,
-  });
+  const scanned = await db
+    .select()
+    .from(objects)
+    .where(
+      and(
+        eq(objects.inReplyTo, parentPost.apId),
+        cursorPredicate,
+        excludeBlockedMutedAuthors(currentActor?.ap_id ?? ""),
+      ),
+    )
+    .orderBy(desc(objects.published), desc(objects.apId))
+    .limit(limit + 1);
   const hasMore = scanned.length > limit;
   const page = hasMore ? scanned.slice(0, limit) : scanned;
   const lastScanned = page[page.length - 1];
@@ -566,18 +592,18 @@ posts.get("/:id/replies", async (c) => {
 
   // Batch load cached authors and interaction flags in parallel
   const replyApIds = replies.map((r) => r.apId);
-  const [cachedAuthorMap, { likedIds }] = await Promise.all([
-    loadCachedAuthorMap(db, replies as PostWithAuthor[]),
+  const [authorMap, { likedIds }] = await Promise.all([
+    loadActorInfoMap(
+      db,
+      [...new Set(replies.map((reply) => reply.attributedTo))],
+      "author",
+    ),
     loadInteractionFlags(db, currentActor?.ap_id, replyApIds),
   ]);
 
   const result = replies.map((reply) => {
-    const author = resolveAuthor(
-      reply.author,
-      reply.attributedTo,
-      cachedAuthorMap,
-    );
-    const postRow = toPostRow(reply as PostWithAuthor, author, {
+    const author = resolveAuthor(undefined, reply.attributedTo, authorMap);
+    const postRow = toPostRow(reply, author, {
       liked: likedIds.has(reply.apId),
     });
     return formatPost(postRow, currentActor?.ap_id);

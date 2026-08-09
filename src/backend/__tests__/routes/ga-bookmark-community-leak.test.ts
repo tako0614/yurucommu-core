@@ -28,10 +28,12 @@ import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
+  blocks,
   bookmarks,
   communities,
   communityMembers,
   follows,
+  mutes,
   objects,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
@@ -204,6 +206,42 @@ test("bookmarks listing drops a private-community post for a non-member viewer",
   expect(body.posts.some((p) => p.content.includes("members only"))).toBe(
     false,
   );
+});
+
+test("bookmarks listing suppresses legacy cosmetic block/mute identities without folding path case", async () => {
+  const db = await freshDb();
+  const viewer = await insertLocalActor(db, "viewer");
+  const blocked = await insertLocalActor(db, "blockee");
+  const muted = await insertLocalActor(db, "mutee");
+  const pathCaseSibling = await insertLocalActor(db, "Blockee");
+
+  const blockedPost = await insertPost(db, blocked, "blocked", "blocked");
+  const mutedPost = await insertPost(db, muted, "muted", "muted");
+  const siblingPost = await insertPost(
+    db,
+    pathCaseSibling,
+    "sibling",
+    "sibling",
+  );
+  await bookmark(db, viewer, blockedPost);
+  await bookmark(db, viewer, mutedPost);
+  await bookmark(db, viewer, siblingPost);
+  await db.insert(blocks).values({
+    blockerApId: viewer,
+    blockedApId: "https://YURU.test:443/ap/users/blockee/#profile",
+  });
+  await db.insert(mutes).values({
+    muterApId: viewer,
+    mutedApId: "https://YURU.test/ap/users/mutee/",
+  });
+
+  const res = await appFor(db, viewer).request(`${APP_URL}/posts/bookmarks`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { posts: Array<{ ap_id: string }> };
+  const ids = body.posts.map((post) => post.ap_id);
+  expect(ids).toContain(siblingPost);
+  expect(ids).not.toContain(blockedPost);
+  expect(ids).not.toContain(mutedPost);
 });
 
 test("bookmarks listing keeps a private-community post for a member viewer", async () => {

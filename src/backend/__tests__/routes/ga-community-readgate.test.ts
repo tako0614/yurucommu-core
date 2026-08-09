@@ -55,8 +55,10 @@ import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
+  blocks,
   communities,
   communityMembers,
+  mutes,
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -205,6 +207,28 @@ async function insertCommunityNote(
     audienceJson: JSON.stringify([COMMUNITY_AP_ID]),
     communityApId: COMMUNITY_AP_ID,
     published: opts.published,
+    isLocal: 1,
+  });
+  return apId;
+}
+
+async function insertPublicNote(
+  db: Database,
+  opts: {
+    id: string;
+    author: string;
+    inReplyTo?: string;
+  },
+): Promise<string> {
+  const apId = `${APP_URL}/ap/objects/${opts.id}`;
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: opts.author,
+    content: `public ${opts.id}`,
+    inReplyTo: opts.inReplyTo ?? null,
+    visibility: "public",
+    published: new Date().toISOString(),
     isLocal: 1,
   });
   return apId;
@@ -359,4 +383,61 @@ test("public-community object is NOT gated (helper never widens or narrows publi
   // Public community: an anonymous single-object read still succeeds.
   expect(await getPost(db, null, apId)).toEqual(200);
   expect(await getApObject(db, apId, null)).toEqual(200);
+});
+
+test("post detail and replies suppress legacy cosmetic block/mute identities without folding path case", async () => {
+  const db = await freshDb();
+  const viewer = await insertLocalActor(db, "viewer");
+  const blocked = await insertLocalActor(db, "blockee");
+  const muted = await insertLocalActor(db, "mutee");
+  const pathCaseSibling = await insertLocalActor(db, "Blockee");
+  const friend = await insertLocalActor(db, "friend");
+
+  await db.insert(blocks).values({
+    blockerApId: viewer,
+    blockedApId: "https://YURU.test:443/ap/users/blockee/#profile",
+  });
+  await db.insert(mutes).values({
+    muterApId: viewer,
+    mutedApId: "https://YURU.test/ap/users/mutee/",
+  });
+
+  const blockedParent = await insertPublicNote(db, {
+    id: "blocked-parent",
+    author: blocked,
+  });
+  const siblingParent = await insertPublicNote(db, {
+    id: "sibling-parent",
+    author: pathCaseSibling,
+  });
+  const visibleParent = await insertPublicNote(db, {
+    id: "visible-parent",
+    author: friend,
+  });
+  const blockedReply = await insertPublicNote(db, {
+    id: "blocked-reply",
+    author: blocked,
+    inReplyTo: visibleParent,
+  });
+  const mutedReply = await insertPublicNote(db, {
+    id: "muted-reply",
+    author: muted,
+    inReplyTo: visibleParent,
+  });
+  const siblingReply = await insertPublicNote(db, {
+    id: "sibling-reply",
+    author: pathCaseSibling,
+    inReplyTo: visibleParent,
+  });
+
+  const actor = fakeActor(viewer, "viewer");
+  expect(await getPost(db, actor, blockedParent)).toBe(404);
+  expect((await getReplyIds(db, actor, blockedParent)).status).toBe(404);
+  expect(await getPost(db, actor, siblingParent)).toBe(200);
+
+  const replies = await getReplyIds(db, actor, visibleParent);
+  expect(replies.status).toBe(200);
+  expect(replies.ids).toContain(siblingReply);
+  expect(replies.ids).not.toContain(blockedReply);
+  expect(replies.ids).not.toContain(mutedReply);
 });
