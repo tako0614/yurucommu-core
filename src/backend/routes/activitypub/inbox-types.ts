@@ -7,9 +7,12 @@ export type ActivityObject = {
   id?: string;
   type?: string | string[];
   object?: string;
-  inReplyTo?: string;
+  inReplyTo?: string | null;
   to?: string[];
   cc?: string[];
+  bto?: string[];
+  bcc?: string[];
+  audience?: string[];
   conversation?: string;
   content?: string;
   summary?: string | null;

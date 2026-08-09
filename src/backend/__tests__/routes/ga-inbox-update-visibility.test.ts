@@ -7,6 +7,8 @@ import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
   actors,
+  communities,
+  communityMembers,
   follows,
   objectRecipients,
   objects,
@@ -198,6 +200,10 @@ async function insertRemoteNote(
     summary?: string | null;
     attachments?: unknown[];
     tags?: unknown[];
+    inReplyTo?: string | null;
+    audience?: string[];
+    communityApId?: string | null;
+    replyCount?: number;
   },
 ): Promise<void> {
   await db.insert(objects).values({
@@ -208,14 +214,66 @@ async function insertRemoteNote(
     summary: reach.summary ?? null,
     attachmentsJson: JSON.stringify(reach.attachments ?? []),
     tagsJson: JSON.stringify(reach.tags ?? []),
+    inReplyTo: reach.inReplyTo ?? null,
     visibility: reach.visibility,
     toJson: JSON.stringify(reach.to),
     ccJson: JSON.stringify(reach.cc ?? []),
-    audienceJson: "[]",
+    audienceJson: JSON.stringify(reach.audience ?? []),
+    communityApId: reach.communityApId ?? null,
     conversation: reach.conversation ?? null,
+    replyCount: reach.replyCount ?? 0,
     isLocal: 0,
     published: "2026-08-09T00:00:00.000Z",
   });
+}
+
+async function seedCommunity(
+  db: Database,
+  name: string,
+  options: { remoteMember?: boolean } = {},
+): Promise<string> {
+  const apId = `${APP_URL}/ap/groups/${name}`;
+  await db.insert(communities).values({
+    apId,
+    preferredUsername: name,
+    name,
+    inbox: `${apId}/inbox`,
+    outbox: `${apId}/outbox`,
+    followersUrl: `${apId}/followers`,
+    visibility: "private",
+    joinPolicy: "approval",
+    postPolicy: "members",
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: LOCAL_BOB,
+  });
+  await db.insert(communityMembers).values({
+    communityApId: apId,
+    actorApId: LOCAL_BOB,
+    role: "owner",
+  });
+  if (options.remoteMember) {
+    await db.insert(follows).values({
+      followerApId: REMOTE,
+      followingApId: apId,
+      status: "accepted",
+    });
+  }
+  return apId;
+}
+
+async function threadScopeRow(db: Database, id: string) {
+  return db
+    .select({
+      content: objects.content,
+      inReplyTo: objects.inReplyTo,
+      replyCount: objects.replyCount,
+      audienceJson: objects.audienceJson,
+      communityApId: objects.communityApId,
+    })
+    .from(objects)
+    .where(eq(objects.apId, id))
+    .get();
 }
 
 function createNoteWithoutAddressing(id: string): Activity {
@@ -559,6 +617,274 @@ test("inbound Create caps attachment and tag arrays before persistence", async (
   const row = await projectionRow(db, id);
   expect(JSON.parse(row!.attachmentsJson)).toHaveLength(8);
   expect(JSON.parse(row!.tagsJson)).toHaveLength(64);
+});
+
+test("inbound Create preserves an authorized private-community audience and its read gate", async () => {
+  const db = await setup();
+  const communityApId = await seedCommunity(db, "private-create", {
+    remoteMember: true,
+  });
+  const id = "https://remote.example/objects/private-community-create";
+  const create = parseActivity({
+    id: `${id}/activity`,
+    type: "Create",
+    actor: REMOTE,
+    audience: [communityApId],
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "member-only community body",
+      to: [communityApId, `${communityApId}/followers`],
+      cc: [PUBLIC],
+      audience: [communityApId],
+    },
+  }) as Activity;
+
+  await handleCreate(ctxFor(db), create, recipient(LOCAL_BOB), REMOTE, APP_URL);
+
+  expect(await threadScopeRow(db, id)).toMatchObject({
+    audienceJson: JSON.stringify([communityApId]),
+    communityApId,
+  });
+  expect(await getPostStatus(db, null, id)).toBe(404);
+  expect(await getPostStatus(db, fakeActor(LOCAL_BOB, "bob"), id)).toBe(200);
+});
+
+test("inbound Create cannot inject a non-member Note into a known private community", async () => {
+  const db = await setup();
+  const communityApId = await seedCommunity(db, "private-injection");
+  const id = "https://remote.example/objects/private-community-injection";
+  const create = parseActivity({
+    id: `${id}/activity`,
+    type: "Create",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "unauthorized community body",
+      to: [communityApId, `${communityApId}/followers`],
+      cc: [PUBLIC],
+      audience: [communityApId],
+    },
+  }) as Activity;
+
+  await handleCreate(ctxFor(db), create, recipient(LOCAL_BOB), REMOTE, APP_URL);
+
+  expect(await threadScopeRow(db, id)).toBeUndefined();
+});
+
+test("Update(Note) explicitly clears an authorized community scope", async () => {
+  const db = await setup();
+  const communityApId = await seedCommunity(db, "private-clear", {
+    remoteMember: true,
+  });
+  const id = "https://remote.example/objects/private-community-clear";
+  await insertRemoteNote(db, id, {
+    visibility: "public",
+    to: [PUBLIC],
+    audience: [communityApId],
+    communityApId,
+  });
+  expect(await getPostStatus(db, null, id)).toBe(404);
+
+  const update = parseActivity({
+    id: `${id}/updates/clear-community`,
+    type: "Update",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "now deliberately general",
+      audience: [],
+    },
+  }) as Activity;
+  await handleUpdate(ctxFor(db), update, REMOTE);
+
+  expect(await threadScopeRow(db, id)).toMatchObject({
+    content: "now deliberately general",
+    audienceJson: "[]",
+    communityApId: null,
+  });
+  expect(await getPostStatus(db, null, id)).toBe(200);
+});
+
+test("Update(Note) cannot partially apply content while injecting an unauthorized community scope", async () => {
+  const db = await setup();
+  const communityApId = await seedCommunity(db, "private-update-injection");
+  const id = "https://remote.example/objects/community-update-injection";
+  await insertRemoteNote(db, id, { visibility: "public", to: [PUBLIC] });
+
+  const update = parseActivity({
+    id: `${id}/updates/inject-community`,
+    type: "Update",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "must not be partially applied",
+      audience: [communityApId],
+    },
+  }) as Activity;
+  await handleUpdate(ctxFor(db), update, REMOTE);
+
+  expect(await threadScopeRow(db, id)).toMatchObject({
+    content: "old body",
+    audienceJson: "[]",
+    communityApId: null,
+  });
+});
+
+test("Update(Note) rejects a reparent to a retained parent the signer cannot read", async () => {
+  const db = await setup();
+  const parentId = `${APP_URL}/ap/objects/private-parent`;
+  await db.insert(objects).values({
+    apId: parentId,
+    type: "Note",
+    attributedTo: LOCAL_BOB,
+    content: "private parent",
+    visibility: "direct",
+    toJson: JSON.stringify([LOCAL_BOB]),
+    published: "2026-08-09T00:00:00.000Z",
+  });
+  const id = "https://remote.example/objects/reparent-unreadable";
+  await insertRemoteNote(db, id, { visibility: "public", to: [PUBLIC] });
+
+  const update = parseActivity({
+    id: `${id}/updates/reparent-unreadable`,
+    type: "Update",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "must not be partially applied",
+      inReplyTo: parentId,
+    },
+  }) as Activity;
+  await handleUpdate(ctxFor(db), update, REMOTE);
+
+  expect(await threadScopeRow(db, id)).toMatchObject({
+    content: "old body",
+    inReplyTo: null,
+  });
+  expect((await threadScopeRow(db, parentId))?.replyCount).toBe(0);
+});
+
+test("Update(Note) reparent, retry, and explicit clear keep both parent counters exact", async () => {
+  const db = await setup();
+  const oldParent = "https://remote.example/objects/old-parent";
+  const newParent = "https://remote.example/objects/new-parent";
+  await insertRemoteNote(db, oldParent, {
+    visibility: "public",
+    to: [PUBLIC],
+    replyCount: 1,
+  });
+  await insertRemoteNote(db, newParent, {
+    visibility: "public",
+    to: [PUBLIC],
+  });
+  const id = "https://remote.example/objects/reparent-child";
+  await insertRemoteNote(db, id, {
+    visibility: "public",
+    to: [PUBLIC],
+    inReplyTo: oldParent,
+  });
+
+  const reparent = parseActivity({
+    id: `${id}/updates/reparent`,
+    type: "Update",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "moved reply",
+      inReplyTo: newParent,
+    },
+  }) as Activity;
+  await handleUpdate(ctxFor(db), reparent, REMOTE);
+  await handleUpdate(ctxFor(db), reparent, REMOTE);
+
+  expect(await threadScopeRow(db, id)).toMatchObject({
+    inReplyTo: newParent,
+    content: "moved reply",
+  });
+  expect((await threadScopeRow(db, oldParent))?.replyCount).toBe(0);
+  expect((await threadScopeRow(db, newParent))?.replyCount).toBe(1);
+
+  const clear = parseActivity({
+    id: `${id}/updates/clear-parent`,
+    type: "Update",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      inReplyTo: null,
+    },
+  }) as Activity;
+  await handleUpdate(ctxFor(db), clear, REMOTE);
+
+  expect((await threadScopeRow(db, id))?.inReplyTo).toBeNull();
+  expect((await threadScopeRow(db, newParent))?.replyCount).toBe(0);
+});
+
+test("a parent-counter failure rolls back reparenting and content atomically", async () => {
+  const db = await setup();
+  const oldParent = "https://remote.example/objects/rollback-old-parent";
+  const newParent = "https://remote.example/objects/rollback-new-parent";
+  await insertRemoteNote(db, oldParent, {
+    visibility: "public",
+    to: [PUBLIC],
+    replyCount: 1,
+  });
+  await insertRemoteNote(db, newParent, {
+    visibility: "public",
+    to: [PUBLIC],
+  });
+  const id = "https://remote.example/objects/rollback-reparent-child";
+  await insertRemoteNote(db, id, {
+    visibility: "public",
+    to: [PUBLIC],
+    inReplyTo: oldParent,
+  });
+  await db.run(
+    sql.raw(`
+      CREATE TRIGGER reject_new_parent_counter
+      BEFORE UPDATE OF reply_count ON objects
+      WHEN OLD.ap_id = '${newParent}'
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated parent counter failure');
+      END
+    `),
+  );
+
+  const update = parseActivity({
+    id: `${id}/updates/rollback-reparent`,
+    type: "Update",
+    actor: REMOTE,
+    object: {
+      id,
+      type: "Note",
+      attributedTo: REMOTE,
+      content: "must roll back with the thread",
+      inReplyTo: newParent,
+    },
+  }) as Activity;
+  await expect(handleUpdate(ctxFor(db), update, REMOTE)).rejects.toThrow(
+    "simulated parent counter failure",
+  );
+
+  expect(await threadScopeRow(db, id)).toMatchObject({
+    content: "old body",
+    inReplyTo: oldParent,
+  });
+  expect((await threadScopeRow(db, oldParent))?.replyCount).toBe(1);
+  expect((await threadScopeRow(db, newParent))?.replyCount).toBe(0);
 });
 
 test("Update(Note) widening followers to public updates the canonical GET gate", async () => {

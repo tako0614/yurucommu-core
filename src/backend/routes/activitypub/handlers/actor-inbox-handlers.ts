@@ -2,7 +2,6 @@ import { and, eq, isNull, or, sql } from "drizzle-orm";
 import {
   activities,
   communities,
-  communityMembers,
   follows,
   objectRecipients,
   objects,
@@ -15,7 +14,6 @@ import {
   objectApId,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
-import { communityRequiresMembership } from "../../../lib/community-visibility.ts";
 import { isMemberBanned } from "../../communities/membership-shared.ts";
 import {
   boundInboundContent,
@@ -24,6 +22,7 @@ import {
   boundInboundTagsJson,
 } from "../../posts/transformers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
+import { canActorPostToInboundCommunity } from "./inbound-community-scope.ts";
 import { runBatch } from "./inbox-shared-helpers.ts";
 import type { InstanceActorResult } from "../query-helpers.ts";
 import {
@@ -275,35 +274,9 @@ export async function handleGroupCreate(
     .get();
   if (!community) return;
 
-  // A durable community ban overrides every posting policy, including
-  // `anyone`. Check it before membership and policy evaluation so a banned
-  // actor cannot keep injecting messages through a stale accepted Follow.
-  if (await isMemberBanned(db, community.apId, actorApIdStr)) return;
-
-  const memberFollow = await db.query.follows.findFirst({
-    where: and(
-      eq(follows.followerApId, actorApIdStr),
-      eq(follows.followingApId, community.apId),
-      eq(follows.status, "accepted"),
-    ),
-  });
-  const memberRow = await db.query.communityMembers.findFirst({
-    where: and(
-      eq(communityMembers.communityApId, community.apId),
-      eq(communityMembers.actorApId, actorApIdStr),
-    ),
-    columns: { role: true },
-  });
-  const isMember = Boolean(memberFollow) || Boolean(memberRow);
-  const role = memberRow?.role;
-  const isManager = role === "owner" || role === "moderator";
-  const policy = community.postPolicy || "members";
-
-  // A non-public community requires membership to post regardless of policy.
-  if (communityRequiresMembership(community.visibility) && !isMember) return;
-  if (policy !== "anyone" && !isMember) return;
-  if (policy === "mods" && !isManager) return;
-  if (policy === "owners" && role !== "owner") return;
+  if (!(await canActorPostToInboundCommunity(db, actorApIdStr, community))) {
+    return;
+  }
 
   const newObjectId = object.id || objectApId(baseUrl, generateId());
   const audienceJson = JSON.stringify([community.apId]);

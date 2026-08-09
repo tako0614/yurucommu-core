@@ -204,9 +204,12 @@ export interface ActivityObjectDocument {
   id?: string;
   type?: string | string[];
   object?: string;
-  inReplyTo?: string;
+  inReplyTo?: string | null;
   to?: string[];
   cc?: string[];
+  bto?: string[];
+  bcc?: string[];
+  audience?: string[];
   conversation?: string;
   content?: string;
   summary?: string | null;
@@ -234,19 +237,33 @@ export interface ActivityDocument {
   /** Envelope-level Flag reason. */
   content?: string;
   room?: string;
+  to?: string[];
+  cc?: string[];
+  bto?: string[];
+  bcc?: string[];
+  audience?: string[];
 }
 
 function parseActivityObjectFields(
   record: Record<string, unknown>,
 ): ActivityObjectDocument {
   const summaryRaw = record["summary"];
+  const inReplyToRaw = record["inReplyTo"];
   return {
     id: getString(record, "id"),
     type: getStringOrStringArray(record, "type"),
     object: getString(record, "object"),
-    inReplyTo: getString(record, "inReplyTo"),
+    inReplyTo:
+      typeof inReplyToRaw === "string"
+        ? inReplyToRaw
+        : inReplyToRaw === null
+          ? null
+          : undefined,
     to: getStringArray(record, "to"),
     cc: getStringArray(record, "cc"),
+    bto: getStringArray(record, "bto"),
+    bcc: getStringArray(record, "bcc"),
+    audience: getStringArray(record, "audience"),
     conversation: getString(record, "conversation"),
     content: getString(record, "content"),
     summary:
@@ -320,6 +337,11 @@ export function parseActivity(value: unknown, path = "$"): ActivityDocument {
     target: parseActivityObjectOrIri(record["target"]),
     content: getString(record, "content"),
     room: getString(record, "room"),
+    to: getStringArray(record, "to"),
+    cc: getStringArray(record, "cc"),
+    bto: getStringArray(record, "bto"),
+    bcc: getStringArray(record, "bcc"),
+    audience: getStringArray(record, "audience"),
   };
 }
 

@@ -30,6 +30,7 @@ import {
 import { insertMany, runBatch } from "../../../../db/d1-write.ts";
 import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
+import { resolveInboundCommunityScope } from "./inbound-community-scope.ts";
 import {
   deleteObjectCascade,
   purgeMediaBlobs,
@@ -211,6 +212,20 @@ function addressList(value: unknown): string[] {
   return value
     .filter((a): a is string => typeof a === "string")
     .slice(0, MAX_ADDRESS_ENTRIES);
+}
+
+/**
+ * The embedded object's audience is the persisted object projection. Peers
+ * that put audience only on the activity envelope remain compatible, while an
+ * explicit object-level [] wins and can clear the scope on Update.
+ */
+function normalizedObjectAudience(
+  activity: Activity,
+  object: ActivityObject,
+): string[] {
+  const source =
+    object.audience !== undefined ? object.audience : activity.audience;
+  return [...new Set(addressList(source))];
 }
 
 /**
@@ -518,6 +533,14 @@ export async function handleCreate(
     .where(eq(objects.apId, objectId))
     .get();
 
+  const audience = normalizedObjectAudience(activity, object);
+  const communityScope = await resolveInboundCommunityScope(
+    db,
+    actor,
+    audience,
+  );
+  if (!communityScope.allowed) return;
+
   const publishedAt = normalizeInboundTimestamp(
     object.published,
     new Date().toISOString(),
@@ -599,7 +622,8 @@ export async function handleCreate(
       // canViewerReadObjectFull / the post-detail route can evaluate.
       toJson: boundAddressJson(object.to),
       ccJson: boundAddressJson(object.cc),
-      communityApId: null,
+      audienceJson: JSON.stringify(audience),
+      communityApId: communityScope.communityApId,
       published: publishedAt,
       isLocal: 0,
     })
@@ -894,21 +918,15 @@ export async function handleCreateStory(
     ...addressList(object.to),
     ...addressList((object as { audience?: unknown }).audience),
   ];
-  const community = addressedCollections.length
-    ? await db
-        .select({ apId: communities.apId })
-        .from(communities)
-        .where(
-          and(
-            or(
-              inArray(communities.followersUrl, addressedCollections),
-              inArray(communities.apId, addressedCollections),
-            ),
-            isNull(communities.deletedAt),
-          ),
-        )
-        .get()
-    : undefined;
+  const communityScope = await resolveInboundCommunityScope(
+    db,
+    actor,
+    addressedCollections,
+  );
+  if (!communityScope.allowed) return;
+  const storyAudience = communityScope.communityApId
+    ? [communityScope.communityApId]
+    : normalizedObjectAudience(activity, object);
 
   const inserted = await db
     .insert(objects)
@@ -918,12 +936,14 @@ export async function handleCreateStory(
       attributedTo: actor,
       content: "",
       attachmentsJson: storyDataJson,
-      ...(community
+      ...(communityScope.communityApId
         ? {
-            communityApId: community.apId,
-            audienceJson: JSON.stringify([community.apId]),
+            communityApId: communityScope.communityApId,
+            audienceJson: JSON.stringify(storyAudience),
           }
-        : {}),
+        : storyAudience.length > 0
+          ? { audienceJson: JSON.stringify(storyAudience) }
+          : {}),
       endTime,
       published: publishedAt,
       isLocal: 0,
@@ -1024,6 +1044,14 @@ export async function fetchAndPersistAnnouncedNote(
   const visibility = classifyInboundNoteVisibility(note);
   if (visibility !== "public" && visibility !== "unlisted") return false;
 
+  const audience = addressList(note.audience);
+  const communityScope = await resolveInboundCommunityScope(
+    db,
+    attributedTo,
+    audience,
+  );
+  if (!communityScope.allowed) return false;
+
   // Best-effort author profile fill so the surfaced boost renders with the
   // author's name/icon. Cache-when-absent; a failure never blocks the persist.
   const cachedAuthor = await db
@@ -1059,7 +1087,8 @@ export async function fetchAndPersistAnnouncedNote(
       visibility,
       toJson: boundAddressJson(note.to),
       ccJson: boundAddressJson(note.cc),
-      communityApId: null,
+      audienceJson: JSON.stringify(audience),
+      communityApId: communityScope.communityApId,
       published: normalizeInboundTimestamp(
         note.published,
         new Date().toISOString(),
@@ -1422,7 +1451,10 @@ export async function handleUpdate(
   }
 
   const existing = await db
-    .select({ attributedTo: objects.attributedTo })
+    .select({
+      attributedTo: objects.attributedTo,
+      inReplyTo: objects.inReplyTo,
+    })
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
@@ -1439,6 +1471,69 @@ export async function handleUpdate(
     // partial Update.
     const hasAddressingUpdate =
       object.to !== undefined || object.cc !== undefined;
+    const hasAudienceUpdate = object.audience !== undefined;
+    const updatedAudience = hasAudienceUpdate
+      ? normalizedObjectAudience(activity, object)
+      : undefined;
+    const communityScope = hasAudienceUpdate
+      ? await resolveInboundCommunityScope(db, actor, updatedAudience ?? [])
+      : { allowed: true as const, communityApId: null };
+    if (!communityScope.allowed) {
+      log.warn("Update(Note) rejected: actor cannot project into community", {
+        event: "ap.update.note_community_unauthorized",
+        actor,
+        objectId,
+      });
+      return;
+    }
+
+    const hasThreadUpdate = object.inReplyTo !== undefined;
+    const updatedParentId = hasThreadUpdate ? object.inReplyTo : undefined;
+    if (updatedParentId === objectId) {
+      log.warn("Update(Note) rejected: object cannot reply to itself", {
+        event: "ap.update.note_self_reply",
+        actor,
+        objectId,
+      });
+      return;
+    }
+    if (updatedParentId) {
+      const parent = await db
+        .select({
+          attributedTo: objects.attributedTo,
+          visibility: objects.visibility,
+          toJson: objects.toJson,
+          ccJson: objects.ccJson,
+          audienceJson: objects.audienceJson,
+          communityApId: objects.communityApId,
+          type: objects.type,
+          endTime: objects.endTime,
+          deletedAt: objects.deletedAt,
+        })
+        .from(objects)
+        .where(eq(objects.apId, updatedParentId))
+        .get();
+      if (
+        parent &&
+        (parent.deletedAt !== null ||
+          !(await canViewerReadObjectFull(db, parent, actor)) ||
+          (isLocal(parent.attributedTo, c.env.APP_URL) &&
+            (await actorSuppressesInteractionFrom(
+              db,
+              parent.attributedTo,
+              actor,
+            ))))
+      ) {
+        log.warn("Update(Note) rejected: reply parent is not readable", {
+          event: "ap.update.note_parent_unreadable",
+          actor,
+          objectId,
+          parentId: updatedParentId,
+        });
+        return;
+      }
+    }
+
     const updatedVisibility = hasAddressingUpdate
       ? isDirectShapedNote(object)
         ? "direct"
@@ -1479,15 +1574,17 @@ export async function handleUpdate(
         visibility: updatedVisibility,
         toJson: hasAddressingUpdate ? boundAddressJson(object.to) : undefined,
         ccJson: hasAddressingUpdate ? boundAddressJson(object.cc) : undefined,
+        audienceJson: hasAudienceUpdate
+          ? JSON.stringify(updatedAudience)
+          : undefined,
+        communityApId: hasAudienceUpdate
+          ? communityScope.communityApId
+          : undefined,
+        inReplyTo: hasThreadUpdate ? (updatedParentId ?? null) : undefined,
         conversation: updatedConversation,
         updated: new Date().toISOString(),
       })
       .where(eq(objects.apId, objectId));
-
-    if (!hasAddressingUpdate) {
-      await updateObject;
-      return;
-    }
 
     // `object_recipients(type=to)` is the indexed DM-read authority used by
     // contacts, requests, unread counts, and conversation discovery. Updating
@@ -1496,28 +1593,61 @@ export async function handleUpdate(
     // projection in the same D1 batch as the object row so neither old nor new
     // reach can be observed half-applied. insertMany keeps every statement
     // below D1's parameter ceiling for the bounded 64-address input.
-    const recipientInserts = insertMany(
-      db,
-      objectRecipients,
-      directToRecipients.map((recipientApId) => ({
-        objectApId: objectId,
-        recipientApId,
-        type: "to",
-      })),
-      { conflict: "ignore" },
-    );
-    await runBatch(db, [
-      updateObject,
-      db
-        .delete(objectRecipients)
-        .where(
-          and(
-            eq(objectRecipients.objectApId, objectId),
-            eq(objectRecipients.type, "to"),
+    const recipientProjectionStatements = hasAddressingUpdate
+      ? [
+          db
+            .delete(objectRecipients)
+            .where(
+              and(
+                eq(objectRecipients.objectApId, objectId),
+                eq(objectRecipients.type, "to"),
+              ),
+            ),
+          ...insertMany(
+            db,
+            objectRecipients,
+            directToRecipients.map((recipientApId) => ({
+              objectApId: objectId,
+              recipientApId,
+              type: "to",
+            })),
+            { conflict: "ignore" },
           ),
-        ),
-      ...recipientInserts,
-    ]);
+        ]
+      : [];
+
+    // A reply edge and both denormalized parent counters are one mutation.
+    // Recompute (rather than increment/decrement) after the child UPDATE so a
+    // duplicate/retry converges without double-counting. The old and new parent
+    // set has at most two entries, keeping the whole projection far below D1's
+    // 50-statement batch ceiling even at the 64-recipient addressing bound.
+    const parentIdsToRecompute = hasThreadUpdate
+      ? [
+          ...new Set(
+            [existing.inReplyTo, updatedParentId ?? null].filter(
+              (id): id is string => typeof id === "string" && id.length > 0,
+            ),
+          ),
+        ]
+      : [];
+    const parentCounterStatements = parentIdsToRecompute.map((parentId) =>
+      db
+        .update(objects)
+        .set({
+          replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
+        })
+        .where(eq(objects.apId, parentId)),
+    );
+
+    const projectionStatements = [
+      ...recipientProjectionStatements,
+      ...parentCounterStatements,
+    ];
+    if (projectionStatements.length === 0) {
+      await updateObject;
+    } else {
+      await runBatch(db, [updateObject, ...projectionStatements]);
+    }
   }
 }
 

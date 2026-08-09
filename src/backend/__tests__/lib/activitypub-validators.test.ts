@@ -304,6 +304,39 @@ test("parseActivity preserves object.conversation", () => {
   expect(obj.conversation).toEqual("https://example/contexts/123");
 });
 
+test("parseActivity preserves envelope/object audience addressing and an explicit null reply parent", () => {
+  const activity = parseActivity({
+    type: "Update",
+    actor: "https://example/u/a",
+    to: "https://example/u/b",
+    cc: ["https://www.w3.org/ns/activitystreams#Public"],
+    bto: ["https://example/u/c"],
+    bcc: "https://example/u/d",
+    audience: "https://example/groups/club",
+    object: {
+      id: "https://example/objects/1",
+      type: "Note",
+      inReplyTo: null,
+      audience: ["https://example/groups/club"],
+      bto: "https://example/u/c",
+      bcc: ["https://example/u/d"],
+    },
+  });
+
+  expect(activity.to).toEqual(["https://example/u/b"]);
+  expect(activity.cc).toEqual(["https://www.w3.org/ns/activitystreams#Public"]);
+  expect(activity.bto).toEqual(["https://example/u/c"]);
+  expect(activity.bcc).toEqual(["https://example/u/d"]);
+  expect(activity.audience).toEqual(["https://example/groups/club"]);
+
+  const obj = activity.object;
+  if (typeof obj === "string" || !obj) throw new Error("nested object missing");
+  expect(obj.inReplyTo).toBeNull();
+  expect(obj.audience).toEqual(["https://example/groups/club"]);
+  expect(obj.bto).toEqual(["https://example/u/c"]);
+  expect(obj.bcc).toEqual(["https://example/u/d"]);
+});
+
 test("parseActivity parses Undo(Follow)", () => {
   const undo = {
     id: "https://mastodon.example/users/alice#undo/123",

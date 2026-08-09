@@ -124,6 +124,9 @@ export function collectAddresses(activity: Activity): string[] {
     ...(activity.audience ?? []),
     ...(object?.to ?? []),
     ...(object?.cc ?? []),
+    ...(object?.bto ?? []),
+    ...(object?.bcc ?? []),
+    ...(object?.audience ?? []),
   ];
   // Same bound the persisted addressing arrays use (policy defined once, in
   // inbox-content-handlers): a remote must not be able to make one delivery
