@@ -16,6 +16,7 @@ type ActorRow = typeof actors.$inferSelect;
 /**
  * Creates a mock Drizzle DB that supports chainable patterns:
  *   db.select().from().where().get()
+ *   db.get(sql)
  *   db.insert().values().onConflictDoNothing().returning().get()
  *   db.update().set().where()
  *   db.delete().where()
@@ -99,9 +100,13 @@ function createMockDb(options: {
     callTracker.batches.push(statements);
     return Promise.resolve(undefined);
   });
+  // Personal moderation first checks exact block/mute rows through the normal
+  // select chain, then asks one raw SQL identity-set query only on a miss.
+  const rawGetSpy = spy(() => Promise.resolve({ matched: 0 }));
 
   const db = {
     select: selectSpy,
+    get: rawGetSpy,
     insert: insertSpy,
     update: updateSpy,
     delete: deleteSpy,
@@ -136,9 +141,9 @@ test("userInboxHandlers hardening - handleLike writes like/count/inbox in a sing
 
   const { db, callTracker } = createMockDb({
     // [0] = the audit#17 block/read-gate target lookup (a PUBLIC local post, so
-    // the gate passes), [1..2] = exact block/mute lookups, [3..4] = bounded
-    // legacy block/mute spelling scans (all not suppressed), [5] = the
+    // the gate passes), [1..2] = exact block/mute lookups, and [3] = the
     // pre-dispatch existing-edge lookup (truthy → no second notify select).
+    // The complete cosmetic identity fallback is one db.get(sql) query.
     selectResults: [
       {
         attributedTo: targetApId,
@@ -150,8 +155,6 @@ test("userInboxHandlers hardening - handleLike writes like/count/inbox in a sing
       },
       undefined,
       undefined,
-      [],
-      [],
       { actorApId },
     ],
     insertReturningResult: { actorApId, objectApId, activityApId: "like-1" },
@@ -168,10 +171,11 @@ test("userInboxHandlers hardening - handleLike writes like/count/inbox in a sing
 
   await handleLike(context, activity, actorApId, "https://example.com");
 
-  // Six selects: the audit#17 gate's target lookup + exact and bounded legacy
-  // block/mute lookups (canViewerReadObjectFull short-circuits on a public,
-  // non-community object with no select), then the existing-edge lookup.
-  assertSpyCalls(db.select, 6);
+  // Four selects: the audit#17 gate's target lookup + exact block/mute lookups
+  // (canViewerReadObjectFull short-circuits on a public, non-community object
+  // with no select), then the existing-edge lookup. Cosmetic matching is the
+  // separate SQL identity-set query.
+  assertSpyCalls(db.select, 4);
   // Verify the edge insert statement was built.
   assert_called(db.insert);
   // Verify the COUNT(*)-derived counter update statement was built.
@@ -185,10 +189,9 @@ test("userInboxHandlers hardening - handleLike treats unique conflicts as idempo
   // An existing edge is returned by the pre-dispatch lookup, modelling a
   // re-delivered/duplicate Like.
   const { db } = createMockDb({
-    // [0] = audit#17 gate target (public local post → gate passes), [1] =
-    // exact block/mute lookups (not suppressed), [3..4] = their bounded legacy
-    // spelling scans (also not suppressed), [5] = the existing-edge lookup
-    // returning a row (modelling the duplicate/re-delivered Like).
+    // [0] = audit#17 gate target (public local post → gate passes), [1..2] =
+    // exact block/mute lookups (not suppressed), and [3] = the existing-edge
+    // lookup returning a row (modelling the duplicate/re-delivered Like).
     selectResults: [
       {
         attributedTo: "https://example.com/ap/users/bob",
@@ -200,8 +203,6 @@ test("userInboxHandlers hardening - handleLike treats unique conflicts as idempo
       },
       undefined,
       undefined,
-      [],
-      [],
       {
         actorApId: "https://example.com/ap/users/alice",
       },
@@ -233,9 +234,10 @@ test("userInboxHandlers hardening - handleLike treats unique conflicts as idempo
   assertSpyCalls(db.update, 1);
   assertSpyCalls(db.batch, 1);
   // A duplicate (existing edge) must NOT re-notify the owner; handleInteraction
-  // returns before the notify path. Six selects: the audit#17 gate (target +
-  // exact and bounded legacy block/mute checks) then the existing-edge lookup.
-  assertSpyCalls(db.select, 6);
+  // returns before the notify path. Four selects: the audit#17 gate (target +
+  // exact block/mute checks) then the existing-edge lookup. Cosmetic matching
+  // is the separate SQL identity-set query.
+  assertSpyCalls(db.select, 4);
 });
 
 test("userInboxHandlers hardening - handleDelete performs dependent deletes and counter update", async () => {

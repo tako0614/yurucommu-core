@@ -28,9 +28,13 @@ import {
   blocks,
   communities,
   communityMembers,
+  type D1Statement,
   follows,
+  insertMany,
+  runBatch,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
+import { LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT } from "../../lib/personal-actor-moderation.ts";
 import storiesRoutes from "../../routes/stories/routes.ts";
 
 const APP_URL = "https://yuru.test";
@@ -467,4 +471,41 @@ test("GET /:actorId suppresses a legacy cosmetic block without folding path case
     ).ids,
   ).toContain(siblingStory);
   expect(blockedStory).not.toBe(siblingStory);
+});
+
+test("GET /:actorId still suppresses a cosmetic block older than 512 newer relations", async () => {
+  const db = await freshDb();
+  const env = envFor(db);
+  const author = await insertLocalActor(db, "author");
+  const follower = await insertLocalActor(db, "follower");
+  await createStory(db, fakeActor(author, "author"), env, {});
+  await db.insert(follows).values({
+    followerApId: follower,
+    followingApId: author,
+    status: "accepted",
+  });
+  const rows = [
+    {
+      blockerApId: follower,
+      blockedApId: "https://YURU.test:443/ap/users/author/#profile",
+      createdAt: "2020-01-01T00:00:00.000Z",
+    },
+    ...Array.from(
+      { length: LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT },
+      (_, index) => ({
+        blockerApId: follower,
+        blockedApId: `https://decoy-${index}.example/users/actor`,
+        createdAt: "2026-08-09T00:00:00.000Z",
+      }),
+    ),
+  ];
+  await runBatch(
+    db,
+    insertMany(db, blocks, rows) as [D1Statement, ...D1Statement[]],
+  );
+
+  expect(
+    (await readActorStories(db, fakeActor(follower, "follower"), author, env))
+      .ids,
+  ).toEqual([]);
 });

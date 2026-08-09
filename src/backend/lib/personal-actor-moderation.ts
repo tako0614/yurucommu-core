@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 
 import type { Database } from "../../db/index.ts";
 import { blocks, mutes } from "../../db/index.ts";
@@ -7,15 +7,34 @@ import {
   isSameActivityPubActor,
   normalizeActivityPubActorId,
 } from "./activitypub-actor-identity.ts";
+import { activityPubActorIdentitySetSql } from "./activitypub-actor-identity-sql.ts";
 import { chunkForInClause } from "./chunk.ts";
 
-// New block/mute writes are normalized, so these scans exist only for rows
-// retained before actor identity became one shared contract. Keep the fallback
-// bounded: personal moderation is an inbound hot path, not a migration pass.
+// Relation mutation needs the retained raw spelling, so its compatibility scan
+// stays bounded: an API write is not a migration pass. Authorization and read
+// decisions below never use this bound; they ask the SQL identity set, which
+// covers the complete per-actor relation cap without adding one parameter per
+// relation.
 export const LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT = 512;
 
 export function canonicalPersonalModerationActorId(actorApId: string): string {
   return normalizeActivityPubActorId(actorApId) ?? actorApId;
+}
+
+async function actorIdentitySetContains(
+  db: Database,
+  actorApId: string,
+  rawActorIds: SQL,
+): Promise<boolean> {
+  const identitySet = activityPubActorIdentitySetSql(rawActorIds);
+  const canonicalActorApId = canonicalPersonalModerationActorId(actorApId);
+  const match = (await db.get(sql`
+    SELECT CASE
+      WHEN ${canonicalActorApId} IN (${identitySet}) THEN 1
+      ELSE 0
+    END AS matched
+  `)) as { matched: number } | undefined;
+  return match?.matched === 1;
 }
 
 export async function resolveRetainedPersonalBlockTarget(
@@ -78,8 +97,26 @@ export async function personalActorIsBlockedBy(
   blockerApId: string,
   blockedApId: string,
 ): Promise<boolean> {
-  return Boolean(
-    await resolveRetainedPersonalBlockTarget(db, blockerApId, blockedApId),
+  const exact = await db
+    .select({ actorApId: blocks.blockedApId })
+    .from(blocks)
+    .where(
+      and(
+        eq(blocks.blockerApId, blockerApId),
+        eq(blocks.blockedApId, blockedApId),
+      ),
+    )
+    .get();
+  if (exact) return true;
+
+  return actorIdentitySetContains(
+    db,
+    blockedApId,
+    sql`
+      SELECT ${blocks.blockedApId}
+      FROM ${blocks}
+      WHERE ${blocks.blockerApId} = ${blockerApId}
+    `,
   );
 }
 
@@ -109,22 +146,18 @@ export async function personalActorIsSuppressedBy(
   ]);
   if (exactBlock || exactMute) return true;
 
-  const [legacyBlocks, legacyMutes] = await Promise.all([
-    db
-      .select({ actorApId: blocks.blockedApId })
-      .from(blocks)
-      .where(eq(blocks.blockerApId, ownerApId))
-      .orderBy(desc(blocks.createdAt), desc(blocks.blockedApId))
-      .limit(LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT),
-    db
-      .select({ actorApId: mutes.mutedApId })
-      .from(mutes)
-      .where(eq(mutes.muterApId, ownerApId))
-      .orderBy(desc(mutes.createdAt), desc(mutes.mutedApId))
-      .limit(LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT),
-  ]);
-  return [...legacyBlocks, ...legacyMutes].some((candidate) =>
-    isSameActivityPubActor(candidate.actorApId, actorApId),
+  return actorIdentitySetContains(
+    db,
+    actorApId,
+    sql`
+      SELECT ${blocks.blockedApId}
+      FROM ${blocks}
+      WHERE ${blocks.blockerApId} = ${ownerApId}
+      UNION ALL
+      SELECT ${mutes.mutedApId}
+      FROM ${mutes}
+      WHERE ${mutes.muterApId} = ${ownerApId}
+    `,
   );
 }
 
@@ -147,20 +180,14 @@ export async function anyOwnerSuppressesInboundActor(
   ]);
   if (exactBlock || exactMute) return true;
 
-  const [legacyBlocks, legacyMutes] = await Promise.all([
-    db
-      .select({ actorApId: blocks.blockedApId })
-      .from(blocks)
-      .orderBy(desc(blocks.createdAt), desc(blocks.blockedApId))
-      .limit(LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT),
-    db
-      .select({ actorApId: mutes.mutedApId })
-      .from(mutes)
-      .orderBy(desc(mutes.createdAt), desc(mutes.mutedApId))
-      .limit(LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT),
-  ]);
-  return [...legacyBlocks, ...legacyMutes].some((candidate) =>
-    isSameActivityPubActor(candidate.actorApId, actorApId),
+  return actorIdentitySetContains(
+    db,
+    actorApId,
+    sql`
+      SELECT ${blocks.blockedApId} FROM ${blocks}
+      UNION ALL
+      SELECT ${mutes.mutedApId} FROM ${mutes}
+    `,
   );
 }
 

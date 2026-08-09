@@ -179,6 +179,9 @@ function createDrizzleMockDb(
   const db = {
     select: selectSpy,
     selectDistinct: selectDistinctSpy,
+    // Exact personal-block lookup uses the select chain above. A miss falls
+    // back to one raw SQL identity-set query; this generic mock has no blocks.
+    get: spy(() => Promise.resolve({ matched: 0 })),
     insert: insertSpy,
     update: updateSpy,
     delete: deleteSpy,
