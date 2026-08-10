@@ -179,3 +179,62 @@ test("duplicate delivery repairs a missing Stamp snapshot projection", async () 
     .where(eq(messageStampRefs.messageId, MESSAGE_ID));
   expect(repaired).toEqual([{ revisionDigest: REVISION }]);
 });
+
+test("a changed Create cannot upgrade an existing ordinary image Note into a Stamp", async () => {
+  const db = await setup();
+  const ordinary = remoteStampActivity();
+  ordinary.id = `${MESSAGE_ID}/ordinary-activity`;
+  ordinary.object = {
+    id: MESSAGE_ID,
+    type: "Note",
+    attributedTo: REMOTE_ALICE,
+    to: [LOCAL_BOB],
+    content: "An ordinary image",
+    attachment: [
+      {
+        type: "Image",
+        mediaType: "image/webp",
+        url: ASSET_URL,
+        name: "ordinary image",
+        width: 512,
+        height: 512,
+      },
+    ],
+  } as unknown as Activity["object"];
+
+  await handleCreate(
+    contextFor(db),
+    ordinary,
+    recipientRow(),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+
+  const changed = remoteStampActivity();
+  changed.id = `${MESSAGE_ID}/changed-activity`;
+  await handleCreate(
+    contextFor(db),
+    changed,
+    recipientRow(),
+    REMOTE_ALICE,
+    APP_URL,
+  );
+
+  const stored = await db
+    .select({
+      content: objects.content,
+      attachmentsJson: objects.attachmentsJson,
+    })
+    .from(objects)
+    .where(eq(objects.apId, MESSAGE_ID))
+    .get();
+  expect(stored?.content).toBe("An ordinary image");
+  expect(stored?.attachmentsJson).not.toContain("yurucommu:stamp");
+  expect(
+    await db
+      .select()
+      .from(messageStampRefs)
+      .where(eq(messageStampRefs.messageId, MESSAGE_ID)),
+  ).toEqual([]);
+  expect(await db.select().from(stampAssetMirrors)).toEqual([]);
+});

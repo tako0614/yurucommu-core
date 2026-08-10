@@ -142,35 +142,79 @@ function inboundStampProjectionStatements(
   const stamp = inboundStampRefFromAttachmentsJson(attachmentsJson);
   if (!stamp) return [];
 
+  // Bind the snapshot to the attachment bytes that actually won the immutable
+  // objects.ap_id insert. A peer may deliver another Create with a fresh
+  // activity id but reuse an existing object id and change its attachment.
+  // The object insert below is a no-op in that case; an unconditional snapshot
+  // insert would otherwise upgrade an old ordinary image Note into a Stamp.
+  // Keeping this predicate inside INSERT ... SELECT also closes the concurrent
+  // first-delivery race that a preflight read would leave open.
+  const matchingObject = and(
+    eq(objects.apId, messageId),
+    eq(objects.attachmentsJson, attachmentsJson),
+  );
+  const snapshotCandidate = db
+    .select({
+      messageId: sql<string>`${messageId}`.as("message_id"),
+      stampUri: sql<string>`${stamp.stampUri}`.as("stamp_uri"),
+      packUri: sql<string>`${stamp.packUri}`.as("pack_uri"),
+      revisionId: sql<string | null>`NULL`.as("revision_id"),
+      revisionDigest: sql<string>`${stamp.revisionDigest}`.as(
+        "revision_digest",
+      ),
+      remoteAssetUrl: sql<string>`${stamp.remoteAssetUrl}`.as(
+        "remote_asset_url",
+      ),
+      localAssetR2Key: sql<string | null>`NULL`.as("local_asset_r2_key"),
+      mediaType: sql<string>`${stamp.mediaType}`.as("media_type"),
+      width: sql<number>`${stamp.width}`.as("width"),
+      height: sql<number>`${stamp.height}`.as("height"),
+      assetSha256: sql<string>`${stamp.assetSha256}`.as("asset_sha256"),
+      altText: sql<string>`${stamp.altText}`.as("alt_text"),
+      createdAt: sql<string>`${createdAt}`.as("created_at"),
+    })
+    .from(objects)
+    .where(matchingObject)
+    .limit(1);
+
+  // Derive the mirror job from the snapshot row, not directly from the
+  // untrusted retry. In a D1 batch the prior INSERT is visible here; if it was
+  // rejected by matchingObject (or conflicts with a different immutable
+  // snapshot), this SELECT yields no row and no outbound fetch is scheduled.
+  const mirrorCandidate = db
+    .select({
+      assetSha256: sql<string>`${stamp.assetSha256}`.as("asset_sha256"),
+      remoteAssetUrl: sql<string>`${stamp.remoteAssetUrl}`.as(
+        "remote_asset_url",
+      ),
+      localAssetR2Key: sql<string | null>`NULL`.as("local_asset_r2_key"),
+      mediaType: sql<string>`${stamp.mediaType}`.as("media_type"),
+      status: sql<string>`'pending'`.as("status"),
+      attempts: sql<number>`0`.as("attempts"),
+      lastError: sql<string | null>`NULL`.as("last_error"),
+      nextAttemptAt: sql<string>`${createdAt}`.as("next_attempt_at"),
+      verifiedAt: sql<string | null>`NULL`.as("verified_at"),
+      createdAt: sql<string>`${createdAt}`.as("created_at"),
+      updatedAt: sql<string>`${createdAt}`.as("updated_at"),
+    })
+    .from(messageStampRefs)
+    .where(
+      and(
+        eq(messageStampRefs.messageId, messageId),
+        eq(messageStampRefs.assetSha256, stamp.assetSha256),
+        eq(messageStampRefs.remoteAssetUrl, stamp.remoteAssetUrl),
+      ),
+    )
+    .limit(1);
+
   return [
     db
       .insert(messageStampRefs)
-      .values({
-        messageId,
-        stampUri: stamp.stampUri,
-        packUri: stamp.packUri,
-        revisionDigest: stamp.revisionDigest,
-        remoteAssetUrl: stamp.remoteAssetUrl,
-        mediaType: stamp.mediaType,
-        width: stamp.width,
-        height: stamp.height,
-        assetSha256: stamp.assetSha256,
-        altText: stamp.altText,
-        createdAt,
-      })
+      .select(snapshotCandidate)
       .onConflictDoNothing() as D1Statement,
     db
       .insert(stampAssetMirrors)
-      .values({
-        assetSha256: stamp.assetSha256,
-        remoteAssetUrl: stamp.remoteAssetUrl,
-        mediaType: stamp.mediaType,
-        status: "pending",
-        attempts: 0,
-        nextAttemptAt: createdAt,
-        createdAt,
-        updatedAt: createdAt,
-      })
+      .select(mirrorCandidate)
       .onConflictDoNothing() as D1Statement,
   ];
 }

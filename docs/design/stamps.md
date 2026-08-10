@@ -153,6 +153,10 @@ sync with the product-hosted context document.
 An unaware peer displays an image post. Aware peers validate the optional
 extension and persist a `MessageStampSnapshot`. An invalid extension degrades
 to the ordinary bounded attachment; it does not reject or upgrade the Note.
+The snapshot is conditional on the attachment JSON retained by the winning
+immutable object insert. A later `Create` that reuses the object ID with
+different Stamp metadata cannot add or replace the snapshot, while an exact
+redelivery may repair a missing projection.
 
 Inbound storage happens only after the normal HTTP-Signature actor binding,
 addressing/read gates, block/mute policy, object identity checks, and size
