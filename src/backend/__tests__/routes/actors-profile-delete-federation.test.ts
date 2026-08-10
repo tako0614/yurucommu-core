@@ -19,6 +19,7 @@ import {
   actorCache,
   actors,
   deliveryQueue,
+  deliveryResolutions,
   follows,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -288,4 +289,160 @@ test("POST /me/delete snapshots follower inboxes into delivery jobs before teard
     .where(eq(deliveryQueue.activityApId, row.apId));
   expect(jobs.length).toBe(1);
   expect(jobs[0].inboxUrl).toBe("https://remote.test/inbox");
+});
+
+test("POST /me/delete durably snapshots known and unresolved followers without Queue bindings", async () => {
+  const db = await freshDb();
+  const actor = await insertLocalActor(db, "queue-less");
+  const knownFollower = "https://known.remote.test/users/follower";
+  const unknownFollower = "https://unknown.remote.test/users/follower";
+  await db.insert(follows).values([
+    {
+      followerApId: knownFollower,
+      followingApId: actor.ap_id,
+      status: "accepted",
+    },
+    {
+      followerApId: unknownFollower,
+      followingApId: actor.ap_id,
+      status: "accepted",
+    },
+  ]);
+  await db.insert(actorCache).values({
+    apId: knownFollower,
+    type: "Person",
+    inbox: "https://known.remote.test/users/follower/inbox",
+    sharedInbox: "https://known.remote.test/inbox",
+    rawJson: "{}",
+    lastFetchedAt: new Date().toISOString(),
+  });
+  const app = appWith(db, actor);
+
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    { APP_URL, DB_INSTANCE: db } as Env,
+  );
+  expect(res.status).toBe(200);
+
+  // Teardown erases the follower graph, so these durable rows are the only
+  // remaining authority from which a later correctly configured runtime can
+  // recover the remote Delete(actor) delivery.
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(eq(follows.followingApId, actor.ap_id)),
+  ).toHaveLength(0);
+  const deleteActivity = await db
+    .select()
+    .from(activities)
+    .where(eq(activities.type, "Delete"))
+    .get();
+  expect(deleteActivity).toBeDefined();
+
+  expect(
+    await db
+      .select()
+      .from(deliveryQueue)
+      .where(eq(deliveryQueue.activityApId, deleteActivity!.apId)),
+  ).toMatchObject([
+    {
+      inboxUrl: "https://known.remote.test/inbox",
+      status: "pending",
+    },
+  ]);
+  expect(
+    await db
+      .select()
+      .from(deliveryResolutions)
+      .where(eq(deliveryResolutions.activityApId, deleteActivity!.apId)),
+  ).toMatchObject([
+    {
+      recipientActorApId: unknownFollower,
+      status: "pending",
+    },
+  ]);
+});
+
+test("POST /me/delete keeps the complete durable snapshot when the Queue RPC fails", async () => {
+  const db = await freshDb();
+  const actor = await insertLocalActor(db, "queue-failure");
+  const knownFollower = "https://known.remote.test/users/rpc-failure";
+  const unknownFollower = "https://unknown.remote.test/users/rpc-failure";
+  await db.insert(follows).values([
+    {
+      followerApId: knownFollower,
+      followingApId: actor.ap_id,
+      status: "accepted",
+    },
+    {
+      followerApId: unknownFollower,
+      followingApId: actor.ap_id,
+      status: "accepted",
+    },
+  ]);
+  await db.insert(actorCache).values({
+    apId: knownFollower,
+    type: "Person",
+    inbox: "https://known.remote.test/users/rpc-failure/inbox",
+    sharedInbox: "https://known.remote.test/rpc-failure-inbox",
+    rawJson: "{}",
+    lastFetchedAt: new Date().toISOString(),
+  });
+  const app = appWith(db, actor);
+  let sendAttempts = 0;
+  const env = {
+    APP_URL,
+    DB_INSTANCE: db,
+    DELIVERY_QUEUE: {
+      send: () => Promise.reject(new Error("Queue unavailable")),
+      sendBatch: () => {
+        sendAttempts += 1;
+        return Promise.reject(new Error("Queue unavailable"));
+      },
+    },
+    DELIVERY_DLQ: { send: () => Promise.resolve() },
+  } as unknown as Env;
+
+  const res = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    env,
+  );
+  expect(res.status).toBe(200);
+  expect(sendAttempts).toBe(1);
+
+  const deleteActivity = await db
+    .select()
+    .from(activities)
+    .where(eq(activities.type, "Delete"))
+    .get();
+  expect(deleteActivity).toBeDefined();
+  expect(
+    await db
+      .select()
+      .from(deliveryQueue)
+      .where(eq(deliveryQueue.activityApId, deleteActivity!.apId)),
+  ).toMatchObject([
+    {
+      inboxUrl: "https://known.remote.test/rpc-failure-inbox",
+      status: "pending",
+    },
+  ]);
+  expect(
+    await db
+      .select()
+      .from(deliveryResolutions)
+      .where(eq(deliveryResolutions.activityApId, deleteActivity!.apId)),
+  ).toMatchObject([
+    {
+      recipientActorApId: unknownFollower,
+      status: "pending",
+    },
+  ]);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(eq(follows.followingApId, actor.ap_id)),
+  ).toHaveLength(0);
 });

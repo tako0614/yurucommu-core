@@ -21,6 +21,7 @@ import {
   blocks,
   communities,
   deliveryQueue,
+  deliveryResolutions,
   follows,
   inbox,
   mediaUploads,
@@ -151,10 +152,11 @@ const TOMBSTONE_REAP_AFTER_MS = 24 * 60 * 60 * 1000;
  * Hard-delete tombstoned local actors whose federation Delete has drained.
  *
  * A tombstone is only reaped when (a) its `deletedAt` is older than
- * TOMBSTONE_REAP_AFTER_MS and (b) it has NO non-terminal (pending / processing
- * / failed / retry_wait) delivery_queue rows for any of its Delete activities —
- * i.e. nothing still needs the private key to sign a retry. The preserved Delete activity
- * rows are removed alongside the actor so they do not accumulate forever.
+ * TOMBSTONE_REAP_AFTER_MS and (b) it has NO non-terminal endpoint-delivery or
+ * actor-resolution rows for any of its Delete activities — i.e. nothing can
+ * still resolve into a delivery that needs the private key to sign a retry.
+ * The preserved Delete activity rows are removed alongside the actor so they
+ * do not accumulate forever.
  *
  * Returns the number of tombstones hard-deleted.
  */
@@ -183,11 +185,11 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
     const deleteActivityIds = deleteActivities.map((a) => a.apId);
 
     if (deleteActivityIds.length > 0) {
-      // Any non-terminal delivery job for those Delete activities means the
-      // signer may still need this actor's key — skip reaping for now. Chunked:
-      // a prolific deleted actor can have >100 Delete activities, which would
-      // blow D1's 100-bound-param cap and 500 this fire-and-forget reap, leaking
-      // the tombstone (and its signing key) forever.
+      // Any non-terminal endpoint OR resolution job for those Delete activities
+      // means the signer may still need this actor's key — skip reaping for
+      // now. Chunked: a prolific deleted actor can have >100 Delete activities,
+      // which would blow D1's 100-bound-param cap and 500 this fire-and-forget
+      // reap, leaking the tombstone (and its signing key) forever.
       let hasPendingDelivery = false;
       for (const chunk of chunkForInClause(deleteActivityIds)) {
         const pending = await db
@@ -213,6 +215,31 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
           .limit(1)
           .get();
         if (pending) {
+          hasPendingDelivery = true;
+          break;
+        }
+
+        // An unresolved recipient has not created its delivery_queue row yet,
+        // but resolution may do so later. Reaping the activity + signing key
+        // here would turn an otherwise recoverable Queue outage into a
+        // permanently unsigned/missing Delete(actor).
+        const pendingResolution = await db
+          .select({ id: deliveryResolutions.id })
+          .from(deliveryResolutions)
+          .where(
+            and(
+              inArray(deliveryResolutions.activityApId, chunk),
+              inArray(deliveryResolutions.status, [
+                "pending",
+                "queued",
+                "processing",
+                "retry_wait",
+              ]),
+            ),
+          )
+          .limit(1)
+          .get();
+        if (pendingResolution) {
           hasPendingDelivery = true;
           break;
         }

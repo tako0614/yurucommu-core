@@ -28,6 +28,7 @@ import {
   communityInvites,
   communityJoinRequests,
   deliveryQueue,
+  deliveryResolutions,
   objects,
   storyViews,
   storyVotes,
@@ -336,6 +337,54 @@ test("reapDrainedTombstones keeps live tombstones and reaps drained ones", async
     .from(deliveryQueue)
     .where(eq(deliveryQueue.activityApId, deleteActivityId));
   expect(jobGone.length).toBe(0);
+});
+
+test("reapDrainedTombstones keeps the signer while actor resolution is pending", async () => {
+  const db = await freshDb();
+  const apId = await insertLocalActor(db, "unresolved-ghost");
+  const oldIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  await db
+    .update(actors)
+    .set({ preferredUsername: "deleted-unresolved-ghost", deletedAt: oldIso })
+    .where(eq(actors.apId, apId));
+
+  const deleteActivityId = `${APP_URL}/ap/activities/del-unresolved-ghost`;
+  await db.insert(activities).values({
+    apId: deleteActivityId,
+    type: "Delete",
+    actorApId: apId,
+    objectApId: apId,
+    rawJson: "{}",
+    direction: "outbound",
+  });
+  await db.insert(deliveryResolutions).values({
+    id: "resolution-pending",
+    activityApId: deleteActivityId,
+    recipientActorApId: "https://remote.test/users/unresolved",
+    status: "pending",
+  });
+
+  expect(await reapDrainedTombstones(db)).toBe(0);
+  expect(
+    await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(eq(actors.apId, apId))
+      .get(),
+  ).toBeTruthy();
+
+  await db
+    .update(deliveryResolutions)
+    .set({ status: "resolved" })
+    .where(eq(deliveryResolutions.id, "resolution-pending"));
+  expect(await reapDrainedTombstones(db)).toBe(1);
+  expect(
+    await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(eq(actors.apId, apId))
+      .get(),
+  ).toBeUndefined();
 });
 
 test("reapDrainedTombstones does not touch recent tombstones", async () => {

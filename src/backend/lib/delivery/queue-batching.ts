@@ -41,6 +41,7 @@ import {
 import {
   buildDeliverEndpointMessage,
   buildResolveActorMessage,
+  enqueuePendingDeliveryEndpointJobs,
   MAX_RECONCILE_ATTEMPTS,
   nowIso,
   type QueueEnv,
@@ -53,6 +54,7 @@ import {
   claimDeliveryResolutionJob,
   completeDeliveryResolutionJob,
   enqueueDeliveryResolutionJobs,
+  enqueuePendingDeliveryResolutionJobs,
   MAX_RESOLVE_ATTEMPTS,
   retryDeliveryResolutionJob,
 } from "./resolution-outbox.ts";
@@ -124,7 +126,7 @@ async function sendQueueBatchChunked(
  */
 export async function enqueueFollowerEndpointDeliveries(
   db: Database,
-  queue: QueueEnv["DELIVERY_QUEUE"],
+  queue: QueueEnv["DELIVERY_QUEUE"] | undefined,
   baseUrl: string,
   activityId: string,
   followeeApId: string,
@@ -183,15 +185,29 @@ export async function enqueueFollowerEndpointDeliveries(
         deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
       }
 
-      await sendQueueBatchChunked(queue, deliverRequests);
+      // Persist every durable first-hop row before the first Queue RPC. Queue
+      // messages are only wakeups; losing or lacking the producer must never
+      // erase the delivery authority for an irreversible account teardown.
       await enqueueDeliveryResolutionJobs(
         db,
-        queue,
+        undefined,
         planned.unknownRecipients.map((recipientActorApId) => ({
           activityId,
           recipientActorApId,
         })),
       );
+
+      if (queue) {
+        await sendQueueBatchChunked(queue, deliverRequests);
+        await enqueueDeliveryResolutionJobs(
+          db,
+          queue,
+          planned.unknownRecipients.map((recipientActorApId) => ({
+            activityId,
+            recipientActorApId,
+          })),
+        );
+      }
     }
 
     processed += page.length;
@@ -213,10 +229,10 @@ export async function enqueueFollowerEndpointDeliveries(
  * `fanout_followers` consumer would otherwise run after the follower graph is
  * gone and reach zero remote followers.
  *
- * Best-effort and queue-aware: if the delivery queue bindings are missing it
- * is a no-op (mirrors enqueueFanoutToFollowers' silent producer-unavailable
- * behavior). Never throws into the caller's teardown transaction — the caller
- * still wraps it so federation can never block local deletion.
+ * Persistence does not depend on Queue bindings: Queue messages are wakeups,
+ * while delivery_queue / delivery_resolutions remain the retry authority after
+ * the follower graph is erased. The full graph is snapshotted before any
+ * producer RPC, so a producer outage cannot leave only the first page durable.
  */
 export async function snapshotAndEnqueueFollowerDeliveries(
   db: Database,
@@ -224,14 +240,20 @@ export async function snapshotAndEnqueueFollowerDeliveries(
   activityId: string,
   followeeApId: string,
 ): Promise<void> {
-  const queue = (env as Partial<QueueEnv>).DELIVERY_QUEUE;
+  const queueEnv = env as Partial<QueueEnv>;
+  const queue =
+    queueEnv.DELIVERY_QUEUE && queueEnv.DELIVERY_DLQ
+      ? queueEnv.DELIVERY_QUEUE
+      : undefined;
   if (!queue) {
-    log.warn("Delivery queue unavailable; follower snapshot delivery skipped", {
-      event: "delivery.fanout.snapshot_queue_unavailable",
-      followee: followeeApId,
-      activityId,
-    });
-    return;
+    log.warn(
+      "Delivery queue unavailable; follower snapshot persisted without wakeups",
+      {
+        event: "delivery.fanout.snapshot_queue_unavailable",
+        followee: followeeApId,
+        activityId,
+      },
+    );
   }
 
   let cursor: string | null = null;
@@ -239,7 +261,7 @@ export async function snapshotAndEnqueueFollowerDeliveries(
   do {
     const page = await enqueueFollowerEndpointDeliveries(
       db,
-      queue,
+      undefined,
       env.APP_URL,
       activityId,
       followeeApId,
@@ -256,6 +278,25 @@ export async function snapshotAndEnqueueFollowerDeliveries(
       activityId,
       processed,
     });
+  }
+
+  if (queue) {
+    // Publish only after every follower page is durable. These bounded sweeps
+    // wake the first tranche immediately; request/queue/cron recovery drains
+    // any remaining rows from the same outboxes.
+    try {
+      await enqueuePendingDeliveryEndpointJobs(env, new Date(), {
+        includeFreshPending: true,
+      });
+      await enqueuePendingDeliveryResolutionJobs(env);
+    } catch (error) {
+      log.error("Follower snapshot persisted but Queue wakeup failed", {
+        event: "delivery.fanout.snapshot_wakeup_failed",
+        followee: followeeApId,
+        activityId,
+        error,
+      });
+    }
   }
 }
 
