@@ -55,6 +55,29 @@ function sanitizeOAuthProfile(userInfo: { name?: string; picture?: string }): {
 
 const log = logger.child({ component: "auth.helpers" });
 
+function isExplicitlyEnabled(value: string | undefined): boolean {
+  return ["1", "true", "yes", "on"].includes(
+    (value ?? "").trim().toLowerCase(),
+  );
+}
+
+/**
+ * OAuth identities are persisted as `<provider>:<subject>`, while an operator
+ * may only know the issuer's bare subject when configuring the first login.
+ * Accept either spelling without broadening the match to another subject.
+ */
+function configuredSubjectMatches(
+  configuredSubject: string,
+  providerUserId: string,
+): boolean {
+  if (configuredSubject === providerUserId) return true;
+  const namespaceSeparator = providerUserId.indexOf(":");
+  return (
+    namespaceSeparator >= 0 &&
+    configuredSubject === providerUserId.slice(namespaceSeparator + 1)
+  );
+}
+
 // Upper bound for the OAuth token-exchange / userinfo fetches so a hung provider
 // can't stall the login request (the self-host runtime has no wall-clock cap).
 export const OAUTH_FETCH_TIMEOUT_MS = 10_000;
@@ -353,22 +376,29 @@ export async function createActorFromOAuth(
   // When `OIDC_OWNER_SUB` (the operator's pinned Takosumi subject) is configured,
   // ONLY that subject may take the owner slot; any other first-login is REFUSED
   // (not downgraded to member — that would consume the owner slot and lock the
-  // real operator out forever). With no pin set we keep first-login-owner but warn.
+  // real operator out forever). An unpinned bootstrap must be explicitly enabled
+  // because otherwise any valid issuer subject could win this authority race.
   if (actorCount === 0) {
     const ownerSub =
       parseNonEmptyString(env.OIDC_OWNER_SUB) ??
       parseNonEmptyString(env.TAKOSUMI_ACCOUNTS_OWNER_SUB);
     if (ownerSub) {
-      if (providerUserId !== ownerSub) {
+      if (!configuredSubjectMatches(ownerSub, providerUserId)) {
         log.warn(
           "refused OAuth owner creation: subject does not match OIDC_OWNER_SUB pin",
         );
         return null;
       }
+    } else if (!isExplicitlyEnabled(env.ALLOW_UNPINNED_OWNER_CLAIM)) {
+      log.warn(
+        "refused OAuth owner creation: no owner subject pin or explicit " +
+          "ALLOW_UNPINNED_OWNER_CLAIM bootstrap opt-in is configured",
+      );
+      return null;
     } else {
       log.warn(
-        "first OAuth login is taking the owner slot with no OIDC_OWNER_SUB pin set; " +
-          "set OIDC_OWNER_SUB to the operator's subject to prevent an owner-slot race",
+        "explicit unpinned OAuth bootstrap is taking the owner slot; " +
+          "pin OIDC_OWNER_SUB and clear ALLOW_UNPINNED_OWNER_CLAIM after login",
       );
     }
   }
@@ -393,8 +423,9 @@ export async function createActorFromOAuth(
         .map((s) => s.trim())
         .filter(Boolean),
     );
-    if (ownerSub) allowed.add(ownerSub);
-    if (!allowed.has(providerUserId)) {
+    const matchesOwner =
+      ownerSub != null && configuredSubjectMatches(ownerSub, providerUserId);
+    if (!matchesOwner && !allowed.has(providerUserId)) {
       log.warn(
         "refused OAuth member auto-provisioning: registration is closed " +
           "(subject not the owner pin and not in OIDC_ALLOWED_SUBS)",

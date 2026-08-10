@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
  * `OIDC_OWNER_SUB` pins the operator's subject, only that subject may take the
  * owner slot; any other first-login is REFUSED (returns null, not downgraded to
  * member — downgrading would consume the owner slot and lock the operator out).
- * With no pin set, first-login-owner is preserved.
+ * With no pin set, an explicit one-time opt-in is required.
  */
 
 import { drizzle } from "drizzle-orm/libsql";
@@ -55,7 +55,7 @@ const userInfo = (id: string) => ({
   username: "operator",
 });
 
-test("no owner pin: first OAuth login becomes owner (legacy)", async () => {
+test("no owner pin and no bootstrap opt-in: first OAuth login is refused", async () => {
   const db = await freshDb();
   const actor = await createActorFromOAuth(
     db,
@@ -63,7 +63,18 @@ test("no owner pin: first OAuth login becomes owner (legacy)", async () => {
     userInfo("sub-anyone"),
     "sub-anyone",
   );
-  expect(actor).toBeTruthy();
+  expect(actor).toBeNull();
+  expect(await db.select().from(actors).all()).toHaveLength(0);
+});
+
+test("ALLOW_UNPINNED_OWNER_CLAIM permits one explicit bootstrap login", async () => {
+  const db = await freshDb();
+  const actor = await createActorFromOAuth(
+    db,
+    envWith({ ALLOW_UNPINNED_OWNER_CLAIM: "true" }),
+    userInfo("sub-bootstrap"),
+    "sub-bootstrap",
+  );
   expect(actor?.role).toBe("owner");
 });
 
@@ -76,6 +87,18 @@ test("OIDC_OWNER_SUB set: matching first login becomes owner", async () => {
     "sub-operator",
   );
   expect(actor?.role).toBe("owner");
+});
+
+test("a bare OIDC_OWNER_SUB matches the persisted provider-namespaced subject", async () => {
+  const db = await freshDb();
+  const actor = await createActorFromOAuth(
+    db,
+    envWith({ OIDC_OWNER_SUB: "issuer-sub" }),
+    userInfo("issuer-sub"),
+    "takos:issuer-sub",
+  );
+  expect(actor?.role).toBe("owner");
+  expect(actor?.takosUserId).toBe("takos:issuer-sub");
 });
 
 test("OIDC_OWNER_SUB set: a non-matching first login is REFUSED (owner slot preserved)", async () => {
@@ -137,7 +160,7 @@ test("a second login with NO owner pin set is also refused (registration closed 
   const db = await freshDb();
   await createActorFromOAuth(
     db,
-    envWith({}),
+    envWith({ ALLOW_UNPINNED_OWNER_CLAIM: "true" }),
     userInfo("sub-owner"),
     "sub-owner",
   );
@@ -178,7 +201,7 @@ test("OAuth profile: oversized name is capped to 50 and an invalid icon URL is d
   const db = await freshDb();
   const actor = await createActorFromOAuth(
     db,
-    envWith({}),
+    envWith({ ALLOW_UNPINNED_OWNER_CLAIM: "true" }),
     {
       id: "sub-evil",
       name: "X".repeat(500),
@@ -196,7 +219,7 @@ test("OAuth profile: a valid https picture is accepted", async () => {
   const db = await freshDb();
   const actor = await createActorFromOAuth(
     db,
-    envWith({}),
+    envWith({ ALLOW_UNPINNED_OWNER_CLAIM: "true" }),
     {
       id: "sub-ok",
       name: "Operator",

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runMigrations } from "../server.ts";
+import { buildLocalRuntimeEnvPassthrough, runMigrations } from "../server.ts";
 
 function createMigrationDb(applied: string[] = []) {
   const execCalls: string[] = [];
@@ -80,4 +80,17 @@ test("server migrations - skips files already recorded as applied", async () => 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("local server forwards single-user OIDC authority configuration", () => {
+  const source = {
+    OIDC_OWNER_SUB: "takos:owner",
+    TAKOSUMI_ACCOUNTS_OWNER_SUB: "takos:fallback-owner",
+    ALLOW_UNPINNED_OWNER_CLAIM: "false",
+    OIDC_ALLOWED_SUBS: "takos:member",
+    YURUCOMMU_SESSION_HASH_SALT: "local-test-salt",
+    YURUCOMMU_STRICT_READINESS: "true",
+  };
+
+  expect(buildLocalRuntimeEnvPassthrough(source)).toMatchObject(source);
 });

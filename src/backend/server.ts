@@ -24,7 +24,7 @@ import process from "node:process";
 import { and, inArray, lt, or } from "drizzle-orm";
 import { BunAssets, BunDatabase, BunStorage } from "./runtime/bun.ts";
 import { MemoryKV } from "./runtime/memory-kv.ts";
-import type { Env } from "./types.ts";
+import type { Env, EnvVars } from "./types.ts";
 import type {
   DeliveryDlqMessageV1,
   DeliveryQueueMessageV1,
@@ -78,37 +78,75 @@ const APP_URL = process.env.APP_URL ?? `http://localhost:${PORT}`;
 // Create Cloudflare-compatible environment from the local runtime
 // ---------------------------------------------------------------------------
 
-const ENV_PASSTHROUGH_KEYS = [
-  "AUTH_PASSWORD_HASH",
-  "ENCRYPTION_KEY",
-  "GOOGLE_CLIENT_ID",
-  "GOOGLE_CLIENT_SECRET",
-  "X_CLIENT_ID",
-  "X_CLIENT_SECRET",
-  "OIDC_ISSUER_URL",
-  "OIDC_CLIENT_ID",
-  "OIDC_CLIENT_SECRET",
-  "OAUTH_ISSUER_URL",
-  "TAKOSUMI_ACCOUNTS_ISSUER_URL",
-  "TAKOSUMI_ACCOUNTS_CLIENT_ID",
-  "TAKOSUMI_ACCOUNTS_CLIENT_SECRET",
-  "TAKOS_URL",
-  "AUTH_MODE",
-  "CSRF_ALLOWED_ORIGINS",
-  "ENABLE_TAKOS_TOOLS",
-  "DELIVERY_SHADOW_PROBE_HOSTS",
-  "DELIVERY_SHADOW_PROBE_SAMPLE_RATE",
-  "DELIVERY_QUEUE_NAME",
-  "DELIVERY_DLQ_NAME",
-  "YURUCOMMU_ENABLE_LOCAL_SUBSTRATE_REMOTE_FETCHES",
-  "YURUCOMMU_ENABLE_LOCAL_DELIVERY_QUEUE",
-  "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_ALLOWED_HOSTS",
-  "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_URL",
-  "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TOKEN",
-  "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TIMEOUT_MS",
-  "YURUCOMMU_NOTIFICATION_PUSH_ALLOW_INSECURE_LOOPBACK",
-  "YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY",
-] as const;
+type LocalRuntimeEnvKey = Exclude<keyof EnvVars, "APP_URL">;
+
+// Keep the Bun self-host adapter wire-equivalent to Worker bindings. Using a
+// complete Record makes TypeScript fail whenever EnvVars gains a new runtime
+// setting without an explicit local-runtime decision, instead of silently
+// dropping authority/security configuration such as OIDC_OWNER_SUB.
+const ENV_PASSTHROUGH_KEY_SET: Record<LocalRuntimeEnvKey, true> = {
+  ENABLE_TAKOS_TOOLS: true,
+  AUTH_PASSWORD_HASH: true,
+  GOOGLE_CLIENT_ID: true,
+  GOOGLE_CLIENT_SECRET: true,
+  X_CLIENT_ID: true,
+  X_CLIENT_SECRET: true,
+  OIDC_ISSUER_URL: true,
+  OIDC_CLIENT_ID: true,
+  OIDC_CLIENT_SECRET: true,
+  OAUTH_ISSUER_URL: true,
+  TAKOSUMI_ACCOUNTS_ISSUER_URL: true,
+  TAKOSUMI_ACCOUNTS_CLIENT_ID: true,
+  TAKOSUMI_ACCOUNTS_CLIENT_SECRET: true,
+  OIDC_OWNER_SUB: true,
+  TAKOSUMI_ACCOUNTS_OWNER_SUB: true,
+  ALLOW_UNPINNED_OWNER_CLAIM: true,
+  OIDC_ALLOWED_SUBS: true,
+  TAKOS_URL: true,
+  AUTH_MODE: true,
+  ENCRYPTION_KEY: true,
+  YURUCOMMU_SESSION_HASH_SALT: true,
+  DELIVERY_SHADOW_PROBE_HOSTS: true,
+  DELIVERY_SHADOW_PROBE_SAMPLE_RATE: true,
+  DELIVERY_QUEUE_NAME: true,
+  DELIVERY_DLQ_NAME: true,
+  YURUCOMMU_STRICT_READINESS: true,
+  YURUCOMMU_ENABLE_LOCAL_SUBSTRATE_REMOTE_FETCHES: true,
+  YURUCOMMU_ENABLE_LOCAL_DELIVERY_QUEUE: true,
+  YURUCOMMU_SOFTWARE_VERSION: true,
+  YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_ALLOWED_HOSTS: true,
+  YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_URL: true,
+  YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TOKEN: true,
+  YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TIMEOUT_MS: true,
+  YURUCOMMU_NOTIFICATION_PUSH_ALLOW_INSECURE_LOOPBACK: true,
+  YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY: true,
+  CSRF_ALLOWED_ORIGINS: true,
+  YURUCOMMU_RTC_ICE_SERVERS: true,
+  YURUCOMMU_RTC_TURN_URIS: true,
+  YURUCOMMU_RTC_TURN_SECRET: true,
+  YURUCOMMU_RTC_TURN_TTL: true,
+  YURUCOMMU_RTC_SFU_ADAPTER: true,
+  YURUCOMMU_RTC_SFU_URL: true,
+  YURUCOMMU_RTC_SFU_TOKEN: true,
+  YURUCOMMU_RTC_SFU_APP_ID: true,
+  YURUCOMMU_RTC_SFU_APP_SECRET: true,
+  TAKOS_TRUST_PROXY: true,
+};
+
+const ENV_PASSTHROUGH_KEYS = Object.keys(
+  ENV_PASSTHROUGH_KEY_SET,
+) as LocalRuntimeEnvKey[];
+
+export function buildLocalRuntimeEnvPassthrough(
+  source: Readonly<Record<string, string | undefined>>,
+): Partial<Record<LocalRuntimeEnvKey, string | undefined>> {
+  const passthrough: Partial<Record<LocalRuntimeEnvKey, string | undefined>> =
+    {};
+  for (const key of ENV_PASSTHROUGH_KEYS) {
+    passthrough[key] = source[key];
+  }
+  return passthrough;
+}
 
 function isTruthyEnv(value: string | undefined): boolean {
   if (!value) return false;
@@ -351,10 +389,7 @@ async function createLocalServerEnv(config: {
   const assets = BunAssets.create(config.assetsPath);
   const media = await BunStorage.create(config.storagePath);
 
-  const passthrough: Record<string, string | undefined> = {};
-  for (const key of ENV_PASSTHROUGH_KEYS) {
-    passthrough[key] = process.env[key];
-  }
+  const passthrough = buildLocalRuntimeEnvPassthrough(process.env);
 
   const dbInstance = await getDbSQLite(config.databasePath);
   const env: LocalServerEnv = {

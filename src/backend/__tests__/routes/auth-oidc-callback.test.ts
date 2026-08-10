@@ -101,6 +101,7 @@ function envWith(db: Database, kv: MockKV): Env {
     KV: kv,
     OIDC_ISSUER_URL: ISSUER,
     OIDC_CLIENT_ID: CLIENT,
+    OIDC_OWNER_SUB: "takos-sub-1",
     ENCRYPTION_KEY: "0".repeat(64),
   } as unknown as Env;
 }
