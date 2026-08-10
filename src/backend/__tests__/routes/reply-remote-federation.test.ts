@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile, readdir } from "node:fs/promises";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import { Hono } from "hono";
@@ -117,6 +117,25 @@ async function postReply(
   );
 }
 
+async function deletePost(
+  db: Database,
+  actor: Actor,
+  env: Env,
+  postId: string,
+) {
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db as unknown as never);
+    c.set("actor", actor);
+    await next();
+  });
+  app.route("/", postsAggregator);
+  return app.fetch(
+    new Request(`${APP_URL}/${postId}`, { method: "DELETE" }),
+    env,
+  );
+}
+
 async function findReplyCreate(db: Database, postApId: string) {
   const rows = await db
     .select({ rawJson: activities.rawJson })
@@ -197,4 +216,52 @@ test("a DIRECT reply does NOT implicitly disclose to the parent author", async (
   expect([200, 201]).toContain(res.status);
   const deliveredToAlice = sent.some((m) => JSON.stringify(m).includes(ALICE));
   expect(deliveredToAlice).toBe(false);
+});
+
+test("deleting a direct post reaches only explicit recipients, never followers", async () => {
+  const db = await freshDb();
+  const tako = await seedLocalActor(db, "tako");
+  const postId = "direct-delete";
+  const apId = `${APP_URL}/ap/objects/${postId}`;
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: tako,
+    content: "private",
+    visibility: "direct",
+    toJson: JSON.stringify([ALICE]),
+    published: "2026-06-20T00:00:00.000Z",
+  });
+
+  const sent: unknown[] = [];
+  const response = await deletePost(
+    db,
+    fakeActor(tako, "tako"),
+    envFor(db, sent),
+    postId,
+  );
+  expect(response.status).toBe(200);
+
+  const activity = await db
+    .select({ apId: activities.apId, rawJson: activities.rawJson })
+    .from(activities)
+    .where(
+      and(
+        eq(activities.objectApId, apId),
+        eq(activities.type, "Delete"),
+        eq(activities.direction, "outbound"),
+      ),
+    )
+    .get();
+  expect(JSON.parse(activity!.rawJson)).toMatchObject({
+    to: [ALICE],
+    object: { id: apId, type: "Tombstone" },
+  });
+  expect(sent).toEqual([
+    expect.objectContaining({
+      type: "resolve_actor",
+      activityId: activity!.apId,
+      recipientActorApId: ALICE,
+    }),
+  ]);
 });

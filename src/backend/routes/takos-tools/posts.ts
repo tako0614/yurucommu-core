@@ -22,6 +22,14 @@ import {
   normalizeVisibility,
 } from "../posts/transformers.ts";
 import {
+  federateCreatedPost,
+  federateDeletedPost,
+} from "../posts/federation.ts";
+import {
+  insertPostAndHandleReply,
+  REPLY_TARGET_NOT_FOUND,
+} from "../posts/post-helpers.ts";
+import {
   errAuth,
   errNotFound,
   errRequired,
@@ -68,6 +76,7 @@ export async function handleCreatePost(
     ? String(input.in_reply_to)
     : null;
   let inReplyTo: string | null = null;
+  let parentAuthor: string | null = null;
 
   if (!content) return c.json(errRequired("Content"), 400);
   // Enforce the same content cap as the canonical post route so this MCP path
@@ -114,54 +123,57 @@ export async function handleCreatePost(
     // Persist the resolved canonical/full AP identifier, never the compact
     // caller input, so reply traversal and counter recomputation share one key.
     inReplyTo = parent.apId;
+    parentAuthor = parent.attributedTo;
   }
 
   const postId = crypto.randomUUID();
   const now = new Date().toISOString();
   const apId = objectApId(c.env.APP_URL.replace(/\/+$/u, ""), postId);
 
-  // Co-commit the Note + author postCount bump (+ parent replyCount recompute for
-  // a reply) atomically (no drift on a mid-write failure). Direct posts do NOT
-  // count toward postCount (mirror the canonical create/delete + DM paths).
-  const stmts: unknown[] = [
-    db.insert(objects).values({
+  try {
+    parentAuthor = await insertPostAndHandleReply(db, {
       apId,
-      type: "Note",
-      attributedTo: actor.ap_id,
+      actorApId: actor.ap_id,
       content,
       summary: null,
-      attachmentsJson: "[]",
+      attachments: undefined,
       inReplyTo,
       visibility,
-      likeCount: 0,
-      replyCount: 0,
-      announceCount: 0,
-      shareCount: 0,
-      published: now,
-      isLocal: 1,
-    }),
-  ];
-  if (visibility !== "direct") {
-    stmts.push(
-      db
-        .update(actors)
-        .set({ postCount: sql`${actors.postCount} + 1` })
-        .where(eq(actors.apId, actor.ap_id)),
-    );
+      communityId: null,
+      community: null,
+      baseUrl: c.env.APP_URL,
+      now,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === REPLY_TARGET_NOT_FOUND) {
+      return c.json(errNotFound("Reply target"), 404);
+    }
+    throw error;
   }
-  if (inReplyTo) {
-    stmts.push(
-      db
-        .update(objects)
-        .set({
-          replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${inReplyTo})`,
-        })
-        .where(eq(objects.apId, inReplyTo)),
-    );
-  }
-  await (db as unknown as Batchable).batch(stmts);
 
-  return c.json(ok({ post_id: postId, ap_id: apId }));
+  const { mentionFailures } = await federateCreatedPost({
+    db,
+    env: c.env,
+    actorApId: actor.ap_id,
+    objectApId: apId,
+    content,
+    summary: null,
+    inReplyTo,
+    parentAuthor,
+    visibility,
+    community: null,
+    published: now,
+  });
+
+  return c.json(
+    ok({
+      post_id: postId,
+      ap_id: apId,
+      ...(mentionFailures.length > 0
+        ? { mention_processing: { failed_count: mentionFailures.length } }
+        : {}),
+    }),
+  );
 }
 
 export async function handleDeletePost(
@@ -180,6 +192,9 @@ export async function handleDeletePost(
       apId: objects.apId,
       inReplyTo: objects.inReplyTo,
       visibility: objects.visibility,
+      communityApId: objects.communityApId,
+      toJson: objects.toJson,
+      ccJson: objects.ccJson,
     })
     .from(objects)
     .where(
@@ -245,6 +260,13 @@ export async function handleDeletePost(
   // The irreversible external delete is last: failure leaks a blob instead of
   // leaving a live post whose media has already been destroyed.
   await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
+
+  await federateDeletedPost({
+    db,
+    env: c.env,
+    actorApId: actor.ap_id,
+    post,
+  });
 
   return c.json(ok({ deleted: true }));
 }

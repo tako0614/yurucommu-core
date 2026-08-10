@@ -22,7 +22,7 @@ import { expect, test } from "bun:test";
  * post is also excluded.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
 import {
@@ -39,6 +39,11 @@ import {
   objects,
 } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
+import type { IQueueProducer } from "../../runtime/queue.ts";
+import type {
+  DeliveryDlqMessageV1,
+  DeliveryQueueMessageV1,
+} from "../../lib/delivery/types.ts";
 import {
   handleGetUserProfile,
   handleSearchPosts,
@@ -114,15 +119,40 @@ async function insertPost(
 
 /** Minimal ToolContext stub: handlers only use c.get("db"), c.env and c.json(). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ctxFor(db: Database, media?: IObjectStorage): any {
+function ctxFor(
+  db: Database,
+  media?: IObjectStorage,
+  queueBindings?: {
+    DELIVERY_QUEUE: IQueueProducer<DeliveryQueueMessageV1>;
+    DELIVERY_DLQ: IQueueProducer<DeliveryDlqMessageV1>;
+  },
+): any {
   return {
     get(key: string) {
       if (key === "db") return db;
       return null;
     },
-    env: { APP_URL, MEDIA: media },
+    env: { APP_URL, DB_INSTANCE: db, MEDIA: media, ...queueBindings },
     json(value: unknown) {
       return { __body: value };
+    },
+  };
+}
+
+function recordingQueue<T>(): {
+  producer: IQueueProducer<T>;
+  sent: T[];
+} {
+  const sent: T[] = [];
+  return {
+    sent,
+    producer: {
+      async send(body) {
+        sent.push(body);
+      },
+      async sendBatch(messages) {
+        sent.push(...messages.map((message) => message.body));
+      },
     },
   };
 }
@@ -532,6 +562,88 @@ test("agent create_post returns a post_id that delete_post can actually delete",
   ).toBe(0);
 });
 
+test("agent create/delete post persist outbound Activities and follower fanout", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "tool-federation-author");
+  const main = recordingQueue<DeliveryQueueMessageV1>();
+  const dlq = recordingQueue<DeliveryDlqMessageV1>();
+  const context = ctxFor(db, undefined, {
+    DELIVERY_QUEUE: main.producer,
+    DELIVERY_DLQ: dlq.producer,
+  });
+
+  const createResult = (await handleCreatePost(
+    context,
+    { content: "federated by tool", visibility: "public" },
+    { ap_id: author },
+  )) as unknown as {
+    __body: {
+      success: boolean;
+      data: { post_id: string; ap_id: string };
+    };
+  };
+  expect(createResult.__body.success).toBe(true);
+  const { post_id: postId, ap_id: apId } = createResult.__body.data;
+
+  const createRows = await db
+    .select({ apId: activities.apId, rawJson: activities.rawJson })
+    .from(activities)
+    .where(
+      and(
+        eq(activities.objectApId, apId),
+        eq(activities.type, "Create"),
+        eq(activities.direction, "outbound"),
+      ),
+    );
+  expect(createRows).toHaveLength(1);
+  expect(JSON.parse(createRows[0]!.rawJson)).toMatchObject({
+    type: "Create",
+    actor: author,
+    object: { id: apId, content: "federated by tool" },
+  });
+  expect(main.sent).toEqual([
+    expect.objectContaining({
+      type: "fanout_followers",
+      activityId: createRows[0]!.apId,
+      followeeApId: author,
+    }),
+  ]);
+
+  const deleteResult = (await handleDeletePost(
+    context,
+    { post_id: postId },
+    { ap_id: author },
+  )) as unknown as { __body: { success: boolean } };
+  expect(deleteResult.__body.success).toBe(true);
+
+  const deleteRows = await db
+    .select({ apId: activities.apId, rawJson: activities.rawJson })
+    .from(activities)
+    .where(
+      and(
+        eq(activities.objectApId, apId),
+        eq(activities.type, "Delete"),
+        eq(activities.direction, "outbound"),
+      ),
+    );
+  expect(deleteRows).toHaveLength(1);
+  expect(JSON.parse(deleteRows[0]!.rawJson)).toMatchObject({
+    type: "Delete",
+    actor: author,
+    object: { id: apId, type: "Tombstone" },
+  });
+  expect(main.sent).toEqual([
+    expect.objectContaining({
+      type: "fanout_followers",
+      activityId: createRows[0]!.apId,
+    }),
+    expect.objectContaining({
+      type: "fanout_followers",
+      activityId: deleteRows[0]!.apId,
+    }),
+  ]);
+});
+
 test("agent delete_post reaps children/media and repairs parent and author counters", async () => {
   const db = await freshDb();
   const author = await insertLocalActor(db, "tool-delete-author");
@@ -642,6 +754,7 @@ test("agent delete_post does not decrement postCount for a direct message", asyn
   const db = await freshDb();
   const author = await insertLocalActor(db, "tool-delete-direct-author");
   const direct = `${APP_URL}/ap/objects/tool-delete-direct`;
+  const recipient = "https://remote.example/users/direct-recipient";
   await db.update(actors).set({ postCount: 1 }).where(eq(actors.apId, author));
   await db.insert(objects).values({
     apId: direct,
@@ -649,9 +762,19 @@ test("agent delete_post does not decrement postCount for a direct message", asyn
     attributedTo: author,
     content: "direct",
     visibility: "direct",
+    toJson: JSON.stringify([recipient]),
   });
 
-  await handleDeletePost(ctxFor(db), { post_id: direct }, { ap_id: author });
+  const main = recordingQueue<DeliveryQueueMessageV1>();
+  const dlq = recordingQueue<DeliveryDlqMessageV1>();
+  await handleDeletePost(
+    ctxFor(db, undefined, {
+      DELIVERY_QUEUE: main.producer,
+      DELIVERY_DLQ: dlq.producer,
+    }),
+    { post_id: direct },
+    { ap_id: author },
+  );
   expect(
     (
       await db
@@ -661,6 +784,32 @@ test("agent delete_post does not decrement postCount for a direct message", asyn
         .get()
     )?.postCount,
   ).toBe(1);
+
+  const deleteActivity = await db
+    .select({ apId: activities.apId, rawJson: activities.rawJson })
+    .from(activities)
+    .where(
+      and(
+        eq(activities.objectApId, direct),
+        eq(activities.type, "Delete"),
+        eq(activities.direction, "outbound"),
+      ),
+    )
+    .get();
+  expect(deleteActivity).toBeDefined();
+  expect(JSON.parse(deleteActivity!.rawJson)).toMatchObject({
+    to: [recipient],
+    object: { id: direct, type: "Tombstone" },
+  });
+  // A private object is delivered only to its explicit recipient. Broadcasting
+  // its Tombstone to the author's follower graph would disclose the object id.
+  expect(main.sent).toEqual([
+    expect.objectContaining({
+      type: "resolve_actor",
+      activityId: deleteActivity!.apId,
+      recipientActorApId: recipient,
+    }),
+  ]);
 });
 
 test("agent DM tools retain a bto/bcc-addressed thread without to_json disclosure", async () => {

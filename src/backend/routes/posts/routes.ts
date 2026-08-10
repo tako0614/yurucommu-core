@@ -6,15 +6,12 @@ import {
   objects,
 } from "../../../db/index.ts";
 import type { Database } from "../../../db/index.ts";
-import { OBJECT_CONTEXT } from "../../lib/ap-context.ts";
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { Actor, Env, Variables } from "../../types.ts";
 import {
   activityApId,
   formatUsername,
   generateId,
-  isLocal,
-  isSafeRemoteUrl,
   objectApId,
   parseLimit,
   safeJsonParse,
@@ -27,11 +24,7 @@ import {
 } from "./transformers.ts";
 import {
   AUTHOR_WITH,
-  buildAddressing,
-  buildCommunityObjectAddressing,
   loadInteractionFlags,
-  mergeCc,
-  persistActivity,
   persistAndFanout,
   persistAndFanoutToCommunity,
   type PostDetailRow,
@@ -40,13 +33,11 @@ import {
   resolveAuthorWithCache,
   toPostRow,
 } from "./queries.ts";
-import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
 import { deleteObjectCascade, purgeMediaBlobs } from "./delete-cascade.ts";
 import {
   checkCommunityPostPermission,
   deriveContentTags,
   insertPostAndHandleReply,
-  processMentions,
   REPLY_TARGET_NOT_FOUND,
   validateContentEdit,
   validateCreatePostBody,
@@ -62,9 +53,9 @@ import {
   passesPostVisibilitySync,
   type ReadGateObject,
 } from "../../lib/post-visibility.ts";
-import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { logger } from "../../lib/logger.ts";
 import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
+import { federateCreatedPost, federateDeletedPost } from "./federation.ts";
 
 const log = logger.child({ component: "posts.routes" });
 
@@ -73,8 +64,6 @@ const log = logger.child({ component: "posts.routes" });
 type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const PUBLIC_COLLECTION = "https://www.w3.org/ns/activitystreams#Public";
 
 /** Reply row shape needed for the visibility gate (subset of the object row). */
 type ReplyVisibilityRow = ReadGateObject & {
@@ -264,160 +253,20 @@ posts.post("/", async (c) => {
     return c.json({ error: "Failed to create post" }, 500);
   }
 
-  // Process mentions: resolve @mentions (local + remote), build `Mention`
-  // tags, create local notifications, and collect the resolved recipient IRIs.
-  const {
-    failures: mentionFailures,
-    tags: mentionTags,
-    mentionedActorApIds,
-    remoteMentionedActorApIds,
-  } = await processMentions(db, {
-    content,
-    postApId: apId,
+  const { mentionFailures } = await federateCreatedPost({
+    db,
+    env: c.env,
     actorApId: actor.ap_id,
+    objectApId: apId,
+    content,
+    summary: summary || null,
+    attachments: body.attachments,
+    inReplyTo: body.in_reply_to || null,
     parentAuthor,
-    baseUrl,
-    now,
+    visibility,
+    community,
+    published: now,
   });
-
-  // A reply must reach the post it replies to. processMentions only addresses
-  // actors EXPLICITLY @-mentioned in the body, so a reply to a remote post that
-  // doesn't manually @-mention its author was delivered to the replier's own
-  // followers but NEVER to the upstream instance — it never landed in the
-  // original thread (whereas Like/Undo-repost already reach the remote object
-  // author). Auto-address the parent author of a NON-direct reply: add it to cc
-  // and a `Mention` tag (so the reply threads + notifies on the receiving
-  // server) and, when remote, deliver the Create to its inbox. Direct replies
-  // keep mentions-only addressing (no implicit parent disclosure). The local
-  // parent author is already notified by the reply path, so this only augments
-  // addressing/delivery, never a duplicate local notification.
-  const replyRecipients = [...mentionedActorApIds];
-  const replyRemoteRecipients = [...remoteMentionedActorApIds];
-  const replyTags = [...mentionTags];
-  if (
-    body.in_reply_to &&
-    parentAuthor &&
-    parentAuthor !== actor.ap_id &&
-    visibility !== "direct" &&
-    !replyRecipients.includes(parentAuthor)
-  ) {
-    replyRecipients.push(parentAuthor);
-    replyTags.push({
-      type: "Mention",
-      href: parentAuthor,
-      name: `@${formatUsername(parentAuthor)}`,
-    });
-    if (!isLocal(parentAuthor, baseUrl)) {
-      replyRemoteRecipients.push(parentAuthor);
-    }
-  }
-
-  // Federate when the post has follower/public/community reach OR when it has
-  // resolved mentions (a mention is an explicit recipient, so even a "direct"
-  // post must federate the Create to its remote mentioned actors).
-  //
-  // Community-scoped posts have reach == community: address the Create toward
-  // the community Group actor + its followers collection (NOT the author's
-  // personal followers), record the community in `audience`, and fan out to
-  // the community's members/followers. Non-community posts keep the existing
-  // author-follower addressing and fan-out. Mentioned actors are always added
-  // to `cc` so the post is addressed to them on the receiving server.
-  if (visibility !== "direct" || mentionedActorApIds.length > 0) {
-    let to: string[];
-    let cc: string[];
-    let audience: string[] | undefined;
-
-    if (visibility === "direct") {
-      // Direct post with mentions: no follower/public reach, only the
-      // mentioned actors are recipients.
-      to = [];
-      cc = [];
-    } else if (community) {
-      const objectAddressing = buildCommunityObjectAddressing(
-        visibility,
-        community,
-      );
-      to = objectAddressing.to;
-      cc = objectAddressing.cc;
-      audience = objectAddressing.audience;
-    } else {
-      const followersUrl = `${actor.ap_id}/followers`;
-      ({ to, cc } = buildAddressing(visibility, followersUrl));
-    }
-
-    // Add every mentioned actor IRI — plus an auto-addressed reply parent — to
-    // cc (de-duplicated).
-    cc = mergeCc(cc, replyRecipients);
-
-    const tag = replyTags.length > 0 ? replyTags : undefined;
-
-    const createActivity = {
-      "@context": OBJECT_CONTEXT,
-      id: activityApId(baseUrl, generateId()),
-      type: "Create",
-      actor: actor.ap_id,
-      published: now,
-      to,
-      cc,
-      ...(audience ? { audience } : {}),
-      ...(tag ? { tag } : {}),
-      object: {
-        "@context": OBJECT_CONTEXT,
-        id: apId,
-        type: "Note",
-        attributedTo: actor.ap_id,
-        content,
-        summary: summary || null,
-        // A non-empty summary is a content warning; Mastodon-compatible peers
-        // gate rendering on BOTH `summary` (the CW text) and `sensitive`. The
-        // served object doc (routes/activitypub/outbox.ts) already sets this, so
-        // the delivered Create must match or the CW federates inconsistently.
-        ...(summary ? { sensitive: true } : {}),
-        // Media is stored as an app-relative /media path; absolutize for the
-        // federated copy so remote servers can fetch the image.
-        attachment: toApAttachments(body.attachments || [], baseUrl),
-        inReplyTo: body.in_reply_to || null,
-        published: now,
-        to,
-        cc,
-        ...(audience ? { audience } : {}),
-        ...(tag ? { tag } : {}),
-      },
-    };
-
-    if (visibility === "direct") {
-      // No follower/community fanout for a direct post — persist only, then
-      // direct-deliver to the remote mentioned actors below.
-      await persistActivity(db, createActivity, apId);
-    } else if (community) {
-      await persistAndFanoutToCommunity(
-        db,
-        c.env,
-        createActivity,
-        apId,
-        community.apId,
-      );
-    } else {
-      await persistAndFanout(db, c.env, createActivity, apId);
-    }
-
-    // Deliver the Create directly to each remote mentioned actor's inbox — plus
-    // the remote parent author of a reply (auto-addressed above). Community/
-    // follower fanout does not include arbitrary remote actors, so this is the
-    // only path that reaches a remote @user@domain mention or reply target.
-    for (const recipient of replyRemoteRecipients) {
-      try {
-        await enqueueDeliveryToActor(c.env, createActivity.id, recipient);
-      } catch (err) {
-        log.error("Failed to enqueue mention delivery", {
-          event: "posts.mention.delivery_enqueue_failed",
-          activityId: createActivity.id,
-          recipient,
-          error: err,
-        });
-      }
-    }
-  }
 
   const createdPost = {
     ap_id: apId,
@@ -823,88 +672,12 @@ posts.delete("/:id", async (c) => {
   // failure here degrades to a leaked blob, not a live post with a deleted blob.
   await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
 
-  // The Delete must reach everyone the original object reached, not just the
-  // author's current followers: mirror the object's stored to/cc, and emit a
-  // Tombstone object (per AP) instead of a bare IRI so receivers can render
-  // the deletion correctly.
-  const originalTo = safeJsonParse<string[]>(post.toJson, []);
-  const originalCc = safeJsonParse<string[]>(post.ccJson, []);
-
-  // For a reply, the parent author's instance must also be told (it counts the
-  // reply); for a direct post, the DM recipients are exactly the addressed
-  // actors. Collect explicit (actor-IRI) recipients for direct per-actor
-  // delivery — anything that is not a Public/collection IRI is treated as an
-  // actor inbox target if it is a safe remote URL.
-  const explicitRecipients = new Set<string>();
-  for (const iri of [...originalTo, ...originalCc]) {
-    if (
-      iri &&
-      iri !== PUBLIC_COLLECTION &&
-      !iri.endsWith("/followers") &&
-      isLocal(iri, baseUrl) === false &&
-      isSafeRemoteUrl(iri)
-    ) {
-      explicitRecipients.add(iri);
-    }
-  }
-
-  // Parent author's instance (replies): ensure the reply deletion propagates
-  // to the thread root's host even if it was not in the object's to/cc.
-  if (post.inReplyTo) {
-    const parent = await db
-      .select({ attributedTo: objects.attributedTo })
-      .from(objects)
-      .where(eq(objects.apId, post.inReplyTo))
-      .get();
-    if (
-      parent?.attributedTo &&
-      !isLocal(parent.attributedTo, baseUrl) &&
-      isSafeRemoteUrl(parent.attributedTo)
-    ) {
-      explicitRecipients.add(parent.attributedTo);
-    }
-  }
-
-  const deleteActivity = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: activityApId(baseUrl, generateId()),
-    type: "Delete",
-    actor: actor.ap_id,
-    to: originalTo,
-    cc: originalCc,
-    object: {
-      id: post.apId,
-      type: "Tombstone",
-    },
-  };
-
-  // Fan out matching the original create reach (community → the community, not
-  // the author's personal followers) and additionally deliver directly to each
-  // explicitly-addressed remote actor.
-  if (post.communityApId) {
-    await persistAndFanoutToCommunity(
-      db,
-      c.env,
-      deleteActivity,
-      post.apId,
-      post.communityApId,
-    );
-  } else {
-    await persistAndFanout(db, c.env, deleteActivity, post.apId);
-  }
-
-  for (const recipient of explicitRecipients) {
-    try {
-      await enqueueDeliveryToActor(c.env, deleteActivity.id, recipient);
-    } catch (err) {
-      log.error("Failed to enqueue delete delivery", {
-        event: "posts.delete.delivery_enqueue_failed",
-        activityId: deleteActivity.id,
-        recipient,
-        error: err,
-      });
-    }
-  }
+  await federateDeletedPost({
+    db,
+    env: c.env,
+    actorApId: actor.ap_id,
+    post,
+  });
 
   return c.json({ success: true });
 });
