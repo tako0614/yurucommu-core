@@ -379,12 +379,34 @@ export async function addMemberAtomic(
   role: string,
   joinedAt: string,
 ): Promise<void> {
+  await runBatch(
+    db,
+    prepareAddMemberStatements(
+      db,
+      communityApIdVal,
+      actorApIdVal,
+      role,
+      joinedAt,
+    ),
+  );
+}
+
+/** Prepare retry-safe member insertion and its guarded count increment. */
+export function prepareAddMemberStatements(
+  db: Database,
+  communityApIdVal: string,
+  actorApIdVal: string,
+  role: string,
+  joinedAt: string,
+): readonly [D1Statement, D1Statement] {
   const memberAbsent = sql`NOT EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = ${communityApIdVal} AND ${communityMembers.actorApId} = ${actorApIdVal})`;
-  await (db as unknown as Batchable).batch([
+  return [
     db
       .update(communities)
       .set({ memberCount: sql`${communities.memberCount} + 1` })
-      .where(and(eq(communities.apId, communityApIdVal), memberAbsent)),
+      .where(
+        and(eq(communities.apId, communityApIdVal), memberAbsent),
+      ) as D1Statement,
     db
       .insert(communityMembers)
       .values({
@@ -393,8 +415,8 @@ export async function addMemberAtomic(
         role,
         joinedAt,
       })
-      .onConflictDoNothing(),
-  ]);
+      .onConflictDoNothing() as D1Statement,
+  ];
 }
 
 export function resolveCommunityApId(

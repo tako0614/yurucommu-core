@@ -11,6 +11,8 @@ import {
   actors,
   activities,
   communities,
+  communityBans,
+  communityJoinRequests,
   communityMembers,
   deliveryResolutions,
   follows,
@@ -32,6 +34,7 @@ import { registerMembershipRequestRoutes } from "../../routes/communities/member
 const APP_URL = "https://yuru.test";
 const GROUP = `${APP_URL}/ap/groups/gated`;
 const OWNER = `${APP_URL}/ap/users/owner`;
+const LOCAL = `${APP_URL}/ap/users/local`;
 const REMOTE = "https://remote.example/users/alice";
 const FOLLOW_ACT = "https://remote.example/activities/follow-1";
 
@@ -175,6 +178,124 @@ test("POST /requests/accept of a remote: flips the follows edge + emits a commun
     .where(eq(communityMembers.actorApId, REMOTE))
     .get();
   expect(member).toBeUndefined();
+});
+
+test("local community acceptance co-commits membership, counter, unban, and request state", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await db.insert(actors).values({
+    apId: LOCAL,
+    type: "Person",
+    preferredUsername: "local",
+    inbox: `${LOCAL}/inbox`,
+    outbox: `${LOCAL}/outbox`,
+    followersUrl: `${LOCAL}/followers`,
+    followingUrl: `${LOCAL}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db.insert(communityJoinRequests).values({
+    communityApId: GROUP,
+    actorApId: LOCAL,
+    status: "pending",
+  });
+  await db.insert(communityBans).values({
+    communityApId: GROUP,
+    bannedApId: LOCAL,
+  });
+  await db.run(sql`
+    CREATE TRIGGER reject_local_approval_completion
+    BEFORE UPDATE OF status ON community_join_requests
+    WHEN NEW.status = 'accepted'
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated request ledger outage');
+    END
+  `);
+
+  const request = () =>
+    appFor(db).fetch(
+      new Request(`${APP_URL}/api/communities/gated/requests/accept`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ actor_ap_id: LOCAL }),
+      }),
+      envFor(db),
+    );
+
+  expect((await request()).status).toBe(500);
+  expect(
+    await db
+      .select()
+      .from(communityMembers)
+      .where(
+        and(
+          eq(communityMembers.communityApId, GROUP),
+          eq(communityMembers.actorApId, LOCAL),
+        ),
+      ),
+  ).toHaveLength(0);
+  expect(
+    (
+      await db
+        .select({ memberCount: communities.memberCount })
+        .from(communities)
+        .where(eq(communities.apId, GROUP))
+        .get()
+    )?.memberCount,
+  ).toBe(1);
+  expect(await db.select().from(communityBans)).toHaveLength(1);
+  expect(
+    (
+      await db
+        .select({ status: communityJoinRequests.status })
+        .from(communityJoinRequests)
+        .where(
+          and(
+            eq(communityJoinRequests.communityApId, GROUP),
+            eq(communityJoinRequests.actorApId, LOCAL),
+          ),
+        )
+        .get()
+    )?.status,
+  ).toBe("pending");
+
+  await db.run(sql`DROP TRIGGER reject_local_approval_completion`);
+  expect((await request()).status).toBe(200);
+  expect(
+    await db
+      .select()
+      .from(communityMembers)
+      .where(
+        and(
+          eq(communityMembers.communityApId, GROUP),
+          eq(communityMembers.actorApId, LOCAL),
+        ),
+      ),
+  ).toHaveLength(1);
+  expect(
+    (
+      await db
+        .select({ memberCount: communities.memberCount })
+        .from(communities)
+        .where(eq(communities.apId, GROUP))
+        .get()
+    )?.memberCount,
+  ).toBe(2);
+  expect(await db.select().from(communityBans)).toHaveLength(0);
+  expect(
+    (
+      await db
+        .select({ status: communityJoinRequests.status })
+        .from(communityJoinRequests)
+        .where(
+          and(
+            eq(communityJoinRequests.communityApId, GROUP),
+            eq(communityJoinRequests.actorApId, LOCAL),
+          ),
+        )
+        .get()
+    )?.status,
+  ).toBe("accepted");
 });
 
 test("remote community acceptance rolls back membership when delivery intent cannot persist", async () => {

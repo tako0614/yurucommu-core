@@ -3,7 +3,6 @@ import { and, count, desc, eq, sql } from "drizzle-orm";
 import {
   communities,
   communityJoinRequests,
-  communityMembers,
   follows,
   runBatch,
   type D1Statement,
@@ -16,13 +15,11 @@ import {
 } from "../../lib/blocklist.ts";
 import { prepareResponseIfRemote } from "../follow-helpers.ts";
 import {
-  addMemberAtomic,
   batchLoadActorInfo,
   fetchCommunityId,
-  memberWhere,
+  prepareAddMemberStatements,
   prepareUnbanMemberStatement,
   requireManager,
-  unbanMember,
 } from "./membership-shared.ts";
 
 export function registerMembershipRequestRoutes(
@@ -169,38 +166,32 @@ export function registerMembershipRequestRoutes(
       const now = new Date().toISOString();
 
       if (isLocal(body.actor_ap_id, c.env.APP_URL)) {
-        const existingMember = await db
-          .select()
-          .from(communityMembers)
-          .where(memberWhere(community.apId, body.actor_ap_id))
-          .get();
-        if (!existingMember) {
-          // Atomic insert + guarded increment so a crash between them, or a
-          // concurrent double-accept, can't leave the count under/over the truth.
-          await addMemberAtomic(
+        const statements: D1Statement[] = [
+          ...prepareAddMemberStatements(
             db,
             community.apId,
             body.actor_ap_id,
             "member",
             now,
+          ),
+          // Accepting a join request is an explicit re-admission.
+          prepareUnbanMemberStatement(db, community.apId, body.actor_ap_id),
+        ];
+        if (localRequest) {
+          statements.push(
+            db
+              .update(communityJoinRequests)
+              .set({ status: "accepted", processedAt: now })
+              .where(
+                and(
+                  eq(communityJoinRequests.communityApId, community.apId),
+                  eq(communityJoinRequests.actorApId, body.actor_ap_id),
+                  eq(communityJoinRequests.status, "pending"),
+                ),
+              ) as D1Statement,
           );
         }
-
-        // Accepting a join request is an explicit re-admission — lift any ban.
-        await unbanMember(db, community.apId, body.actor_ap_id);
-
-        if (localRequest) {
-          await db
-            .update(communityJoinRequests)
-            .set({ status: "accepted", processedAt: now })
-            .where(
-              and(
-                eq(communityJoinRequests.communityApId, community.apId),
-                eq(communityJoinRequests.actorApId, body.actor_ap_id),
-                eq(communityJoinRequests.status, "pending"),
-              ),
-            );
-        }
+        await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
       } else {
         // A REMOTE member's membership IS the pending follows edge to the Group
         // actor — NOT a communityMembers row (which would diverge from how the
