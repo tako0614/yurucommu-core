@@ -177,6 +177,15 @@ test("like then unlike keeps likeCount atomic with the like-row presence", async
     .where(and(eq(likes.actorApId, likerApId), eq(likes.objectApId, postApId)))
     .get();
   if (!likeActivity?.apId) throw new Error("like activity was not persisted");
+  expect(
+    (
+      await db
+        .select({ direction: activities.direction })
+        .from(activities)
+        .where(eq(activities.apId, likeActivity.apId))
+        .get()
+    )?.direction,
+  ).toBe("outbound");
   await db.insert(deliveryQueue).values({
     id: "unlike-projection-delivery",
     activityApId: likeActivity.apId,

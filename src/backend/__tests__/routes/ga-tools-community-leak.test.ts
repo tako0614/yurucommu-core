@@ -411,6 +411,151 @@ test("agent like_post is read-gated like the web route (cannot like an unreadabl
   ).toBe(1);
 });
 
+test("agent like_post persists and delivers remote Like/Undo activities", async () => {
+  const db = await freshDb();
+  const liker = await insertLocalActor(db, "tool-remote-liker");
+  const remoteAuthor = "https://remote.example/users/tool-liked-author";
+  const remotePost = "https://remote.example/objects/tool-liked-post";
+  await db.insert(actors).values({
+    apId: remoteAuthor,
+    type: "Person",
+    preferredUsername: "tool-liked-author",
+    inbox: `${remoteAuthor}/inbox`,
+    outbox: `${remoteAuthor}/outbox`,
+    followersUrl: `${remoteAuthor}/followers`,
+    followingUrl: `${remoteAuthor}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "",
+  });
+  await db.insert(objects).values({
+    apId: remotePost,
+    type: "Note",
+    attributedTo: remoteAuthor,
+    content: "remote post",
+    visibility: "public",
+    toJson: JSON.stringify(["https://www.w3.org/ns/activitystreams#Public"]),
+    ccJson: "[]",
+    audienceJson: "[]",
+    published: isoMinutesAgo(1),
+    isLocal: 0,
+  });
+  const main = recordingQueue<DeliveryQueueMessageV1>();
+  const dlq = recordingQueue<DeliveryDlqMessageV1>();
+  const context = ctxFor(db, undefined, {
+    DELIVERY_QUEUE: main.producer,
+    DELIVERY_DLQ: dlq.producer,
+  });
+
+  await handleLikePost(
+    context,
+    { post_id: remotePost, like: true },
+    { ap_id: liker },
+  );
+
+  const likeEdge = await db
+    .select({ activityApId: likes.activityApId })
+    .from(likes)
+    .where(and(eq(likes.actorApId, liker), eq(likes.objectApId, remotePost)))
+    .get();
+  expect(likeEdge?.activityApId).toBeDefined();
+  const likeActivity = await db
+    .select({
+      apId: activities.apId,
+      direction: activities.direction,
+      rawJson: activities.rawJson,
+    })
+    .from(activities)
+    .where(eq(activities.apId, likeEdge!.activityApId!))
+    .get();
+  expect(likeActivity?.direction).toBe("outbound");
+  expect(JSON.parse(likeActivity!.rawJson)).toMatchObject({
+    id: likeActivity!.apId,
+    type: "Like",
+    actor: liker,
+    object: remotePost,
+  });
+  expect(main.sent).toEqual([
+    expect.objectContaining({
+      type: "resolve_actor",
+      activityId: likeActivity!.apId,
+      recipientActorApId: remoteAuthor,
+    }),
+  ]);
+  // Tool retries are state-setting/idempotent: they must not mint or enqueue a
+  // second Like after the first request already committed.
+  await handleLikePost(
+    context,
+    { post_id: remotePost, like: true },
+    { ap_id: liker },
+  );
+  expect(
+    await db
+      .select()
+      .from(activities)
+      .where(
+        and(eq(activities.objectApId, remotePost), eq(activities.type, "Like")),
+      ),
+  ).toHaveLength(1);
+  expect(main.sent).toHaveLength(1);
+
+  await handleLikePost(
+    context,
+    { post_id: remotePost, like: false },
+    { ap_id: liker },
+  );
+
+  expect(
+    await db
+      .select()
+      .from(activities)
+      .where(eq(activities.apId, likeActivity!.apId)),
+  ).toHaveLength(0);
+  const undoActivity = await db
+    .select({
+      apId: activities.apId,
+      direction: activities.direction,
+      rawJson: activities.rawJson,
+    })
+    .from(activities)
+    .where(
+      and(eq(activities.objectApId, remotePost), eq(activities.type, "Undo")),
+    )
+    .get();
+  expect(undoActivity?.direction).toBe("outbound");
+  expect(JSON.parse(undoActivity!.rawJson)).toMatchObject({
+    id: undoActivity!.apId,
+    type: "Undo",
+    actor: liker,
+    object: likeActivity!.apId,
+  });
+  expect(main.sent).toEqual([
+    expect.objectContaining({
+      type: "resolve_actor",
+      activityId: likeActivity!.apId,
+      recipientActorApId: remoteAuthor,
+    }),
+    expect.objectContaining({
+      type: "resolve_actor",
+      activityId: undoActivity!.apId,
+      recipientActorApId: remoteAuthor,
+    }),
+  ]);
+  await handleLikePost(
+    context,
+    { post_id: remotePost, like: false },
+    { ap_id: liker },
+  );
+  expect(
+    await db
+      .select()
+      .from(activities)
+      .where(
+        and(eq(activities.objectApId, remotePost), eq(activities.type, "Undo")),
+      ),
+  ).toHaveLength(1);
+  expect(main.sent).toHaveLength(2);
+});
+
 // Audit #18: the agent tool paths must enforce the same per-user block + reply
 // read-gate the canonical routes do.
 test("agent like_post is BLOCK-gated (a blocked actor cannot like the blocker's public post)", async () => {

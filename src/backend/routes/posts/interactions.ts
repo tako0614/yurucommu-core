@@ -42,6 +42,7 @@ import { logger } from "../../lib/logger.ts";
 import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
 import { isActorBlocked } from "../../lib/blocklist.ts";
 import { activityDeleteCascadeStatements } from "../../lib/activity-delete-cascade.ts";
+import { setPostLike } from "./like-mutation.ts";
 
 const log = logger.child({ component: "posts.interactions" });
 
@@ -152,7 +153,6 @@ posts.post("/:id/like", async (c) => {
   if (!post) return c.json({ error: "Post not found" }, 404);
 
   const db = c.get("db");
-  const baseUrl = c.env.APP_URL;
 
   // Only a post the actor can actually read may be liked: without this an authed
   // user who learns a post's apId could "like" a followers-only / direct /
@@ -169,77 +169,14 @@ posts.post("/:id/like", async (c) => {
     return c.json({ error: "Post not found" }, 404);
   }
 
-  const existingLike = await db
-    .select({ actorApId: likes.actorApId })
-    .from(likes)
-    .where(
-      and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, post.apId)),
-    )
-    .get();
-  if (existingLike) return c.json({ error: "Already liked" }, 400);
-
-  const likeId = generateId();
-  const likeActivityId = activityApId(baseUrl, likeId);
-  const likeActivityRaw = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: likeActivityId,
-    type: "Like",
-    actor: actor.ap_id,
-    object: post.apId,
-  };
-  const now = new Date().toISOString();
-  const shouldNotifyLocal =
-    post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl);
-
-  // D1 has no interactive transactions; group the child-row insert, counter
-  // bump, activity row, and (optional) inbox row into a single atomic batch so
-  // the like row and likeCount can never diverge on a mid-request failure.
-  const likeStatements: BatchStatement[] = [
-    db.insert(likes).values({
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      activityApId: likeActivityId,
-    }),
-    db
-      .update(objects)
-      .set({ likeCount: sql`${objects.likeCount} + 1` })
-      .where(eq(objects.apId, post.apId)),
-    db.insert(activities).values({
-      apId: likeActivityId,
-      type: "Like",
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      rawJson: JSON.stringify(likeActivityRaw),
-      createdAt: now,
-    }),
-  ];
-
-  if (shouldNotifyLocal) {
-    likeStatements.push(
-      db.insert(inboxTable).values({
-        actorApId: post.attributedTo,
-        activityApId: likeActivityId,
-        read: 0,
-        createdAt: now,
-      }),
-    );
-  }
-
-  try {
-    await runBatch(db, likeStatements as [BatchStatement, ...BatchStatement[]]);
-  } catch (e) {
-    // Two concurrent likes (two tabs / a retried slow request) both pass the
-    // SELECT above; the loser's composite-PK insert hits a UNIQUE constraint.
-    // That is the idempotent "already liked" case, not a 500.
-    if (isUniqueConstraintError(e)) {
-      return c.json({ error: "Already liked" }, 400);
-    }
-    throw e;
-  }
-
-  if (!isLocal(post.apId, baseUrl)) {
-    await deliverToRemote(c.env, likeActivityId, post.attributedTo);
-  }
+  const result = await setPostLike({
+    db,
+    env: c.env,
+    actorApId: actor.ap_id,
+    post,
+    active: true,
+  });
+  if (!result.changed) return c.json({ error: "Already liked" }, 400);
 
   return c.json({ success: true, liked: true });
 });
@@ -252,77 +189,15 @@ posts.delete("/:id/like", async (c) => {
   if (!post) return c.json({ error: "Post not found" }, 404);
 
   const db = c.get("db");
-  const baseUrl = c.env.APP_URL;
 
-  const like = await db
-    .select({
-      actorApId: likes.actorApId,
-      activityApId: likes.activityApId,
-    })
-    .from(likes)
-    .where(
-      and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, post.apId)),
-    )
-    .get();
-  if (!like) return c.json({ error: "Not liked" }, 400);
-
-  // D1 has no interactive transactions; group the like-row delete and the
-  // counter decrement into a single atomic batch so they cannot diverge. Also
-  // reap the original like activity and every durable projection keyed by it:
-  // the like mints a FRESH activity id each time and the dedup guard only checks
-  // the `likes` edge, so without this a like→unlike→like cycle would leave the
-  // first notification behind and add a second — duplicate "X liked your post"
-  // rows (and a phantom unread +1). The inbound-federated path already gates its
-  // notify on the existing edge; this gives the local path the same idempotency
-  // without stranding push/delivery work.
-  const reapLikeNotification: BatchStatement[] = like.activityApId
-    ? [
-        ...activityDeleteCascadeStatements(
-          db,
-          eq(activities.apId, like.activityApId),
-        ),
-      ]
-    : [];
-  await runBatch(db, [
-    db
-      .delete(likes)
-      .where(
-        and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, post.apId)),
-      ),
-    db
-      .update(objects)
-      .set({ likeCount: sql`${objects.likeCount} - 1` })
-      .where(and(eq(objects.apId, post.apId), gt(objects.likeCount, 0))),
-    ...reapLikeNotification,
-  ]);
-
-  if (!isLocal(post.apId, baseUrl)) {
-    const undoObject = like.activityApId
-      ? like.activityApId
-      : { type: "Like", actor: actor.ap_id, object: post.apId };
-
-    const undoActivity = {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: activityApId(baseUrl, generateId()),
-      type: "Undo",
-      actor: actor.ap_id,
-      object: undoObject,
-    };
-
-    await db
-      .insert(activities)
-      .values({
-        apId: undoActivity.id,
-        type: "Undo",
-        actorApId: actor.ap_id,
-        objectApId: post.apId,
-        rawJson: JSON.stringify(undoActivity),
-        direction: "outbound",
-      })
-      .onConflictDoNothing();
-
-    await deliverToRemote(c.env, undoActivity.id, post.attributedTo);
-  }
+  const result = await setPostLike({
+    db,
+    env: c.env,
+    actorApId: actor.ap_id,
+    post,
+    active: false,
+  });
+  if (!result.changed) return c.json({ error: "Not liked" }, 400);
 
   return c.json({ success: true, liked: false });
 });

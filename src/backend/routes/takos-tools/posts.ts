@@ -5,9 +5,9 @@
  *          yurucommu_like_post, yurucommu_bookmark_post
  */
 
-import { and, count, eq, gt, or } from "drizzle-orm";
+import { and, eq, gt, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
-import { actors, bookmarks, likes, objects } from "../../../db/index.ts";
+import { actors, bookmarks, objects } from "../../../db/index.ts";
 import { objectApId } from "../../federation-helpers.ts";
 import {
   actorIsBlockedBy,
@@ -25,6 +25,7 @@ import {
   federateCreatedPost,
   federateDeletedPost,
 } from "../posts/federation.ts";
+import { setPostLike } from "../posts/like-mutation.ts";
 import {
   insertPostAndHandleReply,
   REPLY_TARGET_NOT_FOUND,
@@ -320,41 +321,15 @@ export async function handleLikePost(
     return c.json(errNotFound("Post"), 404);
   }
 
-  // Co-commit the like-edge toggle AND the likeCount recompute in ONE atomic
-  // batch (the canonical route does the same): a mid-request failure between the
-  // toggle and the count UPDATE would otherwise leave likeCount diverged from the
-  // likes table. The recompute is a COUNT(*) subquery so it is idempotent.
-  const toggleStmt = likeActive
-    ? db
-        .insert(likes)
-        .values({ actorApId: actor.ap_id, objectApId: post.apId })
-        .onConflictDoNothing()
-    : db
-        .delete(likes)
-        .where(
-          and(
-            eq(likes.actorApId, actor.ap_id),
-            eq(likes.objectApId, post.apId),
-          ),
-        );
-  await (db as unknown as Batchable).batch([
-    toggleStmt,
-    db
-      .update(objects)
-      .set({
-        likeCount: sql`(SELECT COUNT(*) FROM ${likes} WHERE ${likes.objectApId} = ${post.apId})`,
-      })
-      .where(eq(objects.apId, post.apId)),
-  ]);
+  const result = await setPostLike({
+    db,
+    env: c.env,
+    actorApId: actor.ap_id,
+    post,
+    active: likeActive,
+  });
 
-  const likeCountResult = await db
-    .select({ count: count() })
-    .from(likes)
-    .where(eq(likes.objectApId, post.apId))
-    .get();
-  const likeCount = likeCountResult?.count ?? 0;
-
-  return c.json(ok({ liked: likeActive, like_count: likeCount }));
+  return c.json(ok({ liked: result.active, like_count: result.likeCount }));
 }
 
 export async function handleBookmarkPost(
