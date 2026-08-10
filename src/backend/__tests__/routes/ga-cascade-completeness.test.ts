@@ -41,6 +41,7 @@ import {
   storyVotes,
 } from "../../../db/index.ts";
 import { deleteObjectCascade } from "../../routes/posts/delete-cascade.ts";
+import { deleteActivitiesCascade } from "../../lib/activity-delete-cascade.ts";
 import { cleanupExpiredStories } from "../../routes/stories/query-helpers.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
@@ -281,6 +282,61 @@ test("deleteObjectCascade cancels every durable projection of retained object ac
   ]) {
     expect(ids).toEqual([survivorActivity]);
   }
+});
+
+test("activity cascade removes a community fanout keyed by its Announce activity", async () => {
+  const db = await freshDb();
+  const author = await insertActor(db, "announce-author");
+  const createId = `${APP_URL}/ap/activities/create-for-announce`;
+  const announceId = `${APP_URL}/ap/activities/group-announce`;
+  const survivorAnnounceId = `${APP_URL}/ap/activities/survivor-announce`;
+
+  for (const [apId, type, actorApId] of [
+    [createId, "Create", author],
+    [announceId, "Announce", `${APP_URL}/ap/groups/retired`],
+    [survivorAnnounceId, "Announce", `${APP_URL}/ap/groups/live`],
+  ] as const) {
+    await db.insert(activities).values({
+      apId,
+      type,
+      actorApId,
+      rawJson: "{}",
+      direction: "outbound",
+    });
+  }
+  await db.insert(deliveryFanouts).values([
+    {
+      id: "fanout-by-retired-announce",
+      activityApId: createId,
+      announceActivityApId: announceId,
+      kind: "community",
+      targetApId: `${APP_URL}/ap/groups/retired`,
+      status: "published",
+    },
+    {
+      id: "fanout-by-live-announce",
+      activityApId: createId,
+      announceActivityApId: survivorAnnounceId,
+      kind: "community",
+      targetApId: `${APP_URL}/ap/groups/live`,
+      status: "published",
+    },
+  ]);
+
+  await deleteActivitiesCascade(db, eq(activities.apId, announceId));
+
+  expect(
+    (await db.select({ id: deliveryFanouts.id }).from(deliveryFanouts)).map(
+      (row) => row.id,
+    ),
+  ).toEqual(["fanout-by-live-announce"]);
+  expect(
+    await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(eq(activities.apId, announceId))
+      .get(),
+  ).toBeUndefined();
 });
 
 test("deleteObjectCascade does not reap another author's media that shares no attachment", async () => {

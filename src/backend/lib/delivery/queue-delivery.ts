@@ -150,7 +150,10 @@ async function resolveSigningActor(
     return { apId: actorRow.apId, privateKeyPem: actorRow.privateKeyPem };
   }
 
-  // Check communities table
+  // Check communities table. Retired Groups deliberately keep this key until
+  // their Delete + older Group-authored activity projections drain; scheduled
+  // tombstone retention then scrubs it to an empty string while preserving the
+  // deleted community row as a permanent read-gate fact.
   const communityRow = await db
     .select({
       apId: communities.apId,

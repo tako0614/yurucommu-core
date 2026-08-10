@@ -61,6 +61,14 @@ export function activityProjectionDeleteStatements(
       .where(
         inArray(deliveryFanouts.activityApId, targetActivityIds()),
       ) as D1Statement,
+    // Keep the secondary Announce reference in its own statement. Combining
+    // both predicates with OR duplicates every bound value in D1, so a normal
+    // 90-id cascade would exceed the platform's 100-parameter ceiling.
+    db
+      .delete(deliveryFanouts)
+      .where(
+        inArray(deliveryFanouts.announceActivityApId, targetActivityIds()),
+      ) as D1Statement,
     db
       .delete(inbox)
       .where(inArray(inbox.activityApId, targetActivityIds())) as D1Statement,

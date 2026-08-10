@@ -20,6 +20,7 @@ import {
   actors,
   blocks,
   communities,
+  deliveryFanouts,
   deliveryQueue,
   deliveryResolutions,
   follows,
@@ -149,7 +150,83 @@ function fieldsToAttachments(
 const TOMBSTONE_REAP_AFTER_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Hard-delete tombstoned local actors whose federation Delete has drained.
+ * Whether any activity in the set still has delivery work that may need its
+ * actor's signing key. Community fanout references the Group Announce through
+ * `announceActivityApId`, so that secondary key is part of the authority scan.
+ */
+async function hasActiveDeliveryProjection(
+  db: Database,
+  activityIds: string[],
+): Promise<boolean> {
+  // The fanout query binds each id twice (activity OR announce), so 45 keeps
+  // every statement below D1's 100-bound-parameter ceiling.
+  for (const chunk of chunkForInClause(activityIds, 45)) {
+    const pending = await db
+      .select({ id: deliveryQueue.id })
+      .from(deliveryQueue)
+      .where(
+        and(
+          inArray(deliveryQueue.activityApId, chunk),
+          // Only claimable/retryable states keep the signing key alive.
+          // queue-delivery.ts treats "failed" as terminal (permanent 4xx,
+          // invalid endpoint, missing Activity/signer), just like
+          // "delivered" and "dead_letter".
+          inArray(deliveryQueue.status, [
+            "pending",
+            "processing",
+            "retry_wait",
+          ]),
+        ),
+      )
+      .limit(1)
+      .get();
+    if (pending) return true;
+
+    // An unresolved recipient has not created its endpoint row yet, but may do
+    // so later. Keep the signer across that first-hop retry authority too.
+    const pendingResolution = await db
+      .select({ id: deliveryResolutions.id })
+      .from(deliveryResolutions)
+      .where(
+        and(
+          inArray(deliveryResolutions.activityApId, chunk),
+          inArray(deliveryResolutions.status, [
+            "pending",
+            "queued",
+            "processing",
+            "retry_wait",
+          ]),
+        ),
+      )
+      .limit(1)
+      .get();
+    if (pendingResolution) return true;
+
+    // A community fanout may not have materialized endpoint/resolution rows
+    // yet. It can reference the Group signer either as the primary Activity or
+    // as the relay Announce, so both columns must be checked.
+    const pendingFanout = await db
+      .select({ id: deliveryFanouts.id })
+      .from(deliveryFanouts)
+      .where(
+        and(
+          or(
+            inArray(deliveryFanouts.activityApId, chunk),
+            inArray(deliveryFanouts.announceActivityApId, chunk),
+          ),
+          inArray(deliveryFanouts.status, ["pending", "published"]),
+        ),
+      )
+      .limit(1)
+      .get();
+    if (pendingFanout) return true;
+  }
+  return false;
+}
+
+/**
+ * Reap signing material for tombstoned local actors and communities whose
+ * federation work has drained.
  *
  * A tombstone is only reaped when (a) its `deletedAt` is older than
  * TOMBSTONE_REAP_AFTER_MS and (b) it has NO non-terminal endpoint-delivery or
@@ -158,7 +235,11 @@ const TOMBSTONE_REAP_AFTER_MS = 24 * 60 * 60 * 1000;
  * The preserved Delete activity rows are removed alongside the actor so they
  * do not accumulate forever.
  *
- * Returns the number of tombstones hard-deleted.
+ * Actor rows are hard-deleted as before. Community rows remain as permanent
+ * lifecycle tombstones so their scoped objects keep failing the read gate, but
+ * their private signing key is scrubbed after every Group activity projection
+ * is terminal. Returns the total number of actor rows deleted + community keys
+ * scrubbed.
  */
 export async function reapDrainedTombstones(db: Database): Promise<number> {
   const cutoff = new Date(Date.now() - TOMBSTONE_REAP_AFTER_MS).toISOString();
@@ -170,7 +251,6 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
       and(sql`${actors.deletedAt} IS NOT NULL`, lt(actors.deletedAt, cutoff)),
     )
     .limit(100);
-  if (candidates.length === 0) return 0;
 
   let reaped = 0;
   for (const { apId } of candidates) {
@@ -184,67 +264,7 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
       );
     const deleteActivityIds = deleteActivities.map((a) => a.apId);
 
-    if (deleteActivityIds.length > 0) {
-      // Any non-terminal endpoint OR resolution job for those Delete activities
-      // means the signer may still need this actor's key — skip reaping for
-      // now. Chunked: a prolific deleted actor can have >100 Delete activities,
-      // which would blow D1's 100-bound-param cap and 500 this fire-and-forget
-      // reap, leaking the tombstone (and its signing key) forever.
-      let hasPendingDelivery = false;
-      for (const chunk of chunkForInClause(deleteActivityIds)) {
-        const pending = await db
-          .select({ id: deliveryQueue.id })
-          .from(deliveryQueue)
-          .where(
-            and(
-              inArray(deliveryQueue.activityApId, chunk),
-              // Only claimable/retryable states keep the signing key alive.
-              // queue-delivery.ts treats "failed" as terminal (permanent 4xx,
-              // invalid endpoint, missing Activity/signer), just like
-              // "delivered" and "dead_letter". Counting it here used to retain
-              // a deleted account's private key forever after an unrecoverable
-              // remote rejection.
-              inArray(deliveryQueue.status, [
-                "pending",
-                "processing",
-                "retry_wait",
-              ]),
-            ),
-          )
-          .limit(1)
-          .get();
-        if (pending) {
-          hasPendingDelivery = true;
-          break;
-        }
-
-        // An unresolved recipient has not created its delivery_queue row yet,
-        // but resolution may do so later. Reaping the activity + signing key
-        // here would turn an otherwise recoverable Queue outage into a
-        // permanently unsigned/missing Delete(actor).
-        const pendingResolution = await db
-          .select({ id: deliveryResolutions.id })
-          .from(deliveryResolutions)
-          .where(
-            and(
-              inArray(deliveryResolutions.activityApId, chunk),
-              inArray(deliveryResolutions.status, [
-                "pending",
-                "queued",
-                "processing",
-                "retry_wait",
-              ]),
-            ),
-          )
-          .limit(1)
-          .get();
-        if (pendingResolution) {
-          hasPendingDelivery = true;
-          break;
-        }
-      }
-      if (hasPendingDelivery) continue;
-    }
+    if (await hasActiveDeliveryProjection(db, deleteActivityIds)) continue;
 
     // Drained: remove the preserved Delete activities with all durable
     // projections, then the tombstone row itself (chunked for D1's param cap).
@@ -254,6 +274,45 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
       }
     }
     await db.delete(actors).where(eq(actors.apId, apId));
+    reaped += 1;
+  }
+
+  // A retired Group cannot be hard-deleted: its community row is the durable
+  // negative lifecycle fact used by direct object reads. Once all Group-authored
+  // activity projections have drained, remove those ledgers/projections and
+  // scrub only the private signing key.
+  const communityCandidates = await db
+    .select({ apId: communities.apId })
+    .from(communities)
+    .where(
+      and(
+        isNotNull(communities.deletedAt),
+        lt(communities.deletedAt, cutoff),
+        ne(communities.privateKeyPem, ""),
+      ),
+    )
+    .limit(100);
+  for (const { apId } of communityCandidates) {
+    const groupActivities = await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(eq(activities.actorApId, apId));
+    const activityIds = groupActivities.map((activity) => activity.apId);
+    if (await hasActiveDeliveryProjection(db, activityIds)) continue;
+
+    for (const chunk of chunkForInClause(activityIds)) {
+      await deleteActivitiesCascade(db, inArray(activities.apId, chunk));
+    }
+    await db
+      .update(communities)
+      .set({ privateKeyPem: "" })
+      .where(
+        and(
+          eq(communities.apId, apId),
+          isNotNull(communities.deletedAt),
+          ne(communities.privateKeyPem, ""),
+        ),
+      );
     reaped += 1;
   }
 

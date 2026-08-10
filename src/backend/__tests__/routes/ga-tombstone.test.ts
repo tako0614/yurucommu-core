@@ -27,6 +27,7 @@ import {
   communities,
   communityInvites,
   communityJoinRequests,
+  deliveryFanouts,
   deliveryQueue,
   deliveryResolutions,
   objects,
@@ -453,4 +454,106 @@ test("reapDrainedTombstones does not touch recent tombstones", async () => {
     .where(and(eq(actors.apId, apId)))
     .get();
   expect(stillHere).toBeTruthy();
+});
+
+test("reapDrainedTombstones retains a Group signer through resolution and fanout, then scrubs only its private key", async () => {
+  const db = await freshDb();
+  const oldIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const communityApId = `${APP_URL}/ap/groups/retired`;
+  const deleteActivityId = `${APP_URL}/ap/activities/delete-retired-group`;
+  const announceActivityId = `${APP_URL}/ap/activities/retired-group-announce`;
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "retired",
+    name: "Retired",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    publicKeyPem: "GROUP-PUBLIC-KEY",
+    privateKeyPem: "GROUP-PRIVATE-KEY",
+    createdBy: `${APP_URL}/ap/users/deleted-owner`,
+    deletedAt: oldIso,
+  });
+  await db.insert(activities).values([
+    {
+      apId: deleteActivityId,
+      type: "Delete",
+      actorApId: communityApId,
+      objectApId: communityApId,
+      rawJson: "{}",
+      direction: "outbound",
+    },
+    {
+      apId: announceActivityId,
+      type: "Announce",
+      actorApId: communityApId,
+      rawJson: "{}",
+      direction: "outbound",
+    },
+  ]);
+  await db.insert(deliveryResolutions).values({
+    id: "retired-group-resolution",
+    activityApId: deleteActivityId,
+    recipientActorApId: "https://remote.test/users/unresolved",
+    status: "pending",
+  });
+  await db.insert(deliveryFanouts).values({
+    id: "retired-group-fanout",
+    activityApId: `${APP_URL}/ap/activities/original-create`,
+    announceActivityApId: announceActivityId,
+    kind: "community",
+    targetApId: communityApId,
+    status: "published",
+  });
+
+  expect(await reapDrainedTombstones(db)).toBe(0);
+  expect(
+    await db
+      .select({ privateKeyPem: communities.privateKeyPem })
+      .from(communities)
+      .where(eq(communities.apId, communityApId))
+      .get(),
+  ).toEqual({ privateKeyPem: "GROUP-PRIVATE-KEY" });
+
+  await db
+    .update(deliveryResolutions)
+    .set({ status: "resolved" })
+    .where(eq(deliveryResolutions.id, "retired-group-resolution"));
+  expect(await reapDrainedTombstones(db)).toBe(0);
+
+  await db
+    .update(deliveryFanouts)
+    .set({ status: "completed" })
+    .where(eq(deliveryFanouts.id, "retired-group-fanout"));
+  expect(await reapDrainedTombstones(db)).toBe(1);
+
+  // Keep the negative lifecycle row so direct object reads remain gated, but
+  // remove the secret and every drained Group-authored activity projection.
+  expect(
+    await db
+      .select({
+        deletedAt: communities.deletedAt,
+        publicKeyPem: communities.publicKeyPem,
+        privateKeyPem: communities.privateKeyPem,
+      })
+      .from(communities)
+      .where(eq(communities.apId, communityApId))
+      .get(),
+  ).toEqual({
+    deletedAt: oldIso,
+    publicKeyPem: "GROUP-PUBLIC-KEY",
+    privateKeyPem: "",
+  });
+  expect(
+    await db
+      .select()
+      .from(activities)
+      .where(eq(activities.actorApId, communityApId)),
+  ).toHaveLength(0);
+  expect(
+    await db
+      .select()
+      .from(deliveryFanouts)
+      .where(eq(deliveryFanouts.id, "retired-group-fanout")),
+  ).toHaveLength(0);
 });
