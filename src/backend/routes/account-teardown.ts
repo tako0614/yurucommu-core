@@ -209,12 +209,17 @@ export async function teardownActor(
     });
     await snapshotAndEnqueueFollowerDeliveries(db, env, deleteActivityId, apId);
   } catch (err) {
-    // Federation is best-effort; never block local teardown on it.
-    log.error("Failed to enqueue account Delete federation", {
-      event: "actors.account.delete_federation_failed",
+    // Queue publication is already best-effort inside the snapshot helper, but
+    // the durable Activity/outbox write is not. Continuing would erase the
+    // follower graph and make the missing remote Delete impossible to rebuild.
+    // Preserve the live actor/session as retry authority, matching media purge
+    // failures later in this same teardown.
+    log.error("Failed to persist account Delete follower snapshot", {
+      event: "actors.account.delete_snapshot_failed",
       actor: apId,
       error: err,
     });
+    throw err;
   }
 
   // Reconcile counterparties' follower/following counts BEFORE dropping edges.

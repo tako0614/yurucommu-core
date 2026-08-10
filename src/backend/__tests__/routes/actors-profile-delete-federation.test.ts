@@ -11,7 +11,7 @@
 
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
 import {
@@ -445,4 +445,65 @@ test("POST /me/delete keeps the complete durable snapshot when the Queue RPC fai
       .from(follows)
       .where(eq(follows.followingApId, actor.ap_id)),
   ).toHaveLength(0);
+});
+
+test("POST /me/delete keeps the actor and follower graph when the durable snapshot write fails", async () => {
+  const db = await freshDb();
+  const actor = await insertLocalActor(db, "snapshot-failure");
+  const remoteFollower = "https://unknown.remote.test/users/snapshot-failure";
+  await db.insert(follows).values({
+    followerApId: remoteFollower,
+    followingApId: actor.ap_id,
+    status: "accepted",
+  });
+  await db.run(
+    sql.raw(`
+    CREATE TRIGGER reject_account_delete_resolution
+    BEFORE INSERT ON delivery_resolutions
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated account Delete snapshot failure');
+    END
+  `),
+  );
+  const app = appWith(db, actor);
+  const env = { APP_URL, DB_INSTANCE: db } as Env;
+
+  const failed = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    env,
+  );
+  expect(failed.status).toBe(500);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(eq(follows.followingApId, actor.ap_id)),
+  ).toHaveLength(1);
+  expect(
+    await db
+      .select({ deletedAt: actors.deletedAt })
+      .from(actors)
+      .where(eq(actors.apId, actor.ap_id))
+      .get(),
+  ).toMatchObject({ deletedAt: null });
+
+  // The same authenticated actor can retry after D1 recovers. The partial
+  // first-attempt Delete activity is replaced by the successful durable
+  // snapshot before final tombstoning.
+  await db.run(sql`DROP TRIGGER reject_account_delete_resolution`);
+  const retried = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    env,
+  );
+  expect(retried.status).toBe(200);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(eq(follows.followingApId, actor.ap_id)),
+  ).toHaveLength(0);
+  expect(await db.select().from(deliveryResolutions)).toHaveLength(1);
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Delete")),
+  ).toHaveLength(1);
 });
