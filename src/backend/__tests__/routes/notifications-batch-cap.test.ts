@@ -112,6 +112,18 @@ async function seedInbox(
   ]);
 }
 
+async function seedLargeInbox(
+  db: Database,
+  rows: Array<{ actorApId: string; activityApId: string }>,
+): Promise<void> {
+  // A production-sized archive-all regression crosses the D1 batch statement
+  // cap during setup. Page only that fixture source set; each page retains the
+  // shipped atomic activity+inbox write and foreign-key ordering.
+  for (let offset = 0; offset < rows.length; offset += 300) {
+    await seedInbox(db, rows.slice(offset, offset + 300));
+  }
+}
+
 function oversizedIds(): string[] {
   return Array.from(
     { length: MAX_BATCH + 1 },
@@ -251,6 +263,41 @@ test("POST /archive/all materializes only the authenticated actor's inbox and is
       (row) => row.activityApId,
     ),
   ).toEqual(expect.arrayContaining(ownIds));
+  expect(await db.select().from(notificationArchived)).toHaveLength(
+    ownIds.length,
+  );
+
+  const duplicate = await requestJson(app, "/api/notifications/archive/all", {
+    method: "POST",
+  });
+  expect(duplicate.res.status).toEqual(200);
+  expect(duplicate.body).toEqual({ success: true, archived_count: 0 });
+});
+
+test("POST /archive/all does not report success while notifications remain past its internal batch", async () => {
+  const { db } = await createTestDb();
+  const app = createApp(db, actor);
+  const ownIds = Array.from(
+    { length: 1001 },
+    (_, i) => `https://example.com/activities/archive-all-over-cap-${i}`,
+  );
+  await seedLargeInbox(
+    db,
+    ownIds.map((activityApId) => ({
+      actorApId: actor.ap_id,
+      activityApId,
+    })),
+  );
+
+  const first = await requestJson(app, "/api/notifications/archive/all", {
+    method: "POST",
+  });
+
+  expect(first.res.status).toEqual(200);
+  expect(first.body).toEqual({
+    success: true,
+    archived_count: ownIds.length,
+  });
   expect(await db.select().from(notificationArchived)).toHaveLength(
     ownIds.length,
   );

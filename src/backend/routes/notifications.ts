@@ -61,7 +61,6 @@ const ARCHIVE_CREATE_BATCH_SIZE = 30;
 // archived backlog doesn't load + delete it all in one fired-from-read-path run;
 // the rest drains on later runs.
 const ARCHIVE_CLEANUP_BATCH = 200;
-const ARCHIVE_ALL_CAP = 1000;
 
 /**
  * Tracks the last cleanup timestamp per actor so cleanup is throttled to one
@@ -137,6 +136,33 @@ async function batchArchiveInsert(
   }
 
   return inserted;
+}
+
+/**
+ * Archive the authenticated actor's complete retained inbox as one set-based
+ * authority transition. A client-side or server-side page loop would expose a
+ * partial-success state between batches; INSERT ... SELECT gives SQLite/D1 one
+ * atomic statement, binds only actor + timestamp, and stays idempotent under
+ * retries through the archive primary key.
+ */
+async function archiveAllInboxRows(
+  db: Database,
+  actorApId: string,
+  archivedAt: string,
+): Promise<number> {
+  const candidates = db
+    .select({
+      actorApId: inboxTable.actorApId,
+      activityApId: inboxTable.activityApId,
+      archivedAt: sql<string>`${archivedAt}`.as("archived_at"),
+    })
+    .from(inboxTable)
+    .where(eq(inboxTable.actorApId, actorApId));
+  const result = await db
+    .insert(notificationArchived)
+    .select(candidates)
+    .onConflictDoNothing();
+  return affectedRowCount(result);
 }
 
 async function cleanupArchivedNotifications(
@@ -785,20 +811,7 @@ notifications.post("/archive/all", async (c) => {
 
   const db = c.get("db");
   const now = new Date().toISOString();
-
-  const inboxItems = await db
-    .select({ activityApId: inboxTable.activityApId })
-    .from(inboxTable)
-    .where(eq(inboxTable.actorApId, actor.ap_id))
-    .limit(ARCHIVE_ALL_CAP);
-
-  const archived_count = await batchArchiveInsert(
-    db,
-    actor.ap_id,
-    inboxItems.map((item) => item.activityApId),
-    now,
-    ARCHIVE_CREATE_BATCH_SIZE,
-  );
+  const archived_count = await archiveAllInboxRows(db, actor.ap_id, now);
 
   // Archive-all clears the whole badge; sync the reader's other tabs/devices.
   await runRealtimeAfterResponse(c, () =>
