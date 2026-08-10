@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import { Hono } from "hono";
@@ -12,6 +12,7 @@ import {
   activities,
   communities,
   communityMembers,
+  deliveryResolutions,
   follows,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -48,6 +49,7 @@ async function freshDb(): Promise<Database> {
     "0008_actor_fields_aka.sql",
     "0009_object_tags.sql",
     "0015_community_bans.sql",
+    "0023_delivery_resolution_outbox.sql",
   ]) {
     await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
   }
@@ -106,11 +108,18 @@ function appFor(db: Database) {
   return app;
 }
 
-const env = {
-  APP_URL,
-  DELIVERY_QUEUE: { send: () => Promise.resolve() },
-  DELIVERY_DLQ: { send: () => Promise.resolve() },
-} as unknown as Env;
+function envFor(db: Database): Env {
+  const queue = {
+    send: () => Promise.resolve(),
+    sendBatch: () => Promise.resolve(),
+  };
+  return {
+    APP_URL,
+    DB_INSTANCE: db,
+    DELIVERY_QUEUE: queue,
+    DELIVERY_DLQ: queue,
+  } as unknown as Env;
+}
 
 test("GET /requests lists a pending REMOTE follow as a join request", async () => {
   const db = await freshDb();
@@ -118,7 +127,7 @@ test("GET /requests lists a pending REMOTE follow as a join request", async () =
 
   const res = await appFor(db).fetch(
     new Request(`${APP_URL}/api/communities/gated/requests`, { method: "GET" }),
-    env,
+    envFor(db),
   );
   expect(res.status).toBe(200);
   const body = (await res.json()) as { requests: { ap_id: string }[] };
@@ -135,7 +144,7 @@ test("POST /requests/accept of a remote: flips the follows edge + emits a commun
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ actor_ap_id: REMOTE }),
     }),
-    env,
+    envFor(db),
   );
   expect(res.status).toBe(200);
 
@@ -168,6 +177,47 @@ test("POST /requests/accept of a remote: flips the follows edge + emits a commun
   expect(member).toBeUndefined();
 });
 
+test("remote community acceptance rolls back membership when delivery intent cannot persist", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await db.run(sql`
+    CREATE TRIGGER reject_community_accept_resolution
+    BEFORE INSERT ON delivery_resolutions
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated resolution ledger outage');
+    END
+  `);
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/gated/requests/accept`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor_ap_id: REMOTE }),
+    }),
+    envFor(db),
+  );
+
+  expect(res.status).toBe(500);
+  expect(
+    (
+      await db
+        .select({ status: follows.status })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.followerApId, REMOTE),
+            eq(follows.followingApId, GROUP),
+          ),
+        )
+        .get()
+    )?.status,
+  ).toBe("pending");
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Accept")),
+  ).toHaveLength(0);
+  expect(await db.select().from(deliveryResolutions)).toHaveLength(0);
+});
+
 test("community join requests hide an operator-blocked remote edge", async () => {
   const db = await freshDb();
   await seed(db);
@@ -175,7 +225,7 @@ test("community join requests hide an operator-blocked remote edge", async () =>
 
   const res = await appFor(db).fetch(
     new Request(`${APP_URL}/api/communities/gated/requests`, { method: "GET" }),
-    env,
+    envFor(db),
   );
 
   expect(res.status).toBe(200);
@@ -193,7 +243,7 @@ test("community accept cannot re-admit an operator-blocked pending remote", asyn
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ actor_ap_id: REMOTE }),
     }),
-    env,
+    envFor(db),
   );
 
   expect(res.status).toBe(404);

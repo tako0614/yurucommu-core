@@ -1,35 +1,29 @@
 import type { Context, Hono } from "hono";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import {
-  activities,
   communities,
   communityJoinRequests,
   communityMembers,
   follows,
+  runBatch,
+  type D1Statement,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
-import {
-  activityApId,
-  formatUsername,
-  generateId,
-  isLocal,
-} from "../../federation-helpers.ts";
-import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import { formatUsername, isLocal } from "../../federation-helpers.ts";
 import {
   isActorBlockedStrict,
   operatorActorNotBlockedSql,
 } from "../../lib/blocklist.ts";
-import { resolvePeerFollowActivityId } from "../follow-helpers.ts";
+import { prepareResponseIfRemote } from "../follow-helpers.ts";
 import {
   addMemberAtomic,
   batchLoadActorInfo,
   fetchCommunityId,
   memberWhere,
+  prepareUnbanMemberStatement,
   requireManager,
   unbanMember,
 } from "./membership-shared.ts";
-
-const AS_CONTEXT = "https://www.w3.org/ns/activitystreams";
 
 export function registerMembershipRequestRoutes(
   communitiesRouter: Hono<{ Bindings: Env; Variables: Variables }>,
@@ -191,6 +185,22 @@ export function registerMembershipRequestRoutes(
             now,
           );
         }
+
+        // Accepting a join request is an explicit re-admission — lift any ban.
+        await unbanMember(db, community.apId, body.actor_ap_id);
+
+        if (localRequest) {
+          await db
+            .update(communityJoinRequests)
+            .set({ status: "accepted", processedAt: now })
+            .where(
+              and(
+                eq(communityJoinRequests.communityApId, community.apId),
+                eq(communityJoinRequests.actorApId, body.actor_ap_id),
+                eq(communityJoinRequests.status, "pending"),
+              ),
+            );
+        }
       } else {
         // A REMOTE member's membership IS the pending follows edge to the Group
         // actor — NOT a communityMembers row (which would diverge from how the
@@ -199,59 +209,51 @@ export function registerMembershipRequestRoutes(
         // was approved and our handleGroupCreate (which requires status=accepted)
         // starts relaying its posts. The pending edge carries the original Follow
         // activity id the Accept must reference.
-        await db
-          .update(follows)
-          .set({ status: "accepted", acceptedAt: now })
-          .where(
-            and(
-              eq(follows.followerApId, body.actor_ap_id),
-              eq(follows.followingApId, community.apId),
-            ),
+        const preparedResponse = pendingEdge?.activityApId
+          ? await prepareResponseIfRemote(
+              c.env,
+              db,
+              c.env.APP_URL,
+              "Accept",
+              community.apId,
+              body.actor_ap_id,
+              pendingEdge.activityApId,
+            )
+          : null;
+        const statements: D1Statement[] = [
+          db
+            .update(follows)
+            .set({ status: "accepted", acceptedAt: now })
+            .where(
+              and(
+                eq(follows.followerApId, body.actor_ap_id),
+                eq(follows.followingApId, community.apId),
+                eq(follows.status, "pending"),
+              ),
+            ) as D1Statement,
+        ];
+        if (preparedResponse) statements.push(...preparedResponse.statements);
+        statements.push(
+          prepareUnbanMemberStatement(db, community.apId, body.actor_ap_id),
+        );
+        if (localRequest) {
+          statements.push(
+            db
+              .update(communityJoinRequests)
+              .set({ status: "accepted", processedAt: now })
+              .where(
+                and(
+                  eq(communityJoinRequests.communityApId, community.apId),
+                  eq(communityJoinRequests.actorApId, body.actor_ap_id),
+                  eq(communityJoinRequests.status, "pending"),
+                ),
+              ) as D1Statement,
           );
-        if (pendingEdge?.activityApId) {
-          // The pending edge stores the origin-bound INTERNAL activity id; the
-          // remote matches Accept.object against the Follow id IT minted, so
-          // resolve the peer-facing id from the stored envelope first.
-          const peerFollowApId = await resolvePeerFollowActivityId(
-            db,
-            body.actor_ap_id,
-            pendingEdge.activityApId,
-          );
-          const acceptId = activityApId(c.env.APP_URL, generateId());
-          const acceptActivity = {
-            "@context": AS_CONTEXT,
-            id: acceptId,
-            type: "Accept",
-            actor: community.apId,
-            object: peerFollowApId,
-          };
-          await db.insert(activities).values({
-            apId: acceptId,
-            type: "Accept",
-            actorApId: community.apId,
-            objectApId: peerFollowApId,
-            rawJson: JSON.stringify(acceptActivity),
-            direction: "outbound",
-          });
-          // Delivery resolves the community's signing key from actor=community.apId.
-          await enqueueDeliveryToActor(c.env, acceptId, body.actor_ap_id);
         }
-      }
-
-      // Accepting a join request is an explicit re-admission — lift any ban.
-      await unbanMember(db, community.apId, body.actor_ap_id);
-
-      // Mark the local join-request row processed (a remote accept has none).
-      if (localRequest) {
-        await db
-          .update(communityJoinRequests)
-          .set({ status: "accepted", processedAt: now })
-          .where(
-            and(
-              eq(communityJoinRequests.communityApId, community.apId),
-              eq(communityJoinRequests.actorApId, body.actor_ap_id),
-            ),
-          );
+        await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
+        // The durable intent is committed above; Queue is only a best-effort
+        // wakeup, so an outage cannot turn a committed approval into a 500.
+        await preparedResponse?.publish();
       }
 
       return c.json({ success: true });

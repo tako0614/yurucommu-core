@@ -1,6 +1,5 @@
 import type { Context } from "hono";
 import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
-import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
   actors,
@@ -8,6 +7,9 @@ import {
   communityBans,
   communityMembers,
   follows,
+  runBatch,
+  type D1Statement,
+  type Database,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { communityApId } from "../../federation-helpers.ts";
@@ -57,6 +59,17 @@ export async function unbanMember(
   communityApIdVal: string,
   bannedApId: string,
 ): Promise<void> {
+  await runBatch(db, [
+    prepareUnbanMemberStatement(db, communityApIdVal, bannedApId),
+  ]);
+}
+
+/** Prepare explicit re-admission so callers can co-commit its authority state. */
+export function prepareUnbanMemberStatement(
+  db: Database,
+  communityApIdVal: string,
+  bannedApId: string,
+): D1Statement {
   const retainedBans = activityPubActorIdentityMatchesSql(
     sql`
       SELECT ${communityBans.bannedApId}
@@ -65,14 +78,14 @@ export async function unbanMember(
     `,
     bannedApId,
   );
-  await db
+  return db
     .delete(communityBans)
     .where(
       and(
         eq(communityBans.communityApId, communityApIdVal),
         sql`${communityBans.bannedApId} IN (${retainedBans})`,
       ),
-    );
+    ) as D1Statement;
 }
 
 /** Whether `actorApId` is banned from the community. */

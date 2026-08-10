@@ -5,6 +5,7 @@ import {
   deliveryResolutions,
   insertMany,
   runBatch,
+  type D1Statement,
   type Database,
 } from "../../../db/index.ts";
 import type { Env } from "../../types.ts";
@@ -78,13 +79,20 @@ async function materializeIntents(
   );
 }
 
-/** Persist intent before attempting any Queue RPC. */
-export async function persistDeliveryResolutionJobs(
+export type PreparedDeliveryResolutionJobs = {
+  readonly rows: ReadonlyArray<
+    DeliveryResolutionIntent & { readonly id: string }
+  >;
+  readonly statements: readonly D1Statement[];
+};
+
+/** Build durable first-hop intent inserts without executing them. */
+export async function prepareDeliveryResolutionJobs(
   db: Database,
   intents: readonly DeliveryResolutionIntent[],
-): Promise<ReadonlyArray<DeliveryResolutionIntent & { readonly id: string }>> {
+): Promise<PreparedDeliveryResolutionJobs> {
   const rows = await materializeIntents(intents);
-  if (rows.length === 0) return rows;
+  if (rows.length === 0) return { rows, statements: [] };
   const now = new Date().toISOString();
   const statements = insertMany(
     db,
@@ -101,16 +109,25 @@ export async function persistDeliveryResolutionJobs(
     })),
     { conflict: "ignore" },
   );
-  if (statements.length > 0) {
+  return { rows, statements };
+}
+
+/** Persist intent before attempting any Queue RPC. */
+export async function persistDeliveryResolutionJobs(
+  db: Database,
+  intents: readonly DeliveryResolutionIntent[],
+): Promise<ReadonlyArray<DeliveryResolutionIntent & { readonly id: string }>> {
+  const prepared = await prepareDeliveryResolutionJobs(db, intents);
+  if (prepared.statements.length > 0) {
     await runBatch(
       db,
-      statements as [
-        (typeof statements)[number],
-        ...(typeof statements)[number][],
+      prepared.statements as [
+        (typeof prepared.statements)[number],
+        ...(typeof prepared.statements)[number][],
       ],
     );
   }
-  return rows;
+  return prepared.rows;
 }
 
 async function sendRows(

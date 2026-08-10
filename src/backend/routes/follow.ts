@@ -2,47 +2,39 @@ import { Hono } from "hono";
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import {
-  activities,
   actorCache,
   actors,
   follows,
   inbox,
+  runBatch,
+  type D1Statement,
 } from "../../db/index.ts";
 import {
-  activityApId,
   formatUsername,
-  generateId,
   isLocal,
   isSafeRemoteUrl,
   parseLimit,
   parseOffset,
 } from "../federation-helpers.ts";
-import { enqueueDeliveryToActor } from "../lib/delivery/queue.ts";
 import {
   filterBlockedActorApIdsStrict,
   isActorBlockedStrict,
   operatorActorNotBlockedSql,
 } from "../lib/blocklist.ts";
 import {
-  buildApActivity,
-  createAndDeliverActivity,
-  deliverResponseIfRemote,
-  resolvePeerFollowActivityId,
   findPendingFollow,
   handleLocalFollow,
   handleRemoteFollow,
   isResponse,
   parseNonEmptyString,
   parseStringArray,
+  prepareActivityDelivery,
+  prepareResponseIfRemote,
   requireActorAndBody,
 } from "./follow-helpers.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "follow" });
-
-// `.batch` lives only on the concrete D1/libsql subclasses, not the Database
-// union; reach it through a narrow structural cast (matching the other routes).
-type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
 // Capped at 90 (not 100): the accepted ids are re-queried via
 // `inArray(follows.followerApId, requesterApIds)` and Cloudflare D1 allows at
@@ -142,6 +134,23 @@ follow.delete("/", async (c) => {
   const wasAccepted = existingFollow.status === "accepted";
   const targetIsLocal = isLocal(targetApId, baseUrl);
 
+  const preparedUndo = targetIsLocal
+    ? null
+    : await prepareActivityDelivery(
+        c.env,
+        db,
+        baseUrl,
+        "Undo",
+        actor.ap_id,
+        {
+          type: "Follow",
+          actor: actor.ap_id,
+          object: targetApId,
+        },
+        targetApId,
+        targetApId,
+      );
+
   const deleteEdge = db
     .delete(follows)
     .where(
@@ -151,13 +160,14 @@ follow.delete("/", async (c) => {
       ),
     );
 
+  const statements: D1Statement[] = [];
   if (wasAccepted) {
     // Co-commit the decrements + delete in ONE batch so a crash between them
     // can't leave the edge gone with un-decremented counts (permanent over-
     // count). Decrements run BEFORE the delete, guarded by EXISTS(accepted edge)
     // + count>0 (underflow) — mirrors the federated undoFollowEdge.
     const acceptedEdgeExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${actor.ap_id} AND ${follows.followingApId} = ${targetApId} AND ${follows.status} = 'accepted')`;
-    const stmts: unknown[] = [
+    statements.push(
       db
         .update(actors)
         .set({ followingCount: sql`${actors.followingCount} - 1` })
@@ -167,10 +177,10 @@ follow.delete("/", async (c) => {
             gt(actors.followingCount, 0),
             acceptedEdgeExists,
           ),
-        ),
-    ];
+        ) as D1Statement,
+    );
     if (targetIsLocal) {
-      stmts.push(
+      statements.push(
         db
           .update(actors)
           .set({ followerCount: sql`${actors.followerCount} - 1` })
@@ -180,32 +190,14 @@ follow.delete("/", async (c) => {
               gt(actors.followerCount, 0),
               acceptedEdgeExists,
             ),
-          ),
+          ) as D1Statement,
       );
     }
-    stmts.push(deleteEdge);
-    await (db as unknown as Batchable).batch(stmts);
-  } else {
-    await deleteEdge;
   }
-
-  if (!targetIsLocal) {
-    const undoObject = {
-      type: "Follow",
-      actor: actor.ap_id,
-      object: targetApId,
-    };
-    await createAndDeliverActivity(
-      c.env,
-      db,
-      baseUrl,
-      "Undo",
-      actor.ap_id,
-      undoObject,
-      targetApId,
-      targetApId,
-    );
-  }
+  statements.push(deleteEdge as D1Statement);
+  if (preparedUndo) statements.push(...preparedUndo.statements);
+  await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
+  await preparedUndo?.publish();
 
   return c.json({ success: true });
 });
@@ -230,7 +222,6 @@ follow.post("/accept", async (c) => {
     return c.json({ error: "No pending follow request" }, 404);
   }
 
-  let pendingFollow: Awaited<ReturnType<typeof findPendingFollow>>;
   try {
     // Read the pending edge first (we need its activityApId for the Accept
     // delivery below), then co-commit the flip + both increments in ONE batch.
@@ -243,21 +234,34 @@ follow.post("/accept", async (c) => {
     // count nor under-count. Mirrors the federated handleAccept.
     const pending = await findPendingFollow(db, requesterApId, actor.ap_id);
     if (!pending) {
-      pendingFollow = undefined;
+      return c.json({ error: "No pending follow request" }, 404);
     } else {
+      const preparedResponse = await prepareResponseIfRemote(
+        c.env,
+        db,
+        baseUrl,
+        "Accept",
+        actor.ap_id,
+        requesterApId,
+        pending.activityApId,
+      );
       const pendingExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${requesterApId} AND ${follows.followingApId} = ${actor.ap_id} AND ${follows.status} = 'pending')`;
-      const stmts: unknown[] = [
+      const stmts: D1Statement[] = [
         db
           .update(actors)
           .set({ followerCount: sql`${actors.followerCount} + 1` })
-          .where(and(eq(actors.apId, actor.ap_id), pendingExists)),
+          .where(
+            and(eq(actors.apId, actor.ap_id), pendingExists),
+          ) as D1Statement,
       ];
       if (isLocal(requesterApId, baseUrl)) {
         stmts.push(
           db
             .update(actors)
             .set({ followingCount: sql`${actors.followingCount} + 1` })
-            .where(and(eq(actors.apId, requesterApId), pendingExists)),
+            .where(
+              and(eq(actors.apId, requesterApId), pendingExists),
+            ) as D1Statement,
         );
       }
       stmts.push(
@@ -270,10 +274,11 @@ follow.post("/accept", async (c) => {
               eq(follows.followingApId, actor.ap_id),
               eq(follows.status, "pending"),
             ),
-          ),
+          ) as D1Statement,
       );
-      await (db as unknown as Batchable).batch(stmts);
-      pendingFollow = pending;
+      if (preparedResponse) stmts.push(...preparedResponse.statements);
+      await runBatch(db, stmts as [D1Statement, ...D1Statement[]]);
+      await preparedResponse?.publish();
     }
   } catch (e) {
     log.error("Error in accept", {
@@ -282,20 +287,6 @@ follow.post("/accept", async (c) => {
     });
     return c.json({ error: "Internal error" }, 500);
   }
-
-  if (!pendingFollow) {
-    return c.json({ error: "No pending follow request" }, 404);
-  }
-
-  await deliverResponseIfRemote(
-    c.env,
-    db,
-    baseUrl,
-    "Accept",
-    actor.ap_id,
-    requesterApId,
-    pendingFollow.activityApId,
-  );
 
   return c.json({ success: true });
 });
@@ -353,17 +344,6 @@ follow.post("/accept/batch", async (c) => {
   );
 
   const results: { ap_id: string; success: boolean; error?: string }[] = [];
-  const activitiesToCreate: Array<{
-    apId: string;
-    type: string;
-    actorApId: string;
-    objectApId: string | undefined;
-    rawJson: string;
-    direction: string;
-  }> = [];
-  const remoteEnqueues: Array<{ activityId: string; recipientApId: string }> =
-    [];
-
   for (const requesterApId of requesterApIds) {
     const pendingFollow = pendingFollowMap.get(requesterApId);
     if (!pendingFollow) {
@@ -382,19 +362,36 @@ follow.post("/accept/batch", async (c) => {
       // accumulated increments for already-flipped rows. Increments guarded by
       // EXISTS(pending) before the flip; the flip keeps its pending predicate.
       const requesterIsLocal = isLocal(requesterApId, baseUrl);
+      const requesterIsSafeRemote =
+        !requesterIsLocal && isSafeRemoteUrl(requesterApId);
+      const preparedResponse = requesterIsSafeRemote
+        ? await prepareResponseIfRemote(
+            c.env,
+            db,
+            baseUrl,
+            "Accept",
+            actor.ap_id,
+            requesterApId,
+            pendingFollow.activityApId,
+          )
+        : null;
       const pendingExists = sql`EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${requesterApId} AND ${follows.followingApId} = ${actor.ap_id} AND ${follows.status} = 'pending')`;
-      const stmts: unknown[] = [
+      const stmts: D1Statement[] = [
         db
           .update(actors)
           .set({ followerCount: sql`${actors.followerCount} + 1` })
-          .where(and(eq(actors.apId, actor.ap_id), pendingExists)),
+          .where(
+            and(eq(actors.apId, actor.ap_id), pendingExists),
+          ) as D1Statement,
       ];
       if (requesterIsLocal) {
         stmts.push(
           db
             .update(actors)
             .set({ followingCount: sql`${actors.followingCount} + 1` })
-            .where(and(eq(actors.apId, requesterApId), pendingExists)),
+            .where(
+              and(eq(actors.apId, requesterApId), pendingExists),
+            ) as D1Statement,
         );
       }
       stmts.push(
@@ -407,36 +404,15 @@ follow.post("/accept/batch", async (c) => {
               eq(follows.followingApId, actor.ap_id),
               eq(follows.status, "pending"),
             ),
-          ),
+          ) as D1Statement,
       );
-      await (db as unknown as Batchable).batch(stmts);
+      if (preparedResponse) stmts.push(...preparedResponse.statements);
+      await runBatch(db, stmts as [D1Statement, ...D1Statement[]]);
+      await preparedResponse?.publish();
 
       if (requesterIsLocal) {
         // local follower's followingCount already bumped in the batch above
-      } else if (isSafeRemoteUrl(requesterApId)) {
-        const peerFollowApId = await resolvePeerFollowActivityId(
-          db,
-          requesterApId,
-          pendingFollow.activityApId,
-        );
-        const id = activityApId(baseUrl, generateId());
-        const activity = buildApActivity(
-          "Accept",
-          actor.ap_id,
-          peerFollowApId,
-          id,
-        );
-
-        activitiesToCreate.push({
-          apId: id,
-          type: "Accept",
-          actorApId: actor.ap_id,
-          objectApId: peerFollowApId || undefined,
-          rawJson: JSON.stringify(activity),
-          direction: "outbound",
-        });
-        remoteEnqueues.push({ activityId: id, recipientApId: requesterApId });
-      } else {
+      } else if (!requesterIsSafeRemote) {
         log.warn("Blocked unsafe remote actor", {
           event: "follow.accept.unsafe_remote_actor",
           actor: requesterApId,
@@ -455,18 +431,6 @@ follow.post("/accept/batch", async (c) => {
 
   // (Counts are bumped per-request inside the loop's batch — no aggregate
   // post-loop increment, which could be lost on a mid-loop crash.)
-
-  if (activitiesToCreate.length > 0) {
-    await db.insert(activities).values(activitiesToCreate);
-  }
-
-  if (remoteEnqueues.length > 0) {
-    await Promise.allSettled(
-      remoteEnqueues.map((e) =>
-        enqueueDeliveryToActor(c.env, e.activityId, e.recipientApId),
-      ),
-    );
-  }
 
   return c.json({
     results,
@@ -503,28 +467,7 @@ follow.post("/reject", async (c) => {
   // the INBOUND reject path (handleReject -> deleteFollowByCompoundKey) and the
   // community join-request re-pend behaviour, letting a fresh Follow start clean.
   // A pending edge was never counted, so no counter reconcile is needed.
-  await db
-    .delete(follows)
-    .where(
-      and(
-        eq(follows.followerApId, requesterApId),
-        eq(follows.followingApId, actor.ap_id),
-      ),
-    );
-
-  if (pendingFollow.activityApId) {
-    await db
-      .update(inbox)
-      .set({ read: 1 })
-      .where(
-        and(
-          eq(inbox.actorApId, actor.ap_id),
-          eq(inbox.activityApId, pendingFollow.activityApId),
-        ),
-      );
-  }
-
-  await deliverResponseIfRemote(
+  const preparedResponse = await prepareResponseIfRemote(
     c.env,
     db,
     baseUrl,
@@ -533,6 +476,33 @@ follow.post("/reject", async (c) => {
     requesterApId,
     pendingFollow.activityApId,
   );
+  const statements: D1Statement[] = [
+    db
+      .delete(follows)
+      .where(
+        and(
+          eq(follows.followerApId, requesterApId),
+          eq(follows.followingApId, actor.ap_id),
+        ),
+      ) as D1Statement,
+  ];
+
+  if (pendingFollow.activityApId) {
+    statements.push(
+      db
+        .update(inbox)
+        .set({ read: 1 })
+        .where(
+          and(
+            eq(inbox.actorApId, actor.ap_id),
+            eq(inbox.activityApId, pendingFollow.activityApId),
+          ),
+        ) as D1Statement,
+    );
+  }
+  if (preparedResponse) statements.push(...preparedResponse.statements);
+  await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
+  await preparedResponse?.publish();
 
   return c.json({ success: true });
 });

@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { and, eq, sql } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
-import type { Database } from "../../db/index.ts";
+import type { D1Statement, Database } from "../../db/index.ts";
 import {
   activities,
   actorCache,
@@ -17,6 +17,8 @@ import {
   isSafeRemoteUrl,
 } from "../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../lib/delivery/queue.ts";
+import { prepareDeliveryResolutionJobs } from "../lib/delivery/resolution-outbox.ts";
+import { isActorBlockedStrict } from "../lib/blocklist.ts";
 import { isTrustedRemoteActivityId } from "../lib/remote-activity-id.ts";
 import {
   isUniqueConstraintError,
@@ -119,8 +121,65 @@ export function isResponse(
 // ---------------------------------------------------------------------------
 
 /**
- * Creates an outbound AP activity record and enqueues it for delivery.
+ * Prepare an outbound Activity and its durable first-hop delivery intent so a
+ * relationship mutation can co-commit them in one D1 batch.
  */
+export type PreparedActivityDelivery = {
+  readonly id: string;
+  readonly statements: readonly [D1Statement, ...D1Statement[]];
+  publish(): Promise<void>;
+};
+
+export async function prepareActivityDelivery(
+  env: Env,
+  db: Database,
+  baseUrl: string,
+  type: string,
+  actorId: string,
+  object: unknown,
+  recipientApId: string,
+  objectApId?: string | null,
+): Promise<PreparedActivityDelivery> {
+  const id = activityApId(baseUrl, generateId());
+  const activity = buildApActivity(type, actorId, object, id);
+  const recipientBlocked = await isActorBlockedStrict(db, recipientApId);
+  const preparedResolution = recipientBlocked
+    ? { statements: [] }
+    : await prepareDeliveryResolutionJobs(db, [
+        { activityId: id, recipientActorApId: recipientApId },
+      ]);
+
+  return {
+    id,
+    statements: [
+      db.insert(activities).values({
+        apId: id,
+        type,
+        actorApId: actorId,
+        objectApId: objectApId || undefined,
+        rawJson: JSON.stringify(activity),
+        direction: "outbound",
+      }) as D1Statement,
+      ...preparedResolution.statements,
+    ],
+    async publish() {
+      if (recipientBlocked) return;
+      try {
+        await enqueueDeliveryToActor(env, id, recipientApId);
+      } catch (error) {
+        log.error("Failed to publish prepared activity delivery wakeup", {
+          event: "follow.activity.delivery_wakeup_failed",
+          activityType: type,
+          activityId: id,
+          recipient: recipientApId,
+          error,
+        });
+      }
+    },
+  };
+}
+
+/** Creates an outbound AP activity and durable delivery intent. */
 export async function createAndDeliverActivity(
   env: Env,
   db: Database,
@@ -131,19 +190,18 @@ export async function createAndDeliverActivity(
   recipientApId: string,
   objectApId?: string | null,
 ): Promise<void> {
-  const id = activityApId(baseUrl, generateId());
-  const activity = buildApActivity(type, actorId, object, id);
-
-  await db.insert(activities).values({
-    apId: id,
+  const prepared = await prepareActivityDelivery(
+    env,
+    db,
+    baseUrl,
     type,
-    actorApId: actorId,
-    objectApId: objectApId || undefined,
-    rawJson: JSON.stringify(activity),
-    direction: "outbound",
-  });
-
-  await enqueueDeliveryToActor(env, id, recipientApId);
+    actorId,
+    object,
+    recipientApId,
+    objectApId,
+  );
+  await runBatch(db, prepared.statements);
+  await prepared.publish();
 }
 
 /**
@@ -209,13 +267,36 @@ export async function deliverResponseIfRemote(
   requesterApId: string,
   originalActivityApId: string | null,
 ): Promise<void> {
-  if (isLocal(requesterApId, baseUrl)) return;
+  const prepared = await prepareResponseIfRemote(
+    env,
+    db,
+    baseUrl,
+    type,
+    actorId,
+    requesterApId,
+    originalActivityApId,
+  );
+  if (!prepared) return;
+  await runBatch(db, prepared.statements);
+  await prepared.publish();
+}
+
+export async function prepareResponseIfRemote(
+  env: Env,
+  db: Database,
+  baseUrl: string,
+  type: "Accept" | "Reject",
+  actorId: string,
+  requesterApId: string,
+  originalActivityApId: string | null,
+): Promise<PreparedActivityDelivery | null> {
+  if (isLocal(requesterApId, baseUrl)) return null;
   const peerActivityApId = await resolvePeerFollowActivityId(
     db,
     requesterApId,
     originalActivityApId,
   );
-  await createAndDeliverActivity(
+  return await prepareActivityDelivery(
     env,
     db,
     baseUrl,
@@ -393,25 +474,27 @@ export async function handleRemoteFollow(
     return c.json({ error: "Invalid inbox URL" }, 400);
   }
 
-  const id = activityApId(baseUrl, generateId());
-  const followActivity = buildApActivity("Follow", actor.ap_id, targetApId, id);
+  const preparedDelivery = await prepareActivityDelivery(
+    c.env,
+    db,
+    baseUrl,
+    "Follow",
+    actor.ap_id,
+    targetApId,
+    targetApId,
+    targetApId,
+  );
 
   try {
-    await db.insert(follows).values({
-      followerApId: actor.ap_id,
-      followingApId: targetApId,
-      status: "pending",
-      activityApId: id,
-    });
-
-    await db.insert(activities).values({
-      apId: id,
-      type: "Follow",
-      actorApId: actor.ap_id,
-      objectApId: targetApId,
-      rawJson: JSON.stringify(followActivity),
-      direction: "outbound",
-    });
+    await runBatch(db, [
+      db.insert(follows).values({
+        followerApId: actor.ap_id,
+        followingApId: targetApId,
+        status: "pending",
+        activityApId: preparedDelivery.id,
+      }),
+      ...preparedDelivery.statements,
+    ]);
   } catch (e) {
     log.error("Failed to create remote follow", {
       event: "follow.remote.create_failed",
@@ -422,6 +505,6 @@ export async function handleRemoteFollow(
     return c.json({ error: "Failed to follow remote actor" }, 500);
   }
 
-  await enqueueDeliveryToActor(c.env, id, targetApId);
+  await preparedDelivery.publish();
   return c.json({ success: true, status: "pending" });
 }
