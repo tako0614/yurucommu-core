@@ -1,7 +1,7 @@
 // DM read status and archive management
 
 import { Hono } from "hono";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import {
   communities,
   communityMembers,
@@ -95,7 +95,9 @@ readArchive.post("/community/:encodedApId/read", async (c) => {
   const community = await db
     .select({ apId: communities.apId })
     .from(communities)
-    .where(eq(communities.apId, communityApId))
+    .where(
+      and(eq(communities.apId, communityApId), isNull(communities.deletedAt)),
+    )
     .get();
   if (!community) return c.json({ error: "Community not found" }, 404);
 

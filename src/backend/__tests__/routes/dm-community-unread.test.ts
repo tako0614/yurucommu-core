@@ -315,6 +315,37 @@ test("deep-link resolve returns a community contact by ap_id", async () => {
   expect(data.contact.preferred_username).toEqual("club");
 });
 
+test("soft-deleted communities disappear from contacts, deep links, and read tracking", async () => {
+  const db = await freshDb();
+  const viewerApId = await insertLocalActor(db, "viewer");
+  const communityApId = await insertCommunity(db, "closed");
+  await joinCommunity(db, communityApId, viewerApId, "2020-01-01T00:00:00Z");
+  await db
+    .update(communities)
+    .set({ deletedAt: "2026-08-10T00:00:00.000Z" })
+    .where(eq(communities.apId, communityApId));
+
+  const app = appWith(db, fakeActor(viewerApId, "viewer"));
+
+  const contacts = await getContacts(app, db);
+  expect(contacts.communities).toEqual([]);
+
+  const contactRes = await app.fetch(
+    new Request(`${APP_URL}/contact/${encodeURIComponent(communityApId)}`),
+    envFor(db),
+  );
+  expect(contactRes.status).toEqual(404);
+
+  const readRes = await app.fetch(
+    new Request(
+      `${APP_URL}/community/${encodeURIComponent(communityApId)}/read`,
+      { method: "POST" },
+    ),
+    envFor(db),
+  );
+  expect(readRes.status).toEqual(404);
+});
+
 test("deep-link resolve returns a user contact by ap_id", async () => {
   const db = await freshDb();
   const viewerApId = await insertLocalActor(db, "viewer");

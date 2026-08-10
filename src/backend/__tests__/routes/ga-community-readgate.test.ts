@@ -28,6 +28,7 @@ const realVerifyGetHttpSignature = realApVerify.verifyGetHttpSignature;
  */
 
 import { Hono } from "hono";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
@@ -383,6 +384,15 @@ test("public-community object is NOT gated (helper never widens or narrows publi
   // Public community: an anonymous single-object read still succeeds.
   expect(await getPost(db, null, apId)).toEqual(200);
   expect(await getApObject(db, apId, null)).toEqual(200);
+
+  // Once the community is soft-deleted, its posts retire with it even when a
+  // caller retained the direct object URL.
+  await db
+    .update(communities)
+    .set({ deletedAt: "2026-08-10T00:00:00.000Z" })
+    .where(eq(communities.apId, publicCommunity));
+  expect(await getPost(db, null, apId)).toEqual(404);
+  expect(await getApObject(db, apId, null)).toEqual(404);
 });
 
 test("post detail and replies suppress legacy cosmetic block/mute identities without folding path case", async () => {

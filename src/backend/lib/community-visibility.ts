@@ -7,11 +7,11 @@
  * what keeps them out of the public / home / following feeds (which filter on
  * `audienceJson = "[]"`).
  *
- * For a PRIVATE community this is not enough: a single-object fetch (GET a post,
- * a reply, or an `/ap/objects/:id`) bypasses the audience filter entirely, so a
- * "public"-visibility community post would leak to any caller. This module
- * centralizes the membership gate those single-object paths must apply on top of
- * the normal visibility check.
+ * For a PRIVATE or soft-deleted community this is not enough: a single-object
+ * fetch (GET a post, a reply, or an `/ap/objects/:id`) bypasses the audience
+ * filter entirely, so a "public"-visibility community post would leak to any
+ * caller. This module centralizes the lifecycle + membership gate those
+ * single-object paths must apply on top of the normal visibility check.
  *
  * Membership model: `community_members` has no status column — the presence of a
  * row IS the acceptance (this mirrors `resolveCommunityRead` in routes/timeline.ts).
@@ -96,10 +96,11 @@ function communityApIdsFor(obj: CommunityGateObject): string[] {
 /**
  * Single-object community read-gate.
  *
- * If `obj` is addressed to a community whose `visibility` is "private", this
+ * If `obj` is addressed to a soft-deleted community, this always returns false.
+ * If it is addressed to a live community whose `visibility` is "private", this
  * returns `true` only when `viewerApId` is an accepted member (a row in
- * `community_members`) of that community; otherwise it returns `true` and leaves
- * the normal public/followers/direct visibility check to the caller.
+ * `community_members`) of that community; otherwise it returns `true` and
+ * leaves the normal public/followers/direct visibility check to the caller.
  *
  * An anonymous viewer (`viewerApId` null/undefined) against a private community
  * always returns `false`. This NEVER widens access: a non-community or
@@ -114,17 +115,23 @@ export async function canViewerReadObject(
   const communityIds = communityApIdsFor(obj);
   if (communityIds.length === 0) return true;
 
-  // Only PRIVATE communities gate single-object reads. Resolve which (if any)
-  // of the addressed communities are private in one batched query.
-  const privateRows = await db
-    .select({ apId: communities.apId })
+  // Resolve local lifecycle + visibility in one query. Unknown IDs are left to
+  // the caller's ordinary visibility rules (they may name a remote audience),
+  // while any known soft-deleted local community fails closed.
+  const communityRows = await db
+    .select({
+      apId: communities.apId,
+      visibility: communities.visibility,
+      deletedAt: communities.deletedAt,
+    })
     .from(communities)
-    .where(
-      and(
-        inArray(communities.apId, communityIds),
-        inArray(communities.visibility, MEMBERSHIP_REQUIRED_VISIBILITIES),
-      ),
-    );
+    .where(inArray(communities.apId, communityIds));
+
+  if (communityRows.some((row) => row.deletedAt !== null)) return false;
+
+  const privateRows = communityRows.filter((row) =>
+    communityRequiresMembership(row.visibility),
+  );
 
   if (privateRows.length === 0) return true;
 
@@ -154,9 +161,10 @@ export async function canViewerReadObject(
  * Returns the set of `apId`s that PASS the community read-gate, in TWO queries
  * total (private-community lookup + viewer-membership lookup) instead of the
  * 1-2 queries PER object the per-row form costs. The per-object semantics are
- * identical: an object passes unless it is addressed to a private community the
- * viewer is not a member of (an anonymous viewer never satisfies a private
- * community). Objects with no community audience always pass.
+ * identical: an object fails when it is addressed to a deleted community, and
+ * otherwise passes unless it is addressed to a private community the viewer is
+ * not a member of (an anonymous viewer never satisfies a private community).
+ * Objects with no community audience always pass.
  *
  * Both IN(...) lookups are chunked to stay under D1's 100-bound-parameter cap,
  * since a page can address up to ~90 distinct communities.
@@ -183,19 +191,24 @@ export async function communityReadableApIds<
     return readable;
   }
 
-  // Which addressed communities are private? (only private communities gate)
+  // Resolve local lifecycle + visibility. Unknown IDs may be remote audiences
+  // and remain governed by the caller's ordinary visibility rules.
   const privateSet = new Set<string>();
+  const deletedSet = new Set<string>();
   for (const chunk of chunkForInClause([...unionIds])) {
     const rows = await db
-      .select({ apId: communities.apId })
+      .select({
+        apId: communities.apId,
+        visibility: communities.visibility,
+        deletedAt: communities.deletedAt,
+      })
       .from(communities)
-      .where(
-        and(
-          inArray(communities.apId, chunk),
-          inArray(communities.visibility, MEMBERSHIP_REQUIRED_VISIBILITIES),
-        ),
-      );
-    for (const r of rows) privateSet.add(r.apId);
+      .where(inArray(communities.apId, chunk));
+    for (const row of rows) {
+      if (row.deletedAt !== null) deletedSet.add(row.apId);
+      else if (communityRequiresMembership(row.visibility))
+        privateSet.add(row.apId);
+    }
   }
 
   // Which of those private communities is the viewer a member of?
@@ -216,9 +229,10 @@ export async function communityReadableApIds<
   }
 
   for (const o of objs) {
-    const privateForObj = (perObjectCommunityIds.get(o.apId) ?? []).filter(
-      (id) => privateSet.has(id),
-    );
+    const communityIds = perObjectCommunityIds.get(o.apId) ?? [];
+    if (communityIds.some((id) => deletedSet.has(id))) continue;
+
+    const privateForObj = communityIds.filter((id) => privateSet.has(id));
     if (privateForObj.length === 0) {
       readable.add(o.apId); // not addressed to any private community
     } else if (privateForObj.some((id) => viewerMemberSet.has(id))) {

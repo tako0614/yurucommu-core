@@ -179,7 +179,12 @@ contacts.get("/contacts", async (c) => {
       communities,
       eq(communityMembers.communityApId, communities.apId),
     )
-    .where(eq(communityMembers.actorApId, actor.ap_id));
+    .where(
+      and(
+        eq(communityMembers.actorApId, actor.ap_id),
+        isNull(communities.deletedAt),
+      ),
+    );
 
   // Batch get the last CHAT message for all communities to avoid N+1.
   //
@@ -379,7 +384,7 @@ contacts.get("/contact/:encodedApId", async (c) => {
       visibility: communities.visibility,
     })
     .from(communities)
-    .where(eq(communities.apId, apId))
+    .where(and(eq(communities.apId, apId), isNull(communities.deletedAt)))
     .get();
 
   if (community) {

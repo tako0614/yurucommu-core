@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
@@ -15,7 +16,8 @@ import {
 // canViewerReadObject loop on the notifications / bookmarks / replies pages.
 // Because it is a PRIVACY gate, this asserts the batched result is byte-for-byte
 // identical to the per-row form across every case: no community, public
-// community, private community (member / non-member / anonymous).
+// community, private community (member / non-member / anonymous), and a
+// soft-deleted community.
 
 const APP = "https://yuru.test";
 
@@ -87,6 +89,11 @@ test("communityReadableApIds matches per-row canViewerReadObject across all gate
   const pub = await seedCommunity(db, "pub", "public");
   const privIn = await seedCommunity(db, "privin", "private");
   const privOut = await seedCommunity(db, "privout", "private");
+  const deleted = await seedCommunity(db, "deleted", "public");
+  await db
+    .update(communities)
+    .set({ deletedAt: "2026-08-10T00:00:00.000Z" })
+    .where(eq(communities.apId, deleted));
   // Viewer is a member of the private community they're "in", not the other.
   await db
     .insert(communityMembers)
@@ -97,6 +104,7 @@ test("communityReadableApIds matches per-row canViewerReadObject across all gate
     obj("o-pub", pub), // public community
     obj("o-privin", privIn), // private, viewer is a member
     obj("o-privout", privOut), // private, viewer is NOT a member
+    obj("o-deleted", deleted), // retired community, unreadable to everyone
   ];
 
   // --- authenticated viewer ---

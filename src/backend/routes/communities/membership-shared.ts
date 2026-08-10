@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { and, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
@@ -393,11 +393,18 @@ export function resolveCommunityApId(
     : communityApId(baseUrl, identifier);
 }
 
-/** Shared WHERE clause for looking up a community by identifier or apId. */
+/**
+ * Shared WHERE clause for looking up a live community by identifier or AP-ID.
+ * Soft-deleted communities are absent from every ordinary route, including
+ * direct identifier calls that bypass discovery.
+ */
 export function communityWhere(apId: string, identifier: string) {
-  return or(
-    eq(communities.apId, apId),
-    eq(communities.preferredUsername, identifier),
+  return and(
+    or(
+      eq(communities.apId, apId),
+      eq(communities.preferredUsername, identifier),
+    ),
+    isNull(communities.deletedAt),
   );
 }
 

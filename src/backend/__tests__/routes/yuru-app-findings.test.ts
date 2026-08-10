@@ -134,7 +134,11 @@ function envFor(db: Database): Env {
 async function insertCommunity(
   db: Database,
   username: string,
-  opts: { visibility?: string; postPolicy?: string } = {},
+  opts: {
+    visibility?: string;
+    postPolicy?: string;
+    deletedAt?: string;
+  } = {},
 ): Promise<string> {
   const apId = `${APP_URL}/ap/groups/${username}`;
   await db.insert(communities).values({
@@ -146,6 +150,7 @@ async function insertCommunity(
     followersUrl: `${apId}/followers`,
     visibility: opts.visibility ?? "public",
     postPolicy: opts.postPolicy ?? "members",
+    deletedAt: opts.deletedAt,
     publicKeyPem: "pub",
     privateKeyPem: "priv",
     createdBy: localApId("owner"),
@@ -290,6 +295,27 @@ test("community messages: private community read still requires membership", asy
   );
 
   expect(res.status).toEqual(403);
+});
+
+test("community messages: a soft-deleted community cannot be read by direct identifier", async () => {
+  const db = await freshDb();
+  const member = await insertLocalActor(db, "member");
+  const communityApId = await insertCommunity(db, "closed", {
+    deletedAt: "2026-08-10T00:00:00.000Z",
+  });
+  await db.insert(communityMembers).values({
+    communityApId,
+    actorApId: member,
+    role: "owner",
+  });
+
+  const app = appWith(db, fakeActor(member, "member"), communityMessageRoutes);
+  const res = await app.fetch(
+    new Request(`${APP_URL}/closed/messages`, { method: "GET" }),
+    envFor(db),
+  );
+
+  expect(res.status).toEqual(404);
 });
 
 test("community messages: a PRIVATE community with post_policy=anyone still requires membership to POST", async () => {
