@@ -20,9 +20,6 @@ import {
   actors,
   blocks,
   communities,
-  deliveryFanouts,
-  deliveryQueue,
-  deliveryResolutions,
   follows,
   inbox,
   mediaUploads,
@@ -30,6 +27,8 @@ import {
   notDeleted,
   nowIso,
   objects,
+  runBatch,
+  type D1Statement,
 } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import type { Env, Variables } from "../types.ts";
@@ -84,7 +83,11 @@ import { encodeFeedCursor, feedCursorWhere } from "../lib/feed-cursor.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
 import { logger } from "../lib/logger.ts";
 import { excludeModeratedActors } from "../lib/feed-exclude.ts";
-import { deleteActivitiesCascade } from "../lib/activity-delete-cascade.ts";
+import {
+  activityDeleteCascadeStatements,
+  activityDeliveryDrainedGuard,
+  deleteActivitiesCascade,
+} from "../lib/activity-delete-cascade.ts";
 
 const log = logger.child({ component: "actors" });
 
@@ -150,81 +153,6 @@ function fieldsToAttachments(
 const TOMBSTONE_REAP_AFTER_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Whether any activity in the set still has delivery work that may need its
- * actor's signing key. Community fanout references the Group Announce through
- * `announceActivityApId`, so that secondary key is part of the authority scan.
- */
-async function hasActiveDeliveryProjection(
-  db: Database,
-  activityIds: string[],
-): Promise<boolean> {
-  // The fanout query binds each id twice (activity OR announce), so 45 keeps
-  // every statement below D1's 100-bound-parameter ceiling.
-  for (const chunk of chunkForInClause(activityIds, 45)) {
-    const pending = await db
-      .select({ id: deliveryQueue.id })
-      .from(deliveryQueue)
-      .where(
-        and(
-          inArray(deliveryQueue.activityApId, chunk),
-          // Only claimable/retryable states keep the signing key alive.
-          // queue-delivery.ts treats "failed" as terminal (permanent 4xx,
-          // invalid endpoint, missing Activity/signer), just like
-          // "delivered" and "dead_letter".
-          inArray(deliveryQueue.status, [
-            "pending",
-            "processing",
-            "retry_wait",
-          ]),
-        ),
-      )
-      .limit(1)
-      .get();
-    if (pending) return true;
-
-    // An unresolved recipient has not created its endpoint row yet, but may do
-    // so later. Keep the signer across that first-hop retry authority too.
-    const pendingResolution = await db
-      .select({ id: deliveryResolutions.id })
-      .from(deliveryResolutions)
-      .where(
-        and(
-          inArray(deliveryResolutions.activityApId, chunk),
-          inArray(deliveryResolutions.status, [
-            "pending",
-            "queued",
-            "processing",
-            "retry_wait",
-          ]),
-        ),
-      )
-      .limit(1)
-      .get();
-    if (pendingResolution) return true;
-
-    // A community fanout may not have materialized endpoint/resolution rows
-    // yet. It can reference the Group signer either as the primary Activity or
-    // as the relay Announce, so both columns must be checked.
-    const pendingFanout = await db
-      .select({ id: deliveryFanouts.id })
-      .from(deliveryFanouts)
-      .where(
-        and(
-          or(
-            inArray(deliveryFanouts.activityApId, chunk),
-            inArray(deliveryFanouts.announceActivityApId, chunk),
-          ),
-          inArray(deliveryFanouts.status, ["pending", "published"]),
-        ),
-      )
-      .limit(1)
-      .get();
-    if (pendingFanout) return true;
-  }
-  return false;
-}
-
-/**
  * Reap signing material for tombstoned local actors and communities whose
  * federation work has drained.
  *
@@ -254,27 +182,37 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
 
   let reaped = 0;
   for (const { apId } of candidates) {
-    // Delete activities this actor authored (preserved through teardown for
-    // the delivery signer). Outbound by construction.
-    const deleteActivities = await db
-      .select({ apId: activities.apId })
-      .from(activities)
-      .where(
-        and(eq(activities.actorApId, apId), eq(activities.type, "Delete")),
-      );
-    const deleteActivityIds = deleteActivities.map((a) => a.apId);
-
-    if (await hasActiveDeliveryProjection(db, deleteActivityIds)) continue;
-
-    // Drained: remove the preserved Delete activities with all durable
-    // projections, then the tombstone row itself (chunked for D1's param cap).
-    if (deleteActivityIds.length > 0) {
-      for (const chunk of chunkForInClause(deleteActivityIds)) {
-        await deleteActivitiesCascade(db, inArray(activities.apId, chunk));
-      }
-    }
-    await db.delete(actors).where(eq(actors.apId, apId));
-    reaped += 1;
+    // Check the delivery authority on every statement in ONE batch. A
+    // resolution worker can materialize an endpoint while cleanup is starting;
+    // an unguarded cascade would delete that new job and then the signing key.
+    // D1 serializes this batch, so any active row that appears before or during
+    // it fences all subsequent cleanup statements.
+    const deleteActivityWhere = and(
+      eq(activities.actorApId, apId),
+      eq(activities.type, "Delete"),
+    )!;
+    const drainedGuard = activityDeliveryDrainedGuard(db, deleteActivityWhere);
+    await runBatch(db, [
+      ...activityDeleteCascadeStatements(db, deleteActivityWhere, {
+        guard: drainedGuard,
+      }),
+      db
+        .delete(actors)
+        .where(
+          and(
+            eq(actors.apId, apId),
+            isNotNull(actors.deletedAt),
+            lt(actors.deletedAt, cutoff),
+            drainedGuard,
+          ),
+        ) as D1Statement,
+    ]);
+    const actorRemains = await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(eq(actors.apId, apId))
+      .get();
+    if (!actorRemains) reaped += 1;
   }
 
   // A retired Group cannot be hard-deleted: its community row is the durable
@@ -293,27 +231,31 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
     )
     .limit(100);
   for (const { apId } of communityCandidates) {
-    const groupActivities = await db
-      .select({ apId: activities.apId })
-      .from(activities)
-      .where(eq(activities.actorApId, apId));
-    const activityIds = groupActivities.map((activity) => activity.apId);
-    if (await hasActiveDeliveryProjection(db, activityIds)) continue;
-
-    for (const chunk of chunkForInClause(activityIds)) {
-      await deleteActivitiesCascade(db, inArray(activities.apId, chunk));
-    }
-    await db
-      .update(communities)
-      .set({ privateKeyPem: "" })
-      .where(
-        and(
-          eq(communities.apId, apId),
-          isNotNull(communities.deletedAt),
-          ne(communities.privateKeyPem, ""),
-        ),
-      );
-    reaped += 1;
+    const groupActivityWhere = eq(activities.actorApId, apId);
+    const drainedGuard = activityDeliveryDrainedGuard(db, groupActivityWhere);
+    await runBatch(db, [
+      ...activityDeleteCascadeStatements(db, groupActivityWhere, {
+        guard: drainedGuard,
+      }),
+      db
+        .update(communities)
+        .set({ privateKeyPem: "" })
+        .where(
+          and(
+            eq(communities.apId, apId),
+            isNotNull(communities.deletedAt),
+            lt(communities.deletedAt, cutoff),
+            ne(communities.privateKeyPem, ""),
+            drainedGuard,
+          ),
+        ) as D1Statement,
+    ]);
+    const communityAfter = await db
+      .select({ privateKeyPem: communities.privateKeyPem })
+      .from(communities)
+      .where(eq(communities.apId, apId))
+      .get();
+    if (communityAfter?.privateKeyPem === "") reaped += 1;
   }
 
   return reaped;

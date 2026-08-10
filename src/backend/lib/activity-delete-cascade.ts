@@ -1,4 +1,4 @@
-import { inArray, type SQL } from "drizzle-orm";
+import { and, inArray, notExists, or, type SQL } from "drizzle-orm";
 
 import {
   activities,
@@ -15,6 +15,74 @@ import {
 } from "../../db/index.ts";
 
 /**
+ * A write-time fence for deleting an Activity actor's signing material.
+ *
+ * Preliminary reads are not sufficient: a fanout/resolution worker can
+ * materialize an endpoint after the reaper checked delivery_queue and then
+ * mark its own outbox terminal before the reaper checks that table. Reuse this
+ * predicate on EVERY statement in the atomic cleanup batch so newly active
+ * work stops the remaining deletes before the Activity or signer disappears.
+ */
+export function activityDeliveryDrainedGuard(
+  db: Database,
+  activityWhere: SQL,
+): SQL {
+  const targetActivityIds = () =>
+    db.select({ apId: activities.apId }).from(activities).where(activityWhere);
+
+  return and(
+    notExists(
+      db
+        .select({ id: deliveryQueue.id })
+        .from(deliveryQueue)
+        .where(
+          and(
+            inArray(deliveryQueue.activityApId, targetActivityIds()),
+            inArray(deliveryQueue.status, [
+              "pending",
+              "processing",
+              "retry_wait",
+            ]),
+          ),
+        ),
+    ),
+    notExists(
+      db
+        .select({ id: deliveryResolutions.id })
+        .from(deliveryResolutions)
+        .where(
+          and(
+            inArray(deliveryResolutions.activityApId, targetActivityIds()),
+            inArray(deliveryResolutions.status, [
+              "pending",
+              "queued",
+              "processing",
+              "retry_wait",
+            ]),
+          ),
+        ),
+    ),
+    notExists(
+      db
+        .select({ id: deliveryFanouts.id })
+        .from(deliveryFanouts)
+        .where(
+          and(
+            or(
+              inArray(deliveryFanouts.activityApId, targetActivityIds()),
+              inArray(
+                deliveryFanouts.announceActivityApId,
+                targetActivityIds(),
+              ),
+            ),
+            inArray(deliveryFanouts.status, ["pending", "published"]),
+          ),
+        ),
+    ),
+  )!;
+}
+
+/**
  * Build the atomic cleanup unit for every durable projection of matching
  * activities while retaining the activity ledger rows themselves.
  *
@@ -26,40 +94,49 @@ import {
 export function activityProjectionDeleteStatements(
   db: Database,
   activityWhere: SQL,
+  options: { readonly guard?: SQL } = {},
 ): readonly [D1Statement, ...D1Statement[]] {
   const targetActivityIds = () =>
     db.select({ apId: activities.apId }).from(activities).where(activityWhere);
+  const guarded = (where: SQL): SQL =>
+    options.guard ? and(where, options.guard)! : where;
 
   return [
     db
       .delete(notificationPushJobs)
       .where(
-        inArray(notificationPushJobs.activityApId, targetActivityIds()),
+        guarded(
+          inArray(notificationPushJobs.activityApId, targetActivityIds()),
+        ),
       ) as D1Statement,
     db
       .delete(notificationArchived)
       .where(
-        inArray(notificationArchived.activityApId, targetActivityIds()),
+        guarded(
+          inArray(notificationArchived.activityApId, targetActivityIds()),
+        ),
       ) as D1Statement,
     db
       .delete(inboundActivityClaims)
       .where(
-        inArray(inboundActivityClaims.activityApId, targetActivityIds()),
+        guarded(
+          inArray(inboundActivityClaims.activityApId, targetActivityIds()),
+        ),
       ) as D1Statement,
     db
       .delete(deliveryQueue)
       .where(
-        inArray(deliveryQueue.activityApId, targetActivityIds()),
+        guarded(inArray(deliveryQueue.activityApId, targetActivityIds())),
       ) as D1Statement,
     db
       .delete(deliveryResolutions)
       .where(
-        inArray(deliveryResolutions.activityApId, targetActivityIds()),
+        guarded(inArray(deliveryResolutions.activityApId, targetActivityIds())),
       ) as D1Statement,
     db
       .delete(deliveryFanouts)
       .where(
-        inArray(deliveryFanouts.activityApId, targetActivityIds()),
+        guarded(inArray(deliveryFanouts.activityApId, targetActivityIds())),
       ) as D1Statement,
     // Keep the secondary Announce reference in its own statement. Combining
     // both predicates with OR duplicates every bound value in D1, so a normal
@@ -67,11 +144,15 @@ export function activityProjectionDeleteStatements(
     db
       .delete(deliveryFanouts)
       .where(
-        inArray(deliveryFanouts.announceActivityApId, targetActivityIds()),
+        guarded(
+          inArray(deliveryFanouts.announceActivityApId, targetActivityIds()),
+        ),
       ) as D1Statement,
     db
       .delete(inbox)
-      .where(inArray(inbox.activityApId, targetActivityIds())) as D1Statement,
+      .where(
+        guarded(inArray(inbox.activityApId, targetActivityIds())),
+      ) as D1Statement,
   ];
 }
 
@@ -87,10 +168,15 @@ export function activityProjectionDeleteStatements(
 export function activityDeleteCascadeStatements(
   db: Database,
   activityWhere: SQL,
+  options: { readonly guard?: SQL } = {},
 ): readonly [D1Statement, ...D1Statement[]] {
   return [
-    ...activityProjectionDeleteStatements(db, activityWhere),
-    db.delete(activities).where(activityWhere) as D1Statement,
+    ...activityProjectionDeleteStatements(db, activityWhere, options),
+    db
+      .delete(activities)
+      .where(
+        options.guard ? and(activityWhere, options.guard) : activityWhere,
+      ) as D1Statement,
   ];
 }
 

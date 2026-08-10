@@ -18,7 +18,7 @@ import { expect, test } from "bun:test";
  */
 
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
 import {
@@ -30,6 +30,7 @@ import {
   deliveryFanouts,
   deliveryQueue,
   deliveryResolutions,
+  notificationPushJobs,
   objects,
   storyViews,
   storyVotes,
@@ -456,6 +457,93 @@ test("reapDrainedTombstones does not touch recent tombstones", async () => {
   expect(stillHere).toBeTruthy();
 });
 
+test("reapDrainedTombstones keeps an actor signer when delivery appears inside cleanup", async () => {
+  const db = await freshDb();
+  const actorApId = await insertLocalActor(db, "actor-reaper-race");
+  const oldIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  await db
+    .update(actors)
+    .set({ preferredUsername: "deleted-actor-reaper-race", deletedAt: oldIso })
+    .where(eq(actors.apId, actorApId));
+  const deleteActivityId = `${APP_URL}/ap/activities/delete-actor-reaper-race`;
+  await db.insert(activities).values({
+    apId: deleteActivityId,
+    type: "Delete",
+    actorApId,
+    objectApId: actorApId,
+    rawJson: "{}",
+    direction: "outbound",
+  });
+  await db.insert(notificationPushJobs).values({
+    id: "actor-reaper-race-push",
+    actorApId: `${APP_URL}/ap/users/local-recipient`,
+    activityApId: deleteActivityId,
+    status: "delivered",
+  });
+  await db.run(
+    sql.raw(`
+      CREATE TRIGGER materialize_delivery_during_actor_reap
+      BEFORE DELETE ON notification_push_jobs
+      WHEN OLD.id = 'actor-reaper-race-push'
+      BEGIN
+        INSERT OR IGNORE INTO delivery_queue (
+          id,
+          activity_ap_id,
+          inbox_url,
+          status,
+          next_attempt_at,
+          created_at
+        ) VALUES (
+          'actor-reaper-race-delivery',
+          OLD.activity_ap_id,
+          'https://remote.test/inbox',
+          'pending',
+          '2026-08-10T00:00:00.000Z',
+          '2026-08-10T00:00:00.000Z'
+        );
+      END
+    `),
+  );
+
+  expect(await reapDrainedTombstones(db)).toBe(0);
+  expect(
+    await db
+      .select({ privateKeyPem: actors.privateKeyPem })
+      .from(actors)
+      .where(eq(actors.apId, actorApId))
+      .get(),
+  ).toEqual({ privateKeyPem: "PRIVATE-KEY" });
+  expect(
+    await db
+      .select({ status: deliveryQueue.status })
+      .from(deliveryQueue)
+      .where(eq(deliveryQueue.id, "actor-reaper-race-delivery"))
+      .get(),
+  ).toEqual({ status: "pending" });
+  expect(
+    await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(eq(activities.apId, deleteActivityId))
+      .get(),
+  ).toEqual({ apId: deleteActivityId });
+
+  await db.run(sql`DROP TRIGGER materialize_delivery_during_actor_reap`);
+  await db
+    .update(deliveryQueue)
+    .set({ status: "delivered" })
+    .where(eq(deliveryQueue.id, "actor-reaper-race-delivery"));
+
+  expect(await reapDrainedTombstones(db)).toBe(1);
+  expect(
+    await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(eq(actors.apId, actorApId))
+      .get(),
+  ).toBeUndefined();
+});
+
 test("reapDrainedTombstones retains a Group signer through resolution and fanout, then scrubs only its private key", async () => {
   const db = await freshDb();
   const oldIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
@@ -556,4 +644,104 @@ test("reapDrainedTombstones retains a Group signer through resolution and fanout
       .from(deliveryFanouts)
       .where(eq(deliveryFanouts.id, "retired-group-fanout")),
   ).toHaveLength(0);
+});
+
+test("reapDrainedTombstones does not erase delivery materialized during its cleanup batch", async () => {
+  const db = await freshDb();
+  const oldIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const communityApId = `${APP_URL}/ap/groups/reaper-race`;
+  const deleteActivityId = `${APP_URL}/ap/activities/delete-reaper-race`;
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "reaper-race",
+    name: "Reaper Race",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    publicKeyPem: "GROUP-PUBLIC-KEY",
+    privateKeyPem: "GROUP-PRIVATE-KEY",
+    createdBy: `${APP_URL}/ap/users/deleted-owner`,
+    deletedAt: oldIso,
+  });
+  await db.insert(activities).values({
+    apId: deleteActivityId,
+    type: "Delete",
+    actorApId: communityApId,
+    objectApId: communityApId,
+    rawJson: "{}",
+    direction: "outbound",
+  });
+  await db.insert(notificationPushJobs).values({
+    id: "reaper-race-push",
+    actorApId: `${APP_URL}/ap/users/local-recipient`,
+    activityApId: deleteActivityId,
+    status: "delivered",
+  });
+
+  // Simulate endpoint materialization while the cleanup batch is executing.
+  // The first cascade statement deletes this terminal push projection; its
+  // trigger inserts the active delivery that every later statement must
+  // re-check.
+  await db.run(
+    sql.raw(`
+      CREATE TRIGGER materialize_delivery_during_group_reap
+      BEFORE DELETE ON notification_push_jobs
+      WHEN OLD.id = 'reaper-race-push'
+      BEGIN
+        INSERT OR IGNORE INTO delivery_queue (
+          id,
+          activity_ap_id,
+          inbox_url,
+          status,
+          next_attempt_at,
+          created_at
+        ) VALUES (
+          'reaper-race-delivery',
+          OLD.activity_ap_id,
+          'https://remote.test/inbox',
+          'pending',
+          '2026-08-10T00:00:00.000Z',
+          '2026-08-10T00:00:00.000Z'
+        );
+      END
+    `),
+  );
+
+  expect(await reapDrainedTombstones(db)).toBe(0);
+  expect(
+    await db
+      .select({ privateKeyPem: communities.privateKeyPem })
+      .from(communities)
+      .where(eq(communities.apId, communityApId))
+      .get(),
+  ).toEqual({ privateKeyPem: "GROUP-PRIVATE-KEY" });
+  expect(
+    await db
+      .select({ status: deliveryQueue.status })
+      .from(deliveryQueue)
+      .where(eq(deliveryQueue.id, "reaper-race-delivery"))
+      .get(),
+  ).toEqual({ status: "pending" });
+  expect(
+    await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(eq(activities.apId, deleteActivityId))
+      .get(),
+  ).toEqual({ apId: deleteActivityId });
+
+  await db.run(sql`DROP TRIGGER materialize_delivery_during_group_reap`);
+  await db
+    .update(deliveryQueue)
+    .set({ status: "delivered" })
+    .where(eq(deliveryQueue.id, "reaper-race-delivery"));
+
+  expect(await reapDrainedTombstones(db)).toBe(1);
+  expect(
+    await db
+      .select({ privateKeyPem: communities.privateKeyPem })
+      .from(communities)
+      .where(eq(communities.apId, communityApId))
+      .get(),
+  ).toEqual({ privateKeyPem: "" });
 });
