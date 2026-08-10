@@ -22,6 +22,7 @@ import {
 import type { Database } from "../../db/index.ts";
 import {
   activities,
+  affectedRowCount,
   follows,
   inbox as inboxTable,
   notificationArchived,
@@ -111,7 +112,7 @@ async function batchArchiveInsert(
       .insert(notificationArchived)
       .values(batch)
       .onConflictDoNothing();
-    inserted += (result as { meta?: { changes?: number } }).meta?.changes ?? 0;
+    inserted += affectedRowCount(result);
   }
 
   return inserted;

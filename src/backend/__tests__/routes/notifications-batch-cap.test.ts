@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
 
+import { notificationArchived } from "../../../db/index.ts";
 import notificationRoutes from "../../routes/notifications.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 // Matches MAX_READ_BATCH_SIZE / MAX_ARCHIVE_BATCH_SIZE in the route — capped at
 // 90 so the per-id `inArray(..., body.ids)` re-query stays under D1's 100-bound-
@@ -106,6 +108,35 @@ test("POST /read accepts ids array at the cap", async () => {
   expect(res.status).toEqual(200);
   expect(body).toEqual(expect.any(Object));
   expect(tracker.updateCalls).toEqual(1);
+});
+
+test("POST /archive reports the libsql rows inserted across D1-sized chunks", async () => {
+  const { db } = await createTestDb();
+  const app = createApp(db, actor);
+  const ids = Array.from(
+    { length: 35 },
+    (_, i) => `https://example.com/activities/archive-${i}`,
+  );
+
+  const first = await requestJson(app, "/api/notifications/archive", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+
+  expect(first.res.status).toEqual(200);
+  expect(first.body).toEqual({ success: true, archived_count: ids.length });
+  expect(await db.select().from(notificationArchived)).toHaveLength(ids.length);
+
+  const duplicate = await requestJson(app, "/api/notifications/archive", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+
+  expect(duplicate.res.status).toEqual(200);
+  expect(duplicate.body).toEqual({ success: true, archived_count: 0 });
+  expect(await db.select().from(notificationArchived)).toHaveLength(ids.length);
 });
 
 test("DELETE /archive rejects oversized ids array with 400 array_too_long", async () => {
