@@ -563,6 +563,134 @@ test("deleting an account reconciles like/announce/reply counters on OTHER actor
   expect(after?.replyCount).toBe(1);
 });
 
+test("account deletion retries interaction counter cleanup without double-decrementing", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako");
+  const alice = await insertActor(db, "alice");
+  const alicePost = `${APP_URL}/ap/objects/alice-retry-counter`;
+  await insertPost(db, alicePost, alice, { like: 2 });
+  await db.insert(likes).values({
+    actorApId: tako,
+    objectApId: alicePost,
+    activityApId: `${APP_URL}/ap/activities/like-retry-counter`,
+  });
+  await db.run(sql`
+    CREATE TRIGGER reject_account_delete_like_edge
+    BEFORE DELETE ON likes
+    WHEN OLD.actor_ap_id = 'https://yuru.test/ap/users/tako'
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated account-delete like edge failure');
+    END
+  `);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const failed = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(failed.status).toBe(500);
+  expect((await objCounts(db, alicePost))?.likeCount).toBe(2);
+  expect(
+    await db.select().from(likes).where(eq(likes.actorApId, tako)),
+  ).toHaveLength(1);
+
+  await db.run(sql`DROP TRIGGER reject_account_delete_like_edge`);
+  const retried = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(retried.status).toBe(200);
+  expect((await objCounts(db, alicePost))?.likeCount).toBe(1);
+  expect(
+    await db.select().from(likes).where(eq(likes.actorApId, tako)),
+  ).toHaveLength(0);
+});
+
+test("account deletion retries community member-count cleanup without double-decrementing", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako");
+  const alice = await insertActor(db, "alice");
+  const communityApId = `${APP_URL}/ap/groups/retry-member-count`;
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "retry-member-count",
+    name: "Retry member count",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+    createdBy: alice,
+    memberCount: 2,
+  });
+  await db.insert(communityMembers).values([
+    { communityApId, actorApId: alice, role: "owner" },
+    { communityApId, actorApId: tako, role: "member" },
+  ]);
+  await db.run(sql`
+    CREATE TRIGGER reject_account_delete_community_member
+    BEFORE DELETE ON community_members
+    WHEN OLD.actor_ap_id = 'https://yuru.test/ap/users/tako'
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated account-delete membership failure');
+    END
+  `);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const failed = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(failed.status).toBe(500);
+  expect(
+    await db
+      .select({ memberCount: communities.memberCount })
+      .from(communities)
+      .where(eq(communities.apId, communityApId))
+      .get(),
+  ).toEqual({ memberCount: 2 });
+  expect(
+    await db
+      .select()
+      .from(communityMembers)
+      .where(eq(communityMembers.actorApId, tako)),
+  ).toHaveLength(1);
+
+  await db.run(sql`DROP TRIGGER reject_account_delete_community_member`);
+  const retried = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(retried.status).toBe(200);
+  expect(
+    await db
+      .select({ memberCount: communities.memberCount })
+      .from(communities)
+      .where(eq(communities.apId, communityApId))
+      .get(),
+  ).toEqual({ memberCount: 1 });
+  expect(
+    await db
+      .select()
+      .from(communityMembers)
+      .where(eq(communityMembers.actorApId, tako)),
+  ).toHaveLength(0);
+});
+
 const rowCount = async (
   db: Database,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

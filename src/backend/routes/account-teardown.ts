@@ -311,57 +311,60 @@ export async function teardownActor(
     .delete(mutes)
     .where(or(eq(mutes.muterApId, apId), eq(mutes.mutedApId, apId)));
 
-  // Reconcile like/announce/share counters on OTHER actors' objects BEFORE
-  // deleting this actor's edges (griefable inflated counters otherwise).
-  await db
-    .update(objects)
-    .set({ likeCount: sql`${objects.likeCount} - 1` })
-    .where(
-      and(
-        inArray(
-          objects.apId,
-          db
-            .select({ id: likes.objectApId })
-            .from(likes)
-            .where(eq(likes.actorApId, apId)),
+  // Reconcile like/announce/share counters on OTHER actors' objects together
+  // with deleting this actor's edges. If a delete fails after a counter update,
+  // a retry must not see the surviving edge and apply the same decrement again.
+  await (db as unknown as BatchableDb).batch([
+    db
+      .update(objects)
+      .set({ likeCount: sql`${objects.likeCount} - 1` })
+      .where(
+        and(
+          inArray(
+            objects.apId,
+            db
+              .select({ id: likes.objectApId })
+              .from(likes)
+              .where(eq(likes.actorApId, apId)),
+          ),
+          gt(objects.likeCount, 0),
         ),
-        gt(objects.likeCount, 0),
       ),
-    );
-  await db
-    .update(objects)
-    .set({ announceCount: sql`${objects.announceCount} - 1` })
-    .where(
-      and(
-        inArray(
-          objects.apId,
-          db
-            .select({ id: announces.objectApId })
-            .from(announces)
-            .where(eq(announces.actorApId, apId)),
+    db
+      .update(objects)
+      .set({ announceCount: sql`${objects.announceCount} - 1` })
+      .where(
+        and(
+          inArray(
+            objects.apId,
+            db
+              .select({ id: announces.objectApId })
+              .from(announces)
+              .where(eq(announces.actorApId, apId)),
+          ),
+          gt(objects.announceCount, 0),
         ),
-        gt(objects.announceCount, 0),
       ),
-    );
-  await db
-    .update(objects)
-    .set({ shareCount: sql`${objects.shareCount} - 1` })
-    .where(
-      and(
-        inArray(
-          objects.apId,
-          db
-            .select({ id: storyShares.storyApId })
-            .from(storyShares)
-            .where(eq(storyShares.actorApId, apId)),
+    db
+      .update(objects)
+      .set({ shareCount: sql`${objects.shareCount} - 1` })
+      .where(
+        and(
+          inArray(
+            objects.apId,
+            db
+              .select({ id: storyShares.storyApId })
+              .from(storyShares)
+              .where(eq(storyShares.actorApId, apId)),
+          ),
+          gt(objects.shareCount, 0),
         ),
-        gt(objects.shareCount, 0),
       ),
-    );
-
-  await db.delete(likes).where(eq(likes.actorApId, apId));
-  await db.delete(bookmarks).where(eq(bookmarks.actorApId, apId));
-  await db.delete(announces).where(eq(announces.actorApId, apId));
+    db.delete(likes).where(eq(likes.actorApId, apId)),
+    db.delete(bookmarks).where(eq(bookmarks.actorApId, apId)),
+    db.delete(announces).where(eq(announces.actorApId, apId)),
+    db.delete(storyShares).where(eq(storyShares.actorApId, apId)),
+  ]);
 
   await db.delete(inbox).where(eq(inbox.actorApId, apId));
   await db
@@ -386,7 +389,6 @@ export async function teardownActor(
   // Story interactions the actor performed on OTHER/remote stories.
   await db.delete(storyVotes).where(eq(storyVotes.actorApId, apId));
   await db.delete(storyViews).where(eq(storyViews.actorApId, apId));
-  await db.delete(storyShares).where(eq(storyShares.actorApId, apId));
 
   // Per-actor DM status metadata (no FK cascade).
   await db.delete(dmReadStatus).where(eq(dmReadStatus.actorApId, apId));
@@ -463,23 +465,28 @@ export async function teardownActor(
   }
 
   if (communityApIds.length > 0) {
-    await db
-      .update(communities)
-      .set({ memberCount: sql`${communities.memberCount} - 1` })
-      .where(
-        and(
-          inArray(
-            communities.apId,
-            db
-              .select({ id: communityMembers.communityApId })
-              .from(communityMembers)
-              .where(eq(communityMembers.actorApId, apId)),
+    // Keep the denormalized count and its membership authority edge atomic.
+    // Otherwise a failed DELETE leaves the edge visible to a retry, which
+    // would decrement the same community for a second time.
+    await (db as unknown as BatchableDb).batch([
+      db
+        .update(communities)
+        .set({ memberCount: sql`${communities.memberCount} - 1` })
+        .where(
+          and(
+            inArray(
+              communities.apId,
+              db
+                .select({ id: communityMembers.communityApId })
+                .from(communityMembers)
+                .where(eq(communityMembers.actorApId, apId)),
+            ),
+            gt(communities.memberCount, 0),
           ),
-          gt(communities.memberCount, 0),
         ),
-      );
+      db.delete(communityMembers).where(eq(communityMembers.actorApId, apId)),
+    ]);
   }
-  await db.delete(communityMembers).where(eq(communityMembers.actorApId, apId));
 
   await db
     .delete(objectRecipients)
