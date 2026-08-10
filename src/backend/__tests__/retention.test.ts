@@ -8,6 +8,10 @@ import worker, {
   runYurucommuRetention,
   YurucommuRetentionError,
 } from "../public.ts";
+import { deliveryFanouts } from "../../db/index.ts";
+import { persistDeliveryFanoutJob } from "../lib/delivery/fanout-outbox.ts";
+import type { DeliveryQueueMessageV1 } from "../lib/delivery/types.ts";
+import type { IQueueProducer } from "../runtime/queue.ts";
 import type { Env } from "../types.ts";
 import { createTestDb } from "./helpers/d1-semantics.ts";
 
@@ -19,9 +23,51 @@ test("one bounded retention pass reuses the canonical empty-ledger cleanup paths
   ).resolves.toEqual({
     expiredStories: 0,
     reapedTombstones: 0,
+    enqueuedDeliveryFanoutJobs: 0,
     enqueuedDeliveryEndpointJobs: 0,
     enqueuedDeliveryResolutionJobs: 0,
     enqueuedNotificationPushJobs: 0,
+  });
+});
+
+test("scheduled retention republishes a durable fanout after Queue recovery", async () => {
+  const { db } = await createTestDb();
+  const activityId = "https://yuru.test/ap/activities/retention-fanout";
+  const followeeApId = "https://yuru.test/ap/users/alice";
+  await persistDeliveryFanoutJob(db, {
+    kind: "followers",
+    activityId,
+    targetApId: followeeApId,
+  });
+
+  const sent: DeliveryQueueMessageV1[] = [];
+  const queue: IQueueProducer<DeliveryQueueMessageV1> = {
+    async send(body) {
+      sent.push(body);
+    },
+    async sendBatch(messages) {
+      sent.push(...messages.map((message) => message.body));
+    },
+  };
+
+  const result = await runYurucommuRetention({
+    APP_URL: "https://yuru.test",
+    DB_INSTANCE: db,
+    DELIVERY_QUEUE: queue,
+    DELIVERY_DLQ: queue as never,
+  } as unknown as Env);
+
+  expect(result.enqueuedDeliveryFanoutJobs).toBe(1);
+  expect(sent).toEqual([
+    expect.objectContaining({
+      type: "fanout_followers",
+      activityId,
+      followeeApId,
+    }),
+  ]);
+  expect(await db.select().from(deliveryFanouts).get()).toMatchObject({
+    status: "published",
+    publications: 1,
   });
 });
 

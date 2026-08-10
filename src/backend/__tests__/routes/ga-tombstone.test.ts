@@ -387,6 +387,52 @@ test("reapDrainedTombstones keeps the signer while actor resolution is pending",
   ).toBeUndefined();
 });
 
+test("reapDrainedTombstones reaps a permanently failed Delete delivery", async () => {
+  const db = await freshDb();
+  const apId = await insertLocalActor(db, "permanent-failure");
+  const oldIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  await db
+    .update(actors)
+    .set({
+      preferredUsername: "deleted-permanent-failure",
+      deletedAt: oldIso,
+    })
+    .where(eq(actors.apId, apId));
+
+  const deleteActivityId = `${APP_URL}/ap/activities/del-permanent-failure`;
+  await db.insert(activities).values({
+    apId: deleteActivityId,
+    type: "Delete",
+    actorApId: apId,
+    objectApId: apId,
+    rawJson: "{}",
+    direction: "outbound",
+  });
+  await db.insert(deliveryQueue).values({
+    id: "job-permanent-failure",
+    activityApId: deleteActivityId,
+    inboxUrl: "https://gone.remote.test/inbox",
+    status: "failed",
+    error: "HTTP 410",
+    lastAttemptAt: oldIso,
+  });
+
+  expect(await reapDrainedTombstones(db)).toBe(1);
+  expect(
+    await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(eq(actors.apId, apId))
+      .get(),
+  ).toBeUndefined();
+  expect(
+    await db
+      .select()
+      .from(deliveryQueue)
+      .where(eq(deliveryQueue.id, "job-permanent-failure")),
+  ).toHaveLength(0);
+});
+
 test("reapDrainedTombstones does not touch recent tombstones", async () => {
   const db = await freshDb();
   const apId = await insertLocalActor(db, "fresh");

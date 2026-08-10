@@ -198,16 +198,15 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
           .where(
             and(
               inArray(deliveryQueue.activityApId, chunk),
-              // Non-terminal delivery states (anything other than the terminal
-              // "delivered" / "dead_letter"). A "retry_wait" row is a Delete
-              // between attempts and will be re-sent, so reaping the tombstone
-              // (and its signing key) while one exists would strand the retry
-              // unsigned. queue-delivery.ts writes: pending / processing /
-              // failed / retry_wait / delivered / dead_letter.
+              // Only claimable/retryable states keep the signing key alive.
+              // queue-delivery.ts treats "failed" as terminal (permanent 4xx,
+              // invalid endpoint, missing Activity/signer), just like
+              // "delivered" and "dead_letter". Counting it here used to retain
+              // a deleted account's private key forever after an unrecoverable
+              // remote rejection.
               inArray(deliveryQueue.status, [
                 "pending",
                 "processing",
-                "failed",
                 "retry_wait",
               ]),
             ),
