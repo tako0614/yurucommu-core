@@ -2,7 +2,7 @@
 // v2: 1 Story = 1 Media (Instagram style)
 import { Hono } from "hono";
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
-import type { Database } from "../../../db/index.ts";
+import type { D1Statement, Database } from "../../../db/index.ts";
 import {
   activities,
   actors,
@@ -10,6 +10,7 @@ import {
   follows,
   likes,
   objects,
+  runBatch,
   storyViews,
 } from "../../../db/index.ts";
 import {
@@ -45,6 +46,7 @@ import {
 } from "../../lib/delivery/queue.ts";
 import { logger } from "../../lib/logger.ts";
 import { personalActorIsSuppressedBy } from "../../lib/personal-actor-moderation.ts";
+import { prepareDeliveryFanoutJob } from "../../lib/delivery/fanout-outbox.ts";
 
 const log = logger.child({ component: "stories.routes" });
 
@@ -220,55 +222,63 @@ async function createAndFanoutActivity(
   communityApId?: string | null,
 ): Promise<void> {
   const id = activity.id as string;
-  await db.insert(activities).values({
-    apId: id,
-    type: activity.type as string,
-    actorApId: actorApIdStr,
-    objectApId: objectApIdStr,
-    rawJson: JSON.stringify(activity),
-    direction: "outbound",
-  });
+  const preparedFanout = await prepareDeliveryFanoutJob(
+    db,
+    communityApId
+      ? {
+          kind: "community",
+          activityId: id,
+          targetApId: communityApId,
+        }
+      : {
+          kind: "followers",
+          activityId: id,
+          targetApId: actorApIdStr,
+        },
+  );
+  await runBatch(db, [
+    db.insert(activities).values({
+      apId: id,
+      type: activity.type as string,
+      actorApId: actorApIdStr,
+      objectApId: objectApIdStr,
+      rawJson: JSON.stringify(activity),
+      direction: "outbound",
+    }) as D1Statement,
+    preparedFanout.statement,
+  ]);
+  await publishDurableStoryFanoutWakeup(env, id, actorApIdStr, communityApId);
+}
+
+async function publishDurableStoryFanoutWakeup(
+  env: Env,
+  activityId: string,
+  actorApId: string,
+  communityApId?: string | null,
+): Promise<void> {
   // A community-scoped story has reach == community: fan its activity out to the
   // community's members/followers (the same audience posts use), NOT the
   // author's personal follower graph. A personal story keeps author-follower
   // reach.
-  if (communityApId) {
-    await enqueueFanoutToCommunity(env, id, communityApId);
-  } else {
-    await enqueueFanoutToFollowers(env, id, actorApIdStr);
+  try {
+    if (communityApId) {
+      await enqueueFanoutToCommunity(env, activityId, communityApId);
+    } else {
+      await enqueueFanoutToFollowers(env, activityId, actorApId);
+    }
+  } catch (error) {
+    // Activity and semantic fanout intent were committed atomically above. The
+    // Queue RPC is only a wakeup; keep the route moving so Create returns the
+    // committed story and Delete completes its local cascade while scheduled
+    // recovery republishes the pending row.
+    log.error("Failed to publish durable story fanout wakeup", {
+      event: "stories.fanout_wakeup_failed",
+      activityId,
+      actor: actorApId,
+      communityApId: communityApId ?? null,
+      error,
+    });
   }
-}
-
-/**
- * Delete all related data for a story, then the story object itself.
- *
- * Delegates to `deleteObjectCascade` (the SAME teardown the expiry path
- * `cleanupExpiredStories` runs) so it also reaps the story's mandatory R2 blob
- * and its `media_uploads` row — child-row-only deletion here would orphan the
- * image in R2 forever (there is no orphan-key sweep). The cascade covers
- * storyViews/Votes/Shares + likes + announces + bookmarks + objectRecipients +
- * media; it reads `attachments_json` off the still-present object row, so the
- * object row is dropped afterwards.
- */
-/**
- * Returns true when THIS call actually removed the objects row (false if it was
- * already gone). Callers gate the author's postCount decrement on this so a
- * concurrent duplicate delete — or a race with the opportunistic expiry sweep —
- * decrements at most once for the single +1 the story counted at create time.
- */
-async function deleteStoryAndRelatedData(
-  db: Database,
-  apId: string,
-  media?: IObjectStorage,
-): Promise<boolean> {
-  const mediaKeys = await deleteObjectCascade(db, apId, media);
-  const deleted = await db
-    .delete(objects)
-    .where(eq(objects.apId, apId))
-    .returning({ apId: objects.apId });
-  // Irreversible R2 purge LAST — after the objects row is gone.
-  await purgeMediaBlobs(media, mediaKeys);
-  return deleted.length > 0;
 }
 
 /**
@@ -827,46 +837,70 @@ stories.post("/delete", async (c) => {
     return c.json({ error: "Forbidden" }, 403);
   }
 
-  // Enqueue Delete(Story) activity before deleting. Outbound delivery MUST NOT
-  // run in request path; enqueue is the sync boundary. A community-scoped story
-  // tombstone is addressed to and fanned out to the community (reach ==
-  // community), mirroring its Create; a personal story keeps author-follower
-  // reach.
+  // A community-scoped story tombstone is addressed to and fanned out to the
+  // community (reach == community), mirroring its Create; a personal story
+  // keeps author-follower reach.
   const baseUrl = c.env.APP_URL;
   const deleteTo = story.communityApId
     ? [`${story.communityApId}/followers`]
     : ["https://www.w3.org/ns/activitystreams#Public"];
-  await createAndFanoutActivity(
+  const deleteActivity = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: activityApId(baseUrl, generateId()),
+    type: "Delete",
+    actor: actor.ap_id,
+    to: deleteTo,
+    object: apId,
+  };
+  const preparedFanout = await prepareDeliveryFanoutJob(
     db,
-    c.env,
-    actor.ap_id,
-    apId,
-    {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: activityApId(baseUrl, generateId()),
-      type: "Delete",
-      actor: actor.ap_id,
-      to: deleteTo,
-      object: apId,
-    },
-    story.communityApId,
+    story.communityApId
+      ? {
+          kind: "community",
+          activityId: deleteActivity.id,
+          targetApId: story.communityApId,
+        }
+      : {
+          kind: "followers",
+          activityId: deleteActivity.id,
+          targetApId: actor.ap_id,
+        },
   );
 
-  const removed = await deleteStoryAndRelatedData(db, apId, c.env.MEDIA);
-
-  // Decrement the author's postCount ONLY when THIS request actually removed the
-  // row. The early 404 above guards SEQUENTIAL duplicates, but two concurrent
-  // deletes (double-click / retry) — or a manual delete racing the opportunistic
-  // expiry sweep (cleanupExpiredStories) — can both pass the SELECT before either
-  // delete commits, then both reach here; an unconditional decrement would then
-  // subtract 2 for one +1. Gating on the actual delete keeps the count exact
-  // (gt > 0 still guards underflow). Mirrors the EXISTS-guarded post-delete path.
-  if (removed) {
-    await db
+  // Reap every projection of the OLD Create/Update activities while the story
+  // row still exists. The outbound Delete is deliberately inserted only in the
+  // final batch below; inserting it first made this cascade erase its own
+  // pending fanout before a Queue consumer could resolve the Activity.
+  const mediaKeys = await deleteObjectCascade(db, apId, c.env.MEDIA);
+  const storyExists = sql`EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${apId})`;
+  await runBatch(db, [
+    db
       .update(actors)
       .set({ postCount: sql`${actors.postCount} - 1` })
-      .where(and(eq(actors.apId, actor.ap_id), gt(actors.postCount, 0)));
-  }
+      .where(
+        and(eq(actors.apId, actor.ap_id), gt(actors.postCount, 0), storyExists),
+      ) as D1Statement,
+    db.delete(objects).where(eq(objects.apId, apId)) as D1Statement,
+    db.insert(activities).values({
+      apId: deleteActivity.id,
+      type: deleteActivity.type,
+      actorApId: actor.ap_id,
+      objectApId: apId,
+      rawJson: JSON.stringify(deleteActivity),
+      direction: "outbound",
+    }) as D1Statement,
+    preparedFanout.statement,
+  ]);
+
+  // Irreversible R2 purge only after the story row is gone and its durable
+  // federation intent exists.
+  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
+  await publishDurableStoryFanoutWakeup(
+    c.env,
+    deleteActivity.id,
+    actor.ap_id,
+    story.communityApId,
+  );
 
   return c.json({ success: true });
 });

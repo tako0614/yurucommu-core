@@ -15,11 +15,11 @@ import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { activities, actors } from "../../../db/index.ts";
+import { activities, actors, deliveryFanouts } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 
 const APP_URL = "https://yurucommu.test";
@@ -235,6 +235,35 @@ test("POST /me/move federates the Move when the destination consents (alsoKnownA
       type: "fanout_followers",
     },
   ]);
+});
+
+test("POST /me/move rolls back moved_to and Activity when durable fanout persistence fails", async () => {
+  const db = await freshDb();
+  const actor = await insertCarol(db);
+  const sent: Sent[] = [];
+  await db.run(sql`
+    CREATE TRIGGER reject_move_fanout
+    BEFORE INSERT ON delivery_fanouts
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated fanout ledger outage');
+    END
+  `);
+
+  const res = await postMove(db, actor, CONSENTING_TARGET, sent);
+
+  expect(res.status).toBe(500);
+  expect(
+    (
+      await db
+        .select({ movedTo: actors.movedTo })
+        .from(actors)
+        .where(eq(actors.apId, actor.ap_id))
+        .get()
+    )?.movedTo,
+  ).toBeNull();
+  expect(await db.select().from(activities)).toHaveLength(0);
+  expect(await db.select().from(deliveryFanouts)).toHaveLength(0);
+  expect(sent).toHaveLength(0);
 });
 
 test("POST /me/move accepts a @user@domain handle (WebFinger-resolved to the actor URL)", async () => {

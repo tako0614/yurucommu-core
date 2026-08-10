@@ -43,6 +43,7 @@ import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
 import { isActorBlockedStrict } from "../../lib/blocklist.ts";
 import { activityDeleteCascadeStatements } from "../../lib/activity-delete-cascade.ts";
 import { setPostLike } from "./like-mutation.ts";
+import { prepareDeliveryFanoutJob } from "../../lib/delivery/fanout-outbox.ts";
 
 const log = logger.child({ component: "posts.interactions" });
 
@@ -114,6 +115,29 @@ async function deliverToRemote(
       activityId,
       recipient: recipientApId,
       error: err,
+    });
+  }
+}
+
+async function publishDurableFollowerFanoutWakeup(
+  env: Env,
+  activityId: string,
+  actorApId: string,
+  operation: "repost" | "unrepost",
+): Promise<void> {
+  try {
+    await enqueueFanoutToFollowers(env, activityId, actorApId);
+  } catch (error) {
+    // The route has already committed the interaction, Activity, and fanout
+    // intent atomically. A Queue RPC is only a wakeup; leave the row pending so
+    // scheduled/startup recovery can publish it without turning a successful
+    // user mutation into a misleading HTTP 500.
+    log.error("Failed to publish durable repost fanout wakeup", {
+      event: "posts.repost.fanout_wakeup_failed",
+      operation,
+      activityId,
+      actor: actorApId,
+      error,
     });
   }
 }
@@ -274,6 +298,11 @@ posts.post("/:id/repost", async (c) => {
   const now = new Date().toISOString();
   const shouldNotifyLocal =
     post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl);
+  const preparedFanout = await prepareDeliveryFanoutJob(db, {
+    kind: "followers",
+    activityId: announceActivityId,
+    targetApId: actor.ap_id,
+  });
 
   // D1 has no interactive transactions; group the child-row insert, counter
   // bump, activity row, and (optional) inbox row into a single atomic batch so
@@ -296,6 +325,7 @@ posts.post("/:id/repost", async (c) => {
       rawJson: JSON.stringify(announceActivityRaw),
       createdAt: now,
     }),
+    preparedFanout.statement as BatchStatement,
   ];
 
   if (shouldNotifyLocal) {
@@ -325,7 +355,12 @@ posts.post("/:id/repost", async (c) => {
   // The Announce is cc'd to the booster's own followers collection, so fan it
   // out to them — otherwise a repost only ever reached the original author's
   // inbox and was invisible to the booster's remote followers.
-  await enqueueFanoutToFollowers(c.env, announceActivityId, actor.ap_id);
+  await publishDurableFollowerFanoutWakeup(
+    c.env,
+    announceActivityId,
+    actor.ap_id,
+    "repost",
+  );
 
   if (!isLocal(post.apId, baseUrl)) {
     await deliverToRemote(c.env, announceActivityId, post.attributedTo);
@@ -359,6 +394,21 @@ posts.delete("/:id/repost", async (c) => {
     .get();
   if (!announce) return c.json({ error: "Not reposted" }, 400);
 
+  const undoActivity = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: activityApId(baseUrl, generateId()),
+    type: "Undo",
+    actor: actor.ap_id,
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    cc: [actor.ap_id + "/followers"],
+    object: { type: "Announce", actor: actor.ap_id, object: post.apId },
+  };
+  const preparedFanout = await prepareDeliveryFanoutJob(db, {
+    kind: "followers",
+    activityId: undoActivity.id,
+    targetApId: actor.ap_id,
+  });
+
   // D1 has no interactive transactions; group the announce-row delete and the
   // counter decrement into a single atomic batch so they cannot diverge. Also
   // reap the original repost activity plus all durable projections (same
@@ -387,33 +437,28 @@ posts.delete("/:id/repost", async (c) => {
       .set({ announceCount: sql`${objects.announceCount} - 1` })
       .where(and(eq(objects.apId, post.apId), gt(objects.announceCount, 0))),
     ...reapRepostNotification,
+    db
+      .insert(activities)
+      .values({
+        apId: undoActivity.id,
+        type: "Undo",
+        actorApId: actor.ap_id,
+        objectApId: post.apId,
+        rawJson: JSON.stringify(undoActivity),
+        direction: "outbound",
+      })
+      .onConflictDoNothing(),
+    preparedFanout.statement as BatchStatement,
   ]);
-
-  const undoActivity = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: activityApId(baseUrl, generateId()),
-    type: "Undo",
-    actor: actor.ap_id,
-    to: ["https://www.w3.org/ns/activitystreams#Public"],
-    cc: [actor.ap_id + "/followers"],
-    object: { type: "Announce", actor: actor.ap_id, object: post.apId },
-  };
-
-  await db
-    .insert(activities)
-    .values({
-      apId: undoActivity.id,
-      type: "Undo",
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      rawJson: JSON.stringify(undoActivity),
-      direction: "outbound",
-    })
-    .onConflictDoNothing();
 
   // Mirror the Announce reach: the Undo must reach the booster's followers (who
   // saw the repost) regardless of whether the boosted post was local or remote.
-  await enqueueFanoutToFollowers(c.env, undoActivity.id, actor.ap_id);
+  await publishDurableFollowerFanoutWakeup(
+    c.env,
+    undoActivity.id,
+    actor.ap_id,
+    "unrepost",
+  );
 
   // The boosted post's author instance is only an extra recipient for a remote post.
   if (!isLocal(post.apId, baseUrl)) {

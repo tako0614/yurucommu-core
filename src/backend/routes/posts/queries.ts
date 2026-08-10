@@ -7,7 +7,7 @@
  * - Addressing logic for ActivityPub delivery
  */
 
-import type { Database } from "../../../db/index.ts";
+import type { D1Statement, Database } from "../../../db/index.ts";
 import {
   activities,
   actorCache,
@@ -15,6 +15,7 @@ import {
   communities,
   likes,
   objects,
+  runBatch,
 } from "../../../db/index.ts";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Env } from "../../types.ts";
@@ -31,6 +32,7 @@ import {
 } from "../../lib/delivery/queue.ts";
 import { isRecord, parseJsonObject } from "../../lib/parse-helpers.ts";
 import { logger } from "../../lib/logger.ts";
+import { prepareDeliveryFanoutJob } from "../../lib/delivery/fanout-outbox.ts";
 
 const log = logger.child({ component: "posts.queries" });
 
@@ -404,14 +406,22 @@ export async function persistAndFanout(
   activity: { id: string; type: string; actor: string; [key: string]: unknown },
   objectApIdValue: string,
 ): Promise<void> {
-  await db.insert(activities).values({
-    apId: activity.id,
-    type: activity.type,
-    actorApId: activity.actor,
-    objectApId: objectApIdValue,
-    rawJson: JSON.stringify(activity),
-    direction: "outbound",
+  const preparedFanout = await prepareDeliveryFanoutJob(db, {
+    kind: "followers",
+    activityId: activity.id,
+    targetApId: activity.actor,
   });
+  await runBatch(db, [
+    db.insert(activities).values({
+      apId: activity.id,
+      type: activity.type,
+      actorApId: activity.actor,
+      objectApId: objectApIdValue,
+      rawJson: JSON.stringify(activity),
+      direction: "outbound",
+    }) as D1Statement,
+    preparedFanout.statement,
+  ]);
 
   try {
     await enqueueFanoutToFollowers(env, activity.id, activity.actor);
@@ -438,15 +448,6 @@ export async function persistAndFanoutToCommunity(
   objectApIdValue: string,
   communityApId: string,
 ): Promise<void> {
-  await db.insert(activities).values({
-    apId: activity.id,
-    type: activity.type,
-    actorApId: activity.actor,
-    objectApId: objectApIdValue,
-    rawJson: JSON.stringify(activity),
-    direction: "outbound",
-  });
-
   // Announce-relay: for a new post (Create), the GROUP re-broadcasts it to its
   // followers as its OWN Announce (Lemmy/Mobilizon convention) so the post is
   // attributed to the community and reaches remote followers whose server
@@ -472,6 +473,14 @@ export async function persistAndFanoutToCommunity(
       )
       .get();
     if (!row) {
+      await db.insert(activities).values({
+        apId: activity.id,
+        type: activity.type,
+        actorApId: activity.actor,
+        objectApId: objectApIdValue,
+        rawJson: JSON.stringify(activity),
+        direction: "outbound",
+      });
       log.warn("Skipped fanout for a retired community", {
         event: "posts.fanout.community_retired",
         activityId: activity.id,
@@ -483,6 +492,7 @@ export async function persistAndFanoutToCommunity(
   }
 
   let announceActivityId: string | undefined;
+  let announceStatement: D1Statement | undefined;
   if (activity.type === "Create" && isPublicCommunity) {
     const baseUrl = env.APP_URL;
     announceActivityId = activityApId(baseUrl, generateId());
@@ -496,15 +506,35 @@ export async function persistAndFanoutToCommunity(
       cc: [PUBLIC_URL],
       published: new Date().toISOString(),
     };
-    await db.insert(activities).values({
+    announceStatement = db.insert(activities).values({
       apId: announceActivityId,
       type: "Announce",
       actorApId: communityApId,
       objectApId: objectApIdValue,
       rawJson: JSON.stringify(announce),
       direction: "outbound",
-    });
+    }) as D1Statement;
   }
+
+  const preparedFanout = await prepareDeliveryFanoutJob(db, {
+    kind: "community",
+    activityId: activity.id,
+    targetApId: communityApId,
+    ...(announceActivityId ? { announceActivityId } : {}),
+  });
+  const statements: D1Statement[] = [
+    db.insert(activities).values({
+      apId: activity.id,
+      type: activity.type,
+      actorApId: activity.actor,
+      objectApId: objectApIdValue,
+      rawJson: JSON.stringify(activity),
+      direction: "outbound",
+    }) as D1Statement,
+  ];
+  if (announceStatement) statements.push(announceStatement);
+  statements.push(preparedFanout.statement);
+  await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
 
   try {
     await enqueueFanoutToCommunity(

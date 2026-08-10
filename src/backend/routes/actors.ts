@@ -42,6 +42,7 @@ import {
   safeJsonParse,
 } from "../federation-helpers.ts";
 import { enqueueFanoutToFollowers } from "../lib/delivery/queue.ts";
+import { prepareDeliveryFanoutJob } from "../lib/delivery/fanout-outbox.ts";
 import {
   destinationDeclaresAlias,
   resolveMoveTarget,
@@ -940,23 +941,11 @@ actorsRoute.put("/me", async (c) => {
   }
 
   const db = c.get("db");
-  await db.update(actors).set(updates).where(eq(actors.apId, actor.ap_id));
-
-  // A replaced avatar/header is attached to no object, so no GC path reclaims
-  // the prior blob — reap it now if the old URL is a local /media upload no
-  // longer referenced anywhere (best-effort; never fails the update).
-  for (const [dbKey, oldUrl] of [
-    ["iconUrl", actor.icon_url],
-    ["headerUrl", actor.header_url],
-  ] as const) {
-    if (updates[dbKey] !== undefined && oldUrl && oldUrl !== updates[dbKey]) {
-      await reapReplacedMediaUrl(db, oldUrl, actor.ap_id, c.env.MEDIA);
-    }
-  }
 
   // The `actor` context snapshot predates the new columns, so to federate a
-  // faithful Person we read the current persisted values when the request did
-  // not itself supply them.
+  // faithful Person we read the currently persisted values when the request
+  // does not itself supply them. This read deliberately precedes the atomic
+  // profile + Activity + fanout-intent write below.
   if (nextFields === undefined || nextAlsoKnownAs === undefined) {
     const persisted = await db
       .select({
@@ -1065,18 +1054,46 @@ actorsRoute.put("/me", async (c) => {
     object: personObject,
   };
 
-  try {
-    await db.insert(activities).values({
+  const preparedFanout = await prepareDeliveryFanoutJob(db, {
+    kind: "followers",
+    activityId: updateActivityId,
+    targetApId: actor.ap_id,
+  });
+  await runBatch(db, [
+    db
+      .update(actors)
+      .set(updates)
+      .where(eq(actors.apId, actor.ap_id)) as D1Statement,
+    db.insert(activities).values({
       apId: updateActivityId,
       type: "Update",
       actorApId: actor.ap_id,
       objectApId: actor.ap_id,
       rawJson: JSON.stringify(updateActivity),
       direction: "outbound",
-    });
+    }) as D1Statement,
+    preparedFanout.statement,
+  ]);
+
+  // A replaced avatar/header is attached to no object, so no GC path reclaims
+  // the prior blob — reap it after the durable profile mutation commits if the
+  // old URL is a local /media upload no longer referenced anywhere
+  // (best-effort; never fails the update).
+  for (const [dbKey, oldUrl] of [
+    ["iconUrl", actor.icon_url],
+    ["headerUrl", actor.header_url],
+  ] as const) {
+    if (updates[dbKey] !== undefined && oldUrl && oldUrl !== updates[dbKey]) {
+      await reapReplacedMediaUrl(db, oldUrl, actor.ap_id, c.env.MEDIA);
+    }
+  }
+
+  try {
     await enqueueFanoutToFollowers(c.env, updateActivityId, actor.ap_id);
   } catch (err) {
-    // Federation is best-effort; the local profile update already succeeded.
+    // The semantic fanout is already durable in the same commit as the profile
+    // and Activity. Queue publication is only a best-effort wakeup; a later
+    // request/startup/retention sweep republishes the pending row.
     log.error("Failed to enqueue profile Update federation", {
       event: "actors.profile.update_federation_failed",
       actor: actor.ap_id,
@@ -1143,11 +1160,6 @@ actorsRoute.post("/me/move", async (c) => {
   const db = c.get("db");
   const baseUrl = c.env.APP_URL;
 
-  await db
-    .update(actors)
-    .set({ movedTo: target })
-    .where(eq(actors.apId, actor.ap_id));
-
   // Federate Move(actor) addressed to followers so they migrate their follow.
   const moveActivityId = activityApId(baseUrl, generateId());
   const moveActivity = {
@@ -1161,18 +1173,32 @@ actorsRoute.post("/me/move", async (c) => {
     cc: [actor.followers_url],
   };
 
-  try {
-    await db.insert(activities).values({
+  const preparedFanout = await prepareDeliveryFanoutJob(db, {
+    kind: "followers",
+    activityId: moveActivityId,
+    targetApId: actor.ap_id,
+  });
+  await runBatch(db, [
+    db
+      .update(actors)
+      .set({ movedTo: target })
+      .where(eq(actors.apId, actor.ap_id)) as D1Statement,
+    db.insert(activities).values({
       apId: moveActivityId,
       type: "Move",
       actorApId: actor.ap_id,
       objectApId: actor.ap_id,
       rawJson: JSON.stringify(moveActivity),
       direction: "outbound",
-    });
+    }) as D1Statement,
+    preparedFanout.statement,
+  ]);
+
+  try {
     await enqueueFanoutToFollowers(c.env, moveActivityId, actor.ap_id);
   } catch (err) {
-    // Federation is best-effort; the local moved_to marker already persisted.
+    // The moved_to marker, Activity, and semantic fanout are already one atomic
+    // durable commit. Queue publication is only a best-effort wakeup.
     log.error("Failed to enqueue account Move federation", {
       event: "actors.account.move_federation_failed",
       actor: actor.ap_id,

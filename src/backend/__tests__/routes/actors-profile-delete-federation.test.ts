@@ -18,6 +18,7 @@ import {
   activities,
   actorCache,
   actors,
+  deliveryFanouts,
   deliveryQueue,
   deliveryResolutions,
   follows,
@@ -25,6 +26,7 @@ import {
 import type { Actor, Env, Variables } from "../../types.ts";
 import actorsRoute from "../../routes/actors.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
+import { enqueuePendingDeliveryFanoutJobs } from "../../lib/delivery/fanout-outbox.ts";
 
 const APP_URL = "https://yurucommu.test";
 
@@ -80,7 +82,12 @@ async function insertLocalActor(
 
 type Sent = { activityId: string; followeeApId: string; type: string };
 
-function envFor(db: Database, sent: Sent[], batched?: string[]): Env {
+function envFor(
+  db: Database,
+  sent: Sent[],
+  batched?: string[],
+  options: { readonly failFanoutSend?: boolean } = {},
+): Env {
   // Minimal queue stubs so enqueueFanoutToFollowers records its send instead
   // of silently no-op'ing (queueAvailable requires both bindings present).
   const DELIVERY_QUEUE = {
@@ -89,6 +96,9 @@ function envFor(db: Database, sent: Sent[], batched?: string[]): Env {
       activityId: string;
       followeeApId: string;
     }) => {
+      if (options.failFanoutSend) {
+        return Promise.reject(new Error("simulated fanout Queue outage"));
+      }
       sent.push({
         activityId: body.activityId,
         followeeApId: body.followeeApId,
@@ -178,6 +188,82 @@ test("PUT /me federates Update(Person) with the post-update profile", async () =
       type: "fanout_followers",
     },
   ]);
+});
+
+test("PUT /me rolls back the profile and Activity when durable fanout persistence fails", async () => {
+  const db = await freshDb();
+  const actor = await insertLocalActor(db, "atomic-profile");
+  const sent: Sent[] = [];
+  await db.run(sql`
+    CREATE TRIGGER reject_profile_fanout
+    BEFORE INSERT ON delivery_fanouts
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated fanout ledger outage');
+    END
+  `);
+
+  const res = await appWith(db, actor).fetch(
+    new Request(`${APP_URL}/me`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Must Not Commit" }),
+    }),
+    envFor(db, sent),
+  );
+
+  expect(res.status).toBe(500);
+  expect(
+    (
+      await db
+        .select({ name: actors.name })
+        .from(actors)
+        .where(eq(actors.apId, actor.ap_id))
+        .get()
+    )?.name,
+  ).toBe("Old Name");
+  expect(await db.select().from(activities)).toHaveLength(0);
+  expect(await db.select().from(deliveryFanouts)).toHaveLength(0);
+  expect(sent).toHaveLength(0);
+});
+
+test("PUT /me keeps a pending durable fanout and recovers after Queue failure", async () => {
+  const db = await freshDb();
+  const actor = await insertLocalActor(db, "profile-queue-retry");
+  const sent: Sent[] = [];
+
+  const res = await appWith(db, actor).fetch(
+    new Request(`${APP_URL}/me`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ summary: "durable profile update" }),
+    }),
+    envFor(db, sent, undefined, { failFanoutSend: true }),
+  );
+
+  expect(res.status).toBe(200);
+  expect(sent).toHaveLength(0);
+  expect(
+    await db
+      .select({
+        status: deliveryFanouts.status,
+        publications: deliveryFanouts.publications,
+      })
+      .from(deliveryFanouts),
+  ).toEqual([{ status: "pending", publications: 0 }]);
+
+  const recovered: string[] = [];
+  expect(
+    await enqueuePendingDeliveryFanoutJobs(envFor(db, [], recovered)),
+  ).toBe(1);
+  expect(recovered).toEqual(["fanout_followers"]);
+  expect(
+    await db
+      .select({
+        status: deliveryFanouts.status,
+        publications: deliveryFanouts.publications,
+      })
+      .from(deliveryFanouts),
+  ).toEqual([{ status: "published", publications: 1 }]);
 });
 
 test("PUT /me with no fields does not federate", async () => {

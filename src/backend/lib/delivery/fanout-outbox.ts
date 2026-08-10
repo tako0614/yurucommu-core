@@ -4,6 +4,7 @@ import {
   affectedRowCount,
   deliveryFanouts,
   type Database,
+  type D1Statement,
 } from "../../../db/index.ts";
 import type { IQueueProducer } from "../../runtime/queue.ts";
 import type { Env } from "../../types.ts";
@@ -99,14 +100,18 @@ function buildFanoutMessage(row: {
   throw new Error(`Unsupported delivery fanout kind: ${row.kind}`);
 }
 
-/** Persist the semantic fanout intent before attempting any Queue RPC. */
-export async function persistDeliveryFanoutJob(
+/**
+ * Build the deterministic fanout-ledger insert without executing it. Writers
+ * that commit the Activity and its local state can compose this statement into
+ * the same D1 batch, closing the crash window before the durable intent exists.
+ */
+export async function prepareDeliveryFanoutJob(
   db: Database,
   intent: DeliveryFanoutIntent,
-): Promise<string> {
+): Promise<{ readonly id: string; readonly statement: D1Statement }> {
   const id = await computeDeliveryFanoutId(intent);
   const now = new Date().toISOString();
-  await db
+  const statement = db
     .insert(deliveryFanouts)
     .values({
       id,
@@ -122,8 +127,18 @@ export async function persistDeliveryFanoutJob(
       createdAt: now,
       updatedAt: now,
     })
-    .onConflictDoNothing();
-  return id;
+    .onConflictDoNothing() as unknown as D1Statement;
+  return { id, statement };
+}
+
+/** Persist the semantic fanout intent before attempting any Queue RPC. */
+export async function persistDeliveryFanoutJob(
+  db: Database,
+  intent: DeliveryFanoutIntent,
+): Promise<string> {
+  const prepared = await prepareDeliveryFanoutJob(db, intent);
+  await prepared.statement;
+  return prepared.id;
 }
 
 async function publishRows(

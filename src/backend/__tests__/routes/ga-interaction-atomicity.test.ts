@@ -22,6 +22,7 @@ import {
   activities,
   actors,
   announces,
+  deliveryFanouts,
   deliveryQueue,
   follows,
   inboundActivityClaims,
@@ -89,12 +90,32 @@ function fakeActor(apId: string, username: string): Actor {
   };
 }
 
-function envFor(db: Database): Env {
+function envFor(
+  db: Database,
+  queueMode?: "fail" | "record",
+  sent: string[] = [],
+): Env {
+  const queue = queueMode
+    ? {
+        send: async (body: { type: string }) => {
+          if (queueMode === "fail") {
+            throw new Error("simulated fanout Queue outage");
+          }
+          sent.push(body.type);
+        },
+        sendBatch: async (messages: Array<{ body: { type: string } }>) => {
+          if (queueMode === "fail") {
+            throw new Error("simulated fanout Queue outage");
+          }
+          sent.push(...messages.map(({ body }) => body.type));
+        },
+      }
+    : undefined;
   return {
     APP_URL,
     DB_INSTANCE: db,
-    DELIVERY_QUEUE: undefined,
-    DELIVERY_DLQ: undefined,
+    DELIVERY_QUEUE: queue,
+    DELIVERY_DLQ: queue,
   } as unknown as Env;
 }
 
@@ -357,6 +378,41 @@ test("repost of a truly-public post succeeds", async () => {
   const res = await repost(db, booster, postApId);
   expect(res.status).toEqual(200);
   expect(await announceRowCount(db, postApId)).toEqual(1);
+});
+
+test("repost and unrepost succeed with a pending durable fanout when Queue publication fails", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "queue-author");
+  const booster = fakeActor(
+    await insertLocalActor(db, "queue-booster"),
+    "queue-booster",
+  );
+  const postApId = await insertPostWithReach(db, author, "queue-repost", {
+    visibility: "public",
+  });
+  const env = envFor(db, "fail");
+  const app = appWith(db, env, booster);
+  const requestUrl = `${APP_URL}/${encodeURIComponent(postApId)}/repost`;
+
+  const repostRes = await app.fetch(
+    new Request(requestUrl, { method: "POST" }),
+    env,
+  );
+  expect(repostRes.status).toBe(200);
+  expect(await announceRowCount(db, postApId)).toBe(1);
+  expect(
+    await db.select({ status: deliveryFanouts.status }).from(deliveryFanouts),
+  ).toEqual([{ status: "pending" }]);
+
+  const unrepostRes = await app.fetch(
+    new Request(requestUrl, { method: "DELETE" }),
+    env,
+  );
+  expect(unrepostRes.status).toBe(200);
+  expect(await announceRowCount(db, postApId)).toBe(0);
+  expect(
+    await db.select({ status: deliveryFanouts.status }).from(deliveryFanouts),
+  ).toEqual([{ status: "pending" }]);
 });
 
 test("repost of a followers-only / direct / community-scoped post is rejected (403, no Announce)", async () => {

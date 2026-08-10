@@ -3,7 +3,13 @@ import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
-import { actors, mediaUploads, objects } from "../../../db/index.ts";
+import {
+  activities,
+  actors,
+  deliveryFanouts,
+  mediaUploads,
+  objects,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import storiesRoutes from "../../routes/stories/routes.ts";
@@ -61,13 +67,25 @@ function fakeActor(apId: string, username: string): Actor {
   };
 }
 
-function envFor(db: Database, storage: IObjectStorage): Env {
+function envFor(
+  db: Database,
+  storage: IObjectStorage,
+  failFanoutSend = false,
+): Env {
+  const queue = {
+    async send() {
+      if (failFanoutSend) throw new Error("simulated fanout Queue outage");
+    },
+    async sendBatch() {
+      if (failFanoutSend) throw new Error("simulated fanout Queue outage");
+    },
+  };
   return {
     APP_URL,
     DB_INSTANCE: db,
     MEDIA: storage,
-    DELIVERY_QUEUE: { async send() {}, async sendBatch() {} },
-    DELIVERY_DLQ: { async send() {}, async sendBatch() {} },
+    DELIVERY_QUEUE: queue,
+    DELIVERY_DLQ: queue,
   } as unknown as Env;
 }
 
@@ -82,7 +100,7 @@ function appWith(db: Database, actor: Actor) {
   return app;
 }
 
-test("explicit story delete reaps the story's R2 blob and media_uploads row", async () => {
+test("explicit story delete reaps local data and leaves durable fanout pending through Queue failure", async () => {
   const db = await freshDb();
   const authorApId = `${APP_URL}/ap/users/tako`;
   await db.insert(actors).values({
@@ -128,7 +146,7 @@ test("explicit story delete reaps the story's R2 blob and media_uploads row", as
   });
 
   const { storage, deleted } = recordingStorage();
-  const env = envFor(db, storage);
+  const env = envFor(db, storage, true);
   const actor = fakeActor(authorApId, "tako");
 
   const res = await appWith(db, actor).fetch(
@@ -159,4 +177,18 @@ test("explicit story delete reaps the story's R2 blob and media_uploads row", as
     .where(eq(objects.apId, storyApId))
     .get();
   expect(obj).toBeUndefined();
+
+  expect(
+    await db
+      .select({
+        type: activities.type,
+        objectApId: activities.objectApId,
+        direction: activities.direction,
+      })
+      .from(activities),
+  ).toEqual([{ type: "Delete", objectApId: storyApId, direction: "outbound" }]);
+
+  expect(
+    await db.select({ status: deliveryFanouts.status }).from(deliveryFanouts),
+  ).toEqual([{ status: "pending" }]);
 });
