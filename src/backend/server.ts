@@ -33,6 +33,7 @@ import {
   enqueuePendingDeliveryEndpointJobs,
 } from "./lib/delivery/queue.ts";
 import { enqueuePendingDeliveryResolutionJobs } from "./lib/delivery/resolution-outbox.ts";
+import { enqueuePendingDeliveryFanoutJobs } from "./lib/delivery/fanout-outbox.ts";
 import { getDbSQLite } from "../db/index.ts";
 import { logger } from "./lib/logger.ts";
 import type {
@@ -322,14 +323,20 @@ export async function reconcileLocalDeliveryQueue(
 function startLocalDeliveryQueueReconciler(env: LocalServerEnv): void {
   const runSweep = async (trigger: "startup" | "interval") => {
     try {
+      const fanoutJobs = await enqueuePendingDeliveryFanoutJobs(env, {
+        // The local Queue is process memory. At startup, accepted-but-not-yet-
+        // completed wakeups disappeared with the previous process.
+        includePublished: trigger === "startup",
+      });
       const endpointJobs = await reconcileLocalDeliveryQueue(env);
       const resolutionJobs = await enqueuePendingDeliveryResolutionJobs(env);
-      const requeued = endpointJobs + resolutionJobs;
+      const requeued = fanoutJobs + endpointJobs + resolutionJobs;
       if (requeued > 0) {
         log.info("Reconciled local delivery queue", {
           event: "server.local_delivery_queue.reconciled",
           trigger,
           requeued,
+          fanoutJobs,
           endpointJobs,
           resolutionJobs,
         });

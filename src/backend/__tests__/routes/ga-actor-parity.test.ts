@@ -45,6 +45,7 @@ const MIGRATIONS = [
   // 0009 adds objects.tags_json (authored by a sibling wave); the Drizzle
   // schema emits that column on insert, so apply it here too.
   "0009_object_tags.sql",
+  "0024_delivery_fanout_outbox.sql",
 ];
 
 async function freshDb(): Promise<Database> {

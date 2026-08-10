@@ -68,6 +68,7 @@ import {
   handleDeliveryQueueBatch,
 } from "./lib/delivery/queue.ts";
 import { enqueuePendingDeliveryResolutionJobs } from "./lib/delivery/resolution-outbox.ts";
+import { enqueuePendingDeliveryFanoutJobs } from "./lib/delivery/fanout-outbox.ts";
 import { enqueuePendingNotificationPushJobs } from "./lib/notification-push.ts";
 import { runYurucommuRetention } from "./retention.ts";
 
@@ -627,6 +628,7 @@ function applyGlobalMiddleware(
       if (recoveryDue) lastOutboxRecoverySweep = now;
       const sweep = (async () => {
         try {
+          await enqueuePendingDeliveryFanoutJobs(c.env);
           await enqueuePendingDeliveryEndpointJobs(c.env);
           await enqueuePendingDeliveryResolutionJobs(c.env);
         } catch (error) {

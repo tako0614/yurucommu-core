@@ -113,6 +113,46 @@ export const deliveryResolutions = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// DELIVERY_FANOUTS
+// ---------------------------------------------------------------------------
+
+/**
+ * Durable first-hop outbox for follower/community fanout. Queue messages only
+ * wake the planner; the row remains authoritative until the final page has
+ * completed so a failed producer RPC or Bun process restart can replay it.
+ */
+export const deliveryFanouts = sqliteTable(
+  "delivery_fanouts",
+  {
+    id: text("id").primaryKey(),
+    activityApId: text("activity_ap_id").notNull(),
+    kind: text("kind").notNull(),
+    targetApId: text("target_ap_id").notNull(),
+    announceActivityApId: text("announce_activity_ap_id"),
+    status: text("status").notNull().default("pending"),
+    publications: integer("publications").notNull().default(0),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().$defaultFn(nowIsoUtc),
+    updatedAt: text("updated_at")
+      .notNull()
+      .$defaultFn(nowIsoUtc)
+      .$onUpdateFn(nowIsoUtc),
+    completedAt: text("completed_at"),
+  },
+  (t) => [
+    uniqueIndex("delivery_fanouts_intent_idx").on(
+      t.activityApId,
+      t.kind,
+      t.targetApId,
+      t.announceActivityApId,
+    ),
+    index("delivery_fanouts_status_created_idx").on(t.status, t.createdAt),
+    index("delivery_fanouts_terminal_retention_idx").on(t.status, t.updatedAt),
+    index("delivery_fanouts_activity_idx").on(t.activityApId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // DELIVERY_CIRCUIT
 // ---------------------------------------------------------------------------
 

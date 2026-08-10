@@ -53,6 +53,12 @@ import {
   MAX_RESOLVE_ATTEMPTS,
   retryDeliveryResolutionJob,
 } from "./resolution-outbox.ts";
+import {
+  completeDeliveryFanoutJob,
+  deliveryFanoutIntentFromMessage,
+  getDeliveryFanoutState,
+  resetDeliveryFanoutJob,
+} from "./fanout-outbox.ts";
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
 const log = logger.child({ component: "delivery.batching" });
@@ -256,7 +262,31 @@ export async function processFanoutFollowers(
   msg: DeliveryFanoutFollowersMessageV1,
   message: IQueueMessage<DeliveryQueueMessageV1>,
 ): Promise<void> {
-  if (!requireQueue(env, "fanout", message)) return;
+  const intent = deliveryFanoutIntentFromMessage(msg);
+  const outboxState = await getDeliveryFanoutState(db, intent);
+  if (outboxState === "terminal") {
+    message.ack();
+    return;
+  }
+  const activityExists = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(eq(activities.apId, msg.activityId))
+    .get();
+  if (!activityExists) {
+    await completeDeliveryFanoutJob(
+      db,
+      intent,
+      "discarded",
+      "Activity was deleted before fanout completed",
+    );
+    message.ack();
+    return;
+  }
+  if (!requireQueue(env, "fanout", message)) {
+    await resetDeliveryFanoutJob(db, intent, "Queue bindings unavailable");
+    return;
+  }
   const queueEnv = env as QueueEnv;
 
   const { processed, capped, nextCursor } =
@@ -289,6 +319,10 @@ export async function processFanoutFollowers(
     });
   }
 
+  if (!capped) {
+    await completeDeliveryFanoutJob(db, intent);
+  }
+
   message.ack();
 }
 
@@ -314,7 +348,33 @@ export async function processFanoutCommunity(
 ): Promise<void> {
   const baseUrl = env.APP_URL;
 
-  if (!requireQueue(env, "fanout_community", message)) return;
+  const intent = deliveryFanoutIntentFromMessage(msg);
+  const outboxState = await getDeliveryFanoutState(db, intent);
+  if (outboxState === "terminal") {
+    message.ack();
+    return;
+  }
+
+  const activityExists = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(eq(activities.apId, msg.activityId))
+    .get();
+  if (!activityExists) {
+    await completeDeliveryFanoutJob(
+      db,
+      intent,
+      "discarded",
+      "Activity was deleted before fanout completed",
+    );
+    message.ack();
+    return;
+  }
+
+  if (!requireQueue(env, "fanout_community", message)) {
+    await resetDeliveryFanoutJob(db, intent, "Queue bindings unavailable");
+    return;
+  }
   const queueEnv = env as QueueEnv;
 
   // Resolve the activity's author so we never echo the post back into the
@@ -473,6 +533,8 @@ export async function processFanoutCommunity(
   // the community's own followers collection rather than expanding the full
   // member/follower set here. Local delivery and community audience/addressing
   // are already correct; this is purely a remote fan-out efficiency follow-up.
+
+  await completeDeliveryFanoutJob(db, intent);
 
   message.ack();
 }

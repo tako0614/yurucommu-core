@@ -50,6 +50,7 @@ const MIGRATIONS = [
   "0009_object_tags.sql",
   "0019_notification_push_delivery.sql",
   "0023_delivery_resolution_outbox.sql",
+  "0024_delivery_fanout_outbox.sql",
 ];
 
 async function freshDb(): Promise<Database> {

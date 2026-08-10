@@ -46,6 +46,7 @@ const MIGRATIONS = [
   "0005_story_community_scope.sql",
   "0008_actor_fields_aka.sql",
   "0009_object_tags.sql",
+  "0024_delivery_fanout_outbox.sql",
 ];
 
 async function freshDb(): Promise<Database> {

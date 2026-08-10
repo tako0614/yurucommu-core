@@ -26,6 +26,7 @@ import {
   announces,
   bookmarks,
   deliveryQueue,
+  deliveryFanouts,
   deliveryResolutions,
   inboundActivityClaims,
   inbox as inboxTable,
@@ -227,6 +228,13 @@ test("deleteObjectCascade cancels every durable projection of retained object ac
       status: "processing",
       processingToken: `projection-resolution-token-${suffix}`,
     });
+    await db.insert(deliveryFanouts).values({
+      id: `projection-fanout-${suffix}`,
+      activityApId,
+      kind: "followers",
+      targetApId: author,
+      status: "published",
+    });
     await db.insert(inboxTable).values({ actorApId: recipient, activityApId });
     await db
       .update(notificationPushJobs)
@@ -259,6 +267,7 @@ test("deleteObjectCascade cancels every durable projection of retained object ac
     (await db.select().from(deliveryResolutions)).map(
       (row) => row.activityApId,
     ),
+    (await db.select().from(deliveryFanouts)).map((row) => row.activityApId),
     (await db.select().from(inboxTable)).map((row) => row.activityApId),
     (await db.select().from(notificationArchived)).map(
       (row) => row.activityApId,

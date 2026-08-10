@@ -36,6 +36,12 @@ import {
   enqueuePendingDeliveryResolutionJobs,
   persistDeliveryResolutionJobs,
 } from "./resolution-outbox.ts";
+import {
+  deliveryFanoutIntentFromMessage,
+  enqueueDeliveryFanoutJob,
+  enqueuePendingDeliveryFanoutJobs,
+  failDeliveryFanoutJob,
+} from "./fanout-outbox.ts";
 
 export { buildResolveActorMessage } from "./resolution-outbox.ts";
 
@@ -443,13 +449,26 @@ export async function enqueueFanoutToFollowers(
   activityId: string,
   followeeApId: string,
 ): Promise<void> {
-  await sendQueueMessage(env, {
+  const body = {
     version: DELIVERY_QUEUE_MESSAGE_VERSION,
-    type: "fanout_followers",
+    type: "fanout_followers" as const,
     activityId,
     followeeApId,
     scheduledAt: nowIso(),
-  });
+  };
+  const db = (env as Partial<Env>).DB_INSTANCE;
+  if (db) {
+    const queue = queueAvailable(env) ? env.DELIVERY_QUEUE : undefined;
+    await enqueueDeliveryFanoutJob(
+      db,
+      queue,
+      deliveryFanoutIntentFromMessage(body),
+    );
+    if (!queue) reportProducerUnavailable("enqueueFanoutToFollowers");
+    else producerUnavailableReported = false;
+    return;
+  }
+  await sendQueueMessage(env, body);
 }
 
 export async function enqueueDeliveryToActor(
@@ -558,14 +577,27 @@ export async function enqueueFanoutToCommunity(
   communityApId: string,
   announceActivityId?: string,
 ): Promise<void> {
-  await sendQueueMessage(env, {
+  const body = {
     version: DELIVERY_QUEUE_MESSAGE_VERSION,
-    type: "fanout_community",
+    type: "fanout_community" as const,
     activityId,
     communityApId,
     ...(announceActivityId ? { announceActivityId } : {}),
     scheduledAt: nowIso(),
-  });
+  };
+  const db = (env as Partial<Env>).DB_INSTANCE;
+  if (db) {
+    const queue = queueAvailable(env) ? env.DELIVERY_QUEUE : undefined;
+    await enqueueDeliveryFanoutJob(
+      db,
+      queue,
+      deliveryFanoutIntentFromMessage(body),
+    );
+    if (!queue) reportProducerUnavailable("enqueueFanoutToCommunity");
+    else producerUnavailableReported = false;
+    return;
+  }
+  await sendQueueMessage(env, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -671,6 +703,7 @@ export async function handleDeliveryQueueBatch(
   // Community fanout can create local inbox rows inside this consumer rather
   // than an HTTP request. Flush the same DB-triggered outbox choke point here.
   try {
+    await enqueuePendingDeliveryFanoutJobs(env);
     await enqueuePendingDeliveryEndpointJobs(env);
     await enqueuePendingDeliveryResolutionJobs(env);
   } catch (error) {
@@ -827,6 +860,16 @@ async function handleAutoDeadLetteredMessage(
 
   const autoDlqAttempt = body.autoDlqAttempt ?? 0;
   if (autoDlqAttempt >= MAX_AUTO_DLQ_REDRIVES) {
+    if (body.type === "fanout_followers" || body.type === "fanout_community") {
+      const db = (env as Partial<Env>).DB_INSTANCE;
+      if (db) {
+        await failDeliveryFanoutJob(
+          db,
+          deliveryFanoutIntentFromMessage(body),
+          `Queue delivery exhausted after ${autoDlqAttempt} automatic redrives`,
+        );
+      }
+    }
     log.error("Delivery message exhausted automatic DLQ redrives; dropping", {
       event: "delivery.dlq.auto_redrive_exhausted",
       messageType: body.type,
