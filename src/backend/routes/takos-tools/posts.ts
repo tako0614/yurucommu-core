@@ -7,14 +7,20 @@
 
 import { and, eq, gt, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
-import { actors, bookmarks, objects, runBatch } from "../../../db/index.ts";
+import {
+  actors,
+  bookmarks,
+  objects,
+  runBatch,
+  type D1Statement,
+} from "../../../db/index.ts";
 import { objectApId } from "../../federation-helpers.ts";
 import {
   actorIsBlockedBy,
   canViewerReadObjectFull,
 } from "../../lib/post-visibility.ts";
 import {
-  deleteObjectCascade,
+  prepareObjectDeleteCascade,
   purgeMediaBlobs,
 } from "../posts/delete-cascade.ts";
 import {
@@ -22,8 +28,8 @@ import {
   normalizeVisibility,
 } from "../posts/transformers.ts";
 import {
-  federateDeletedPost,
   prepareCreatedPostFederation,
+  prepareDeletedPostFederation,
 } from "../posts/federation.ts";
 import { setPostLike } from "../posts/like-mutation.ts";
 import { preparePostInsertStatements } from "../posts/post-helpers.ts";
@@ -38,10 +44,6 @@ import {
   type ToolResponse,
 } from "../takos-tools-response.ts";
 import type { Input, ToolContext } from "./types.ts";
-
-// `.batch` lives only on the concrete D1/libsql subclasses; reach it through a
-// narrow structural cast so the object write + postCount update commit together.
-type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
 /**
  * Tool results expose both a full `ap_id` and a compact `post_id`, so every
@@ -210,10 +212,15 @@ export async function handleDeletePost(
     );
   }
 
-  // Match the canonical post route: explicitly reap every child/projection and
-  // discover unreferenced managed media before removing the object. D1 cannot
-  // rely on FK cascade semantics across runtimes.
-  const mediaKeys = await deleteObjectCascade(db, post.apId, c.env.MEDIA);
+  const [cascade, preparedFederation] = await Promise.all([
+    prepareObjectDeleteCascade(db, post.apId, c.env.MEDIA),
+    prepareDeletedPostFederation({
+      db,
+      env: c.env,
+      actorApId: actor.ap_id,
+      post,
+    }),
+  ]);
 
   // #COUNTER-SYM: gate the decrement on the object STILL existing (correlated
   // EXISTS) and run it BEFORE the delete, so two concurrent/retried deletes of
@@ -221,7 +228,7 @@ export async function handleDeletePost(
   // is false (the first already deleted the row) → its -1 matches 0 rows. gt(>0)
   // guards underflow. Mirrors the canonical web delete path (posts/routes.ts).
   const objectExists = sql`EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${post.apId})`;
-  const ops: unknown[] = [];
+  const ops: D1Statement[] = [...cascade.statements];
   // Direct messages never increment postCount, so their deletion must not
   // decrement it. This keeps the tool path symmetric with canonical post/DM
   // creation and deletion.
@@ -236,10 +243,13 @@ export async function handleDeletePost(
             gt(actors.postCount, 0),
             objectExists,
           ),
-        ),
+        ) as D1Statement,
     );
   }
-  ops.push(db.delete(objects).where(eq(objects.apId, post.apId)));
+  ops.push(...preparedFederation.statements);
+  ops.push(
+    db.delete(objects).where(eq(objects.apId, post.apId)) as D1Statement,
+  );
   if (post.inReplyTo) {
     const parentId = post.inReplyTo;
     ops.push(
@@ -248,21 +258,15 @@ export async function handleDeletePost(
         .set({
           replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
         })
-        .where(eq(objects.apId, parentId)),
+        .where(eq(objects.apId, parentId)) as D1Statement,
     );
   }
-  await (db as unknown as Batchable).batch(ops);
+  await runBatch(db, ops as [D1Statement, ...D1Statement[]]);
 
   // The irreversible external delete is last: failure leaks a blob instead of
   // leaving a live post whose media has already been destroyed.
-  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
-
-  await federateDeletedPost({
-    db,
-    env: c.env,
-    actorApId: actor.ap_id,
-    post,
-  });
+  await purgeMediaBlobs(c.env.MEDIA, cascade.mediaKeys);
+  await preparedFederation.complete();
 
   return c.json(ok({ deleted: true }));
 }

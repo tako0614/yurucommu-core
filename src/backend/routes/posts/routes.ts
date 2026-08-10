@@ -35,7 +35,10 @@ import {
   resolveAuthorWithCache,
   toPostRow,
 } from "./queries.ts";
-import { deleteObjectCascade, purgeMediaBlobs } from "./delete-cascade.ts";
+import {
+  prepareObjectDeleteCascade,
+  purgeMediaBlobs,
+} from "./delete-cascade.ts";
 import {
   checkCommunityPostPermission,
   deriveContentTags,
@@ -57,15 +60,11 @@ import {
 import { logger } from "../../lib/logger.ts";
 import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
 import {
-  federateDeletedPost,
   prepareCreatedPostFederation,
+  prepareDeletedPostFederation,
 } from "./federation.ts";
 
 const log = logger.child({ component: "posts.routes" });
-
-// `.batch` lives only on the concrete D1/libsql subclasses, not the Database
-// union; reach it through a narrow structural cast (matching the other routes).
-type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -646,11 +645,15 @@ posts.delete("/:id", async (c) => {
     return c.json({ error: "Forbidden" }, 403);
   }
 
-  // D1 doesn't support interactive transactions; use sequential operations.
-  // FK ON DELETE CASCADE is not reliably enforced (PRAGMA foreign_keys is not
-  // guaranteed on every runtime/connection, and D1 ignores it), so delete the
-  // object's child rows explicitly before the object row to avoid orphans.
-  const mediaKeys = await deleteObjectCascade(db, post.apId, c.env.MEDIA);
+  const [cascade, preparedFederation] = await Promise.all([
+    prepareObjectDeleteCascade(db, post.apId, c.env.MEDIA),
+    prepareDeletedPostFederation({
+      db,
+      env: c.env,
+      actorApId: actor.ap_id,
+      post,
+    }),
+  ]);
 
   // Co-commit the object delete + author postCount-- + parent replyCount in ONE
   // batch (mirrors the federated handleDelete): a crash between separate
@@ -664,16 +667,19 @@ posts.delete("/:id", async (c) => {
     .set({ postCount: sql`${actors.postCount} - 1` })
     .where(
       and(eq(actors.apId, actor.ap_id), gt(actors.postCount, 0), objectExists),
-    );
-  const deleteObject = db.delete(objects).where(eq(objects.apId, post.apId));
+    ) as D1Statement;
+  const deleteObject = db
+    .delete(objects)
+    .where(eq(objects.apId, post.apId)) as D1Statement;
   // DM notes (`visibility="direct"`, created by createDmNote) are NOT counted in
   // postCount on send, so deleting one here must NOT decrement it — otherwise a
   // DM deleted through this generic endpoint (the dedicated DELETE
   // /dm/messages/:id correctly skips the count) under-counts the author's
   // postCount (floored at 0). Keep create/delete symmetric: only regular posts
   // (which incremented) decrement.
-  const ops: unknown[] = [];
+  const ops: D1Statement[] = [...cascade.statements];
   if (post.visibility !== "direct") ops.push(decPostCount);
+  ops.push(...preparedFederation.statements);
   ops.push(deleteObject);
   if (post.inReplyTo) {
     const parentId = post.inReplyTo;
@@ -683,21 +689,15 @@ posts.delete("/:id", async (c) => {
         .set({
           replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
         })
-        .where(eq(objects.apId, parentId)),
+        .where(eq(objects.apId, parentId)) as D1Statement,
     );
   }
-  await (db as unknown as Batchable).batch(ops);
+  await runBatch(db, ops as [D1Statement, ...D1Statement[]]);
 
   // Irreversible R2 purge LAST — only now that the objects row is gone. A
   // failure here degrades to a leaked blob, not a live post with a deleted blob.
-  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
-
-  await federateDeletedPost({
-    db,
-    env: c.env,
-    actorApId: actor.ap_id,
-    post,
-  });
+  await purgeMediaBlobs(c.env.MEDIA, cascade.mediaKeys);
+  await preparedFederation.complete();
 
   return c.json({ success: true });
 });

@@ -27,9 +27,6 @@ import {
   buildAddressing,
   buildCommunityObjectAddressing,
   mergeCc,
-  persistActivity,
-  persistAndFanout,
-  persistAndFanoutToCommunity,
   preparePersistAndFanout,
   preparePersistAndFanoutToCommunity,
   type CommunityAddressingTarget,
@@ -264,10 +261,15 @@ export type DeletedPostFederationInput = {
   };
 };
 
-/** Persist and enqueue the outbound Tombstone Delete for a removed local Note. */
-export async function federateDeletedPost(
+export type PreparedDeletedPostFederation = {
+  readonly statements: readonly [D1Statement, ...D1Statement[]];
+  complete(): Promise<string>;
+};
+
+/** Prepare a Tombstone Delete so its owner can co-commit local removal. */
+export async function prepareDeletedPostFederation(
   input: DeletedPostFederationInput,
-): Promise<string> {
+): Promise<PreparedDeletedPostFederation> {
   const { db, env, actorApId, post } = input;
   const baseUrl = env.APP_URL;
   const originalTo = safeJsonParse<string[]>(post.toJson, []);
@@ -314,32 +316,58 @@ export async function federateDeletedPost(
   // Direct objects were never broadcast to followers. Persist their Delete for
   // the ledger and send only to explicit recipients; follower fanout here would
   // disclose the existence and id of a private object.
+  let statements: readonly [D1Statement, ...D1Statement[]];
+  let publish = async () => {};
   if (post.visibility === "direct") {
-    await persistActivity(db, deleteActivity, post.apId);
+    statements = [
+      db.insert(activities).values({
+        apId: deleteActivity.id,
+        type: deleteActivity.type,
+        actorApId: deleteActivity.actor,
+        objectApId: post.apId,
+        rawJson: JSON.stringify(deleteActivity),
+        direction: "outbound",
+      }) as D1Statement,
+    ];
   } else if (post.communityApId) {
-    await persistAndFanoutToCommunity(
+    const prepared = await preparePersistAndFanoutToCommunity(
       db,
       env,
       deleteActivity,
       post.apId,
       post.communityApId,
     );
+    statements = prepared.statements;
+    publish = prepared.publish;
   } else {
-    await persistAndFanout(db, env, deleteActivity, post.apId);
+    const prepared = await preparePersistAndFanout(
+      db,
+      env,
+      deleteActivity,
+      post.apId,
+    );
+    statements = prepared.statements;
+    publish = prepared.publish;
   }
 
-  for (const recipient of explicitRecipients) {
-    try {
-      await enqueueDeliveryToActor(env, deleteActivity.id, recipient);
-    } catch (error) {
-      log.error("Failed to enqueue explicit Delete delivery", {
-        event: "posts.delete.delivery_enqueue_failed",
-        activityId: deleteActivity.id,
-        recipient,
-        error,
-      });
-    }
-  }
+  return {
+    statements,
+    async complete() {
+      await publish();
+      for (const recipient of explicitRecipients) {
+        try {
+          await enqueueDeliveryToActor(env, deleteActivity.id, recipient);
+        } catch (error) {
+          log.error("Failed to enqueue explicit Delete delivery", {
+            event: "posts.delete.delivery_enqueue_failed",
+            activityId: deleteActivity.id,
+            recipient,
+            error,
+          });
+        }
+      }
 
-  return deleteActivity.id;
+      return deleteActivity.id;
+    },
+  };
 }

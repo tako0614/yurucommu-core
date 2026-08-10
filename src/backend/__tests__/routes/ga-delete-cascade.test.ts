@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { Hono } from "hono";
 
 /**
  * GA #13 + #14 — object delete must not orphan child rows.
@@ -18,13 +19,15 @@ import { expect, test } from "bun:test";
  * end-to-end against a real libsql DB.
  */
 
-import { eq, or } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
+  activities,
   announces,
   bookmarks,
+  deliveryFanouts,
   likes,
   objectRecipients,
   objects,
@@ -33,9 +36,11 @@ import {
   storyVotes,
 } from "../../../db/index.ts";
 import { deleteObjectCascade } from "../../routes/posts/delete-cascade.ts";
+import postsRoutes from "../../routes/posts/routes.ts";
 import { handleDelete } from "../../routes/activitypub/handlers/inbox-content-handlers.ts";
 import type { ActivityContext } from "../../routes/activitypub/inbox-types.ts";
 import type { Activity } from "../../routes/activitypub/inbox-types.ts";
+import type { Actor, Env, Variables } from "../../types.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
@@ -257,4 +262,113 @@ test("remote handleDelete refuses to delete when actor does not own the object (
     .get();
   expect(obj?.apId).toBe(objectId);
   expect(await countChildRows(db, objectId)).toBe(7);
+});
+
+test("local post delete rolls back object, children, and counter when durable fanout persistence fails", async () => {
+  const db = await freshDb();
+  const author = await insertActor(db, "atomic-delete");
+  const interactor = await insertActor(db, "interactor");
+  const objectId = `${APP_URL}/ap/objects/atomic-delete`;
+  await seedWithChildren(db, objectId, author, interactor);
+  await db.update(actors).set({ postCount: 1 }).where(eq(actors.apId, author));
+  await db.run(sql`
+    CREATE TRIGGER reject_post_delete_fanout
+    BEFORE INSERT ON delivery_fanouts
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated fanout ledger outage');
+    END
+  `);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", {
+      ap_id: author,
+      preferred_username: "atomic-delete",
+    } as Actor);
+    await next();
+  });
+  app.route("/api/posts", postsRoutes);
+
+  const response = await app.fetch(
+    new Request(`${APP_URL}/api/posts/${encodeURIComponent(objectId)}`, {
+      method: "DELETE",
+    }),
+    { APP_URL, DB_INSTANCE: db } as unknown as Env,
+  );
+
+  expect(response.status).toBe(500);
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, objectId))
+      .get(),
+  ).toEqual({ apId: objectId });
+  expect(await countChildRows(db, objectId)).toBe(7);
+  expect(
+    (
+      await db
+        .select({ postCount: actors.postCount })
+        .from(actors)
+        .where(eq(actors.apId, author))
+        .get()
+    )?.postCount,
+  ).toBe(1);
+  expect(await db.select().from(activities)).toHaveLength(0);
+  expect(await db.select().from(deliveryFanouts)).toHaveLength(0);
+});
+
+test("local post delete keeps a durable pending fanout when the queue wakeup fails", async () => {
+  const db = await freshDb();
+  const author = await insertActor(db, "durable-delete");
+  const objectId = `${APP_URL}/ap/objects/durable-delete`;
+  await insertObject(db, objectId, author);
+  await db.update(actors).set({ postCount: 1 }).where(eq(actors.apId, author));
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", {
+      ap_id: author,
+      preferred_username: "durable-delete",
+    } as Actor);
+    await next();
+  });
+  app.route("/api/posts", postsRoutes);
+
+  const failingQueue = {
+    async send() {
+      throw new Error("simulated queue outage");
+    },
+    async sendBatch() {
+      throw new Error("simulated queue outage");
+    },
+  };
+  const response = await app.fetch(
+    new Request(`${APP_URL}/api/posts/${encodeURIComponent(objectId)}`, {
+      method: "DELETE",
+    }),
+    {
+      APP_URL,
+      DB_INSTANCE: db,
+      DELIVERY_QUEUE: failingQueue,
+    } as unknown as Env,
+  );
+
+  expect(response.status).toBe(200);
+  expect(
+    await db.select().from(objects).where(eq(objects.apId, objectId)),
+  ).toHaveLength(0);
+  const deleteRows = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(eq(activities.type, "Delete"));
+  expect(deleteRows).toHaveLength(1);
+  expect(await db.select().from(deliveryFanouts)).toEqual([
+    expect.objectContaining({
+      activityApId: deleteRows[0]!.apId,
+      status: "pending",
+    }),
+  ]);
 });

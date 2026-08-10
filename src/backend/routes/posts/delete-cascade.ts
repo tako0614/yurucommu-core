@@ -20,7 +20,7 @@
  */
 
 import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
-import type { Database } from "../../../db/index.ts";
+import type { D1Statement, Database } from "../../../db/index.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
 import {
   activities,
@@ -28,6 +28,7 @@ import {
   announces,
   bookmarks,
   communities,
+  D1_MAX_BATCH_STATEMENTS,
   likes,
   mediaUploads,
   objectRecipients,
@@ -80,9 +81,14 @@ async function deleteAttachedMediaUploadsForObject(
   obj: CascadeObject,
   removedObjectApIds: ReadonlySet<string>,
   media?: IObjectStorage,
-): Promise<string[]> {
+): Promise<{
+  mediaKeys: string[];
+  mediaUploadIds: string[];
+}> {
   // No attachment payload: nothing to reap.
-  if (!obj.attachmentsJson || obj.attachmentsJson === "[]") return [];
+  if (!obj.attachmentsJson || obj.attachmentsJson === "[]") {
+    return { mediaKeys: [], mediaUploadIds: [] };
+  }
 
   const attachmentsJson = obj.attachmentsJson;
 
@@ -110,7 +116,9 @@ async function deleteAttachedMediaUploadsForObject(
       attachmentsJson.includes(mediaUrlForKey(m.r2Key)),
   );
 
-  if (orphaned.length === 0) return [];
+  if (orphaned.length === 0) {
+    return { mediaKeys: [], mediaUploadIds: [] };
+  }
 
   // Before any R2 purge, find which keys are still referenced by an object of
   // the same author OUTSIDE the complete set being removed. This matters for a
@@ -161,10 +169,6 @@ async function deleteAttachedMediaUploadsForObject(
   const idsToDelete = media
     ? orphaned.filter((m) => !stillReferencedKeys.has(m.r2Key)).map((m) => m.id)
     : orphaned.map((m) => m.id);
-  if (idsToDelete.length > 0) {
-    await db.delete(mediaUploads).where(inArray(mediaUploads.id, idsToDelete));
-  }
-
   // Return the keys whose reference count has now dropped to zero. The caller
   // purges them via purgeMediaBlobs AFTER it deletes the objects row, so the
   // IRREVERSIBLE R2 delete is the trailing step: if the objects-row delete fails
@@ -172,9 +176,12 @@ async function deleteAttachedMediaUploadsForObject(
   // surviving with a permanently-deleted blob (a broken image with no recovery).
   // Keys still embedded in another present object's `attachments_json` are kept
   // (blob + media_uploads row) so shared media isn't lost.
-  return media
-    ? orphaned.map((m) => m.r2Key).filter((k) => !stillReferencedKeys.has(k))
-    : [];
+  return {
+    mediaKeys: media
+      ? orphaned.map((m) => m.r2Key).filter((k) => !stillReferencedKeys.has(k))
+      : [],
+    mediaUploadIds: idsToDelete,
+  };
 }
 
 /**
@@ -302,6 +309,76 @@ export async function deleteObjectCascade(
 }
 
 /**
+ * Prepare one local object's complete child/projection cleanup without writing
+ * it. Local delete owners compose this with counters, the outbound Delete,
+ * durable fanout intent, and final object removal in one D1 batch.
+ */
+export async function prepareObjectDeleteCascade(
+  db: Database,
+  objectApId: string,
+  media?: IObjectStorage,
+): Promise<{
+  mediaKeys: string[];
+  statements: readonly [D1Statement, ...D1Statement[]];
+}> {
+  const obj = await db
+    .select({
+      apId: objects.apId,
+      attributedTo: objects.attributedTo,
+      attachmentsJson: objects.attachmentsJson,
+    })
+    .from(objects)
+    .where(eq(objects.apId, objectApId))
+    .get();
+
+  const mediaPlan = obj
+    ? await deleteAttachedMediaUploadsForObject(
+        db,
+        obj,
+        new Set([objectApId]),
+        media,
+      )
+    : { mediaKeys: [], mediaUploadIds: [] };
+
+  const mediaDeleteStatements = chunkForInClause(mediaPlan.mediaUploadIds).map(
+    (ids) =>
+      db
+        .delete(mediaUploads)
+        .where(inArray(mediaUploads.id, ids)) as D1Statement,
+  );
+
+  return {
+    mediaKeys: [...new Set(mediaPlan.mediaKeys)],
+    statements: [
+      ...mediaDeleteStatements,
+      db.delete(likes).where(eq(likes.objectApId, objectApId)) as D1Statement,
+      db
+        .delete(announces)
+        .where(eq(announces.objectApId, objectApId)) as D1Statement,
+      db
+        .delete(bookmarks)
+        .where(eq(bookmarks.objectApId, objectApId)) as D1Statement,
+      db
+        .delete(objectRecipients)
+        .where(eq(objectRecipients.objectApId, objectApId)) as D1Statement,
+      db
+        .delete(storyViews)
+        .where(eq(storyViews.storyApId, objectApId)) as D1Statement,
+      db
+        .delete(storyVotes)
+        .where(eq(storyVotes.storyApId, objectApId)) as D1Statement,
+      db
+        .delete(storyShares)
+        .where(eq(storyShares.storyApId, objectApId)) as D1Statement,
+      ...activityProjectionDeleteStatements(
+        db,
+        eq(activities.objectApId, objectApId),
+      ),
+    ] as [D1Statement, ...D1Statement[]],
+  };
+}
+
+/**
  * Reap every child row for a set of objects without deleting the object rows.
  * This is the set-shaped counterpart to {@link deleteObjectCascade}; callers
  * still own the final object delete and trailing {@link purgeMediaBlobs}.
@@ -358,17 +435,35 @@ export async function deleteObjectsCascade(
     }
   }
 
-  const mediaKeys: string[] = [];
+  const mediaKeys = new Set<string>();
+  const mediaUploadIds = new Set<string>();
   for (const obj of objectsWithAttachments) {
     if (!authorsWithUploads.has(obj.attributedTo)) continue;
-    mediaKeys.push(
-      ...(await deleteAttachedMediaUploadsForObject(
-        db,
-        obj,
-        removedObjectApIds,
-        media,
-      )),
+    const plan = await deleteAttachedMediaUploadsForObject(
+      db,
+      obj,
+      removedObjectApIds,
+      media,
     );
+    for (const key of plan.mediaKeys) mediaKeys.add(key);
+    for (const id of plan.mediaUploadIds) mediaUploadIds.add(id);
+  }
+  const mediaStatements = chunkForInClause([...mediaUploadIds]).map(
+    (ids) =>
+      db
+        .delete(mediaUploads)
+        .where(inArray(mediaUploads.id, ids)) as D1Statement,
+  );
+  for (
+    let offset = 0;
+    offset < mediaStatements.length;
+    offset += D1_MAX_BATCH_STATEMENTS
+  ) {
+    const page = mediaStatements.slice(
+      offset,
+      offset + D1_MAX_BATCH_STATEMENTS,
+    );
+    await runBatch(db, page as [D1Statement, ...D1Statement[]]);
   }
 
   for (const chunk of chunkForInClause(existingApIds)) {
@@ -395,5 +490,5 @@ export async function deleteObjectsCascade(
     ]);
   }
 
-  return mediaKeys;
+  return [...mediaKeys];
 }

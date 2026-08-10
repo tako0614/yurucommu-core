@@ -22,7 +22,7 @@ import { expect, test } from "bun:test";
  * post is also excluded.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
 import {
@@ -31,6 +31,7 @@ import {
   announces,
   blocks,
   bookmarks,
+  deliveryFanouts,
   follows,
   inbox,
   likes,
@@ -787,6 +788,48 @@ test("agent create/delete post persist outbound Activities and follower fanout",
       activityId: deleteRows[0]!.apId,
     }),
   ]);
+});
+
+test("agent delete_post rolls back local state when durable fanout persistence fails", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "tool-atomic-delete");
+  const target = `${APP_URL}/ap/objects/tool-atomic-delete`;
+  await db.insert(objects).values({
+    apId: target,
+    type: "Note",
+    attributedTo: author,
+    content: "keep on failed delete",
+    visibility: "public",
+  });
+  await db.update(actors).set({ postCount: 1 }).where(eq(actors.apId, author));
+  await db.run(sql`
+    CREATE TRIGGER reject_tool_delete_fanout
+    BEFORE INSERT ON delivery_fanouts
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated fanout ledger outage');
+    END
+  `);
+
+  await expect(
+    handleDeletePost(ctxFor(db), { post_id: target }, { ap_id: author }),
+  ).rejects.toThrow("simulated fanout ledger outage");
+
+  expect(
+    await db.select().from(objects).where(eq(objects.apId, target)),
+  ).toHaveLength(1);
+  expect(
+    (
+      await db
+        .select({ postCount: actors.postCount })
+        .from(actors)
+        .where(eq(actors.apId, author))
+        .get()
+    )?.postCount,
+  ).toBe(1);
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Delete")),
+  ).toHaveLength(0);
+  expect(await db.select().from(deliveryFanouts)).toHaveLength(0);
 });
 
 test("agent delete_post reaps children/media and repairs parent and author counters", async () => {
