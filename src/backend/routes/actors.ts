@@ -14,7 +14,6 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
   actorCache,
@@ -83,6 +82,7 @@ import { encodeFeedCursor, feedCursorWhere } from "../lib/feed-cursor.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
 import { logger } from "../lib/logger.ts";
 import { excludeModeratedActors } from "../lib/feed-exclude.ts";
+import { deleteActivitiesCascade } from "../lib/activity-delete-cascade.ts";
 
 const log = logger.child({ component: "actors" });
 
@@ -220,14 +220,11 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
       if (hasPendingDelivery) continue;
     }
 
-    // Drained: remove the terminal delivery_queue rows, the preserved Delete
-    // activities, then the tombstone row itself (chunked for D1's param cap).
+    // Drained: remove the preserved Delete activities with all durable
+    // projections, then the tombstone row itself (chunked for D1's param cap).
     if (deleteActivityIds.length > 0) {
       for (const chunk of chunkForInClause(deleteActivityIds)) {
-        await db
-          .delete(deliveryQueue)
-          .where(inArray(deliveryQueue.activityApId, chunk));
-        await db.delete(activities).where(inArray(activities.apId, chunk));
+        await deleteActivitiesCascade(db, inArray(activities.apId, chunk));
       }
     }
     await db.delete(actors).where(eq(actors.apId, apId));
@@ -250,23 +247,10 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
  * delivery_queue rows AND the preserved Delete activity rows, so re-registration
  * starts clean and no half-signed Delete is sent.
  *
- * Mirrors the activity/queue cleanup `reapDrainedTombstones` performs, but is
- * unconditional (the revive supersedes the Delete) and only scoped to non-
- * terminal delivery rows; terminal rows are removed alongside the activity.
+ * Mirrors the activity/projection cleanup `reapDrainedTombstones` performs,
+ * but is unconditional because the revive supersedes the Delete.
  * Returns the number of Delete activities cancelled.
  */
-// D1 has no interactive transactions, but both the D1 and libsql drivers expose
-// `db.batch([...])`, which commits a list of prepared statements atomically. The
-// shared `Database` union aliases the abstract `BaseSQLiteDatabase` base (which
-// does not surface `batch`), so we narrow to the concrete batch surface here
-// rather than weakening the shared type (mirrors inbox-interaction-handlers.ts).
-type BatchStatement = BatchItem<"sqlite">;
-interface BatchableDb {
-  batch(
-    statements: readonly [BatchStatement, ...BatchStatement[]],
-  ): Promise<unknown>;
-}
-
 export async function cancelTombstoneDelete(
   db: Database,
   apId: string,
@@ -278,20 +262,13 @@ export async function cancelTombstoneDelete(
   const deleteActivityIds = deleteActivities.map((a) => a.apId);
   if (deleteActivityIds.length === 0) return 0;
 
-  // Drop every delivery_queue row for those Delete activities (any status — the
-  // Delete is superseded, including in-flight retry_wait jobs) together with the
-  // preserved Delete activity rows, so no signer can pick up a job referencing
-  // an activity whose actor row has been rotated. Each chunk's two deletes stay
-  // paired in one atomic batch; chunked because a prolific actor can have >100
-  // Delete activities, which would blow D1's 100-bound-param cap and 500 the
-  // revive.
+  // Drop every durable projection for those Delete activities (any queue status
+  // — the Delete is superseded, including in-flight retry_wait jobs) together
+  // with the activity rows, so no signer can pick up work referencing an
+  // activity whose actor row has been rotated. Each chunk stays in one atomic
+  // batch; chunking keeps the predicate below D1's 100-bound-param ceiling.
   for (const chunk of chunkForInClause(deleteActivityIds)) {
-    await (db as unknown as BatchableDb).batch([
-      db
-        .delete(deliveryQueue)
-        .where(inArray(deliveryQueue.activityApId, chunk)),
-      db.delete(activities).where(inArray(activities.apId, chunk)),
-    ]);
+    await deleteActivitiesCascade(db, inArray(activities.apId, chunk));
   }
 
   return deleteActivityIds.length;

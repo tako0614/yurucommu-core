@@ -33,6 +33,7 @@ import {
   purgeMediaBlobs,
 } from "../routes/posts/delete-cascade.ts";
 import { logger } from "./logger.ts";
+import { deleteActivitiesCascade } from "./activity-delete-cascade.ts";
 
 const log = logger.child({ component: "blocklist" });
 
@@ -409,35 +410,22 @@ async function purgeRetainedInteractionEdges(
   );
 }
 
-/** Scan the interaction tables' distinct raw actor ids once in bounded pages. */
-async function purgeActorInteractionEdges(
+type ActorIdentityPage = (
+  cursor: string | undefined,
+) => Promise<{ actorApId: string }[]>;
+
+async function purgeActorInteractionIdentityPages(
   db: Database,
   blockedApId: string,
+  selectPage: ActorIdentityPage,
 ): Promise<void> {
   let cursor: string | undefined;
-  const after = (column: SQLiteColumn): SQL =>
-    cursor === undefined ? sql`` : sql`WHERE ${column} > ${cursor}`;
-
   while (true) {
-    const rows = await db.all<{ actor_ap_id: string }>(sql`
-      SELECT actor_ap_id
-      FROM (
-        SELECT ${likes.actorApId} AS actor_ap_id FROM ${likes} ${after(likes.actorApId)}
-        UNION SELECT ${announces.actorApId} AS actor_ap_id FROM ${announces} ${after(announces.actorApId)}
-        UNION SELECT ${bookmarks.actorApId} AS actor_ap_id FROM ${bookmarks} ${after(bookmarks.actorApId)}
-        UNION SELECT ${storyShares.actorApId} AS actor_ap_id FROM ${storyShares} ${after(storyShares.actorApId)}
-        UNION SELECT ${storyViews.actorApId} AS actor_ap_id FROM ${storyViews} ${after(storyViews.actorApId)}
-        UNION SELECT ${storyVotes.actorApId} AS actor_ap_id FROM ${storyVotes} ${after(storyVotes.actorApId)}
-        UNION SELECT ${follows.followerApId} AS actor_ap_id FROM ${follows} ${after(follows.followerApId)}
-        UNION SELECT ${follows.followingApId} AS actor_ap_id FROM ${follows} ${after(follows.followingApId)}
-      ) AS retained_interaction_actor_ids
-      ORDER BY actor_ap_id
-      LIMIT ${ACTOR_IDENTITY_SCAN_PAGE}
-    `);
+    const rows = await selectPage(cursor);
     if (rows.length === 0) return;
-    cursor = rows[rows.length - 1]!.actor_ap_id;
+    cursor = rows[rows.length - 1]!.actorApId;
     const aliases = rows
-      .map((row) => row.actor_ap_id)
+      .map((row) => row.actorApId)
       .filter((actorApId) => isSameActivityPubActor(actorApId, blockedApId));
     for (
       let index = 0;
@@ -450,6 +438,96 @@ async function purgeActorInteractionEdges(
       );
     }
   }
+}
+
+/**
+ * Scan each interaction identity column in bounded distinct pages. Keep these
+ * as separate selects: Cloudflare D1 rejects the formerly convenient eight-way
+ * UNION with `too many terms in compound SELECT`, even though libsql accepts it.
+ * Purging a discovered alias across every table before scanning the next table
+ * is safe and reduces later pages without losing aliases unique to that table.
+ */
+async function purgeActorInteractionEdges(
+  db: Database,
+  blockedApId: string,
+): Promise<void> {
+  const scan = (selectPage: ActorIdentityPage) =>
+    purgeActorInteractionIdentityPages(db, blockedApId, selectPage);
+
+  await scan((cursor) =>
+    db
+      .selectDistinct({ actorApId: likes.actorApId })
+      .from(likes)
+      .where(cursor === undefined ? undefined : gt(likes.actorApId, cursor))
+      .orderBy(asc(likes.actorApId))
+      .limit(ACTOR_IDENTITY_SCAN_PAGE),
+  );
+  await scan((cursor) =>
+    db
+      .selectDistinct({ actorApId: announces.actorApId })
+      .from(announces)
+      .where(cursor === undefined ? undefined : gt(announces.actorApId, cursor))
+      .orderBy(asc(announces.actorApId))
+      .limit(ACTOR_IDENTITY_SCAN_PAGE),
+  );
+  await scan((cursor) =>
+    db
+      .selectDistinct({ actorApId: bookmarks.actorApId })
+      .from(bookmarks)
+      .where(cursor === undefined ? undefined : gt(bookmarks.actorApId, cursor))
+      .orderBy(asc(bookmarks.actorApId))
+      .limit(ACTOR_IDENTITY_SCAN_PAGE),
+  );
+  await scan((cursor) =>
+    db
+      .selectDistinct({ actorApId: storyShares.actorApId })
+      .from(storyShares)
+      .where(
+        cursor === undefined ? undefined : gt(storyShares.actorApId, cursor),
+      )
+      .orderBy(asc(storyShares.actorApId))
+      .limit(ACTOR_IDENTITY_SCAN_PAGE),
+  );
+  await scan((cursor) =>
+    db
+      .selectDistinct({ actorApId: storyViews.actorApId })
+      .from(storyViews)
+      .where(
+        cursor === undefined ? undefined : gt(storyViews.actorApId, cursor),
+      )
+      .orderBy(asc(storyViews.actorApId))
+      .limit(ACTOR_IDENTITY_SCAN_PAGE),
+  );
+  await scan((cursor) =>
+    db
+      .selectDistinct({ actorApId: storyVotes.actorApId })
+      .from(storyVotes)
+      .where(
+        cursor === undefined ? undefined : gt(storyVotes.actorApId, cursor),
+      )
+      .orderBy(asc(storyVotes.actorApId))
+      .limit(ACTOR_IDENTITY_SCAN_PAGE),
+  );
+  await scan((cursor) =>
+    db
+      .selectDistinct({ actorApId: follows.followerApId })
+      .from(follows)
+      .where(
+        cursor === undefined ? undefined : gt(follows.followerApId, cursor),
+      )
+      .orderBy(asc(follows.followerApId))
+      .limit(ACTOR_IDENTITY_SCAN_PAGE),
+  );
+  await scan((cursor) =>
+    db
+      .selectDistinct({ actorApId: follows.followingApId })
+      .from(follows)
+      .where(
+        cursor === undefined ? undefined : gt(follows.followingApId, cursor),
+      )
+      .orderBy(asc(follows.followingApId))
+      .limit(ACTOR_IDENTITY_SCAN_PAGE),
+  );
 }
 
 /**
@@ -507,7 +585,8 @@ async function purgeMatchingActivities(
       .limit(D1_IN_CHUNK);
     if (rows.length === 0) return;
     cursor = rows[rows.length - 1]!.apId;
-    await db.delete(activities).where(
+    await deleteActivitiesCascade(
+      db,
       inArray(
         activities.apId,
         rows.map((row) => row.apId),
@@ -569,7 +648,7 @@ async function purgeActorActivities(
       .filter((row) => isSameActivityPubActor(row.actorApId, blockedApId))
       .map((row) => row.apId);
     for (const chunk of chunkForInClause(targetApIds)) {
-      await db.delete(activities).where(inArray(activities.apId, chunk));
+      await deleteActivitiesCascade(db, inArray(activities.apId, chunk));
       onPageDeleted?.(chunk.length);
     }
   }

@@ -32,6 +32,7 @@ import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import { logger } from "../../lib/logger.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
+import { activityDeleteCascadeStatements } from "../../lib/activity-delete-cascade.ts";
 
 const log = logger.child({ component: "stories.interactions" });
 
@@ -355,11 +356,14 @@ stories.delete("/:id/like", async (c) => {
   // time and the re-like dedup guard only checks the `likes` edge (removed here),
   // so without this a like→unlike→like cycle would leave the first inbox/activity
   // rows behind and add new ones — duplicate "X liked your story" + a phantom
-  // unread +1. Mirrors the post-path unlike reap.
+  // unread +1. Remove all activity-keyed push/delivery projections too; mirrors
+  // the post-path unlike reap.
   const reapLikeNotification = like.activityApId
     ? [
-        db.delete(inbox).where(eq(inbox.activityApId, like.activityApId)),
-        db.delete(activities).where(eq(activities.apId, like.activityApId)),
+        ...activityDeleteCascadeStatements(
+          db,
+          eq(activities.apId, like.activityApId),
+        ),
       ]
     : [];
   await (db as unknown as Batchable).batch([

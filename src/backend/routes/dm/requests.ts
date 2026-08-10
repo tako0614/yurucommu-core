@@ -5,7 +5,6 @@ import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   activities,
   blocks,
-  inbox as inboxTable,
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
@@ -18,6 +17,7 @@ import {
   recipientObjectIds,
 } from "./conversations-helpers.ts";
 import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
+import { deleteActivitiesCascade } from "../../lib/activity-delete-cascade.ts";
 
 // Upper bound on the number of pending-request CONVERSATIONS returned. The list
 // is collapsed to one row per conversation in SQL (GROUP BY), so this bounds
@@ -136,27 +136,17 @@ requests.post("/requests/reject", async (c) => {
       ),
     );
 
-  // Drop the inbox + delivery Create activities for those messages FIRST, before
-  // the objects vanish. These tables are addressed by AP id with no FK to
-  // `objects`, so deleting only the object orphans them — and the notifications
-  // query LEFT JOINs the now-missing object (gone → NULL visibility → no longer
-  // excluded as "direct"), so each orphan Create would resurface as a blank
-  // "mention" notification with a dead link plus an inflated unread badge. This
-  // mirrors the DM message-delete cleanup (messages.ts).
-  await db
-    .delete(inboxTable)
-    .where(
-      inArray(
-        inboxTable.activityApId,
-        db
-          .select({ apId: activities.apId })
-          .from(activities)
-          .where(inArray(activities.objectApId, senderObjectIds)),
-      ),
-    );
-  await db
-    .delete(activities)
-    .where(inArray(activities.objectApId, senderObjectIds));
+  // Drop every delivery Create activity and its durable projections FIRST,
+  // before the objects vanish. These tables are addressed by AP id with no FK
+  // to `objects`, so deleting only the object orphans them — and the
+  // notifications query LEFT JOINs the now-missing object (gone → NULL
+  // visibility → no longer excluded as "direct"), so each orphan Create would
+  // resurface as a blank "mention" with a dead link plus an inflated unread
+  // badge while push/delivery workers churn. This mirrors DM message deletion.
+  await deleteActivitiesCascade(
+    db,
+    inArray(activities.objectApId, senderObjectIds),
+  );
 
   // Delete the recipient rows for every message the sender wrote in this
   // conversation (same subquery-not-IN reasoning as above).

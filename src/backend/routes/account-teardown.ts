@@ -37,6 +37,7 @@ import { activityApId, generateId } from "../federation-helpers.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
 import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
 import { logger } from "../lib/logger.ts";
+import { deleteActivitiesCascade } from "../lib/activity-delete-cascade.ts";
 
 const log = logger.child({ component: "actors" });
 
@@ -450,14 +451,10 @@ export async function teardownActor(
     .where(eq(objectRecipients.recipientApId, apId));
   // Preserve the federation Delete activity (the delivery consumer needs its
   // rawJson); all other activities by this actor go.
-  await db
-    .delete(activities)
-    .where(
-      and(
-        eq(activities.actorApId, apId),
-        ne(activities.apId, deleteActivityId),
-      ),
-    );
+  await deleteActivitiesCascade(
+    db,
+    and(eq(activities.actorApId, apId), ne(activities.apId, deleteActivityId))!,
+  );
 
   // Interactions on the actor's authored objects, via subqueries.
   const authoredObjectIds = () =>

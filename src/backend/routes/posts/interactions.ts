@@ -41,6 +41,7 @@ import {
 import { logger } from "../../lib/logger.ts";
 import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
 import { isActorBlocked } from "../../lib/blocklist.ts";
+import { activityDeleteCascadeStatements } from "../../lib/activity-delete-cascade.ts";
 
 const log = logger.child({ component: "posts.interactions" });
 
@@ -267,18 +268,19 @@ posts.delete("/:id/like", async (c) => {
 
   // D1 has no interactive transactions; group the like-row delete and the
   // counter decrement into a single atomic batch so they cannot diverge. Also
-  // reap the original like's notification: the like mints a FRESH activity id
-  // each time and the dedup guard only checks the `likes` edge, so without this
-  // a like→unlike→like cycle would leave the first notification behind and add a
-  // second — duplicate "X liked your post" rows (and a phantom unread +1). The
-  // inbound-federated path already gates its notify on the existing edge; this
-  // gives the local path the same idempotency.
+  // reap the original like activity and every durable projection keyed by it:
+  // the like mints a FRESH activity id each time and the dedup guard only checks
+  // the `likes` edge, so without this a like→unlike→like cycle would leave the
+  // first notification behind and add a second — duplicate "X liked your post"
+  // rows (and a phantom unread +1). The inbound-federated path already gates its
+  // notify on the existing edge; this gives the local path the same idempotency
+  // without stranding push/delivery work.
   const reapLikeNotification: BatchStatement[] = like.activityApId
     ? [
-        db
-          .delete(inboxTable)
-          .where(eq(inboxTable.activityApId, like.activityApId)),
-        db.delete(activities).where(eq(activities.apId, like.activityApId)),
+        ...activityDeleteCascadeStatements(
+          db,
+          eq(activities.apId, like.activityApId),
+        ),
       ]
     : [];
   await runBatch(db, [
@@ -484,15 +486,16 @@ posts.delete("/:id/repost", async (c) => {
 
   // D1 has no interactive transactions; group the announce-row delete and the
   // counter decrement into a single atomic batch so they cannot diverge. Also
-  // reap the original repost's notification (same duplicate-notification issue
-  // as unlike: each repost mints a fresh Announce activity id and the guard only
-  // checks the edge, so repost→unrepost→repost would stack notifications).
+  // reap the original repost activity plus all durable projections (same
+  // duplicate-notification issue as unlike: each repost mints a fresh Announce
+  // activity id and the guard only checks the edge, so
+  // repost→unrepost→repost would stack notifications and queue residue).
   const reapRepostNotification: BatchStatement[] = announce.activityApId
     ? [
-        db
-          .delete(inboxTable)
-          .where(eq(inboxTable.activityApId, announce.activityApId)),
-        db.delete(activities).where(eq(activities.apId, announce.activityApId)),
+        ...activityDeleteCascadeStatements(
+          db,
+          eq(activities.apId, announce.activityApId),
+        ),
       ]
     : [];
   await runBatch(db, [

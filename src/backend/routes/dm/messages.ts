@@ -45,6 +45,7 @@ import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { validateChatAttachments } from "../../lib/attachments.ts";
 import { logger } from "../../lib/logger.ts";
 import { isActorBlocked } from "../../lib/blocklist.ts";
+import { deleteActivitiesCascade } from "../../lib/activity-delete-cascade.ts";
 
 const log = logger.child({ component: "dm.messages" });
 
@@ -712,25 +713,14 @@ dm.delete("/messages/:messageId", async (c) => {
   }
   const message = messageOrError;
 
-  // Sequential operations (D1 doesn't support interactive transactions).
-  // Also remove the delivery Create activity + the recipient's inbox row created
-  // at send time (messages.ts send path). These tables are addressed by AP id
-  // with no FK to `objects`, so deleting only the object orphans them — and
-  // because the notifications query LEFT JOINs the now-missing object (a
-  // deleted DM's object is gone → NULL visibility → not excluded as "direct"),
-  // the orphan Create inbox row would resurface as a blank "mention"
-  // notification with a dead /post link. Drop them first.
-  const relatedActivities = await db
-    .select({ apId: activities.apId })
-    .from(activities)
-    .where(eq(activities.objectApId, message.apId));
-  const activityIds = relatedActivities.map((a) => a.apId);
-  if (activityIds.length > 0) {
-    await db
-      .delete(inboxTable)
-      .where(inArray(inboxTable.activityApId, activityIds));
-    await db.delete(activities).where(inArray(activities.apId, activityIds));
-  }
+  // Sequential object/media operations (D1 doesn't support interactive
+  // transactions). First atomically remove every delivery Create activity and
+  // its activity-keyed inbox/push/delivery/archive/claim projections. These
+  // tables are addressed by AP id with no object FK, so deleting only the object
+  // orphans them — and because the notifications query LEFT JOINs the now-missing
+  // object (NULL visibility → not excluded as "direct"), an orphan inbox row
+  // resurfaces as a blank "mention" with a dead /post link.
+  await deleteActivitiesCascade(db, eq(activities.objectApId, message.apId));
   // Reap the message's child rows AND any attached R2 blob + media_uploads row
   // via the shared cascade (covers objectRecipients + media + likes/announces/
   // bookmarks/story*), then drop the object. Local DMs are text-only today so

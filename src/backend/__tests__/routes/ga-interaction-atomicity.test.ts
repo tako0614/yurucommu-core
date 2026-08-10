@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 
 /**
  * GA #18 — local like/repost interaction atomicity.
@@ -16,43 +15,30 @@ import { readFile } from "node:fs/promises";
  */
 
 import { Hono } from "hono";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { and, eq } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
+  activities,
   actors,
   announces,
+  deliveryQueue,
   follows,
+  inboundActivityClaims,
   inbox as inboxTable,
   likes,
+  notificationArchived,
+  notificationPushJobs,
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import interactionRoutes from "../../routes/posts/interactions.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0003_activity_remote_object_edges.sql",
-  "0004_blocklist.sql",
-  "0005_story_community_scope.sql",
-  "0006_dm_community_read_status.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function localApId(username: string): string {
@@ -185,6 +171,35 @@ test("like then unlike keeps likeCount atomic with the like-row presence", async
   expect(await likeRowCount(db, likerApId, postApId)).toEqual(1);
   expect(await likeCountOf(db, postApId)).toEqual(1);
 
+  const likeActivity = await db
+    .select({ apId: likes.activityApId })
+    .from(likes)
+    .where(and(eq(likes.actorApId, likerApId), eq(likes.objectApId, postApId)))
+    .get();
+  if (!likeActivity?.apId) throw new Error("like activity was not persisted");
+  await db.insert(deliveryQueue).values({
+    id: "unlike-projection-delivery",
+    activityApId: likeActivity.apId,
+    inboxUrl: `${authorApId}/inbox`,
+  });
+  await db.insert(notificationArchived).values({
+    actorApId: authorApId,
+    activityApId: likeActivity.apId,
+  });
+  await db.insert(inboundActivityClaims).values({
+    activityApId: likeActivity.apId,
+    processingToken: "unlike-projection-claim",
+  });
+  // The inbox trigger created the push job. Put it in a state that its own
+  // inbox-delete trigger deliberately retains.
+  await db
+    .update(notificationPushJobs)
+    .set({
+      status: "processing",
+      processingToken: "unlike-projection-push",
+    })
+    .where(eq(notificationPushJobs.activityApId, likeActivity.apId));
+
   // Unlike.
   const unlikeRes = await app.fetch(
     new Request(`${APP_URL}/${encoded}/like`, { method: "DELETE" }),
@@ -196,6 +211,34 @@ test("like then unlike keeps likeCount atomic with the like-row presence", async
   // Invariant holds after the undo batch too.
   expect(await likeRowCount(db, likerApId, postApId)).toEqual(0);
   expect(await likeCountOf(db, postApId)).toEqual(0);
+  for (const rows of [
+    await db
+      .select()
+      .from(activities)
+      .where(eq(activities.apId, likeActivity.apId)),
+    await db
+      .select()
+      .from(deliveryQueue)
+      .where(eq(deliveryQueue.activityApId, likeActivity.apId)),
+    await db
+      .select()
+      .from(inboxTable)
+      .where(eq(inboxTable.activityApId, likeActivity.apId)),
+    await db
+      .select()
+      .from(notificationArchived)
+      .where(eq(notificationArchived.activityApId, likeActivity.apId)),
+    await db
+      .select()
+      .from(notificationPushJobs)
+      .where(eq(notificationPushJobs.activityApId, likeActivity.apId)),
+    await db
+      .select()
+      .from(inboundActivityClaims)
+      .where(eq(inboundActivityClaims.activityApId, likeActivity.apId)),
+  ]) {
+    expect(rows).toEqual([]);
+  }
 });
 
 test("double-like is rejected and does not double-count", async () => {

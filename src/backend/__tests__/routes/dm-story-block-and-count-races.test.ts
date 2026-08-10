@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 /**
  * G10 regression tests: DM/story block-bypass and follower-count races.
  *
@@ -11,10 +10,7 @@ import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   activities,
@@ -51,24 +47,12 @@ import type {
   Activity as InboxActivity,
   ActivityContext,
 } from "../../routes/activitypub/inbox-types.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0004_blocklist.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function localApId(username: string): string {
@@ -679,7 +663,16 @@ test("Undo reaches cosmetic interaction edges behind 64 sibling relations", asyn
     SELECT ${cosmeticB}, ${directObject},
       'https://remote.example/activities/cosmetic-direct-2',
       '2020-01-01T00:00:00.000Z'
-    UNION ALL
+  `);
+  await db.run(sql`
+    WITH digits(d) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+    numbers(n) AS (
+      SELECT a.d + b.d * 10
+      FROM digits a CROSS JOIN digits b
+    )
+    INSERT INTO likes (
+      actor_ap_id, object_ap_id, activity_ap_id, created_at
+    )
     SELECT 'https://a-activity-' || n || '.example/users/actor',
       ${activityObject}, ${reusedActivityId},
       '2026-08-09T00:00:00.000Z'

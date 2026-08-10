@@ -7,8 +7,13 @@ import {
   actors,
   announces,
   bookmarks,
+  deliveryQueue,
   follows,
+  inboundActivityClaims,
+  inbox,
   likes,
+  notificationArchived,
+  notificationPushJobs,
   objects,
   storyShares,
   storyViews,
@@ -73,6 +78,65 @@ async function activityExists(db: Database, apId: string): Promise<boolean> {
     .where(eq(activities.apId, apId))
     .get();
   return !!row;
+}
+
+async function seedActivityProjection(
+  db: Database,
+  activityApId: string,
+  activityActorApId: string,
+  recipientApId: string,
+  suffix: string,
+) {
+  await db.insert(activities).values({
+    apId: activityApId,
+    type: "Create",
+    actorApId: activityActorApId,
+    rawJson: "{}",
+    direction: "inbound",
+  });
+  await db.insert(deliveryQueue).values({
+    id: `delivery-${suffix}`,
+    activityApId,
+    inboxUrl: `${recipientApId}/inbox`,
+  });
+  await db.insert(inbox).values({
+    actorApId: recipientApId,
+    activityApId,
+  });
+  // The inbox insert trigger creates a pending push job. Put it in-flight:
+  // the inbox-delete trigger deliberately retains this state, so an activity
+  // hard delete must explicitly fence and remove it.
+  await db
+    .update(notificationPushJobs)
+    .set({ status: "processing", processingToken: `token-${suffix}` })
+    .where(eq(notificationPushJobs.activityApId, activityApId));
+  await db.insert(notificationArchived).values({
+    actorApId: recipientApId,
+    activityApId,
+  });
+  await db.insert(inboundActivityClaims).values({
+    activityApId,
+    processingToken: `claim-${suffix}`,
+  });
+}
+
+async function projectedActivityIds(db: Database) {
+  return {
+    activities: (await db.select().from(activities)).map((row) => row.apId),
+    deliveryQueue: (await db.select().from(deliveryQueue)).map(
+      (row) => row.activityApId,
+    ),
+    inbox: (await db.select().from(inbox)).map((row) => row.activityApId),
+    archived: (await db.select().from(notificationArchived)).map(
+      (row) => row.activityApId,
+    ),
+    pushJobs: (await db.select().from(notificationPushJobs)).map(
+      (row) => row.activityApId,
+    ),
+    inboundClaims: (await db.select().from(inboundActivityClaims)).map(
+      (row) => row.activityApId,
+    ),
+  };
 }
 
 async function seedInteractionSurface(
@@ -282,6 +346,89 @@ test("purgeActorContent removes every cosmetic author spelling but preserves a p
     siblingPost: true,
     remainingActivityActors: [pathCaseSibling],
   });
+});
+
+test("purgeActorContent removes every durable projection of a blocked activity", async () => {
+  const db = await freshDb();
+  const blockedActor = "https://blocked.example/users/alice";
+  const survivorActor = "https://safe.example/users/bob";
+  const recipient = "https://yuru.test/ap/users/activity-projections";
+  const blockedActivity = "https://blocked.example/activities/create";
+  const survivorActivity = "https://safe.example/activities/create";
+  await seedActor(db, recipient, "activity-projections");
+  await seedActivityProjection(
+    db,
+    blockedActivity,
+    blockedActor,
+    recipient,
+    "blocked",
+  );
+  await seedActivityProjection(
+    db,
+    survivorActivity,
+    survivorActor,
+    recipient,
+    "survivor",
+  );
+
+  expect(await purgeActorContent(db, blockedActor)).toEqual({
+    complete: true,
+    deletedObjects: 0,
+    deletedActivities: 1,
+  });
+
+  expect(await projectedActivityIds(db)).toEqual({
+    activities: [survivorActivity],
+    deliveryQueue: [survivorActivity],
+    inbox: [survivorActivity],
+    archived: [survivorActivity],
+    pushJobs: [survivorActivity],
+    inboundClaims: [survivorActivity],
+  });
+});
+
+test("purgeActorContent rolls back a projected activity page and converges on retry", async () => {
+  const db = await freshDb();
+  const blockedActor = "https://retry-activity.example/users/alice";
+  const recipient = "https://yuru.test/ap/users/activity-retry";
+  const activityApId = "https://retry-activity.example/activities/create";
+  await seedActor(db, recipient, "activity-retry");
+  await seedActivityProjection(
+    db,
+    activityApId,
+    blockedActor,
+    recipient,
+    "retry",
+  );
+  await db.run(
+    sql.raw(`
+      CREATE TRIGGER reject_activity_purge
+      BEFORE DELETE ON activities
+      WHEN OLD.ap_id = '${activityApId}'
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated projected activity purge failure');
+      END
+    `),
+  );
+
+  expect(await purgeActorContent(db, blockedActor)).toEqual({
+    complete: false,
+    deletedObjects: 0,
+    deletedActivities: 0,
+  });
+  for (const ids of Object.values(await projectedActivityIds(db))) {
+    expect(ids).toEqual([activityApId]);
+  }
+
+  await db.run(sql`DROP TRIGGER reject_activity_purge`);
+  expect(await purgeActorContent(db, blockedActor)).toEqual({
+    complete: true,
+    deletedObjects: 0,
+    deletedActivities: 1,
+  });
+  for (const ids of Object.values(await projectedActivityIds(db))) {
+    expect(ids).toEqual([]);
+  }
 });
 
 test("purgeActorContent removes retained interaction edges and reconciles counters for every cosmetic spelling", async () => {

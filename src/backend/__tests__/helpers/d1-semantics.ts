@@ -16,8 +16,10 @@
  *      TABLE` there fires every declared `ON DELETE CASCADE` for real.
  *   4. libsql composes `BEGIN`/`COMMIT` across statements; D1 cannot — only
  *      `batch()` is atomic there.
+ *   5. libsql accepts large compound SELECTs; D1 caps each UNION / INTERSECT /
+ *      EXCEPT chain at five SELECT terms.
  *
- * `createTestDb()` reproduces all four so a violation fails the test instead of
+ * `createTestDb()` reproduces all five so a violation fails the test instead of
  * shipping. Tests must not call `createClient(`/`drizzle(` directly; a root
  * gate enforces that this helper is the only constructor.
  */
@@ -36,6 +38,9 @@ export const D1_MAX_BOUND_PARAMS = 100;
  * LIKE/GLOB pattern ceiling, measured in UTF-8 bytes.
  */
 export const D1_MAX_LIKE_COMPLEXITY = 50;
+
+/** Maximum SELECT terms in one D1 compound-select chain (measured on workerd). */
+export const D1_MAX_COMPOUND_SELECT_TERMS = 5;
 
 const TRANSACTION_CONTROL_RE = /^\s*(BEGIN|COMMIT|SAVEPOINT|ROLLBACK|END)\b/i;
 const FOREIGN_KEYS_OFF_RE = /PRAGMA\s+foreign_keys\s*=\s*(OFF|0|false)/i;
@@ -85,6 +90,15 @@ export function assertD1Statement(
     );
   }
 
+  const compoundTerms = maxCompoundSelectTerms(sqlTokens(sql));
+  if (compoundTerms > D1_MAX_COMPOUND_SELECT_TERMS) {
+    throw new Error(
+      `D1_ERROR: too many terms in compound SELECT (${compoundTerms} > ` +
+        `${D1_MAX_COMPOUND_SELECT_TERMS}). Split the UNION / INTERSECT / ` +
+        `EXCEPT chain into separate bounded queries.`,
+    );
+  }
+
   for (const pattern of likeGlobPatterns(sql, params)) {
     const bytes = UTF8_ENCODER.encode(pattern).byteLength;
     if (bytes > D1_MAX_LIKE_COMPLEXITY) {
@@ -94,6 +108,49 @@ export function assertD1Statement(
       );
     }
   }
+}
+
+function maxCompoundSelectTerms(
+  tokens: readonly SqlToken[],
+  start = 0,
+  end = tokens.length,
+): number {
+  let directSelect = false;
+  let directCompoundOperators = 0;
+  let nestedMaximum = 0;
+
+  for (let index = start; index < end; index += 1) {
+    const token = tokens[index];
+    if (token?.kind === "symbol" && token.value === "(") {
+      let depth = 1;
+      let closing = index + 1;
+      for (; closing < end; closing += 1) {
+        const candidate = tokens[closing];
+        if (candidate?.kind !== "symbol") continue;
+        if (candidate.value === "(") depth += 1;
+        if (candidate.value === ")") depth -= 1;
+        if (depth === 0) break;
+      }
+      nestedMaximum = Math.max(
+        nestedMaximum,
+        maxCompoundSelectTerms(tokens, index + 1, closing),
+      );
+      index = closing;
+      continue;
+    }
+    if (token?.kind !== "word") continue;
+    if (token.value === "SELECT") directSelect = true;
+    if (
+      token.value === "UNION" ||
+      token.value === "INTERSECT" ||
+      token.value === "EXCEPT"
+    ) {
+      directCompoundOperators += 1;
+    }
+  }
+
+  const directTerms = directSelect ? directCompoundOperators + 1 : 0;
+  return Math.max(directTerms, nestedMaximum);
 }
 
 type SqlToken =
