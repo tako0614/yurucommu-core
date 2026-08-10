@@ -44,6 +44,7 @@ import { feedCursorWhere } from "../../lib/feed-cursor.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { validateChatAttachments } from "../../lib/attachments.ts";
 import { logger } from "../../lib/logger.ts";
+import { isActorBlocked } from "../../lib/blocklist.ts";
 
 const log = logger.child({ component: "dm.messages" });
 
@@ -372,6 +373,9 @@ dm.get("/user/:encodedApId/messages", async (c) => {
 
   const db = c.get("db");
   const otherApId = decodeURIComponent(c.req.param("encodedApId"));
+  if (await isActorBlocked(db, otherApId)) {
+    return c.json({ error: "User not found" }, 404);
+  }
   const limit = parseLimit(c.req.query("limit"), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query("before");
   // Resolve to the STORED conversation id of an existing thread rather than
@@ -422,6 +426,13 @@ dm.post("/user/:encodedApId/messages", async (c) => {
 
   const db = c.get("db");
   const otherApId = decodeURIComponent(c.req.param("encodedApId"));
+  // Operator defederation is an authority boundary, not merely a late queue
+  // filter. Reject before recipient lookup, body work, conversation resolution,
+  // or any Note/Activity write so the API cannot claim a DM was sent when its
+  // delivery is guaranteed to be skipped.
+  if (await isActorBlocked(db, otherApId)) {
+    return c.json({ error: "User not found" }, 404);
+  }
   const body = await c.req.json<{
     content?: string;
     attachments?: unknown;

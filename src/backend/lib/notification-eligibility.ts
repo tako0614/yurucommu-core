@@ -20,6 +20,7 @@ import {
   ne,
   notExists,
   or,
+  sql,
   type SQL,
 } from "drizzle-orm";
 
@@ -32,6 +33,7 @@ import {
   type Database,
 } from "../../db/index.ts";
 import { excludeBlockedMutedAuthors } from "./feed-exclude.ts";
+import { operatorActorNotBlockedSql } from "./blocklist.ts";
 
 /**
  * The activity types that surface as notifications. Any addition must hold for
@@ -135,7 +137,14 @@ export function notificationEligibilityWhere(
     directCondition,
   ];
 
-  // Suppress notifications whose actor the recipient has blocked or muted.
+  // Suppress notifications whose actor the recipient has blocked or muted,
+  // and identities defederated by the instance operator. This is deliberately
+  // a read-time gate shared by list, unread badge, realtime snapshot, and push:
+  // retained inbox/activity rows must become inert immediately even when an
+  // earlier content purge was partial and will converge on retry.
+  conditions.push(operatorActorNotBlockedSql(sql`${activities.actorApId}`));
+
+  // Personal block/mute suppression remains per recipient.
   // This remains the read-time choke point for every notification path even
   // when a specific inbound write path also suppresses muted interactions, so
   // like/repost/follow/reply/mention stay covered for both local and federated

@@ -38,6 +38,7 @@ import {
   recipientObjectIds,
 } from "../dm/conversations-helpers.ts";
 import type { Input, ToolContext } from "./types.ts";
+import { isActorBlocked } from "../../lib/blocklist.ts";
 
 // `.batch` lives only on the concrete D1/libsql subclasses; reach it through a
 // narrow structural cast so the Note + recipient + activity + inbox commit
@@ -203,6 +204,9 @@ export async function handleGetDmMessages(
   const threadId = requireString(input, "thread_id");
   const limit = toolLimit(input.limit, 50, 100);
   if (!threadId) return c.json(errRequired("Thread ID"), 400);
+  if (await isActorBlocked(db, threadId)) {
+    return c.json(errNotFound("Thread"), 404);
+  }
 
   const baseUrl = c.env.APP_URL;
   // Read from the STORED conversation id (incl. a legacy-scheme thread) so the

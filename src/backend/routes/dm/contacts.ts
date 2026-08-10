@@ -1,18 +1,7 @@
 // GET /contacts - List DM contacts and communities
 
 import { Hono } from "hono";
-import {
-  and,
-  count,
-  desc,
-  eq,
-  inArray,
-  isNotNull,
-  isNull,
-  ne,
-  or,
-  sql,
-} from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   communities,
   communityMembers,
@@ -23,10 +12,15 @@ import {
 } from "../../../db/index.ts";
 import { formatUsername } from "../../federation-helpers.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
+import {
+  isActorBlocked,
+  operatorActorNotBlockedSql,
+} from "../../lib/blocklist.ts";
 import { yurumeUnreadCounts } from "../../lib/unread-counts.ts";
 import {
   buildActorInfoMap,
   byTimeDesc,
+  dmWhereForActor,
   findRepliedConversations,
   formatActorProfile,
   groupConversations,
@@ -42,31 +36,10 @@ contacts.get("/contacts", async (c) => {
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
 
-  // DMs where this actor is the recipient are addressed via the
-  // `object_recipients` index (`recipient_ap_id = <actor>`, `type = 'to'`),
-  // written on every inbound/outbound DM whose recipient is this local actor
-  // (see dm/messages.ts, takos-tools/dm.ts, inbox-content-handlers.ts). Using
-  // that index instead of an unindexable `to_json LIKE '%"<apId>"%'` substring
-  // scan keeps the same membership semantics (recipient OR author) without a
-  // full-table scan.
-  const recipientObjectIds = db
-    .select({ objectApId: objectRecipients.objectApId })
-    .from(objectRecipients)
-    .where(
-      and(
-        eq(objectRecipients.recipientApId, actor.ap_id),
-        eq(objectRecipients.type, "to"),
-      ),
-    );
-  const dmWhere = and(
-    eq(objects.visibility, "direct"),
-    eq(objects.type, "Note"),
-    isNotNull(objects.conversation),
-    or(
-      eq(objects.attributedTo, actor.ap_id),
-      inArray(objects.apId, recipientObjectIds),
-    ),
-  );
+  // Shared indexed DM membership + operator-block predicate. Keeping the
+  // counterpart decision in one helper makes contacts, archived threads, and
+  // Takos tool threads agree for both incoming and outgoing messages.
+  const dmWhere = dmWhereForActor(db, actor.ap_id);
 
   // GET must be side-effect-free: this handler no longer prunes orphaned
   // dm_read_status rows. Read-status cleanup happens on the write paths that
@@ -154,6 +127,7 @@ contacts.get("/contacts", async (c) => {
                 eq(objects.visibility, "direct"),
                 ne(objects.attributedTo, actor.ap_id),
                 sql`${objects.published} > ${lastReadAt}`,
+                operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
               ),
             )
             .groupBy(objects.conversation);
@@ -250,6 +224,7 @@ contacts.get("/contacts", async (c) => {
           eq(objectRecipients.type, "audience"),
           eq(objects.type, "Note"),
           isNull(objects.communityApId),
+          operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
         ),
       )
       .orderBy(desc(objects.published))
@@ -301,6 +276,7 @@ contacts.get("/contacts", async (c) => {
         ON r.community_ap_id = cm.community_ap_id
         AND r.actor_ap_id = ${me}
       WHERE cm.actor_ap_id = ${me}
+        AND ${operatorActorNotBlockedSql(sql.raw("o.attributed_to"))}
         AND o.published > COALESCE(r.last_read_at, cm.joined_at, '1970-01-01T00:00:00Z')
       GROUP BY cm.community_ap_id
     `);
@@ -356,6 +332,7 @@ contacts.get("/contacts", async (c) => {
         eq(objects.type, "Note"),
         eq(objectRecipients.recipientApId, actor.ap_id),
         eq(objectRecipients.type, "to"),
+        operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
       ),
     );
 
@@ -440,6 +417,9 @@ contacts.get("/contact/:encodedApId", async (c) => {
   }
 
   // Otherwise treat it as a user (local actor or cached remote actor).
+  if (await isActorBlocked(db, apId)) {
+    return c.json({ error: "Contact not found" }, 404);
+  }
   const infoMap = await buildActorInfoMap(db, [apId]);
   const info = infoMap.get(apId);
   if (!info) return c.json({ error: "Contact not found" }, 404);

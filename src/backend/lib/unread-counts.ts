@@ -25,6 +25,7 @@ import {
   type Database,
 } from "../../db/index.ts";
 import { notificationEligibilityWhere } from "./notification-eligibility.ts";
+import { operatorActorNotBlockedSql } from "./blocklist.ts";
 
 export interface YurumeUnreadCounts {
   readonly dm: number;
@@ -50,6 +51,7 @@ export async function yurumeUnreadCounts(
       AND o.type = 'Note'
       AND o.conversation IS NOT NULL
       AND o.attributed_to != ${actorApId}
+      AND ${operatorActorNotBlockedSql(sql.raw("o.attributed_to"))}
       AND o.published > COALESCE(r.last_read_at, '1970-01-01T00:00:00Z')
       AND o.conversation NOT IN (
         SELECT conversation_id FROM dm_archived_conversations
@@ -72,6 +74,7 @@ export async function yurumeUnreadCounts(
       ON r.community_ap_id = cm.community_ap_id
       AND r.actor_ap_id = ${actorApId}
     WHERE cm.actor_ap_id = ${actorApId}
+      AND ${operatorActorNotBlockedSql(sql.raw("o.attributed_to"))}
       AND o.published > COALESCE(
         r.last_read_at,
         cm.joined_at,

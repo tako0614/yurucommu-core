@@ -18,6 +18,7 @@ import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   activities,
+  actorCache,
   actors,
   blocks,
   follows,
@@ -27,6 +28,7 @@ import {
   storyShares,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
+import { blockDomain } from "../../lib/blocklist.ts";
 import dmRoutes from "../../routes/dm/messages.ts";
 import storyRoutes from "../../routes/stories/interactions.ts";
 import postsRoutes from "../../routes/posts/routes.ts";
@@ -187,6 +189,55 @@ test("DM send succeeds when there is no block", async () => {
   expect(res.status).toEqual(201);
   const notes = await db.select().from(objects).where(eq(objects.type, "Note"));
   expect(notes.length).toEqual(1);
+});
+
+test("operator block makes a retained remote DM thread unreadable and unwritable", async () => {
+  const db = await freshDb();
+  const senderApId = await insertLocalActor(db, "operator-block-sender");
+  const recipientApId = "https://chat.defederated.example/users/recipient";
+  await db.insert(actorCache).values({
+    apId: recipientApId,
+    preferredUsername: "recipient",
+    inbox: `${recipientApId}/inbox`,
+    rawJson: JSON.stringify({ id: recipientApId, type: "Person" }),
+  });
+
+  const app = appWith(
+    db,
+    fakeActor(senderApId, "operator-block-sender"),
+    dmRoutes,
+  );
+  const route = `${APP_URL}/user/${encodeURIComponent(recipientApId)}/messages`;
+  const beforeBlock = await app.fetch(
+    new Request(route, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "before block" }),
+    }),
+    envFor(db),
+  );
+  expect(beforeBlock.status).toBe(201);
+
+  await blockDomain(db, "defederated.example", "operator block");
+
+  const read = await app.fetch(new Request(route), envFor(db));
+  expect(read.status).toBe(404);
+  expect(await read.json()).toEqual({ error: "User not found" });
+
+  const afterBlock = await app.fetch(
+    new Request(route, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "must not be written" }),
+    }),
+    envFor(db),
+  );
+  expect(afterBlock.status).toBe(404);
+  expect(await afterBlock.json()).toEqual({ error: "User not found" });
+  expect(
+    await db.select().from(objects).where(eq(objects.type, "Note")),
+  ).toHaveLength(1);
+  expect(await db.select().from(activities)).toHaveLength(1);
 });
 
 test("deleting a DM also removes its delivery activity + recipient inbox row (no orphan notification)", async () => {

@@ -52,6 +52,7 @@ import {
   handleGetDmThreads,
 } from "../../routes/takos-tools/dm.ts";
 import { getConversationId } from "../../routes/dm/query-helpers.ts";
+import { blockDomain } from "../../lib/blocklist.ts";
 
 const APP_URL = "https://yuru.test";
 const MIGRATIONS = [
@@ -524,4 +525,58 @@ test("agent DM tools retain a bto/bcc-addressed thread without to_json disclosur
   expect(messagesResult.__body.data.messages).toEqual([
     expect.objectContaining({ ap_id: apId, content: "hidden tool message" }),
   ]);
+});
+
+test("agent DM tools suppress an operator-blocked retained remote thread", async () => {
+  const db = await freshDb();
+  const recipient = await insertLocalActor(db, "blocked-thread-recipient");
+  const sender = "https://chat.defederated.example/users/sender";
+  await db.insert(actors).values({
+    apId: sender,
+    type: "Person",
+    preferredUsername: "sender",
+    inbox: `${sender}/inbox`,
+    outbox: `${sender}/outbox`,
+    followersUrl: `${sender}/followers`,
+    followingUrl: `${sender}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  const apId = `${sender}/objects/old-dm`;
+  const conversation = getConversationId(APP_URL, sender, recipient);
+  await db.insert(objects).values({
+    apId,
+    type: "Note",
+    attributedTo: sender,
+    content: "retained blocked message",
+    visibility: "direct",
+    toJson: JSON.stringify([recipient]),
+    conversation,
+    published: isoMinutesAgo(1),
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: apId,
+    recipientApId: recipient,
+    type: "to",
+  });
+  await blockDomain(db, "defederated.example", "operator block");
+
+  const threadsResult = (await handleGetDmThreads(
+    ctxFor(db),
+    {},
+    { ap_id: recipient },
+  )) as unknown as {
+    __body: { data: { threads: Array<{ partner: string }> } };
+  };
+  expect(threadsResult.__body.data.threads).toEqual([]);
+
+  const messagesResult = (await handleGetDmMessages(
+    ctxFor(db),
+    { thread_id: sender },
+    { ap_id: recipient },
+  )) as unknown as { __body: { success: boolean; error: string } };
+  expect(messagesResult.__body).toEqual({
+    success: false,
+    error: "Thread not found",
+  });
 });

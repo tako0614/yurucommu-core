@@ -30,10 +30,12 @@ import {
 import type { Actor, Env, Variables } from "../../types.ts";
 import dmRoutes from "../../routes/dm/conversations.ts";
 import { yurumeUnreadCounts } from "../../lib/unread-counts.ts";
+import { blockDomain } from "../../lib/blocklist.ts";
 
 const APP_URL = "https://yuru.test";
 const MIGRATIONS = [
   "0001_init.sql",
+  "0004_blocklist.sql",
   "0006_dm_community_read_status.sql",
   "0008_actor_fields_aka.sql",
   "0009_object_tags.sql",
@@ -238,6 +240,26 @@ test("GET /unread/count total equals the sum of unread_count across /contacts", 
     "g3",
     "2026-06-20T12:06:00.000Z",
   );
+  // Retained rows from a defederated actor are inert even if cleanup is still
+  // converging: neither the rich contacts view nor the lightweight/push badge
+  // may count them.
+  const blockedRemote = "https://chat.defederated.example/users/spammer";
+  await insertDm(
+    db,
+    blockedRemote,
+    alice,
+    "conv-blocked",
+    "blocked-dm",
+    "2026-06-20T12:07:00.000Z",
+  );
+  await insertCommunityChat(
+    db,
+    blockedRemote,
+    fanclub,
+    "blocked-group-chat",
+    "2026-06-20T12:08:00.000Z",
+  );
+  await blockDomain(db, "defederated.example", "operator block");
 
   const actor = fakeActor(alice, "alice");
   const app = appWith(db, actor);

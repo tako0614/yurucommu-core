@@ -37,6 +37,7 @@ import {
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
+import { blockDomain } from "../../lib/blocklist.ts";
 import notificationsRoutes from "../../routes/notifications.ts";
 
 const APP_URL = "https://yuru.test";
@@ -495,12 +496,13 @@ test("a direct (DM) Create is excluded from notifications + the unread count; a 
   expect(countBody.count).toBe(1);
 });
 
-test("notifications from a blocked or muted actor are suppressed (list + unread count)", async () => {
+test("notifications from personal- or operator-blocked and muted actors are suppressed", async () => {
   const db = await freshDb();
   const me = await insertLocalActor(db, "me");
   const blocked = await insertLocalActor(db, "spammer"); // I block them
   const muted = await insertLocalActor(db, "noisy"); // I mute them
   const friend = await insertLocalActor(db, "friend"); // neither
+  const defederated = "https://node.defederated.example/users/spammer";
 
   const post = `${APP_URL}/ap/objects/mypost`;
   await db.insert(objects).values({
@@ -534,6 +536,7 @@ test("notifications from a blocked or muted actor are suppressed (list + unread 
   };
   await seedLike("like-blocked", blocked);
   await seedLike("like-muted", muted);
+  await seedLike("like-defederated", defederated);
   await seedLike("like-friend", friend);
 
   await db.insert(blocks).values({
@@ -544,6 +547,7 @@ test("notifications from a blocked or muted actor are suppressed (list + unread 
     muterApId: me,
     mutedApId: "https://YURU.test/ap/users/noisy/",
   });
+  await blockDomain(db, "defederated.example", "operator block");
 
   // List: only the non-blocked/non-muted like survives.
   const notifs = await fetchNotifications(db, fakeActor(me, "me"));

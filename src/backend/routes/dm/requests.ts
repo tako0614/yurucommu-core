@@ -17,6 +17,7 @@ import {
   type HonoEnv,
   recipientObjectIds,
 } from "./conversations-helpers.ts";
+import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
 
 // Upper bound on the number of pending-request CONVERSATIONS returned. The list
 // is collapsed to one row per conversation in SQL (GROUP BY), so this bounds
@@ -58,6 +59,7 @@ requests.get("/requests", async (c) => {
         // instead of an unindexable `to_json LIKE '%"<apId>"%'` scan; same
         // recipient-membership semantics.
         inArray(objects.apId, recipientObjectIds(db, actor.ap_id)),
+        operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
       ),
     )
     .groupBy(objects.conversation)

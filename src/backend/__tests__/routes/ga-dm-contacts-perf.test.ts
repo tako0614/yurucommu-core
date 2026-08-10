@@ -20,13 +20,15 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, objects } from "../../../db/index.ts";
+import { actorCache, actors, objects } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
+import { blockDomain } from "../../lib/blocklist.ts";
 import dmRoutes from "../../routes/dm/conversations.ts";
 
 const APP_URL = "https://yuru.test";
 const MIGRATIONS = [
   "0001_init.sql",
+  "0004_blocklist.sql",
   "0006_dm_community_read_status.sql",
   "0008_actor_fields_aka.sql",
   "0009_object_tags.sql",
@@ -316,4 +318,89 @@ test("GET /contacts performs no writes (side-effect-free)", async () => {
     sql`SELECT conversation_id FROM dm_read_status WHERE conversation_id = 'orphan-conv'`,
   )) as { conversation_id: string } | undefined;
   expect(orphan?.conversation_id).toEqual("orphan-conv");
+});
+
+test("DM presentation suppresses retained operator-blocked remote identities", async () => {
+  const db = await freshDb();
+  const viewer = await insertLocalActor(db, "viewer");
+  const allowed = await insertLocalActor(db, "allowed");
+  const blocked = "https://node.defederated.example/users/spammer";
+  await db.insert(actorCache).values({
+    apId: blocked,
+    preferredUsername: "spammer",
+    name: "Blocked Remote",
+    inbox: `${blocked}/inbox`,
+    rawJson: JSON.stringify({ id: blocked, type: "Person" }),
+  });
+
+  await insertDm(
+    db,
+    blocked,
+    viewer,
+    "conv-blocked-in",
+    "blocked-in",
+    "2024-01-01T00:00:03Z",
+  );
+  await insertDm(
+    db,
+    viewer,
+    blocked,
+    "conv-blocked-out",
+    "blocked-out",
+    "2024-01-01T00:00:02Z",
+  );
+  await insertDm(
+    db,
+    allowed,
+    viewer,
+    "conv-allowed",
+    "allowed-in",
+    "2024-01-01T00:00:01Z",
+  );
+  await blockDomain(db, "defederated.example", "operator block");
+
+  const app = appWith(db, fakeActor(viewer, "viewer"));
+  const contacts = await getContacts(app, db);
+  expect(
+    contacts.mutual_followers.map((contact) => contact.conversation_id),
+  ).toEqual(["conv-allowed"]);
+  expect(contacts.request_count).toBe(1);
+
+  await db.run(sql`
+    INSERT INTO dm_archived_conversations (actor_ap_id, conversation_id, archived_at)
+    VALUES (${viewer}, 'conv-blocked-in', '2024-01-01T00:00:04Z')
+  `);
+  const archivedRes = await app.fetch(
+    new Request(`${APP_URL}/archived`),
+    envFor(db),
+  );
+  expect(archivedRes.status).toBe(200);
+  expect(await archivedRes.json()).toEqual({ archived: [] });
+
+  const requestsRes = await app.fetch(
+    new Request(`${APP_URL}/requests`),
+    envFor(db),
+  );
+  expect(requestsRes.status).toBe(200);
+  expect(
+    (
+      (await requestsRes.json()) as {
+        requests: Array<{ sender: { ap_id: string } }>;
+      }
+    ).requests.map((request) => request.sender.ap_id),
+  ).toEqual([allowed]);
+
+  const unreadRes = await app.fetch(
+    new Request(`${APP_URL}/unread/count`),
+    envFor(db),
+  );
+  expect(unreadRes.status).toBe(200);
+  expect(await unreadRes.json()).toEqual({ total: 1, dm: 1, community: 0 });
+
+  const contactRes = await app.fetch(
+    new Request(`${APP_URL}/contact/${encodeURIComponent(blocked)}`),
+    envFor(db),
+  );
+  expect(contactRes.status).toBe(404);
+  expect(await contactRes.json()).toEqual({ error: "Contact not found" });
 });

@@ -1,12 +1,13 @@
 // Shared helpers for DM conversations
 
 import type { Context } from "hono";
-import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import { objectRecipients, objects } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { safeJsonParse } from "../../federation-helpers.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
+import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
 
 /**
  * Indexed lookup of the object AP-IDs a given actor was addressed on as a DM
@@ -75,6 +76,13 @@ export function dmWhereForActor(db: Database, actorApId: string) {
       eq(objects.attributedTo, actorApId),
       inArray(objects.apId, recipientObjectIds(db, actorApId)),
     ),
+    operatorActorNotBlockedSql(sql`
+      CASE
+        WHEN ${objects.attributedTo} = ${actorApId}
+          THEN json_extract(${objects.toJson}, '$[0]')
+        ELSE ${objects.attributedTo}
+      END
+    `),
   );
 }
 
