@@ -200,21 +200,20 @@ export async function removeMemberAndBanAtomic(
 }
 
 /**
- * Atomically remove a REMOTE community member's accepted/pending Follow and
- * record the same durable ban used for local removals. Remote actors have no
- * communityMembers row, so this is the federation-side counterpart to
- * removeMemberAndBanAtomic.
+ * Prepare removal of a REMOTE community member's accepted/pending Follow and
+ * the same durable ban used for local removals. The route composes these with
+ * the peer-facing Reject Activity and delivery intent in one D1 batch.
  */
-export async function removeRemoteMemberAndBanAtomic(
+export function prepareRemoveRemoteMemberAndBanStatements(
   db: Database,
   communityApIdVal: string,
   actorApIdVal: string,
-): Promise<void> {
-  await (db as unknown as Batchable).batch([
+): [D1Statement, D1Statement] {
+  return [
     db
       .insert(communityBans)
       .values({ communityApId: communityApIdVal, bannedApId: actorApIdVal })
-      .onConflictDoNothing(),
+      .onConflictDoNothing() as D1Statement,
     db
       .delete(follows)
       .where(
@@ -222,8 +221,8 @@ export async function removeRemoteMemberAndBanAtomic(
           eq(follows.followerApId, actorApIdVal),
           eq(follows.followingApId, communityApIdVal),
         ),
-      ),
-  ]);
+      ) as D1Statement,
+  ];
 }
 
 /**

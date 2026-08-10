@@ -4,10 +4,12 @@ import { Hono } from "hono";
 
 import type { Database } from "../../../db/index.ts";
 import {
+  activities,
   actors,
   communities,
   communityBans,
   communityMembers,
+  deliveryResolutions,
   follows,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -20,12 +22,15 @@ import { registerMembershipMemberRoutes } from "../../routes/communities/members
 // Announce-relay fan-out and the members-only post gate both key on). The kick
 // endpoint only looked at communityMembers and 404'd any remote actor, so a
 // moderator had NO way to remove a remote member. The handler now also removes
-// the follows edge.
+// the follows edge and co-commits a Group-signed Reject plus its durable
+// delivery intent so the peer removes the corresponding following edge too.
 
 const APP_URL = "https://yuru.test";
 const GROUP = `${APP_URL}/ap/groups/town`;
 const OWNER = `${APP_URL}/ap/users/owner`;
 const REMOTE = "https://remote.example/users/raider";
+const FOLLOW_ACT = "https://remote.example/activities/follow-town";
+const FOLLOW_LEDGER_ACT = `${APP_URL}/ap/activities/inbound-follow-town`;
 
 async function freshDb(): Promise<Database> {
   return (await createTestDb()).db;
@@ -59,11 +64,28 @@ async function seed(db: Database): Promise<void> {
   await db
     .insert(communityMembers)
     .values({ communityApId: GROUP, actorApId: OWNER, role: "owner" });
+  // Inbox storage uses a local-origin ledger id as the edge key. The peer's
+  // original wire id remains in rawJson and is what an outbound Reject must
+  // echo so the remote server can resolve its own Follow.
+  await db.insert(activities).values({
+    apId: FOLLOW_LEDGER_ACT,
+    type: "Follow",
+    actorApId: REMOTE,
+    objectApId: GROUP,
+    rawJson: JSON.stringify({
+      id: FOLLOW_ACT,
+      type: "Follow",
+      actor: REMOTE,
+      object: GROUP,
+    }),
+    direction: "inbound",
+  });
   // Remote member: accepted follows edge to the Group, NO communityMembers row.
   await db.insert(follows).values({
     followerApId: REMOTE,
     followingApId: GROUP,
     status: "accepted",
+    activityApId: FOLLOW_LEDGER_ACT,
     acceptedAt: "2026-01-01T00:00:00.000Z",
   });
 }
@@ -123,7 +145,20 @@ async function rejectCommunityBanWrites(db: Database): Promise<void> {
 
 const env = { APP_URL, DB_INSTANCE: undefined } as unknown as Env;
 
-test("an owner can kick a REMOTE member (the follows edge is deleted)", async () => {
+function queueOutageEnv(db: Database): Env {
+  const queue = {
+    send: () => Promise.reject(new Error("simulated Queue outage")),
+    sendBatch: () => Promise.reject(new Error("simulated Queue outage")),
+  };
+  return {
+    APP_URL,
+    DB_INSTANCE: db,
+    DELIVERY_QUEUE: queue,
+    DELIVERY_DLQ: queue,
+  } as unknown as Env;
+}
+
+test("an owner kick deletes the remote edge and durably sends a Group Reject", async () => {
   const db = await freshDb();
   await seed(db);
   const app = appFor(db);
@@ -145,6 +180,121 @@ test("an owner can kick a REMOTE member (the follows edge is deleted)", async ()
     )
     .get();
   expect(edge).toBeUndefined(); // removed from the relay + members-only gate
+
+  const reject = await db
+    .select()
+    .from(activities)
+    .where(and(eq(activities.actorApId, GROUP), eq(activities.type, "Reject")))
+    .get();
+  expect(reject?.objectApId).toBe(FOLLOW_ACT);
+  expect(reject?.direction).toBe("outbound");
+  const resolution = await db
+    .select()
+    .from(deliveryResolutions)
+    .where(eq(deliveryResolutions.activityApId, reject!.apId))
+    .get();
+  expect(resolution?.recipientActorApId).toBe(REMOTE);
+  expect(resolution?.status).toBe("pending");
+});
+
+test("remote-member kick rolls back edge, ban, and Reject when delivery intent cannot persist", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await db.run(sql`
+    CREATE TRIGGER reject_remote_kick_resolution
+    BEFORE INSERT ON delivery_resolutions
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated resolution ledger outage');
+    END
+  `);
+
+  const res = await appFor(db).fetch(
+    new Request(
+      `${APP_URL}/api/communities/town/members/${encodeURIComponent(REMOTE)}`,
+      { method: "DELETE" },
+    ),
+    env,
+  );
+
+  expect(res.status).toBe(500);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(
+        and(eq(follows.followerApId, REMOTE), eq(follows.followingApId, GROUP)),
+      )
+      .get(),
+  ).toBeDefined();
+  expect(await db.select().from(communityBans)).toHaveLength(0);
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Reject")),
+  ).toHaveLength(0);
+  expect(await db.select().from(deliveryResolutions)).toHaveLength(0);
+});
+
+test("remote-member kick succeeds with a pending Reject intent through Queue outage", async () => {
+  const db = await freshDb();
+  await seed(db);
+
+  const res = await appFor(db).fetch(
+    new Request(
+      `${APP_URL}/api/communities/town/members/${encodeURIComponent(REMOTE)}`,
+      { method: "DELETE" },
+    ),
+    queueOutageEnv(db),
+  );
+
+  expect(res.status).toBe(200);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(
+        and(eq(follows.followerApId, REMOTE), eq(follows.followingApId, GROUP)),
+      ),
+  ).toHaveLength(0);
+  expect(await db.select().from(communityBans)).toHaveLength(1);
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Reject")),
+  ).toHaveLength(1);
+  const resolutions = await db.select().from(deliveryResolutions);
+  expect(resolutions).toHaveLength(1);
+  expect(resolutions[0]?.status).toBe("pending");
+});
+
+test("a legacy remote edge without a Follow activity remains locally removable without a malformed Reject", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await db
+    .update(follows)
+    .set({ activityApId: null })
+    .where(
+      and(eq(follows.followerApId, REMOTE), eq(follows.followingApId, GROUP)),
+    );
+
+  const res = await appFor(db).fetch(
+    new Request(
+      `${APP_URL}/api/communities/town/members/${encodeURIComponent(REMOTE)}`,
+      { method: "DELETE" },
+    ),
+    env,
+  );
+
+  expect(res.status).toBe(200);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(
+        and(eq(follows.followerApId, REMOTE), eq(follows.followingApId, GROUP)),
+      ),
+  ).toHaveLength(0);
+  expect(await db.select().from(communityBans)).toHaveLength(1);
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Reject")),
+  ).toHaveLength(0);
+  expect(await db.select().from(deliveryResolutions)).toHaveLength(0);
 });
 
 test("kicking an actor who is neither a local member nor a remote follower 404s", async () => {

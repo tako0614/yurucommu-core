@@ -1,6 +1,12 @@
 import type { Context, Hono } from "hono";
 import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
-import { communities, communityMembers, follows } from "../../../db/index.ts";
+import {
+  communities,
+  communityMembers,
+  follows,
+  runBatch,
+  type D1Statement,
+} from "../../../db/index.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
 import { communityRequiresMembership } from "../../lib/community-visibility.ts";
 import type { Env, Variables } from "../../types.ts";
@@ -9,6 +15,7 @@ import {
   parseLimit,
   parseOffset,
 } from "../../federation-helpers.ts";
+import { prepareResponseIfRemote } from "../follow-helpers.ts";
 import {
   batchLoadActorInfo,
   communityWhere,
@@ -17,7 +24,7 @@ import {
   memberWhere,
   removeMemberAndBanAtomic,
   removeOwnerAndBanIfAnotherExists,
-  removeRemoteMemberAndBanAtomic,
+  prepareRemoveRemoteMemberAndBanStatements,
   requireManager,
   resolveCommunityApId,
 } from "./membership-shared.ts";
@@ -83,13 +90,14 @@ export function registerMembershipMemberRoutes(
         // fan-out and the members-only post gate (handleGroupCreate) key on.
         // Deleting that edge is the moderation lever over a remote member: it
         // immediately drops them from the relay and makes their inbound posts
-        // fail the members-only gate (no outbound Reject is required for the
-        // removal to take effect locally). Pending join follows are cleared too.
+        // fail the members-only gate. The Group-signed Reject below also tells
+        // the peer to remove its corresponding following edge. Pending join
+        // follows are cleared the same way.
         // A durable ban (below) auto-Rejects a re-Follow into an open community,
         // so the kick sticks; an approval re-request or invite lets a mod
         // re-admit (which lifts the ban).
         const remoteFollow = await db
-          .select({ followerApId: follows.followerApId })
+          .select({ activityApId: follows.activityApId })
           .from(follows)
           .where(
             and(
@@ -101,10 +109,33 @@ export function registerMembershipMemberRoutes(
         if (!remoteFollow) {
           return c.json({ error: "User is not a member" }, 404);
         }
-        // Removing the relay edge and recording the durable ban are one D1
-        // commit. A ban-write failure must not leave an expelled remote actor
-        // able to re-Follow through the open auto-accept path.
-        await removeRemoteMemberAndBanAtomic(db, community.apId, targetApId);
+        const preparedResponse = remoteFollow.activityApId
+          ? await prepareResponseIfRemote(
+              c.env,
+              db,
+              c.env.APP_URL,
+              "Reject",
+              community.apId,
+              targetApId,
+              remoteFollow.activityApId,
+            )
+          : null;
+        const statements: D1Statement[] = [
+          ...prepareRemoveRemoteMemberAndBanStatements(
+            db,
+            community.apId,
+            targetApId,
+          ),
+        ];
+        if (preparedResponse) statements.push(...preparedResponse.statements);
+
+        // Ban, relay-edge removal, Reject Activity, and durable first-hop
+        // delivery intent are one D1 commit. A persistence failure must leave
+        // both peers' relationship retryable from the original accepted edge.
+        await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
+        // Queue is only a post-commit wakeup. The durable intent remains for the
+        // normal sweep when publication is temporarily unavailable.
+        await preparedResponse?.publish();
         return c.json({ success: true });
       }
 
