@@ -18,6 +18,7 @@ import {
   parseOffset,
 } from "../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../lib/delivery/queue.ts";
+import { isActorBlocked } from "../lib/blocklist.ts";
 import {
   buildApActivity,
   createAndDeliverActivity,
@@ -61,6 +62,17 @@ follow.post("/", async (c) => {
   }
   if (targetApId === actor.ap_id) {
     return c.json({ error: "Cannot follow yourself" }, 400);
+  }
+
+  // An operator block is an instance-wide authority boundary, not merely an
+  // outbound delivery filter. Reject before reading/cleaning an existing edge
+  // or resolving a remote actor so the request cannot report success while the
+  // queue silently drops it, create an inert Follow ledger row, fetch the
+  // defederated host, or mutate a retained relationship that unblock restores.
+  // Match the personal-block route's not-found response to avoid presenting a
+  // blocked target through this mutation surface.
+  if (await isActorBlocked(db, targetApId)) {
+    return c.json({ error: "Target actor not found" }, 404);
   }
 
   const existing = await db
