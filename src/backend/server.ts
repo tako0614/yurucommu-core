@@ -34,7 +34,7 @@ import {
 } from "./lib/delivery/queue.ts";
 import { enqueuePendingDeliveryResolutionJobs } from "./lib/delivery/resolution-outbox.ts";
 import { enqueuePendingDeliveryFanoutJobs } from "./lib/delivery/fanout-outbox.ts";
-import { getDbSQLite } from "../db/index.ts";
+import { getDb, type Database } from "../db/index.ts";
 import { logger } from "./lib/logger.ts";
 import type {
   IQueueBatch,
@@ -358,20 +358,38 @@ function startLocalDeliveryQueueReconciler(env: LocalServerEnv): void {
   (timer as { unref?: () => void }).unref?.();
 }
 
+/**
+ * Open the single SQLite connection used by both migrations and request
+ * handling in Bun self-host mode.
+ *
+ * Keeping both surfaces on BunDatabase is intentional. A second libSQL
+ * connection made Drizzle batch writes visible to that connection while the
+ * process was alive without durably committing them to the SQLite file.
+ */
+export function createLocalDatabase(databasePath: string): {
+  db: Database;
+  rawDb: BunDatabase;
+} {
+  const rawDb = BunDatabase.create(databasePath);
+  const db = getDb(
+    rawDb as unknown as Parameters<typeof getDb>[0],
+  ) as unknown as Database;
+  return { db, rawDb };
+}
+
 async function createLocalServerEnv(config: {
   databasePath: string;
   storagePath: string;
   assetsPath: string;
   appUrl: string;
 }): Promise<{ env: LocalServerEnv; rawDb: BunDatabase }> {
-  const db = BunDatabase.create(config.databasePath);
+  const { db: dbInstance, rawDb } = createLocalDatabase(config.databasePath);
   const kv = new MemoryKV();
   const assets = BunAssets.create(config.assetsPath);
   const media = await BunStorage.create(config.storagePath);
 
   const passthrough = buildLocalRuntimeEnvPassthrough(process.env);
 
-  const dbInstance = await getDbSQLite(config.databasePath);
   const env: LocalServerEnv = {
     DB_INSTANCE: dbInstance,
     MEDIA: media,
@@ -386,7 +404,7 @@ async function createLocalServerEnv(config: {
     env.__localDeliveryQueueEnabled = true;
   }
 
-  return { env, rawDb: db };
+  return { env, rawDb };
 }
 
 type LocalServerEnv = Pick<

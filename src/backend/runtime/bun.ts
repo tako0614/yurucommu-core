@@ -185,6 +185,11 @@ class BunPreparedStatement implements PreparedStatement {
     };
   }
 
+  async raw<T extends unknown[] = unknown[]>(): Promise<T[]> {
+    const stmt = this.db.prepare(this.query);
+    return stmt.values(...this.boundValues) as T[];
+  }
+
   async run(): Promise<RunResult> {
     const result = this.runSync();
     return {

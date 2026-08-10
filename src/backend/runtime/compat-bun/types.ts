@@ -6,6 +6,7 @@ export type BunSQLiteRunResult = {
 export interface BunSQLiteStatement {
   get(...values: unknown[]): unknown;
   all(...values: unknown[]): unknown[];
+  values(...values: unknown[]): unknown[][];
   run(...values: unknown[]): BunSQLiteRunResult;
 }
 

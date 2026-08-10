@@ -43,6 +43,7 @@ export interface PreparedStatement {
   bind(...values: unknown[]): PreparedStatement;
   first<T = unknown>(colName?: string): Promise<FirstResult<T>>;
   all<T = unknown>(): Promise<QueryResult<T>>;
+  raw<T extends unknown[] = unknown[]>(): Promise<T[]>;
   run(): Promise<RunResult>;
 }
 
