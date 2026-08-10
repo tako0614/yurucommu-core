@@ -15,6 +15,7 @@ import {
   follows,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
+import { blockDomain } from "../../lib/blocklist.ts";
 import { registerMembershipRequestRoutes } from "../../routes/communities/membership-requests.ts";
 
 /**
@@ -165,4 +166,40 @@ test("POST /requests/accept of a remote: flips the follows edge + emits a commun
     .where(eq(communityMembers.actorApId, REMOTE))
     .get();
   expect(member).toBeUndefined();
+});
+
+test("community join requests hide an operator-blocked remote edge", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await blockDomain(db, "remote.example", "defederated");
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/gated/requests`, { method: "GET" }),
+    env,
+  );
+
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ requests: [] });
+});
+
+test("community accept cannot re-admit an operator-blocked pending remote", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await blockDomain(db, "remote.example", "defederated");
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/gated/requests/accept`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor_ap_id: REMOTE }),
+    }),
+    env,
+  );
+
+  expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({ error: "Join request not found" });
+  expect((await db.select().from(follows))[0]?.status).toBe("pending");
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Accept")),
+  ).toHaveLength(0);
 });

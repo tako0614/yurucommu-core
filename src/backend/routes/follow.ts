@@ -18,7 +18,11 @@ import {
   parseOffset,
 } from "../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../lib/delivery/queue.ts";
-import { isActorBlocked } from "../lib/blocklist.ts";
+import {
+  filterBlockedActorApIds,
+  isActorBlocked,
+  operatorActorNotBlockedSql,
+} from "../lib/blocklist.ts";
 import {
   buildApActivity,
   createAndDeliverActivity,
@@ -222,6 +226,9 @@ follow.post("/accept", async (c) => {
       400,
     );
   }
+  if (await isActorBlocked(db, requesterApId)) {
+    return c.json({ error: "No pending follow request" }, 404);
+  }
 
   let pendingFollow: Awaited<ReturnType<typeof findPendingFollow>>;
   try {
@@ -321,16 +328,26 @@ follow.post("/accept/batch", async (c) => {
     );
   }
 
-  const pendingFollows = await db
-    .select()
-    .from(follows)
-    .where(
-      and(
-        inArray(follows.followerApId, requesterApIds),
-        eq(follows.followingApId, actor.ap_id),
-        eq(follows.status, "pending"),
-      ),
-    );
+  const blockedRequesterApIds = await filterBlockedActorApIds(
+    db,
+    requesterApIds,
+  );
+  const visibleRequesterApIds = requesterApIds.filter(
+    (requesterApId) => !blockedRequesterApIds.has(requesterApId),
+  );
+  const pendingFollows =
+    visibleRequesterApIds.length === 0
+      ? []
+      : await db
+          .select()
+          .from(follows)
+          .where(
+            and(
+              inArray(follows.followerApId, visibleRequesterApIds),
+              eq(follows.followingApId, actor.ap_id),
+              eq(follows.status, "pending"),
+            ),
+          );
   const pendingFollowMap = new Map(
     pendingFollows.map((f) => [f.followerApId, f]),
   );
@@ -543,6 +560,7 @@ follow.get("/requests", async (c) => {
       and(
         eq(follows.followingApId, actor.ap_id),
         eq(follows.status, "pending"),
+        operatorActorNotBlockedSql(sql`${follows.followerApId}`),
       ),
     )
     // followerApId is the PK discriminator (followingApId is fixed = me); add it

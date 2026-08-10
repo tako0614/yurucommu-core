@@ -5,7 +5,7 @@
  * input validation, and common data operations.
  */
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "../../db/index.ts";
 import { actors, bookmarks, follows, likes } from "../../db/index.ts";
 import {
@@ -13,6 +13,7 @@ import {
   parseLimit,
   safeJsonParse,
 } from "../federation-helpers.ts";
+import { operatorActorNotBlockedSql } from "../lib/blocklist.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -162,6 +163,9 @@ export async function fetchFollowList(
           targetApId,
         ),
         eq(follows.status, "accepted"),
+        operatorActorNotBlockedSql(
+          sql`${isFollowers ? follows.followerApId : follows.followingApId}`,
+        ),
       ),
     )
     .limit(limit);

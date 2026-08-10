@@ -51,6 +51,114 @@ function retainedBlockedActorMatchesSql(actorApId: string) {
   );
 }
 
+/**
+ * Return true when a row's actor expression is outside every blocked domain.
+ *
+ * The staged, materialized parser mirrors `normalizeDomain`: it folds scheme
+ * and authority case, removes an explicit port and one DNS root dot, rejects
+ * credentials, and leaves path/query bytes outside the host decision. Keeping
+ * each intermediate value named avoids the exponentially-expanded scalar SQL
+ * that can overflow SQLite's parser stack when embedded in a paginated query.
+ */
+function operatorActorDomainNotBlockedSql(actorApId: SQL): SQL {
+  return sql`
+    NOT EXISTS (
+      WITH
+      operator_actor_url(actor_id) AS MATERIALIZED (
+        SELECT ${actorApId}
+      ),
+      operator_actor_fragmentless(actor_id) AS MATERIALIZED (
+        SELECT CASE WHEN instr(actor_id, '#') > 0
+          THEN substr(actor_id, 1, instr(actor_id, '#') - 1)
+          ELSE actor_id
+        END
+        FROM operator_actor_url
+      ),
+      operator_actor_split(separator, scheme, tail) AS MATERIALIZED (
+        SELECT
+          instr(lower(actor_id), '://'),
+          substr(lower(actor_id), 1, instr(lower(actor_id), '://') - 1),
+          substr(lower(actor_id), instr(lower(actor_id), '://') + 3)
+        FROM operator_actor_fragmentless
+      ),
+      operator_actor_bounds(separator, scheme, tail, boundary) AS MATERIALIZED (
+        SELECT
+          separator,
+          scheme,
+          tail,
+          CASE
+            WHEN instr(tail, '/') = 0 THEN instr(tail, '?')
+            WHEN instr(tail, '?') = 0 THEN instr(tail, '/')
+            WHEN instr(tail, '/') < instr(tail, '?') THEN instr(tail, '/')
+            ELSE instr(tail, '?')
+          END
+        FROM operator_actor_split
+      ),
+      operator_actor_authority(separator, scheme, authority) AS MATERIALIZED (
+        SELECT
+          separator,
+          scheme,
+          CASE WHEN boundary = 0
+            THEN tail
+            ELSE substr(tail, 1, boundary - 1)
+          END
+        FROM operator_actor_bounds
+      ),
+      operator_actor_host(separator, scheme, authority, host) AS MATERIALIZED (
+        SELECT
+          separator,
+          scheme,
+          authority,
+          CASE
+            WHEN substr(authority, 1, 1) = '[' AND instr(authority, ']') > 1
+              THEN substr(authority, 1, instr(authority, ']'))
+            WHEN instr(authority, ':') > 0
+              THEN substr(authority, 1, instr(authority, ':') - 1)
+            ELSE authority
+          END
+        FROM operator_actor_authority
+      ),
+      operator_actor_hostname(hostname) AS MATERIALIZED (
+        SELECT CASE WHEN substr(host, -1) = '.'
+          THEN substr(host, 1, length(host) - 1)
+          ELSE host
+        END
+        FROM operator_actor_host
+        WHERE separator > 1
+          AND scheme IN ('http', 'https')
+          AND length(authority) > 0
+          AND instr(authority, '@') = 0
+      )
+      SELECT 1
+      FROM operator_actor_hostname
+      INNER JOIN ${blockedDomains}
+        ON operator_actor_hostname.hostname = ${blockedDomains.domain}
+        OR substr(
+          operator_actor_hostname.hostname,
+          -length('.' || ${blockedDomains.domain})
+        ) = '.' || ${blockedDomains.domain}
+    )
+  `;
+}
+
+/**
+ * SQL read predicate for identities that are visible under the operator
+ * blocklist. It covers exact and retained cosmetic actor spellings plus exact
+ * host/parent-domain blocks. Callers apply it before pagination; block rows and
+ * relationship edges remain stored so an unblock stays reversible.
+ */
+export function operatorActorNotBlockedSql(actorApId: SQL): SQL {
+  const retainedActorMatches = activityPubActorIdentityMatchesSql(
+    retainedBlockedActorIdsSql(),
+    actorApId,
+  );
+
+  return sql`
+    NOT EXISTS (${retainedActorMatches})
+    AND ${operatorActorDomainNotBlockedSql(actorApId)}
+  `;
+}
+
 function retainedBlockedActorKeySql(actorApId: string) {
   const matches = retainedBlockedActorMatchesSql(actorApId);
   return sql`

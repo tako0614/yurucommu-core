@@ -6,8 +6,9 @@ import { Hono } from "hono";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, follows } from "../../../db/index.ts";
+import { actorCache, actors, follows } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
+import { blockDomain } from "../../lib/blocklist.ts";
 import recommendationsRoute from "../../routes/recommendations.ts";
 
 // Audit #8 finding #5 (privacy parity): the friends-of-friends recommendation
@@ -97,6 +98,93 @@ test("recommendations exclude private/locked accounts but keep public ones", asy
   const ids = body.users.map((u) => u.ap_id);
   expect(ids).toContain(pub);
   expect(ids).not.toContain(locked);
+});
+
+test("recommendations exclude an actor on an operator-blocked domain", async () => {
+  const db = await freshDb();
+  const viewer = await insertActor(db, "blocked-viewer");
+  const mid = await insertActor(db, "blocked-mid");
+  const allowed = await insertActor(db, "blocked-allowed");
+  const blocked = "https://node.blocked.example/users/hidden";
+  await db.insert(actorCache).values({
+    apId: blocked,
+    preferredUsername: "hidden",
+    name: "Hidden Remote",
+    inbox: `${blocked}/inbox`,
+    rawJson: JSON.stringify({ id: blocked, type: "Person" }),
+  });
+
+  await follow(db, viewer, mid);
+  await follow(db, mid, allowed);
+  await follow(db, mid, blocked);
+  await blockDomain(db, "blocked.example", "defederated");
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", viewerActor(viewer));
+    await next();
+  });
+  app.route("/", recommendationsRoute);
+
+  const res = await app.fetch(new Request(`${APP_URL}/users`), {
+    APP_URL,
+    DB_INSTANCE: db,
+  } as unknown as Env);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { users: Array<{ ap_id: string }> };
+  expect(body.users.map((user) => user.ap_id)).toEqual([allowed]);
+});
+
+test("recommendations reflect an operator block immediately after an earlier read", async () => {
+  const db = await freshDb();
+  const viewer = await insertActor(db, "stale-block-viewer");
+  const mid = await insertActor(db, "stale-block-mid");
+  const allowed = await insertActor(db, "stale-block-allowed");
+  const blocked = "https://remote.stale-block.example/users/hidden";
+  await db.insert(actorCache).values({
+    apId: blocked,
+    preferredUsername: "hidden",
+    name: "Hidden Remote",
+    inbox: `${blocked}/inbox`,
+    rawJson: JSON.stringify({ id: blocked, type: "Person" }),
+  });
+
+  await follow(db, viewer, mid);
+  await follow(db, mid, allowed);
+  await follow(db, mid, blocked);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", viewerActor(viewer));
+    await next();
+  });
+  app.route("/", recommendationsRoute);
+
+  const before = await app.fetch(new Request(`${APP_URL}/users`), {
+    APP_URL,
+    DB_INSTANCE: db,
+  } as unknown as Env);
+  expect(before.status).toBe(200);
+  expect(
+    ((await before.json()) as { users: Array<{ ap_id: string }> }).users.map(
+      (user) => user.ap_id,
+    ),
+  ).toContain(blocked);
+
+  await blockDomain(db, "stale-block.example", "defederated");
+
+  const after = await app.fetch(new Request(`${APP_URL}/users`), {
+    APP_URL,
+    DB_INSTANCE: db,
+  } as unknown as Env);
+  expect(after.status).toBe(200);
+  expect(
+    ((await after.json()) as { users: Array<{ ap_id: string }> }).users.map(
+      (user) => user.ap_id,
+    ),
+  ).toEqual([allowed]);
 });
 
 test("recommendations stay non-fatal when the optional query fails", async () => {

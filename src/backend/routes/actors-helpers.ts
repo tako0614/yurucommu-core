@@ -21,6 +21,7 @@ import {
   parseOffset,
 } from "../federation-helpers.ts";
 import { canonicalPersonalModerationActorId } from "../lib/personal-actor-moderation.ts";
+import { operatorActorNotBlockedSql } from "../lib/blocklist.ts";
 
 // Hono context with our app's bindings and variables
 export type AppContext = Context<
@@ -436,8 +437,16 @@ export async function listFollowRelation(
 
   const isFollowers = direction === "followers";
   const whereCondition = isFollowers
-    ? and(eq(follows.followingApId, apId), eq(follows.status, "accepted"))
-    : and(eq(follows.followerApId, apId), eq(follows.status, "accepted"));
+    ? and(
+        eq(follows.followingApId, apId),
+        eq(follows.status, "accepted"),
+        operatorActorNotBlockedSql(sql`${follows.followerApId}`),
+      )
+    : and(
+        eq(follows.followerApId, apId),
+        eq(follows.status, "accepted"),
+        operatorActorNotBlockedSql(sql`${follows.followingApId}`),
+      );
 
   // A private (locked) account's follower/following LIST is owner-only — mirror
   // the ActivityPub collection gate (canViewPrivateActorCollections), which this

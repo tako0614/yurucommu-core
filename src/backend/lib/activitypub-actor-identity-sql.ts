@@ -162,11 +162,11 @@ export function activityPubActorIdentitySetSql(rawActorIds: SQL): SQL {
  */
 export function activityPubActorIdentityMatchesSql(
   rawActorIds: SQL,
-  targetActorId: string,
+  targetActorId: string | SQL,
 ): SQL {
   return expandedActorIdentitiesSql(
     rawActorIds,
-    sql`${targetActorId}`,
+    typeof targetActorId === "string" ? sql`${targetActorId}` : targetActorId,
     sql`
       SELECT DISTINCT candidate.raw_actor_id AS actor_id
       FROM actor_identity_values AS candidate

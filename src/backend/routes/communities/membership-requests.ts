@@ -15,6 +15,10 @@ import {
   isLocal,
 } from "../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import {
+  isActorBlocked,
+  operatorActorNotBlockedSql,
+} from "../../lib/blocklist.ts";
 import { resolvePeerFollowActivityId } from "../follow-helpers.ts";
 import {
   addMemberAtomic,
@@ -62,6 +66,7 @@ export function registerMembershipRequestRoutes(
           and(
             eq(communityJoinRequests.communityApId, community.apId),
             eq(communityJoinRequests.status, "pending"),
+            operatorActorNotBlockedSql(sql`${communityJoinRequests.actorApId}`),
           ),
         )
         .orderBy(desc(communityJoinRequests.createdAt))
@@ -76,6 +81,7 @@ export function registerMembershipRequestRoutes(
           and(
             eq(follows.followingApId, community.apId),
             eq(follows.status, "pending"),
+            operatorActorNotBlockedSql(sql`${follows.followerApId}`),
           ),
         )
         .orderBy(desc(follows.createdAt))
@@ -132,6 +138,9 @@ export function registerMembershipRequestRoutes(
       const manager = await requireManager(db, community.apId, actor.ap_id);
       if (!manager) {
         return c.json({ error: "Forbidden" }, 403);
+      }
+      if (await isActorBlocked(db, body.actor_ap_id)) {
+        return c.json({ error: "Join request not found" }, 404);
       }
 
       // A pending request is EITHER a community_join_requests row (local
