@@ -20,18 +20,22 @@ import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
+import { eq, sql } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
+  activities,
   blocks,
   communities,
   communityMembers,
+  deliveryFanouts,
   type D1Statement,
   follows,
   insertMany,
   runBatch,
+  objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import { LEGACY_PERSONAL_MODERATION_CANDIDATE_LIMIT } from "../../lib/personal-actor-moderation.ts";
@@ -370,6 +374,47 @@ test("community story reach is the community fanout, not the author follower fan
   await createStory(db, authorActor, env, {});
   expect(sent.some((m) => m.type === "fanout_followers")).toBe(true);
   expect(sent.some((m) => m.type === "fanout_community")).toBe(false);
+});
+
+test("story creation rolls back the object and counter when durable fanout persistence fails", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "atomic-story");
+  await db.run(sql`
+    CREATE TRIGGER reject_story_create_fanout
+    BEFORE INSERT ON delivery_fanouts
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated fanout ledger outage');
+    END
+  `);
+
+  const response = await appWith(
+    db,
+    fakeActor(authorApId, "atomic-story"),
+  ).fetch(
+    new Request(`${APP_URL}/`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        attachment: { r2_key: "uploads/x.jpg", content_type: "image/jpeg" },
+        displayDuration: "PT5S",
+      }),
+    }),
+    envFor(db),
+  );
+
+  expect(response.status).toBe(500);
+  expect(await db.select().from(objects)).toHaveLength(0);
+  expect(await db.select().from(activities)).toHaveLength(0);
+  expect(await db.select().from(deliveryFanouts)).toHaveLength(0);
+  expect(
+    (
+      await db
+        .select({ postCount: actors.postCount })
+        .from(actors)
+        .where(eq(actors.apId, authorApId))
+        .get()
+    )?.postCount,
+  ).toBe(0);
 });
 
 // ---------------------------------------------------------------------------

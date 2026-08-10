@@ -7,7 +7,7 @@
 
 import { and, eq, gt, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
-import { actors, bookmarks, objects } from "../../../db/index.ts";
+import { actors, bookmarks, objects, runBatch } from "../../../db/index.ts";
 import { objectApId } from "../../federation-helpers.ts";
 import {
   actorIsBlockedBy,
@@ -22,14 +22,11 @@ import {
   normalizeVisibility,
 } from "../posts/transformers.ts";
 import {
-  federateCreatedPost,
   federateDeletedPost,
+  prepareCreatedPostFederation,
 } from "../posts/federation.ts";
 import { setPostLike } from "../posts/like-mutation.ts";
-import {
-  insertPostAndHandleReply,
-  REPLY_TARGET_NOT_FOUND,
-} from "../posts/post-helpers.ts";
+import { preparePostInsertStatements } from "../posts/post-helpers.ts";
 import {
   errAuth,
   errNotFound,
@@ -131,28 +128,7 @@ export async function handleCreatePost(
   const now = new Date().toISOString();
   const apId = objectApId(c.env.APP_URL.replace(/\/+$/u, ""), postId);
 
-  try {
-    parentAuthor = await insertPostAndHandleReply(db, {
-      apId,
-      actorApId: actor.ap_id,
-      content,
-      summary: null,
-      attachments: undefined,
-      inReplyTo,
-      visibility,
-      communityId: null,
-      community: null,
-      baseUrl: c.env.APP_URL,
-      now,
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message === REPLY_TARGET_NOT_FOUND) {
-      return c.json(errNotFound("Reply target"), 404);
-    }
-    throw error;
-  }
-
-  const { mentionFailures } = await federateCreatedPost({
+  const preparedFederation = await prepareCreatedPostFederation({
     db,
     env: c.env,
     actorApId: actor.ap_id,
@@ -165,6 +141,25 @@ export async function handleCreatePost(
     community: null,
     published: now,
   });
+  const localStatements = preparePostInsertStatements(db, {
+    apId,
+    actorApId: actor.ap_id,
+    content,
+    summary: null,
+    attachments: undefined,
+    inReplyTo,
+    visibility,
+    communityId: null,
+    to: preparedFederation.to,
+    cc: preparedFederation.cc,
+    audience: preparedFederation.audience,
+    tags: preparedFederation.tags,
+    parentAuthor,
+    baseUrl: c.env.APP_URL,
+    now,
+  });
+  await runBatch(db, [...localStatements, ...preparedFederation.statements]);
+  const { mentionFailures } = await preparedFederation.complete();
 
   return c.json(
     ok({

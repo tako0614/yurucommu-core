@@ -1,6 +1,11 @@
 import { eq } from "drizzle-orm";
 
-import { objects, type Database } from "../../../db/index.ts";
+import {
+  activities,
+  objects,
+  type D1Statement,
+  type Database,
+} from "../../../db/index.ts";
 import { OBJECT_CONTEXT } from "../../lib/ap-context.ts";
 import {
   activityApId,
@@ -14,7 +19,10 @@ import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
 import { logger } from "../../lib/logger.ts";
 import type { Env } from "../../types.ts";
-import { processMentions } from "./post-helpers.ts";
+import {
+  persistPostMentionProjections,
+  resolvePostMentions,
+} from "./post-helpers.ts";
 import {
   buildAddressing,
   buildCommunityObjectAddressing,
@@ -22,9 +30,13 @@ import {
   persistActivity,
   persistAndFanout,
   persistAndFanoutToCommunity,
+  preparePersistAndFanout,
+  preparePersistAndFanoutToCommunity,
   type CommunityAddressingTarget,
   type MentionFailure,
   type PostAttachment,
+  type PostTag,
+  type ProcessMentionsResult,
 } from "./queries.ts";
 
 const log = logger.child({ component: "posts.federation" });
@@ -45,14 +57,23 @@ export type CreatedPostFederationInput = {
   published: string;
 };
 
+export type PreparedCreatedPostFederation = {
+  readonly to: string[];
+  readonly cc: string[];
+  readonly audience: string[];
+  readonly tags: PostTag[];
+  readonly statements: readonly D1Statement[];
+  complete(): Promise<{ mentionFailures: MentionFailure[] }>;
+};
+
 /**
- * Build, persist, address, and enqueue the outbound Create for one already
- * committed local Note. Both the human post route and the Takos agent tool use
- * this owner so a client surface cannot silently become local-only.
+ * Resolve and prepare a post's outbound Create without writing anything. The
+ * caller co-commits these statements with the local Note/counter mutation,
+ * then invokes complete() for best-effort Queue wakeups and notifications.
  */
-export async function federateCreatedPost(
+export async function prepareCreatedPostFederation(
   input: CreatedPostFederationInput,
-): Promise<{ mentionFailures: MentionFailure[] }> {
+): Promise<PreparedCreatedPostFederation> {
   const {
     db,
     env,
@@ -74,14 +95,17 @@ export async function federateCreatedPost(
     tags: mentionTags,
     mentionedActorApIds,
     remoteMentionedActorApIds,
-  } = await processMentions(db, {
+  } = await resolvePostMentions(db, {
     content,
-    postApId,
     actorApId,
-    parentAuthor,
     baseUrl,
-    now: published,
   });
+  const resolvedMentions: ProcessMentionsResult = {
+    failures: mentionFailures,
+    tags: mentionTags,
+    mentionedActorApIds,
+    remoteMentionedActorApIds,
+  };
 
   // A non-direct reply must reach its parent author's instance even when the
   // body does not repeat an @mention. Direct reach remains explicit-only.
@@ -105,10 +129,6 @@ export async function federateCreatedPost(
   }
 
   // A plain direct Note with no resolved recipient has no federation reach.
-  if (visibility === "direct" && mentionedActorApIds.length === 0) {
-    return { mentionFailures };
-  }
-
   let to: string[];
   let cc: string[];
   let audience: string[] | undefined;
@@ -124,18 +144,6 @@ export async function federateCreatedPost(
     ({ to, cc } = buildAddressing(visibility, `${actorApId}/followers`));
   }
   cc = mergeCc(cc, recipients);
-
-  // Persist the exact final addressing carried by the Create. This gives the
-  // canonical object endpoint and a later Delete the same recipient evidence,
-  // including explicit remote mentions that follower fanout cannot recover.
-  await db
-    .update(objects)
-    .set({
-      toJson: JSON.stringify(to),
-      ccJson: JSON.stringify(cc),
-      ...(audience ? { audienceJson: JSON.stringify(audience) } : {}),
-    })
-    .where(eq(objects.apId, postApId));
 
   const tag = tags.length > 0 ? tags : undefined;
   const createActivity = {
@@ -166,34 +174,80 @@ export async function federateCreatedPost(
     },
   };
 
-  if (visibility === "direct") {
-    await persistActivity(db, createActivity, postApId);
+  let statements: readonly D1Statement[] = [];
+  let publish = async () => {};
+  // A plain direct Note with no resolved recipient has no federation reach and
+  // therefore no outbound Activity. The local object still commits below.
+  if (visibility === "direct" && mentionedActorApIds.length === 0) {
+    statements = [];
+  } else if (visibility === "direct") {
+    statements = [
+      db.insert(activities).values({
+        apId: createActivity.id,
+        type: createActivity.type,
+        actorApId: createActivity.actor,
+        objectApId: postApId,
+        rawJson: JSON.stringify(createActivity),
+        direction: "outbound",
+      }) as D1Statement,
+    ];
   } else if (community) {
-    await persistAndFanoutToCommunity(
+    const prepared = await preparePersistAndFanoutToCommunity(
       db,
       env,
       createActivity,
       postApId,
       community.apId,
     );
+    statements = prepared.statements;
+    publish = prepared.publish;
   } else {
-    await persistAndFanout(db, env, createActivity, postApId);
+    const prepared = await preparePersistAndFanout(
+      db,
+      env,
+      createActivity,
+      postApId,
+    );
+    statements = prepared.statements;
+    publish = prepared.publish;
   }
 
-  for (const recipient of new Set(remoteRecipients)) {
-    try {
-      await enqueueDeliveryToActor(env, createActivity.id, recipient);
-    } catch (error) {
-      log.error("Failed to enqueue explicit Create delivery", {
-        event: "posts.create.delivery_enqueue_failed",
-        activityId: createActivity.id,
-        recipient,
-        error,
+  return {
+    to,
+    cc,
+    audience: audience ?? [],
+    tags,
+    statements,
+    async complete() {
+      await publish();
+
+      const persistedMentionFailures = await persistPostMentionProjections(db, {
+        result: resolvedMentions,
+        postApId,
+        actorApId,
+        parentAuthor,
+        baseUrl,
+        now: published,
       });
-    }
-  }
 
-  return { mentionFailures };
+      for (const recipient of new Set(remoteRecipients)) {
+        try {
+          await enqueueDeliveryToActor(env, createActivity.id, recipient);
+        } catch (error) {
+          log.error("Failed to enqueue explicit Create delivery", {
+            event: "posts.create.delivery_enqueue_failed",
+            activityId: createActivity.id,
+            recipient,
+            error,
+          });
+        }
+      }
+
+      return {
+        mentionFailures: [...mentionFailures, ...persistedMentionFailures],
+      };
+    },
+  };
 }
 
 export type DeletedPostFederationInput = {

@@ -50,16 +50,6 @@ import { prepareDeliveryFanoutJob } from "../../lib/delivery/fanout-outbox.ts";
 
 const log = logger.child({ component: "stories.routes" });
 
-/**
- * Narrow view over the concrete D1/libsql drizzle client's atomic batch API.
- * The shared `Database` union type does not surface `batch` (it lives on the
- * concrete subclasses), so we reach it through a structural cast at the call
- * site that needs an atomic multi-statement write.
- */
-type Batchable = {
-  batch(statements: readonly unknown[]): Promise<unknown>;
-};
-
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // Best-effort, opportunistic retention of expired stories.
@@ -219,7 +209,8 @@ async function createAndFanoutActivity(
   actorApIdStr: string,
   objectApIdStr: string,
   activity: Record<string, unknown>,
-  communityApId?: string | null,
+  communityApId: string | null | undefined,
+  localStatements: readonly [D1Statement, ...D1Statement[]],
 ): Promise<void> {
   const id = activity.id as string;
   const preparedFanout = await prepareDeliveryFanoutJob(
@@ -237,6 +228,7 @@ async function createAndFanoutActivity(
         },
   );
   await runBatch(db, [
+    ...localStatements,
     db.insert(activities).values({
       apId: id,
       type: activity.type as string,
@@ -729,12 +721,6 @@ stories.post("/", async (c) => {
   };
   const attachmentsJson = JSON.stringify(storyData);
 
-  // Insert the story object and bump the author's denormalized postCount in a
-  // single atomic batch. D1 has no interactive transactions, so doing these as
-  // two separate writes could drift the counter relative to the stored stories
-  // on a mid-request failure. The `Database` union type does not surface `batch`
-  // (it is only on the concrete D1/libsql subclasses), so reach it through a
-  // narrow structural cast.
   const storyInsert = db.insert(objects).values({
     apId,
     type: "Story",
@@ -745,14 +731,12 @@ stories.post("/", async (c) => {
     endTime,
     published: now,
     isLocal: 1,
-  });
+  }) as D1Statement;
 
   const postCountBump = db
     .update(actors)
     .set({ postCount: sql`${actors.postCount} + 1` })
-    .where(eq(actors.apId, actor.ap_id));
-
-  await (db as unknown as Batchable).batch([storyInsert, postCountBump]);
+    .where(eq(actors.apId, actor.ap_id)) as D1Statement;
 
   const responseData = transformStoryData(attachmentsJson);
   const authorInfo = buildAuthor(actor.ap_id, {
@@ -811,6 +795,7 @@ stories.post("/", async (c) => {
       object: storyObject,
     },
     communityApIdValue,
+    [storyInsert, postCountBump],
   );
 
   return c.json({ story }, 201);

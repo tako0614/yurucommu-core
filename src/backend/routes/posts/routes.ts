@@ -4,6 +4,8 @@ import {
   follows,
   objectRecipients,
   objects,
+  runBatch,
+  type D1Statement,
 } from "../../../db/index.ts";
 import type { Database } from "../../../db/index.ts";
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
@@ -25,8 +27,8 @@ import {
 import {
   AUTHOR_WITH,
   loadInteractionFlags,
-  persistAndFanout,
-  persistAndFanoutToCommunity,
+  preparePersistAndFanout,
+  preparePersistAndFanoutToCommunity,
   type PostDetailRow,
   postWhereByIdOrApId,
   resolveAuthor,
@@ -37,8 +39,7 @@ import { deleteObjectCascade, purgeMediaBlobs } from "./delete-cascade.ts";
 import {
   checkCommunityPostPermission,
   deriveContentTags,
-  insertPostAndHandleReply,
-  REPLY_TARGET_NOT_FOUND,
+  preparePostInsertStatements,
   validateContentEdit,
   validateCreatePostBody,
   validateEditBody,
@@ -55,7 +56,10 @@ import {
 } from "../../lib/post-visibility.ts";
 import { logger } from "../../lib/logger.ts";
 import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
-import { federateCreatedPost, federateDeletedPost } from "./federation.ts";
+import {
+  federateDeletedPost,
+  prepareCreatedPostFederation,
+} from "./federation.ts";
 
 const log = logger.child({ component: "posts.routes" });
 
@@ -195,6 +199,7 @@ posts.post("/", async (c) => {
   // replyCount, sending them a reply notification, and publishing a public reply
   // whose inReplyTo discloses the restricted parent's existence (and bypassing a
   // block). Mirror the like/repost gates; 404 to avoid leaking existence.
+  let parentAuthor: string | null = null;
   if (body.in_reply_to) {
     const parent = await db
       .select({
@@ -218,6 +223,7 @@ posts.post("/", async (c) => {
     ) {
       return c.json({ error: "Post not found" }, 404);
     }
+    parentAuthor = parent.attributedTo;
   }
 
   const baseUrl = c.env.APP_URL;
@@ -225,9 +231,25 @@ posts.post("/", async (c) => {
   const apId = objectApId(baseUrl, postId);
   const now = new Date().toISOString();
 
-  let parentAuthor: string | null = null;
+  let preparedFederation: Awaited<
+    ReturnType<typeof prepareCreatedPostFederation>
+  >;
   try {
-    parentAuthor = await insertPostAndHandleReply(db, {
+    preparedFederation = await prepareCreatedPostFederation({
+      db,
+      env: c.env,
+      actorApId: actor.ap_id,
+      objectApId: apId,
+      content,
+      summary: summary || null,
+      attachments: body.attachments,
+      inReplyTo: body.in_reply_to || null,
+      parentAuthor,
+      visibility,
+      community,
+      published: now,
+    });
+    const localStatements = preparePostInsertStatements(db, {
       apId,
       actorApId: actor.ap_id,
       content,
@@ -236,14 +258,16 @@ posts.post("/", async (c) => {
       inReplyTo: body.in_reply_to || null,
       visibility,
       communityId,
-      community,
+      to: preparedFederation.to,
+      cc: preparedFederation.cc,
+      audience: preparedFederation.audience,
+      tags: preparedFederation.tags,
+      parentAuthor,
       baseUrl,
       now,
     });
+    await runBatch(db, [...localStatements, ...preparedFederation.statements]);
   } catch (e) {
-    if (e instanceof Error && e.message === REPLY_TARGET_NOT_FOUND) {
-      return c.json({ error: "Reply target not found" }, 404);
-    }
     log.error("Failed to create post transaction", {
       event: "posts.create.transaction_failed",
       actor: actor.ap_id,
@@ -253,20 +277,7 @@ posts.post("/", async (c) => {
     return c.json({ error: "Failed to create post" }, 500);
   }
 
-  const { mentionFailures } = await federateCreatedPost({
-    db,
-    env: c.env,
-    actorApId: actor.ap_id,
-    objectApId: apId,
-    content,
-    summary: summary || null,
-    attachments: body.attachments,
-    inReplyTo: body.in_reply_to || null,
-    parentAuthor,
-    visibility,
-    community,
-    published: now,
-  });
+  const { mentionFailures } = await preparedFederation.complete();
 
   const createdPost = {
     ap_id: apId,
@@ -540,8 +551,6 @@ posts.patch("/:id", async (c) => {
     updateData.tagsJson = JSON.stringify(nextTags);
   }
 
-  await db.update(objects).set(updateData).where(eq(objects.apId, post.apId));
-
   // Mirror the stored post's addressing onto the Update so its audience matches
   // the ORIGINAL post (like the Delete path). Without this the Update carried no
   // to/cc/audience and — combined with the community branch below — fanned out
@@ -585,17 +594,28 @@ posts.patch("/:id", async (c) => {
   // A community-scoped post's Update must reach the COMMUNITY (the members who
   // got the Create), NOT the author's personal followers — who never received
   // the Create. Mirror the create path's community-vs-personal fan-out branch.
-  if (post.communityApId) {
-    await persistAndFanoutToCommunity(
-      db,
-      c.env,
-      updateActivity,
-      post.apId,
-      post.communityApId,
-    );
-  } else {
-    await persistAndFanout(db, c.env, updateActivity, post.apId);
-  }
+  const preparedFanout = post.communityApId
+    ? await preparePersistAndFanoutToCommunity(
+        db,
+        c.env,
+        updateActivity,
+        post.apId,
+        post.communityApId,
+      )
+    : await preparePersistAndFanout(db, c.env, updateActivity, post.apId);
+
+  // The edited object and its outbound Update/fanout intent are one mutation.
+  // If the durable intent cannot be stored, the old content/tags stay visible
+  // and the client can safely retry instead of receiving 500 after a local-only
+  // edit already committed.
+  await runBatch(db, [
+    db
+      .update(objects)
+      .set(updateData)
+      .where(eq(objects.apId, post.apId)) as D1Statement,
+    ...preparedFanout.statements,
+  ]);
+  await preparedFanout.publish();
 
   return c.json({
     success: true,

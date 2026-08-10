@@ -400,40 +400,71 @@ export async function persistActivity(
 }
 
 /** Persist an outbound ActivityPub activity and enqueue federation fanout. */
+export type PreparedActivityFanout = {
+  readonly statements: readonly [D1Statement, ...D1Statement[]];
+  /** Best-effort Queue wakeup; the durable intent is already in statements. */
+  publish(): Promise<void>;
+};
+
+/**
+ * Prepare an outbound Activity + durable follower-fanout intent without
+ * executing either statement. Callers that also mutate local state can place
+ * these statements in the SAME D1 batch and avoid a local-only partial commit.
+ */
+export async function preparePersistAndFanout(
+  db: Database,
+  env: Env,
+  activity: { id: string; type: string; actor: string; [key: string]: unknown },
+  objectApIdValue: string,
+): Promise<PreparedActivityFanout> {
+  const preparedFanout = await prepareDeliveryFanoutJob(db, {
+    kind: "followers",
+    activityId: activity.id,
+    targetApId: activity.actor,
+  });
+  return {
+    statements: [
+      db.insert(activities).values({
+        apId: activity.id,
+        type: activity.type,
+        actorApId: activity.actor,
+        objectApId: objectApIdValue,
+        rawJson: JSON.stringify(activity),
+        direction: "outbound",
+      }) as D1Statement,
+      preparedFanout.statement,
+    ],
+    async publish() {
+      try {
+        await enqueueFanoutToFollowers(env, activity.id, activity.actor);
+      } catch (err) {
+        log.error("Failed to enqueue federation fanout", {
+          event: "posts.fanout.enqueue_failed",
+          activityType: activity.type,
+          activityId: activity.id,
+          actor: activity.actor,
+          error: err,
+        });
+      }
+    },
+  };
+}
+
+/** Persist an outbound ActivityPub activity and enqueue federation fanout. */
 export async function persistAndFanout(
   db: Database,
   env: Env,
   activity: { id: string; type: string; actor: string; [key: string]: unknown },
   objectApIdValue: string,
 ): Promise<void> {
-  const preparedFanout = await prepareDeliveryFanoutJob(db, {
-    kind: "followers",
-    activityId: activity.id,
-    targetApId: activity.actor,
-  });
-  await runBatch(db, [
-    db.insert(activities).values({
-      apId: activity.id,
-      type: activity.type,
-      actorApId: activity.actor,
-      objectApId: objectApIdValue,
-      rawJson: JSON.stringify(activity),
-      direction: "outbound",
-    }) as D1Statement,
-    preparedFanout.statement,
-  ]);
-
-  try {
-    await enqueueFanoutToFollowers(env, activity.id, activity.actor);
-  } catch (err) {
-    log.error("Failed to enqueue federation fanout", {
-      event: "posts.fanout.enqueue_failed",
-      activityType: activity.type,
-      activityId: activity.id,
-      actor: activity.actor,
-      error: err,
-    });
-  }
+  const prepared = await preparePersistAndFanout(
+    db,
+    env,
+    activity,
+    objectApIdValue,
+  );
+  await runBatch(db, prepared.statements);
+  await prepared.publish();
 }
 
 /**
@@ -441,13 +472,13 @@ export async function persistAndFanout(
  * (members + community followers) instead of the author's personal followers.
  * Used for community-scoped posts so reach == community.
  */
-export async function persistAndFanoutToCommunity(
+export async function preparePersistAndFanoutToCommunity(
   db: Database,
   env: Env,
   activity: { id: string; type: string; actor: string; [key: string]: unknown },
   objectApIdValue: string,
   communityApId: string,
-): Promise<void> {
+): Promise<PreparedActivityFanout> {
   // Announce-relay: for a new post (Create), the GROUP re-broadcasts it to its
   // followers as its OWN Announce (Lemmy/Mobilizon convention) so the post is
   // attributed to the community and reaches remote followers whose server
@@ -473,20 +504,24 @@ export async function persistAndFanoutToCommunity(
       )
       .get();
     if (!row) {
-      await db.insert(activities).values({
-        apId: activity.id,
-        type: activity.type,
-        actorApId: activity.actor,
-        objectApId: objectApIdValue,
-        rawJson: JSON.stringify(activity),
-        direction: "outbound",
-      });
       log.warn("Skipped fanout for a retired community", {
         event: "posts.fanout.community_retired",
         activityId: activity.id,
         communityApId,
       });
-      return;
+      return {
+        statements: [
+          db.insert(activities).values({
+            apId: activity.id,
+            type: activity.type,
+            actorApId: activity.actor,
+            objectApId: objectApIdValue,
+            rawJson: JSON.stringify(activity),
+            direction: "outbound",
+          }) as D1Statement,
+        ],
+        async publish() {},
+      };
     }
     isPublicCommunity = row.visibility === "public";
   }
@@ -534,25 +569,46 @@ export async function persistAndFanoutToCommunity(
   ];
   if (announceStatement) statements.push(announceStatement);
   statements.push(preparedFanout.statement);
-  await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
+  return {
+    statements: statements as [D1Statement, ...D1Statement[]],
+    async publish() {
+      try {
+        await enqueueFanoutToCommunity(
+          env,
+          activity.id,
+          communityApId,
+          announceActivityId,
+        );
+      } catch (err) {
+        log.error("Failed to enqueue community federation fanout", {
+          event: "posts.fanout.community_enqueue_failed",
+          activityType: activity.type,
+          activityId: activity.id,
+          actor: activity.actor,
+          communityApId,
+          error: err,
+        });
+      }
+    },
+  };
+}
 
-  try {
-    await enqueueFanoutToCommunity(
-      env,
-      activity.id,
-      communityApId,
-      announceActivityId,
-    );
-  } catch (err) {
-    log.error("Failed to enqueue community federation fanout", {
-      event: "posts.fanout.community_enqueue_failed",
-      activityType: activity.type,
-      activityId: activity.id,
-      actor: activity.actor,
-      communityApId,
-      error: err,
-    });
-  }
+export async function persistAndFanoutToCommunity(
+  db: Database,
+  env: Env,
+  activity: { id: string; type: string; actor: string; [key: string]: unknown },
+  objectApIdValue: string,
+  communityApId: string,
+): Promise<void> {
+  const prepared = await preparePersistAndFanoutToCommunity(
+    db,
+    env,
+    activity,
+    objectApIdValue,
+    communityApId,
+  );
+  await runBatch(db, prepared.statements);
+  await prepared.publish();
 }
 
 /** Batch-load cached authors for posts without a local author join. */

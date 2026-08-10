@@ -18,11 +18,17 @@ import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, activities, objects } from "../../../db/index.ts";
+import {
+  actors,
+  activities,
+  deliveryFanouts,
+  inbox,
+  objects,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import postRoutes from "../../routes/posts/routes.ts";
 import outboxRoutes from "../../routes/activitypub/outbox.ts";
@@ -167,6 +173,13 @@ test("a post mentioning a local actor round-trips a Mention tag through GET /ap/
   expect(served.tag).toEqual([
     { type: "Mention", href: mentionedApId, name: "@bob@yuru.test" },
   ]);
+  expect(
+    await db
+      .select({ actorApId: inbox.actorApId })
+      .from(inbox)
+      .where(eq(inbox.actorApId, mentionedApId))
+      .get(),
+  ).toEqual({ actorApId: mentionedApId });
 });
 
 test("a post with a #hashtag (and no mention) round-trips a Hashtag tag", async () => {
@@ -508,4 +521,89 @@ test("a plain post's delivered Create is not marked sensitive", async () => {
     object: { sensitive?: boolean };
   };
   expect(activity.object.sensitive).toBeUndefined();
+});
+
+test("post creation rolls back the object and counter when durable fanout persistence fails", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "atomic-create");
+  await db.run(sql`
+    CREATE TRIGGER reject_post_create_fanout
+    BEFORE INSERT ON delivery_fanouts
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated fanout ledger outage');
+    END
+  `);
+
+  const response = await postApp(
+    db,
+    fakeActor(authorApId, "atomic-create"),
+  ).fetch(
+    new Request(`${APP_URL}/api/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: "must not remain",
+        visibility: "public",
+      }),
+    }),
+    envFor(db),
+  );
+
+  expect(response.status).toBe(500);
+  expect(await db.select().from(objects)).toHaveLength(0);
+  expect(await db.select().from(activities)).toHaveLength(0);
+  expect(await db.select().from(deliveryFanouts)).toHaveLength(0);
+  expect(
+    (
+      await db
+        .select({ postCount: actors.postCount })
+        .from(actors)
+        .where(eq(actors.apId, authorApId))
+        .get()
+    )?.postCount,
+  ).toBe(0);
+});
+
+test("post editing rolls back content and tags when durable fanout persistence fails", async () => {
+  const db = await freshDb();
+  const authorApId = await insertLocalActor(db, "atomic-edit");
+  const app = postApp(db, fakeActor(authorApId, "atomic-edit"));
+  const createResponse = await app.fetch(
+    new Request(`${APP_URL}/api/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "original", visibility: "public" }),
+    }),
+    envFor(db),
+  );
+  const created = (await createResponse.json()) as { ap_id: string };
+  const id = created.ap_id.slice(`${APP_URL}/ap/objects/`.length);
+
+  await db.run(sql`
+    CREATE TRIGGER reject_post_update_fanout
+    BEFORE INSERT ON delivery_fanouts
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated fanout ledger outage');
+    END
+  `);
+  const response = await app.fetch(
+    new Request(`${APP_URL}/api/posts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "changed #must-not-remain" }),
+    }),
+    envFor(db),
+  );
+
+  expect(response.status).toBe(500);
+  expect(
+    await db
+      .select({ content: objects.content, tagsJson: objects.tagsJson })
+      .from(objects)
+      .where(eq(objects.apId, created.ap_id))
+      .get(),
+  ).toEqual({ content: "original", tagsJson: "[]" });
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Update")),
+  ).toHaveLength(0);
 });

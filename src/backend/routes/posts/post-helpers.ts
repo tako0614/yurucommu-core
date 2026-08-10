@@ -38,7 +38,6 @@ import {
   MAX_POST_SUMMARY_LENGTH,
 } from "./transformers.ts";
 import {
-  buildCommunityObjectAddressing,
   type CreatePostBody,
   isRecord,
   type MentionFailure,
@@ -277,20 +276,12 @@ export async function checkCommunityPostPermission(
 // Reply handling
 // ---------------------------------------------------------------------------
 
-export const REPLY_TARGET_NOT_FOUND = "REPLY_TARGET_NOT_FOUND";
-
-// `.batch` lives only on the concrete D1/libsql subclasses, not the Database
-// union; reach it through a narrow structural cast (matching the other routes).
-type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
-
 /**
- * Insert the post object, increment author post count, and handle reply-chain
- * updates (parent reply count bump + notification to local parent author).
- *
- * Throws Error(REPLY_TARGET_NOT_FOUND) if in_reply_to references a missing post.
- * Returns the parentAuthor apId (or null if not a reply).
+ * Prepare every local statement owned by post creation without executing it.
+ * The route composes these statements with the outbound Create Activity and
+ * durable fanout intent in one D1 batch.
  */
-export async function insertPostAndHandleReply(
+export function preparePostInsertStatements(
   db: Database,
   params: {
     apId: string;
@@ -301,34 +292,15 @@ export async function insertPostAndHandleReply(
     inReplyTo: string | null;
     visibility: string;
     communityId: string | null;
-    community: CommunityTarget | null;
+    to: string[];
+    cc: string[];
+    audience: string[];
+    tags: PostTag[];
+    parentAuthor: string | null;
     baseUrl: string;
     now: string;
   },
-): Promise<string | null> {
-  let parentAuthor: string | null = null;
-
-  // Community-scoped posts are ADDRESSED to the community Group actor: the
-  // community (and its followers collection) goes into to/audience. A non-"[]"
-  // audienceJson is exactly what excludes the post from the public/home feed,
-  // so reach is the community — not the open public timeline.
-  const addressing = buildCommunityObjectAddressing(
-    params.visibility,
-    params.community,
-  );
-
-  // Look up + validate the reply parent BEFORE the write batch — we need its
-  // author both as the replyCount target and for the reply notification.
-  if (params.inReplyTo) {
-    const parentPost = await db
-      .select({ attributedTo: objects.attributedTo })
-      .from(objects)
-      .where(eq(objects.apId, params.inReplyTo))
-      .get();
-    if (!parentPost) throw new Error(REPLY_TARGET_NOT_FOUND);
-    parentAuthor = parentPost.attributedTo;
-  }
-
+): [D1Statement, ...D1Statement[]] {
   // Co-commit the object insert + author postCount++ + parent replyCount recompute
   // in ONE batch (mirrors the federated handleCreate): a crash between separate
   // autocommits would otherwise leave the object inserted with an un-bumped
@@ -346,16 +318,17 @@ export async function insertPostAndHandleReply(
     inReplyTo: params.inReplyTo,
     visibility: params.visibility,
     communityApId: params.communityId,
-    toJson: JSON.stringify(addressing.to),
-    ccJson: JSON.stringify(addressing.cc),
-    audienceJson: JSON.stringify(addressing.audience),
+    toJson: JSON.stringify(params.to),
+    ccJson: JSON.stringify(params.cc),
+    audienceJson: JSON.stringify(params.audience),
+    tagsJson: JSON.stringify(params.tags),
     published: params.now,
     isLocal: 1,
-  });
+  }) as D1Statement;
   const bumpPostCount = db
     .update(actors)
     .set({ postCount: sql`${actors.postCount} + 1` })
-    .where(and(eq(actors.apId, params.actorApId), objectAbsent));
+    .where(and(eq(actors.apId, params.actorApId), objectAbsent)) as D1Statement;
 
   // Direct (DM) posts do NOT count toward postCount: the dedicated DM send path
   // (createDmNote) never bumps it, and the generic DELETE skips the decrement for
@@ -364,56 +337,51 @@ export async function insertPostAndHandleReply(
   // postCount over-counts permanently.
   const countStmts = params.visibility === "direct" ? [] : [bumpPostCount];
 
+  const statements: D1Statement[] = [...countStmts, insertObject];
   if (params.inReplyTo) {
     const parentId = params.inReplyTo;
-    await (db as unknown as Batchable).batch([
-      ...countStmts,
-      insertObject,
+    statements.push(
       db
         .update(objects)
         .set({
           replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
         })
-        .where(eq(objects.apId, parentId)),
-    ] as Parameters<Batchable["batch"]>[0]);
-  } else {
-    await (db as unknown as Batchable).batch([
-      ...countStmts,
-      insertObject,
-    ] as Parameters<Batchable["batch"]>[0]);
+        .where(eq(objects.apId, parentId)) as D1Statement,
+    );
   }
 
-  if (params.inReplyTo && parentAuthor) {
+  if (params.inReplyTo && params.parentAuthor) {
     if (
-      parentAuthor !== params.actorApId &&
-      isLocal(parentAuthor, params.baseUrl)
+      params.parentAuthor !== params.actorApId &&
+      isLocal(params.parentAuthor, params.baseUrl)
     ) {
       const replyActivityId = activityApId(params.baseUrl, generateId());
-      await db.insert(activities).values({
-        apId: replyActivityId,
-        type: "Create",
-        actorApId: params.actorApId,
-        objectApId: params.apId,
-        rawJson: JSON.stringify({
-          "@context": "https://www.w3.org/ns/activitystreams",
-          id: replyActivityId,
+      statements.push(
+        db.insert(activities).values({
+          apId: replyActivityId,
           type: "Create",
-          actor: params.actorApId,
-          object: params.apId,
-        }),
-        createdAt: params.now,
-      });
-
-      await db.insert(inboxTable).values({
-        actorApId: parentAuthor,
-        activityApId: replyActivityId,
-        read: 0,
-        createdAt: params.now,
-      });
+          actorApId: params.actorApId,
+          objectApId: params.apId,
+          rawJson: JSON.stringify({
+            "@context": "https://www.w3.org/ns/activitystreams",
+            id: replyActivityId,
+            type: "Create",
+            actor: params.actorApId,
+            object: params.apId,
+          }),
+          createdAt: params.now,
+        }) as D1Statement,
+        db.insert(inboxTable).values({
+          actorApId: params.parentAuthor,
+          activityApId: replyActivityId,
+          read: 0,
+          createdAt: params.now,
+        }) as D1Statement,
+      );
     }
   }
 
-  return parentAuthor;
+  return statements as [D1Statement, ...D1Statement[]];
 }
 
 // ---------------------------------------------------------------------------
@@ -497,15 +465,12 @@ async function resolveMentionActorRows(
   return { localActors, cachedActors };
 }
 
-export async function processMentions(
+export async function resolvePostMentions(
   db: Database,
   params: {
     content: string;
-    postApId: string;
     actorApId: string;
-    parentAuthor: string | null;
     baseUrl: string;
-    now: string;
   },
 ): Promise<ProcessMentionsResult> {
   const mentions = extractMentions(params.content);
@@ -527,38 +492,14 @@ export async function processMentions(
     });
   }
 
-  // Persist the computed tag array onto the object row so the served object at
-  // `GET /ap/objects/:id` emits the same `tag` the Create carries. The object
-  // was already inserted by `insertPostAndHandleReply`, so this is an UPDATE.
-  // Only write when there is at least one tag (the column defaults to "[]").
-  const persistTags = async () => {
-    if (tags.length === 0) return;
-    try {
-      await db
-        .update(objects)
-        .set({ tagsJson: JSON.stringify(tags) })
-        .where(eq(objects.apId, params.postApId));
-    } catch (e) {
-      log.error("Failed to persist object tags", {
-        event: "posts.mention.tags_persist_failed",
-        postApId: params.postApId,
-        error: e,
-      });
-    }
-  };
-
-  const emptyResult: ProcessMentionsResult = {
+  const result: ProcessMentionsResult = {
     failures: mentionFailures,
     tags,
     mentionedActorApIds,
     remoteMentionedActorApIds,
   };
 
-  // No mentions to resolve — still persist any Hashtag tags before returning.
-  if (mentions.length === 0) {
-    await persistTags();
-    return emptyResult;
-  }
+  if (mentions.length === 0) return result;
 
   const localMentions = mentions.filter((m) => !m.includes("@"));
   const remoteMentions = mentions.filter((m) => m.includes("@"));
@@ -583,21 +524,6 @@ export async function processMentions(
       remoteActorMap.set(mention, matching.apId);
     }
   }
-
-  const activitiesToCreate: Array<{
-    apId: string;
-    type: string;
-    actorApId: string;
-    objectApId: string;
-    rawJson: string;
-    createdAt: string;
-  }> = [];
-  const inboxEntriesToCreate: Array<{
-    actorApId: string;
-    activityApId: string;
-    read: number;
-    createdAt: string;
-  }> = [];
 
   for (const mention of mentions) {
     try {
@@ -625,35 +551,6 @@ export async function processMentions(
         mentionedActorApIds.push(mentionedActorApId);
         if (remote) remoteMentionedActorApIds.push(mentionedActorApId);
       }
-
-      // Local notification fan-in only. The parent author is already notified
-      // by the reply path, and remote actors are reached by federated delivery
-      // (no local inbox row), so skip both here.
-      if (params.parentAuthor === mentionedActorApId) continue;
-      if (remote) continue;
-
-      const mentionActivityId = activityApId(params.baseUrl, generateId());
-      activitiesToCreate.push({
-        apId: mentionActivityId,
-        type: "Create",
-        actorApId: params.actorApId,
-        objectApId: params.postApId,
-        rawJson: JSON.stringify({
-          "@context": "https://www.w3.org/ns/activitystreams",
-          id: mentionActivityId,
-          type: "Create",
-          actor: params.actorApId,
-          object: params.postApId,
-        }),
-        createdAt: params.now,
-      });
-
-      inboxEntriesToCreate.push({
-        actorApId: mentionedActorApId,
-        activityApId: mentionActivityId,
-        read: 0,
-        createdAt: params.now,
-      });
     } catch (e) {
       log.error("Failed to process mention", {
         event: "posts.mention.processing_failed",
@@ -668,6 +565,59 @@ export async function processMentions(
     }
   }
 
+  return result;
+}
+
+/**
+ * Persist the local-notification projections for an already resolved post.
+ * The canonical Note, tags, Activity, and fanout intent are committed by the
+ * caller first; notification failures are reported without invalidating that
+ * durable federation mutation.
+ */
+export async function persistPostMentionProjections(
+  db: Database,
+  params: {
+    result: ProcessMentionsResult;
+    postApId: string;
+    actorApId: string;
+    parentAuthor: string | null;
+    baseUrl: string;
+    now: string;
+  },
+): Promise<MentionFailure[]> {
+  const failures: MentionFailure[] = [];
+  const remoteActors = new Set(params.result.remoteMentionedActorApIds);
+  const localNotificationTargets = params.result.mentionedActorApIds.filter(
+    (actorApId) =>
+      actorApId !== params.parentAuthor && !remoteActors.has(actorApId),
+  );
+
+  const activitiesToCreate = localNotificationTargets.map((actorApId) => {
+    const mentionActivityId = activityApId(params.baseUrl, generateId());
+    return {
+      activity: {
+        apId: mentionActivityId,
+        type: "Create",
+        actorApId: params.actorApId,
+        objectApId: params.postApId,
+        rawJson: JSON.stringify({
+          "@context": "https://www.w3.org/ns/activitystreams",
+          id: mentionActivityId,
+          type: "Create",
+          actor: params.actorApId,
+          object: params.postApId,
+        }),
+        createdAt: params.now,
+      },
+      inbox: {
+        actorApId,
+        activityApId: mentionActivityId,
+        read: 0,
+        createdAt: params.now,
+      },
+    };
+  });
+
   if (activitiesToCreate.length > 0) {
     // A mention notification is one invariant: its activity and inbox edge
     // either both exist or neither does. Build D1-safe chunked INSERT
@@ -681,17 +631,21 @@ export async function processMentions(
         offset < activitiesToCreate.length;
         offset += MENTION_NOTIFICATION_PAGE_SIZE
       ) {
-        const activityPage = activitiesToCreate.slice(
-          offset,
-          offset + MENTION_NOTIFICATION_PAGE_SIZE,
-        );
-        const inboxPage = inboxEntriesToCreate.slice(
+        const page = activitiesToCreate.slice(
           offset,
           offset + MENTION_NOTIFICATION_PAGE_SIZE,
         );
         const statements = [
-          ...insertMany(db, activities, activityPage),
-          ...insertMany(db, inboxTable, inboxPage),
+          ...insertMany(
+            db,
+            activities,
+            page.map((entry) => entry.activity),
+          ),
+          ...insertMany(
+            db,
+            inboxTable,
+            page.map((entry) => entry.inbox),
+          ),
         ];
         await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
       }
@@ -700,7 +654,7 @@ export async function processMentions(
         event: "posts.mention.notification_persist_failed",
         error: e,
       });
-      mentionFailures.push(
+      failures.push(
         {
           mention: "__batch__",
           stage: "persist_activity",
@@ -715,19 +669,15 @@ export async function processMentions(
     }
   }
 
-  // Persist Mention + Hashtag tags onto the object row (see persistTags above).
-  await persistTags();
-
-  return emptyResult;
+  return failures;
 }
 
 /**
  * Derive the AS2 `tag` array (Hashtag + Mention) for a post's content WITHOUT
  * any notification / activity side effects. The EDIT path uses this so an
  * edited post's served object + Update(Note) carry the SAME tags a fresh post
- * would — re-running the full `processMentions` on every edit would re-notify
- * every mention. Mirrors processMentions' tag-building (kept as a separate,
- * side-effect-free function so the create/federation path stays untouched).
+ * would — re-running notification projection on every edit would re-notify
+ * every mention. Mirrors resolvePostMentions' tag-building.
  */
 export async function deriveContentTags(
   db: Database,
