@@ -15,6 +15,7 @@ import type { Database } from "../../../db/index.ts";
 import {
   blockedActors as blockedActorsTable,
   blockedDomains as blockedDomainsTable,
+  deliveryResolutions,
 } from "../../../db/index.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 import type { Env } from "../../types.ts";
@@ -73,7 +74,11 @@ function extractEqOperand(condition: unknown): string | null {
  */
 function createMockDb(
   rows: ActorCacheRow[],
-  blocked: { actors?: string[]; domains?: string[] },
+  blocked: {
+    actors?: string[];
+    domains?: string[];
+    failBatchLookup?: boolean;
+  },
 ) {
   const blockedActors = new Set(blocked.actors ?? []);
   const blockedDomains = new Set(blocked.domains ?? []);
@@ -85,6 +90,9 @@ function createMockDb(
           // filterBlockedActorApIds selects from blocked_actors / blocked_domains;
           // everything else is the actorCache endpoint lookup.
           if (table === blockedActorsTable) {
+            if (blocked.failBatchLookup) {
+              return Promise.reject(new Error("simulated blocklist outage"));
+            }
             return Promise.resolve(
               [...blockedActors]
                 .filter((id) => !requestedIds || requestedIds.includes(id))
@@ -209,6 +217,31 @@ test("blocklist-out: planner drops a blocked ACTOR (exact AP-ID)", async () => {
   }
 });
 
+test("blocklist-out: planner fails closed when blocklist authority is unavailable", async () => {
+  const nowMs = Date.now();
+  const dateNowStub = stub(Date, "now", () => nowMs);
+  try {
+    const recipient = "https://possibly-blocked.example/ap/users/bad";
+    const db = createMockDb(
+      [
+        {
+          apId: recipient,
+          inbox: "https://possibly-blocked.example/inbox",
+          sharedInbox: null,
+          lastFetchedAt: new Date(nowMs).toISOString(),
+        },
+      ],
+      { failBatchLookup: true },
+    );
+
+    await expect(
+      planEndpointsFromActorCache(db as unknown as Database, [recipient]),
+    ).rejects.toThrow("simulated blocklist outage");
+  } finally {
+    dateNowStub.restore();
+  }
+});
+
 test("blocklist-out: enqueueDeliveryToActor skips a blocked actor (no queue send)", async () => {
   const sent: unknown[] = [];
   const db = createMockDb([], {
@@ -270,6 +303,108 @@ test("blocklist-out: enqueueDeliveryToActor still delivers to an allowed actor",
     type: "resolve_actor",
     recipientActorApId: "https://ok.example/ap/users/dm",
   });
+});
+
+test("blocklist-out: targeted delivery retains its intent but sends nothing while blocklist authority is unavailable", async () => {
+  const sent: unknown[] = [];
+  const { db } = await createTestDb();
+  const actorLookupStub = stub(db.query.blockedActors, "findFirst", () =>
+    Promise.reject(new Error("simulated blocklist outage")),
+  );
+  const env = {
+    DB_INSTANCE: db,
+    DELIVERY_QUEUE: {
+      send: (body: unknown) => {
+        sent.push(body);
+        return Promise.resolve();
+      },
+      sendBatch: (messages: readonly { body: unknown }[]) => {
+        sent.push(...messages.map((message) => message.body));
+        return Promise.resolve();
+      },
+    },
+    DELIVERY_DLQ: {
+      send: () => Promise.resolve(),
+      sendBatch: () => Promise.resolve(),
+    },
+  } as unknown as Env;
+
+  try {
+    await expect(
+      enqueueDeliveryToActor(
+        env,
+        "https://local.example/ap/activities/deferred-by-blocklist",
+        "https://possibly-blocked.example/ap/users/dm",
+      ),
+    ).rejects.toThrow("simulated blocklist outage");
+  } finally {
+    actorLookupStub.restore();
+  }
+
+  expect(sent).toEqual([]);
+  expect(await db.select().from(deliveryResolutions).get()).toMatchObject({
+    activityApId: "https://local.example/ap/activities/deferred-by-blocklist",
+    recipientActorApId: "https://possibly-blocked.example/ap/users/dm",
+    status: "pending",
+    attempts: 0,
+  });
+});
+
+test("blocklist-out: batched delivery retains every intent but sends nothing while blocklist authority is unavailable", async () => {
+  const sent: unknown[] = [];
+  const activityIds = [
+    "https://local.example/ap/activities/batch-deferred-1",
+    "https://local.example/ap/activities/batch-deferred-2",
+  ];
+  const recipientActorApId = "https://possibly-blocked.example/ap/users/moved";
+  const { db } = await createTestDb();
+  const actorLookupStub = stub(db.query.blockedActors, "findFirst", () =>
+    Promise.reject(new Error("simulated blocklist outage")),
+  );
+  const env = {
+    DB_INSTANCE: db,
+    DELIVERY_QUEUE: {
+      send: (body: unknown) => {
+        sent.push(body);
+        return Promise.resolve();
+      },
+      sendBatch: (messages: readonly { body: unknown }[]) => {
+        sent.push(...messages.map((message) => message.body));
+        return Promise.resolve();
+      },
+    },
+    DELIVERY_DLQ: {
+      send: () => Promise.resolve(),
+      sendBatch: () => Promise.resolve(),
+    },
+  } as unknown as Env;
+
+  try {
+    await expect(
+      enqueueDeliveriesToActor(env, activityIds, recipientActorApId),
+    ).rejects.toThrow("simulated blocklist outage");
+  } finally {
+    actorLookupStub.restore();
+  }
+
+  expect(sent).toEqual([]);
+  expect(
+    (await db.select().from(deliveryResolutions))
+      .map((row) => ({
+        activityApId: row.activityApId,
+        recipientActorApId: row.recipientActorApId,
+        status: row.status,
+        attempts: row.attempts,
+      }))
+      .sort((a, b) => a.activityApId.localeCompare(b.activityApId)),
+  ).toEqual(
+    activityIds.map((activityApId) => ({
+      activityApId,
+      recipientActorApId,
+      status: "pending",
+      attempts: 0,
+    })),
+  );
 });
 
 test("blocklist-out: batched Move re-Follows skip a blocked target", async () => {

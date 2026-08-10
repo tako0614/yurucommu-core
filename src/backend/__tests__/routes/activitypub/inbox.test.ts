@@ -228,6 +228,14 @@ function createBlocklistDbMock(publicKeyPem: string, blockedActorApId: string) {
   return { db, insertValues };
 }
 
+function createBlocklistOutageDbMock(publicKeyPem: string, actorApId: string) {
+  const { db, insertValues } = createBlocklistDbMock(publicKeyPem, actorApId);
+  db.query.blockedActors.findFirst = spy((..._args: unknown[]) =>
+    Promise.reject(new Error("simulated blocklist outage")),
+  );
+  return { db, insertValues };
+}
+
 test("activitypub inbox - silently discards a blocked actor's Follow", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
@@ -290,6 +298,41 @@ test("activitypub inbox - silently discards a blocked actor's Like", async () =>
   );
 
   expect(res.status).toEqual(202);
+  assertSpyCalls(insertValues, 0);
+  assertSpyCalls(db.query.activities.findFirst, 0);
+});
+
+test("activitypub inbox - retries without storing when blocklist authority is unavailable", async () => {
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const actorApId = "https://remote.example/users/alice";
+  const { db, insertValues } = createBlocklistOutageDbMock(
+    publicKeyPem,
+    actorApId,
+  );
+  const app = new Hono();
+
+  app.use("*", async (c, next) => {
+    (c as unknown as { set: (key: string, value: unknown) => void }).set(
+      "db",
+      db,
+    );
+    await next();
+  });
+  app.route("/", inboxRoutes);
+
+  const body = JSON.stringify({
+    id: "https://remote.example/activities/retry-blocklist-outage",
+    type: "Follow",
+    actor: actorApId,
+    object: "https://test.local/ap/users/bob",
+  });
+
+  const res = await app.fetch(
+    await signedInboxRequest(body, privateKeyPem, `${actorApId}#main-key`),
+    { APP_URL: "https://test.local" },
+  );
+
+  expect(res.status).toEqual(500);
   assertSpyCalls(insertValues, 0);
   assertSpyCalls(db.query.activities.findFirst, 0);
 });

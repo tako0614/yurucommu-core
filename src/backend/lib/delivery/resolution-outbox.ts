@@ -347,6 +347,40 @@ export async function retryDeliveryResolutionJob(
   return { owned: affectedRowCount(result) > 0, terminal };
 }
 
+/**
+ * Release a claim after a local authority dependency fails without charging
+ * the remote actor's bounded resolution-attempt budget. The durable row stays
+ * retryable, while the processing token prevents an expired worker from
+ * overwriting a newer claim.
+ */
+export async function deferDeliveryResolutionJob(
+  db: Database,
+  claim: Extract<DeliveryResolutionClaim, { state: "claimed" }>,
+  error: unknown,
+  delaySeconds = 60,
+): Promise<boolean> {
+  const now = new Date();
+  const result = await db
+    .update(deliveryResolutions)
+    .set({
+      status: "retry_wait",
+      processingToken: null,
+      nextAttemptAt: new Date(
+        now.getTime() + delaySeconds * 1000,
+      ).toISOString(),
+      lastError: error instanceof Error ? error.message : String(error),
+      updatedAt: now.toISOString(),
+      resolvedAt: null,
+    })
+    .where(
+      and(
+        eq(deliveryResolutions.id, claim.id),
+        eq(deliveryResolutions.processingToken, claim.processingToken),
+      ),
+    );
+  return affectedRowCount(result) > 0;
+}
+
 export async function completeDeliveryResolutionJob(
   db: Database,
   claim: Extract<DeliveryResolutionClaim, { state: "claimed" }>,

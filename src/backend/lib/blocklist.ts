@@ -7,9 +7,10 @@
  * 4xx would cause sender instances to retry on a backoff, wasting their
  * delivery budget and ours.
  *
- * The helpers return `false` when the underlying read fails so that a
- * transient database error never causes federation traffic to be black-holed.
- * Each call site logs the failure so that the operator can investigate.
+ * The best-effort helpers return `false` when the underlying read fails so UI
+ * discovery can degrade without hiding every result. Federation ingress and
+ * delivery authority use the strict variants: an unavailable blocklist must
+ * make the message retryable, never silently route around an operator block.
  */
 
 import { eq, inArray, sql, type SQL } from "drizzle-orm";
@@ -212,23 +213,35 @@ export async function isDomainBlocked(
   db: Database,
   hostnameOrUrl: string,
 ): Promise<boolean> {
-  const domain = normalizeDomain(hostnameOrUrl);
-  if (!domain) return false;
-
   try {
-    const row = await db.query.blockedDomains.findFirst({
-      where: inArray(blockedDomains.domain, domainSuffixCandidates(domain)),
-      columns: { domain: true },
-    });
-    return !!row;
+    return await isDomainBlockedStrict(db, hostnameOrUrl);
   } catch (err) {
+    const domain = normalizeDomain(hostnameOrUrl);
     log.warn("blocklist.isDomainBlocked failed", {
       event: "blocklist.domain_lookup_failed",
-      domain,
+      domain: domain ?? hostnameOrUrl,
       error: err,
     });
     return false;
   }
+}
+
+/**
+ * Authority-bearing domain lookup. Unlike {@link isDomainBlocked}, a database
+ * read failure is propagated so the caller can retry instead of routing around
+ * an operator block whose state could not be read.
+ */
+export async function isDomainBlockedStrict(
+  db: Database,
+  hostnameOrUrl: string,
+): Promise<boolean> {
+  const domain = normalizeDomain(hostnameOrUrl);
+  if (!domain) return false;
+  const row = await db.query.blockedDomains.findFirst({
+    where: inArray(blockedDomains.domain, domainSuffixCandidates(domain)),
+    columns: { domain: true },
+  });
+  return !!row;
 }
 
 /**
@@ -239,28 +252,8 @@ export async function isActorBlocked(
   db: Database,
   actorApId: string,
 ): Promise<boolean> {
-  if (typeof actorApId !== "string" || actorApId.length === 0) {
-    return false;
-  }
-
   try {
-    const row = await db.query.blockedActors.findFirst({
-      where: eq(blockedActors.actorApId, actorApId),
-      columns: { actorApId: true },
-    });
-    if (row) return true;
-
-    // Operator rows written before the verified-key-owner invariant may carry
-    // an accepted cosmetic spelling. Match the complete retained set in SQL:
-    // a fixed prefix silently turned an older block into fail-open ingress.
-    const rawDb = db as unknown as RawSqlDatabase;
-    if (typeof rawDb.get === "function") {
-      const matches = retainedBlockedActorMatchesSql(actorApId);
-      const retained = (await rawDb.get(sql`
-        SELECT (${matches}) AS actor_id
-      `)) as { actor_id?: string | null } | undefined;
-      if (retained?.actor_id) return true;
-    }
+    return await isActorBlockedStrict(db, actorApId);
   } catch (err) {
     log.warn("blocklist.isActorBlocked failed", {
       event: "blocklist.actor_lookup_failed",
@@ -269,23 +262,56 @@ export async function isActorBlocked(
     });
     return false;
   }
+}
+
+/**
+ * Authority-bearing actor/domain lookup. Database failures propagate so
+ * ingress or delivery work stays retryable and no possibly-blocked peer is
+ * admitted merely because moderation authority was temporarily unavailable.
+ */
+export async function isActorBlockedStrict(
+  db: Database,
+  actorApId: string,
+): Promise<boolean> {
+  if (typeof actorApId !== "string" || actorApId.length === 0) {
+    return false;
+  }
+
+  const row = await db.query.blockedActors.findFirst({
+    where: eq(blockedActors.actorApId, actorApId),
+    columns: { actorApId: true },
+  });
+  if (row) return true;
+
+  // Operator rows written before the verified-key-owner invariant may carry
+  // an accepted cosmetic spelling. Match the complete retained set in SQL:
+  // a fixed prefix silently turned an older block into fail-open ingress.
+  const rawDb = db as unknown as RawSqlDatabase;
+  if (typeof rawDb.get === "function") {
+    const matches = retainedBlockedActorMatchesSql(actorApId);
+    const retained = (await rawDb.get(sql`
+        SELECT (${matches}) AS actor_id
+      `)) as { actor_id?: string | null } | undefined;
+    if (retained?.actor_id) return true;
+  }
 
   const domain = normalizeDomain(actorApId);
   if (!domain) return false;
-  return await isDomainBlocked(db, domain);
+  return await isDomainBlockedStrict(db, domain);
 }
 
 /**
  * Batched blocklist filter for a list of recipient actor AP-IDs: returns the
  * SUBSET that is blocked (by actor OR transitively by hostname) using exactly
  * two queries (blocked_actors + blocked_domains) instead of two-per-recipient.
- * Replaces an O(recipients) serial `isActorBlocked` loop on the delivery
- * fan-out hot path. Fail-open like the singular helpers: a read error yields an
- * empty blocked set so a transient DB error never black-holes federation.
+ * Replaces an O(recipients) serial `isActorBlocked` loop. The default remains
+ * best-effort for UI discovery; delivery authority uses the strict wrapper
+ * below so an unreadable blocklist cannot become a defederation bypass.
  */
 export async function filterBlockedActorApIds(
   db: Database,
   actorApIds: string[],
+  options: { readonly strict?: boolean } = {},
 ): Promise<Set<string>> {
   const blocked = new Set<string>();
   const uniqueIds = [...new Set(actorApIds.filter((id) => id.length > 0))];
@@ -294,9 +320,8 @@ export async function filterBlockedActorApIds(
   try {
     // Chunk the IN(...) lookups so a very large recipient set (e.g. a big
     // community fan-out, tens of thousands of unique actors/domains) cannot
-    // exceed SQLite's bound-parameter ceiling and throw — which, under the
-    // fail-open catch below, would silently DISABLE the operator blocklist for
-    // that whole fan-out (a defederation bypass).
+    // exceed SQLite's bound-parameter ceiling. Strict delivery callers retry
+    // such failures; best-effort discovery callers degrade to an empty set.
     const blockedActorSet = new Set<string>();
     for (let i = 0; i < uniqueIds.length; i += BLOCKLIST_IN_CHUNK) {
       const rows = await db
@@ -393,9 +418,18 @@ export async function filterBlockedActorApIds(
       event: "blocklist.batch_lookup_failed",
       error: err,
     });
-    return new Set(); // fail-open
+    if (options.strict) throw err;
+    return new Set();
   }
   return blocked;
+}
+
+/** Strict batch lookup for ingress/delivery authority. */
+export async function filterBlockedActorApIdsStrict(
+  db: Database,
+  actorApIds: string[],
+): Promise<Set<string>> {
+  return await filterBlockedActorApIds(db, actorApIds, { strict: true });
 }
 
 /**

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
+import { stub } from "#test/mock";
 
 import {
   activities,
@@ -168,6 +169,66 @@ test("resolution completion creates the durable endpoint job before acknowledgin
   });
   expect(harness.sent).toHaveLength(1);
   expect(harness.sent[0]?.type).toBe("deliver_endpoint");
+});
+
+test("resolution defers without spending its remote-attempt budget when blocklist authority is unavailable", async () => {
+  const { db } = await createTestDb();
+  await seedActivity(db);
+  await db.insert(actorCache).values({
+    apId: RECIPIENT_ID,
+    type: "Person",
+    preferredUsername: "bob",
+    inbox: ENDPOINT,
+    sharedInbox: ENDPOINT,
+    rawJson: JSON.stringify({
+      id: RECIPIENT_ID,
+      type: "Person",
+      inbox: ENDPOINT,
+    }),
+    lastFetchedAt: new Date().toISOString(),
+  });
+  await persistDeliveryResolutionJobs(db, [
+    { activityId: ACTIVITY_ID, recipientActorApId: RECIPIENT_ID },
+  ]);
+  await db.update(deliveryResolutions).set({ status: "queued" });
+  const actorLookupStub = stub(db.query.blockedActors, "findFirst", () =>
+    Promise.reject(new Error("simulated blocklist outage")),
+  );
+  const harness = queueHarness();
+  const env = envWith(db, harness.queue);
+  const acked: boolean[] = [];
+  const retries: number[] = [];
+  const body: DeliveryQueueMessageV1 = {
+    version: 1,
+    type: "resolve_actor",
+    activityId: ACTIVITY_ID,
+    recipientActorApId: RECIPIENT_ID,
+    scheduledAt: new Date().toISOString(),
+  };
+
+  try {
+    await processResolveActor(db, env, body, {
+      id: "resolve-blocklist-outage",
+      body,
+      timestamp: new Date(),
+      attempts: 1,
+      ack: () => acked.push(true),
+      retry: (options) => retries.push(options?.delaySeconds ?? 0),
+    });
+  } finally {
+    actorLookupStub.restore();
+  }
+
+  expect(acked).toEqual([]);
+  expect(retries).toEqual([60]);
+  expect(harness.sent).toEqual([]);
+  expect(await db.select().from(deliveryResolutions).get()).toMatchObject({
+    status: "retry_wait",
+    attempts: 0,
+    processingToken: null,
+    lastError: "simulated blocklist outage",
+  });
+  expect(await db.select().from(deliveryQueue).get()).toBeUndefined();
 });
 
 test("an actor document without a usable inbox terminates the durable row", async () => {

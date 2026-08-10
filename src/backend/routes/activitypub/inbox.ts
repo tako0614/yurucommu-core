@@ -44,7 +44,7 @@ import {
 } from "../../lib/activitypub-actor-cache.ts";
 import { logger } from "../../lib/logger.ts";
 import { verifyHttpSignature } from "../../lib/ap-verify.ts";
-import { isActorBlocked, isDomainBlocked } from "../../lib/blocklist.ts";
+import { isActorBlockedStrict } from "../../lib/blocklist.ts";
 import {
   consumeRateLimitProgrammatic,
   RateLimitConfigs,
@@ -302,8 +302,9 @@ async function verifyAndParseInbox(
   // covered regardless of which handler dispatches it. Blocked traffic is
   // silently discarded with a 202 ACK (never 4xx) — a 4xx would make the
   // sending instance retry on a backoff and keep redelivering blocked
-  // traffic. The blocklist helpers fail open on a DB read error (see
-  // lib/blocklist.ts), so a transient DB fault never black-holes federation.
+  // traffic. A blocklist read failure propagates as 5xx so the peer retries;
+  // acknowledging while moderation authority is unavailable could admit a
+  // sender the operator has blocked.
   if (await isActivityBlocked(c, actor, activityType)) {
     return c.body(null, 202);
   }
@@ -332,32 +333,14 @@ async function isActivityBlocked(
 ): Promise<boolean> {
   const db = c.get("db");
 
-  if (await isActorBlocked(db, actor)) {
-    log.info("Discarding activity from blocked actor", {
+  if (await isActorBlockedStrict(db, actor)) {
+    log.info("Discarding activity from blocked actor or domain", {
       event: "ap.blocklist.actor_discard",
       actor,
       activityType,
     });
     return true;
   }
-
-  let hostname: string | null = null;
-  try {
-    hostname = new URL(actor).hostname;
-  } catch {
-    return false;
-  }
-
-  if (await isDomainBlocked(db, hostname)) {
-    log.info("Discarding activity from blocked domain", {
-      event: "ap.blocklist.domain_discard",
-      actor,
-      domain: hostname,
-      activityType,
-    });
-    return true;
-  }
-
   return false;
 }
 

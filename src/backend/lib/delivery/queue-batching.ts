@@ -19,7 +19,7 @@ import {
   type D1Statement,
 } from "../../../db/index.ts";
 import { isLocal, isSafeRemoteUrl } from "../../federation-helpers.ts";
-import { isActorBlocked } from "../blocklist.ts";
+import { isActorBlockedStrict } from "../blocklist.ts";
 import { planEndpointsFromActorCache } from "./planner.ts";
 import {
   fetchAndUpsertActorCache,
@@ -53,6 +53,7 @@ import { logger } from "../logger.ts";
 import {
   claimDeliveryResolutionJob,
   completeDeliveryResolutionJob,
+  deferDeliveryResolutionJob,
   enqueueDeliveryResolutionJobs,
   enqueuePendingDeliveryResolutionJobs,
   MAX_RESOLVE_ATTEMPTS,
@@ -613,7 +614,19 @@ export async function processResolveActor(
   // via planEndpointsFromActorCache, but enforce the operator blocklist at the
   // resolve seam too so a re-resolved actor (or a domain blocked after enqueue)
   // never gets a delivery job. ACK silently — same posture as the inbox handler.
-  if (await isActorBlocked(db, msg.recipientActorApId)) {
+  let recipientBlocked: boolean;
+  try {
+    recipientBlocked = await isActorBlockedStrict(db, msg.recipientActorApId);
+  } catch (error) {
+    if (managedClaim) {
+      const owned = await deferDeliveryResolutionJob(db, managedClaim, error);
+      if (owned) message.retry({ delaySeconds: 60 });
+      else message.ack();
+      return;
+    }
+    throw error;
+  }
+  if (recipientBlocked) {
     if (managedClaim) {
       await completeDeliveryResolutionJob(
         db,

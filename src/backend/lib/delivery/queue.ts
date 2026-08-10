@@ -38,7 +38,10 @@ import {
 import { computeDeliveryJobId, safeEndpointHost } from "./transformers.ts";
 import { emitMetric } from "./metrics.ts";
 import { logger } from "../logger.ts";
-import { filterBlockedActorApIds, isActorBlocked } from "../blocklist.ts";
+import {
+  filterBlockedActorApIdsStrict,
+  isActorBlockedStrict,
+} from "../blocklist.ts";
 import {
   enqueuePendingNotificationPushJobs,
   processNotificationPushJob,
@@ -462,7 +465,22 @@ export async function enqueueResolveForEndpointActors(
       // Drop recipients the operator has defederated before re-enqueueing
       // resolve_actor jobs (outbound blocklist enforcement). Batched (2 queries)
       // rather than a serial isActorBlocked per candidate.
-      const blockedSet = await filterBlockedActorApIds(db, candidates);
+      let blockedSet: Set<string>;
+      try {
+        blockedSet = await filterBlockedActorApIdsStrict(db, candidates);
+      } catch (error) {
+        // Preserve the resolution authority before surfacing a transient local
+        // moderation outage. The resolver itself repeats the strict check, so
+        // recovery cannot deliver to a blocked actor once the DB is readable.
+        await persistDeliveryResolutionJobs(
+          db,
+          candidates.map((recipientActorApId) => ({
+            activityId,
+            recipientActorApId,
+          })),
+        );
+        throw error;
+      }
       const slice = candidates.filter((apId) => !blockedSet.has(apId));
 
       if (slice.length === 0) continue;
@@ -538,20 +556,29 @@ export async function enqueueDeliveryToActor(
   // Enforce the operator blocklist on the OUTBOUND single-actor path (DMs,
   // Accept/Follow responses, targeted post/story interactions). A defederated
   // domain/actor must never receive our activities, mirroring the inbound
-  // enforcement in the inbox handler. Best-effort: if the db read fails,
-  // isActorBlocked returns false (never black-hole on a transient error).
+  // enforcement in the inbox handler. A DB read failure retains the delivery
+  // intent and propagates so unavailable authority never becomes a bypass.
   const db = (env as Partial<Env>).DB_INSTANCE;
-  if (db && (await isActorBlocked(db, recipientActorApId))) {
-    log.info("Skipping outbound delivery to blocked actor", {
-      event: "delivery.blocklist.actor_skip",
-      actor: recipientActorApId,
-      activityId,
-    });
-    emitMetric("delivery.blocklist.actor_skip", 1, {});
-    return;
-  }
-
   if (db) {
+    try {
+      if (await isActorBlockedStrict(db, recipientActorApId)) {
+        log.info("Skipping outbound delivery to blocked actor", {
+          event: "delivery.blocklist.actor_skip",
+          actor: recipientActorApId,
+          activityId,
+        });
+        emitMetric("delivery.blocklist.actor_skip", 1, {});
+        return;
+      }
+    } catch (error) {
+      // The Activity may already be committed and some callers deliberately
+      // treat queue publication as best-effort. Persist the semantic intent so
+      // a later outbox sweep can resume after moderation authority recovers.
+      await persistDeliveryResolutionJobs(db, [
+        { activityId, recipientActorApId },
+      ]);
+      throw error;
+    }
     const queue = queueAvailable(env) ? env.DELIVERY_QUEUE : undefined;
     await enqueueDeliveryResolutionJobs(db, queue, [
       { activityId, recipientActorApId },
@@ -585,14 +612,25 @@ export async function enqueueDeliveriesToActor(
     activityId,
     recipientActorApId,
   }));
-  if (db && (await isActorBlocked(db, recipientActorApId))) {
-    log.info("Skipping outbound deliveries to blocked actor", {
-      event: "delivery.blocklist.actor_batch_skip",
-      actor: recipientActorApId,
-      activityCount: activityIds.length,
-    });
-    emitMetric("delivery.blocklist.actor_batch_skip", activityIds.length, {});
-    return;
+  if (db) {
+    try {
+      if (await isActorBlockedStrict(db, recipientActorApId)) {
+        log.info("Skipping outbound deliveries to blocked actor", {
+          event: "delivery.blocklist.actor_batch_skip",
+          actor: recipientActorApId,
+          activityCount: activityIds.length,
+        });
+        emitMetric(
+          "delivery.blocklist.actor_batch_skip",
+          activityIds.length,
+          {},
+        );
+        return;
+      }
+    } catch (error) {
+      await persistDeliveryResolutionJobs(db, intents);
+      throw error;
+    }
   }
 
   if (db) await persistDeliveryResolutionJobs(db, intents);

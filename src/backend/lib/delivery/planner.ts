@@ -7,7 +7,7 @@ import {
   safeParseIsoTimeMs,
 } from "./transformers.ts";
 import { isSafeRemoteUrl } from "../../federation-helpers.ts";
-import { filterBlockedActorApIds } from "../blocklist.ts";
+import { filterBlockedActorApIdsStrict } from "../blocklist.ts";
 
 export type PlannedEndpointGroup = {
   endpoint: string;
@@ -82,13 +82,16 @@ export async function planEndpointsFromActorCache(
   // Enforce the operator blocklist on the OUTBOUND side too: drop any
   // recipient whose actor AP-ID or hostname is defederated BEFORE grouping
   // endpoints, so a blocked domain/actor never receives our posts or DMs.
-  // Uses the same isActorBlocked check (which also covers the hostname
-  // transitively) that the inbox handler uses inbound.
+  // Uses the same actor + hostname authority as the single-actor path. A read
+  // failure propagates so fanout retries instead of bypassing defederation.
   const allowedRecipients: string[] = [];
   const blockedRecipients: string[] = [];
   // Batched blocklist filter (2 queries) instead of a serial isActorBlocked
   // per recipient (2 queries each → up to ~400 round-trips per fan-out page).
-  const blockedSet = await filterBlockedActorApIds(db, recipientActorApIds);
+  const blockedSet = await filterBlockedActorApIdsStrict(
+    db,
+    recipientActorApIds,
+  );
   for (const apId of recipientActorApIds) {
     if (blockedSet.has(apId)) {
       blockedRecipients.push(apId);
