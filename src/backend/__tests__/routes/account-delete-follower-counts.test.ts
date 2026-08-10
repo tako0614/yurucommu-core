@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile, readdir } from "node:fs/promises";
-import { eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import { Hono } from "hono";
@@ -688,6 +688,154 @@ test("account deletion retries community member-count cleanup without double-dec
       .select()
       .from(communityMembers)
       .where(eq(communityMembers.actorApId, tako)),
+  ).toHaveLength(0);
+});
+
+test("account deletion retires a sole-owner community and retries one stable Group Delete", async () => {
+  const db = await freshDb();
+  const tako = await insertActor(db, "tako");
+  const communityApId = `${APP_URL}/ap/groups/solo`;
+  const remoteFollower = "https://remote.test/users/group-follower";
+  await db.insert(communities).values({
+    apId: communityApId,
+    preferredUsername: "solo",
+    name: "Solo",
+    inbox: `${communityApId}/inbox`,
+    outbox: `${communityApId}/outbox`,
+    followersUrl: `${communityApId}/followers`,
+    publicKeyPem: "group-pub",
+    privateKeyPem: "group-priv",
+    createdBy: tako,
+    memberCount: 1,
+  });
+  await db.insert(communityMembers).values({
+    communityApId,
+    actorApId: tako,
+    role: "owner",
+  });
+  await follow(db, remoteFollower, communityApId);
+  await db.run(sql`
+    CREATE TRIGGER reject_solo_community_member_delete
+    BEFORE DELETE ON community_members
+    WHEN OLD.actor_ap_id = 'https://yuru.test/ap/users/tako'
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated solo-community cleanup failure');
+    END
+  `);
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", ownerActor(tako));
+    await next();
+  });
+  app.route("/", actorsRoute);
+
+  const failed = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(failed.status).toBe(500);
+
+  const firstCommunityDelete = await db
+    .select({ apId: activities.apId, rawJson: activities.rawJson })
+    .from(activities)
+    .where(
+      and(
+        eq(activities.actorApId, communityApId),
+        eq(activities.type, "Delete"),
+        eq(activities.direction, "outbound"),
+      ),
+    )
+    .get();
+  expect(firstCommunityDelete).toBeDefined();
+  expect(JSON.parse(firstCommunityDelete!.rawJson)).toMatchObject({
+    type: "Delete",
+    actor: communityApId,
+    object: communityApId,
+    cc: [`${communityApId}/followers`],
+  });
+  expect(
+    await db
+      .select()
+      .from(deliveryResolutions)
+      .where(eq(deliveryResolutions.activityApId, firstCommunityDelete!.apId)),
+  ).toHaveLength(1);
+
+  const retiredBeforeRetry = await db
+    .select({
+      deletedAt: communities.deletedAt,
+      memberCount: communities.memberCount,
+    })
+    .from(communities)
+    .where(eq(communities.apId, communityApId))
+    .get();
+  expect(retiredBeforeRetry?.deletedAt).toEqual(expect.any(String));
+  expect(retiredBeforeRetry?.memberCount).toBe(1);
+  expect(
+    await db
+      .select()
+      .from(communityMembers)
+      .where(eq(communityMembers.communityApId, communityApId)),
+  ).toHaveLength(1);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(eq(follows.followingApId, communityApId)),
+  ).toHaveLength(1);
+
+  await db.run(sql`DROP TRIGGER reject_solo_community_member_delete`);
+  const retried = await app.fetch(
+    new Request(`${APP_URL}/me/delete`, { method: "POST" }),
+    envFor(db),
+  );
+  expect(retried.status).toBe(200);
+
+  expect(
+    await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(
+        and(
+          eq(activities.actorApId, communityApId),
+          eq(activities.type, "Delete"),
+          eq(activities.direction, "outbound"),
+        ),
+      ),
+  ).toEqual([{ apId: firstCommunityDelete!.apId }]);
+  expect(
+    await db
+      .select()
+      .from(deliveryResolutions)
+      .where(eq(deliveryResolutions.activityApId, firstCommunityDelete!.apId)),
+  ).toHaveLength(1);
+  expect(
+    await db
+      .select({
+        deletedAt: communities.deletedAt,
+        memberCount: communities.memberCount,
+        privateKeyPem: communities.privateKeyPem,
+      })
+      .from(communities)
+      .where(eq(communities.apId, communityApId))
+      .get(),
+  ).toEqual({
+    deletedAt: retiredBeforeRetry!.deletedAt,
+    memberCount: 0,
+    privateKeyPem: "group-priv",
+  });
+  expect(
+    await db
+      .select()
+      .from(communityMembers)
+      .where(eq(communityMembers.communityApId, communityApId)),
+  ).toHaveLength(0);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(eq(follows.followingApId, communityApId)),
   ).toHaveLength(0);
 });
 

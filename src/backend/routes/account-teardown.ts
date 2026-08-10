@@ -2,11 +2,14 @@ import {
   and,
   asc,
   eq,
+  exists,
   gt,
   inArray,
   isNotNull,
+  isNull,
   ne,
   not,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
@@ -18,6 +21,7 @@ import {
   blocks,
   bookmarks,
   communities,
+  communityBans,
   communityInvites,
   communityJoinRequests,
   communityMembers,
@@ -167,6 +171,61 @@ export async function finalizeActorDeletionAndSessions(
 }
 
 /**
+ * Persist one stable outbound Delete intent and snapshot every current remote
+ * follower before its authority edge can be removed. Both account actors and
+ * community Group actors use the same durable-delivery contract.
+ */
+async function ensureDeleteFollowerSnapshot(
+  db: Database,
+  env: Env,
+  baseUrl: string,
+  subjectApId: string,
+  followersUrl: string,
+): Promise<string> {
+  const existingDelete = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(
+      and(
+        eq(activities.actorApId, subjectApId),
+        eq(activities.type, "Delete"),
+        eq(activities.direction, "outbound"),
+      ),
+    )
+    .orderBy(asc(activities.createdAt))
+    .get();
+  const deleteActivityId =
+    existingDelete?.apId ?? activityApId(baseUrl, generateId());
+  const deleteActivity = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: deleteActivityId,
+    type: "Delete",
+    actor: subjectApId,
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    cc: [followersUrl],
+    object: subjectApId,
+  };
+
+  if (!existingDelete) {
+    await db.insert(activities).values({
+      apId: deleteActivityId,
+      type: "Delete",
+      actorApId: subjectApId,
+      objectApId: subjectApId,
+      rawJson: JSON.stringify(deleteActivity),
+      direction: "outbound",
+    });
+  }
+  await snapshotAndEnqueueFollowerDeliveries(
+    db,
+    env,
+    deleteActivityId,
+    subjectApId,
+  );
+  return deleteActivityId;
+}
+
+/**
  * Full per-actor teardown for account deletion: federate Delete(Actor),
  * reconcile every counterparty's denormalized counters, delete all of the
  * actor's edges / interactions / memberships / media / DM state, hand off
@@ -203,41 +262,8 @@ export async function teardownActor(
   // failed after snapshotting followers. Minting a fresh Activity here would
   // see an already-erased follower graph, then the cleanup below could delete
   // the original Activity and its only endpoint/resolution jobs.
-  const existingDelete = await db
-    .select({ apId: activities.apId })
-    .from(activities)
-    .where(
-      and(
-        eq(activities.actorApId, apId),
-        eq(activities.type, "Delete"),
-        eq(activities.direction, "outbound"),
-      ),
-    )
-    .orderBy(asc(activities.createdAt))
-    .get();
-  const deleteActivityId =
-    existingDelete?.apId ?? activityApId(baseUrl, generateId());
-  const deleteActivity = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: deleteActivityId,
-    type: "Delete",
-    actor: apId,
-    to: ["https://www.w3.org/ns/activitystreams#Public"],
-    cc: [followersUrl],
-    object: apId,
-  };
   try {
-    if (!existingDelete) {
-      await db.insert(activities).values({
-        apId: deleteActivityId,
-        type: "Delete",
-        actorApId: apId,
-        objectApId: apId,
-        rawJson: JSON.stringify(deleteActivity),
-        direction: "outbound",
-      });
-    }
-    await snapshotAndEnqueueFollowerDeliveries(db, env, deleteActivityId, apId);
+    await ensureDeleteFollowerSnapshot(db, env, baseUrl, apId, followersUrl);
   } catch (err) {
     // Queue publication is already best-effort inside the snapshot helper, but
     // the durable Activity/outbox write is not. Continuing would erase the
@@ -423,7 +449,7 @@ export async function teardownActor(
     })
     .from(communityMembers)
     .where(eq(communityMembers.actorApId, apId));
-  const communityApIds = memberships.map((m) => m.communityApId);
+  const retirementCandidates: string[] = [];
 
   // Hand off sole-owned communities to the oldest remaining member.
   for (const m of memberships) {
@@ -461,14 +487,86 @@ export async function teardownActor(
             eq(communityMembers.actorApId, heir.actorApId),
           ),
         );
+    } else {
+      retirementCandidates.push(m.communityApId);
     }
   }
 
-  if (communityApIds.length > 0) {
+  // A community with no successor cannot keep a live Group actor after its
+  // only owner disappears. Retire it first with an atomic last-member guard.
+  // Keeping the membership/follow graph at this stage gives a failed snapshot
+  // a durable retry path; once deletedAt is set, every join/write/read route is
+  // closed so no new heir can race in between retirement and cleanup.
+  const retiredCommunityApIds: string[] = [];
+  for (const communityApId of retirementCandidates) {
+    const otherMember = db
+      .select({ actorApId: communityMembers.actorApId })
+      .from(communityMembers)
+      .where(
+        and(
+          eq(communityMembers.communityApId, communityApId),
+          ne(communityMembers.actorApId, apId),
+        ),
+      )
+      .limit(1);
+    const deletingOwner = db
+      .select({ actorApId: communityMembers.actorApId })
+      .from(communityMembers)
+      .where(
+        and(
+          eq(communityMembers.communityApId, communityApId),
+          eq(communityMembers.actorApId, apId),
+          eq(communityMembers.role, "owner"),
+        ),
+      )
+      .limit(1);
+    await db
+      .update(communities)
+      .set({ deletedAt: nowIso() })
+      .where(
+        and(
+          eq(communities.apId, communityApId),
+          isNull(communities.deletedAt),
+          notExists(otherMember),
+          exists(deletingOwner),
+        ),
+      );
+
+    const retired = await db
+      .select({
+        deletedAt: communities.deletedAt,
+        followersUrl: communities.followersUrl,
+      })
+      .from(communities)
+      .where(eq(communities.apId, communityApId))
+      .get();
+    if (!retired?.deletedAt) continue;
+
+    try {
+      await ensureDeleteFollowerSnapshot(
+        db,
+        env,
+        baseUrl,
+        communityApId,
+        retired.followersUrl,
+      );
+    } catch (err) {
+      log.error("Failed to persist community Delete follower snapshot", {
+        event: "actors.account.community_delete_snapshot_failed",
+        actor: apId,
+        community: communityApId,
+        error: err,
+      });
+      throw err;
+    }
+    retiredCommunityApIds.push(communityApId);
+  }
+
+  if (memberships.length > 0) {
     // Keep the denormalized count and its membership authority edge atomic.
     // Otherwise a failed DELETE leaves the edge visible to a retry, which
     // would decrement the same community for a second time.
-    await (db as unknown as BatchableDb).batch([
+    const membershipCleanup: BatchStatement[] = [
       db
         .update(communities)
         .set({ memberCount: sql`${communities.memberCount} - 1` })
@@ -483,9 +581,57 @@ export async function teardownActor(
             ),
             gt(communities.memberCount, 0),
           ),
-        ),
-      db.delete(communityMembers).where(eq(communityMembers.actorApId, apId)),
-    ]);
+        ) as unknown as BatchStatement,
+    ];
+
+    // A retired Group keeps its row + signing keys while the durable Delete
+    // drains, but no membership, moderation/read state, or follow authority
+    // should remain. Chunk every IN predicate for D1's 100-bind limit and keep
+    // all retirement cleanup in the same batch as memberCount + membership.
+    // The follows DELETE binds each id twice (follower OR following), so use
+    // 45 rather than the normal 90 to stay below D1's 100-bind query ceiling.
+    for (const chunk of chunkForInClause(retiredCommunityApIds, 45)) {
+      membershipCleanup.push(
+        db
+          .delete(follows)
+          .where(
+            or(
+              inArray(follows.followerApId, chunk),
+              inArray(follows.followingApId, chunk),
+            ),
+          ) as unknown as BatchStatement,
+        db
+          .delete(communityJoinRequests)
+          .where(
+            inArray(communityJoinRequests.communityApId, chunk),
+          ) as unknown as BatchStatement,
+        db
+          .delete(communityInvites)
+          .where(
+            inArray(communityInvites.communityApId, chunk),
+          ) as unknown as BatchStatement,
+        db
+          .delete(communityBans)
+          .where(
+            inArray(communityBans.communityApId, chunk),
+          ) as unknown as BatchStatement,
+        db
+          .delete(dmCommunityReadStatus)
+          .where(
+            inArray(dmCommunityReadStatus.communityApId, chunk),
+          ) as unknown as BatchStatement,
+      );
+    }
+    membershipCleanup.push(
+      db
+        .delete(communityMembers)
+        .where(
+          eq(communityMembers.actorApId, apId),
+        ) as unknown as BatchStatement,
+    );
+    await (db as unknown as BatchableDb).batch(
+      membershipCleanup as [BatchStatement, ...BatchStatement[]],
+    );
   }
 
   await db
