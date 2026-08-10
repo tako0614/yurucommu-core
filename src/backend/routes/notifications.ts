@@ -165,6 +165,43 @@ async function archiveAllInboxRows(
   return affectedRowCount(result);
 }
 
+/**
+ * Mark every currently visible social notification read using the same
+ * authority predicate as the list and unread badge. Inbox also retains rows
+ * for DMs, archived history, self activity, and non-user-facing ActivityPub
+ * types; a broad actor-only UPDATE would silently mutate those other domains.
+ */
+async function markAllEligibleNotificationsRead(
+  db: Database,
+  actorApId: string,
+): Promise<void> {
+  const eligibleActivityIds = db
+    .select({ activityApId: inboxTable.activityApId })
+    .from(inboxTable)
+    .innerJoin(activities, eq(inboxTable.activityApId, activities.apId))
+    .leftJoin(objects, eq(activities.objectApId, objects.apId))
+    .where(
+      and(
+        eq(inboxTable.actorApId, actorApId),
+        eq(inboxTable.read, 0),
+        ...notificationEligibilityWhere(db, actorApId, {
+          direct: "exclude",
+        }),
+      ),
+    );
+
+  await db
+    .update(inboxTable)
+    .set({ read: 1 })
+    .where(
+      and(
+        eq(inboxTable.actorApId, actorApId),
+        eq(inboxTable.read, 0),
+        inArray(inboxTable.activityApId, eligibleActivityIds),
+      ),
+    );
+}
+
 async function cleanupArchivedNotifications(
   db: Database,
   actorApId: string,
@@ -668,22 +705,33 @@ notifications.post("/read", async (c) => {
   if (actor instanceof Response) return actor;
 
   const db = c.get("db");
-  // A literal `null`/primitive JSON body parses without throwing, then field
-  // access throws a TypeError that the global handler maps to 500 (not 400).
-  // Guard the body shape so a malformed request is a clean 400.
-  const body = await c.req
-    .json<{ ids?: string[]; read_all?: boolean }>()
-    .catch(() => null);
-  if (!body || typeof body !== "object") {
+  // JSON's static type parameter is not runtime validation. Accept exactly one
+  // operation and validate every value before any write, so truthy strings or
+  // mixed arrays cannot trigger a broad or partially applied update.
+  const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return c.json({ error: "Invalid request body" }, 400);
   }
 
-  if (body.read_all) {
-    await db
-      .update(inboxTable)
-      .set({ read: 1 })
-      .where(eq(inboxTable.actorApId, actor.ap_id));
-  } else if (body.ids && body.ids.length > 0) {
+  const hasReadAll = Object.hasOwn(body, "read_all");
+  const hasIds = Object.hasOwn(body, "ids");
+  if (hasReadAll === hasIds) {
+    return c.json({ error: "Exactly one of ids or read_all is required" }, 400);
+  }
+
+  if (hasReadAll) {
+    if (body.read_all !== true) {
+      return c.json({ error: "read_all must be true" }, 400);
+    }
+    await markAllEligibleNotificationsRead(db, actor.ap_id);
+  } else {
+    if (
+      !Array.isArray(body.ids) ||
+      body.ids.length === 0 ||
+      body.ids.some((id) => typeof id !== "string" || id.trim().length === 0)
+    ) {
+      return c.json({ error: "ids must be a non-empty array of strings" }, 400);
+    }
     if (body.ids.length > MAX_READ_BATCH_SIZE) {
       return c.json(
         {
@@ -693,20 +741,16 @@ notifications.post("/read", async (c) => {
         400,
       );
     }
+    const uniqueIds = [...new Set(body.ids.map((id) => id.trim()))];
     await db
       .update(inboxTable)
       .set({ read: 1 })
       .where(
         and(
           eq(inboxTable.actorApId, actor.ap_id),
-          inArray(inboxTable.activityApId, body.ids),
+          inArray(inboxTable.activityApId, uniqueIds),
         ),
       );
-  } else {
-    return c.json(
-      { error: "Either ids array or read_all flag is required" },
-      400,
-    );
   }
 
   // Sync the reader's OTHER tabs/devices: push the fresh authoritative badge.

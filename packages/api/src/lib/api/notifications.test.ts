@@ -5,6 +5,7 @@ import {
   fetchNotificationPusherPublicConfig,
   fetchNotifications,
   fetchUnreadCount,
+  markNotificationsRead,
   registerNotificationPusher,
   unregisterNotificationPusher,
 } from "./notifications.ts";
@@ -86,6 +87,29 @@ test("fetchUnreadCount does not turn authentication failures into zero", async (
     globalThis.fetch = originalFetch;
     clearYurucommuApiTransport();
   }
+});
+
+test("markNotificationsRead sends the operation promised by its optional ids argument", async () => {
+  const calls: unknown[] = [];
+  const originalFetch = globalThis.fetch;
+  clearYurucommuApiTransport();
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push(init?.body ? JSON.parse(String(init.body)) : null);
+    return Response.json({ success: true });
+  }) as unknown as typeof fetch;
+
+  try {
+    await markNotificationsRead();
+    await markNotificationsRead(["activity-1", "activity-2"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuApiTransport();
+  }
+
+  expect(calls).toEqual([
+    { read_all: true },
+    { ids: ["activity-1", "activity-2"] },
+  ]);
 });
 
 test("notification pusher public config derives enabled only from both public values", async () => {

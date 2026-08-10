@@ -45,7 +45,10 @@ export async function fetchUnreadCount(): Promise<number> {
 }
 
 export async function markNotificationsRead(ids?: string[]): Promise<void> {
-  const res = await apiPost("/api/notifications/read", { ids });
+  const res = await apiPost(
+    "/api/notifications/read",
+    ids === undefined ? { read_all: true } : { ids },
+  );
   await assertOk(res, "Failed to mark as read");
 }
 
