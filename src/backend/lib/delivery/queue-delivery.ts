@@ -9,6 +9,7 @@ import type { Database } from "../../../db/index.ts";
 import { and, eq, lt, notInArray, or, sql } from "drizzle-orm";
 import {
   activities,
+  affectedRowCount,
   actorCache,
   actors,
   communities,
@@ -92,15 +93,18 @@ type TimedFetchResult = {
   latencyMs: number;
 };
 
+type DeliveryFetch = typeof fetchWithTimeout;
+
 async function timedFetch(
   url: string,
   init: RequestInit & { timeout: number },
+  deliveryFetch: DeliveryFetch,
 ): Promise<TimedFetchResult> {
   const startedAt = Date.now();
   let response: Response | null = null;
   let error: unknown = null;
   try {
-    response = await fetchWithTimeout(url, init);
+    response = await deliveryFetch(url, init);
   } catch (e) {
     error = e;
   }
@@ -229,6 +233,7 @@ async function maybeShadowProbeInbox(
     sender: { apId: string; privateKeyPem: string };
     body: string;
   },
+  deliveryFetch: DeliveryFetch,
 ): Promise<void> {
   const allowedHosts = parseCommaSeparated(env.DELIVERY_SHADOW_PROBE_HOSTS);
   if (allowedHosts.length === 0) return;
@@ -260,16 +265,20 @@ async function maybeShadowProbeInbox(
     params.body,
   );
 
-  const { response, error, latencyMs } = await timedFetch(inbox, {
-    method: "POST",
-    headers: {
-      ...headers,
-      "Content-Type": "application/activity+json",
-      "X-Yurucommu-Shadow-Probe": "1",
+  const { response, error, latencyMs } = await timedFetch(
+    inbox,
+    {
+      method: "POST",
+      headers: {
+        ...headers,
+        "Content-Type": "application/activity+json",
+        "X-Yurucommu-Shadow-Probe": "1",
+      },
+      body: params.body,
+      timeout: DELIVERY_HTTP_TIMEOUT_MS,
     },
-    body: params.body,
-    timeout: DELIVERY_HTTP_TIMEOUT_MS,
-  });
+    deliveryFetch,
+  );
 
   emitMetric("delivery_shadow_probe_inbox_latency_ms", latencyMs, {
     endpoint_host: params.endpointHost,
@@ -291,6 +300,7 @@ export async function processDeliverEndpoint(
   msg: DeliveryDeliverEndpointMessageV1,
   message: IQueueMessage<DeliveryQueueMessageV1>,
   bulkhead: Bulkhead,
+  deliveryFetch: DeliveryFetch = fetchWithTimeout,
 ): Promise<void> {
   if (!requireQueue(env, "deliver_endpoint", message)) return;
 
@@ -417,7 +427,7 @@ export async function processDeliverEndpoint(
           ),
         ),
       );
-    if (((claim as { meta?: { changes?: number } }).meta?.changes ?? 0) === 0) {
+    if (affectedRowCount(claim) === 0) {
       message.ack();
       return;
     }
@@ -451,12 +461,16 @@ export async function processDeliverEndpoint(
       body,
     );
 
-    const { response, error, latencyMs } = await timedFetch(endpoint, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/activity+json" },
-      body,
-      timeout: DELIVERY_HTTP_TIMEOUT_MS,
-    });
+    const { response, error, latencyMs } = await timedFetch(
+      endpoint,
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/activity+json" },
+        body,
+        timeout: DELIVERY_HTTP_TIMEOUT_MS,
+      },
+      deliveryFetch,
+    );
 
     emitMetric("delivery_latency_ms", latencyMs, {
       endpoint_host: host,
@@ -504,13 +518,18 @@ export async function processDeliverEndpoint(
       // Shadow probe (staging-only)
       if (job.attempts === 0) {
         try {
-          await maybeShadowProbeInbox(db, env, {
-            activityId: job.activityApId,
-            sharedInboxEndpoint: endpoint,
-            endpointHost: host,
-            sender,
-            body,
-          });
+          await maybeShadowProbeInbox(
+            db,
+            env,
+            {
+              activityId: job.activityApId,
+              sharedInboxEndpoint: endpoint,
+              endpointHost: host,
+              sender,
+              body,
+            },
+            deliveryFetch,
+          );
         } catch (e) {
           log.warn("Shadow probe failed", {
             event: "delivery.shadow_probe.failed",

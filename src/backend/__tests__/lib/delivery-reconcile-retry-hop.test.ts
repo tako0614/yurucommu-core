@@ -23,9 +23,8 @@ import type {
 //
 // These cases exercise the two re-enqueue sites that run BEFORE the verified-CAS
 // claim (the nextAttemptAt defer and the stale-processing re-poll). The
-// post-claim retry_wait/circuit-open sites carry the count identically, but the
-// CAS reads D1-specific `meta.changes` that the libsql test driver does not
-// populate, so they cannot be driven past the claim in a unit test.
+// cross-runtime claim itself and its Actor Delete ordering are covered by
+// delivery-endpoint-claim.test.ts.
 
 async function freshDb(): Promise<Database> {
   const client = createClient({ url: ":memory:" });
