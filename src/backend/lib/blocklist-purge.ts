@@ -1,6 +1,28 @@
-import { and, asc, gt, inArray, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
-import { activities, objects } from "../../db/index.ts";
+import {
+  activities,
+  actors,
+  announces,
+  bookmarks,
+  follows,
+  likes,
+  objects,
+  runBatch,
+  storyShares,
+  storyViews,
+  storyVotes,
+} from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import type { IObjectStorage } from "../runtime/types.ts";
 import { chunkForInClause, D1_IN_CHUNK } from "./chunk.ts";
@@ -20,6 +42,12 @@ const log = logger.child({ component: "blocklist" });
 // instead of re-materializing the whole table once per delete chunk.
 const ACTOR_IDENTITY_SCAN_PAGE = 512;
 
+// An exact-actor purge can carry both a page of retained raw actor spellings
+// and a page of affected object/counterpart ids in the same DELETE. Keep their
+// combined bound parameters below D1's 100-variable ceiling with headroom for
+// any fixed predicate values. Domain purges bind two additional host values.
+const INTERACTION_EDGE_PAGE = 40;
+
 export interface BlocklistContentPurgeResult {
   complete: boolean;
   deletedObjects: number;
@@ -27,7 +55,7 @@ export interface BlocklistContentPurgeResult {
 }
 
 /**
- * Match an HTTPS ActivityPub URL by its exact hostname or a real subdomain.
+ * Match an HTTP(S) ActivityPub URL by its exact hostname or a real subdomain.
  *
  * Do not replace this with LIKE. Cloudflare D1 rejects sufficiently long LIKE
  * patterns as too complex, which previously made a valid long domain block
@@ -42,7 +70,9 @@ function activityPubUrlHostMatchesDomain(
   domain: string,
 ): SQL {
   const lowerUrl = sql`lower(${column})`;
-  const authorityTail = sql`substr(${lowerUrl}, 9)`;
+  const schemeSeparator = sql`instr(${lowerUrl}, '://')`;
+  const scheme = sql`substr(${lowerUrl}, 1, ${schemeSeparator} - 1)`;
+  const authorityTail = sql`substr(${lowerUrl}, ${schemeSeparator} + 3)`;
   const slash = sql`instr(${authorityTail}, '/')`;
   const authority = sql`substr(${authorityTail}, 1, ${slash} - 1)`;
   const closingBracket = sql`instr(${authority}, ']')`;
@@ -65,7 +95,8 @@ function activityPubUrlHostMatchesDomain(
   const subdomainSuffix = `.${domain}`;
 
   return sql`
-    substr(${lowerUrl}, 1, 8) = 'https://'
+    ${schemeSeparator} > 1
+    AND ${scheme} IN ('http', 'https')
     AND ${slash} > 1
     AND instr(${authority}, '@') = 0
     AND (
@@ -83,11 +114,342 @@ async function purgeObjects(
   media?: IObjectStorage,
 ): Promise<void> {
   if (apIds.length === 0) return;
+  const parentRows = await db
+    .selectDistinct({ apId: objects.inReplyTo })
+    .from(objects)
+    .where(and(inArray(objects.apId, apIds), isNotNull(objects.inReplyTo)));
+  const parentApIds = parentRows.flatMap((row) =>
+    typeof row.apId === "string" ? [row.apId] : [],
+  );
   const mediaKeys = await deleteObjectsCascade(db, apIds, media);
   for (const chunk of chunkForInClause(apIds)) {
-    await db.delete(objects).where(inArray(objects.apId, chunk));
+    // Co-commit the authored-object delete with an exact recomputation of every
+    // surviving parent touched by this page. A retry can therefore never see a
+    // deleted reply whose contribution remains stranded in reply_count.
+    await runBatch(db, [
+      db.delete(objects).where(inArray(objects.apId, chunk)),
+      db
+        .update(objects)
+        .set({
+          replyCount: sql`(SELECT COUNT(*) FROM ${objects} AS retained_reply WHERE retained_reply.in_reply_to = ${objects.apId})`,
+        })
+        .where(inArray(objects.apId, parentApIds)),
+    ]);
   }
   await purgeMediaBlobs(media, mediaKeys);
+}
+
+type ActorEdgeWhere = (column: SQLiteColumn) => SQL;
+
+type InteractionEdge = { actorApId: string; targetApId: string };
+
+async function drainAffectedEdges(
+  selectPage: () => Promise<InteractionEdge[]>,
+  mutatePage: (edges: InteractionEdge[]) => Promise<void>,
+): Promise<void> {
+  while (true) {
+    const rows = await selectPage();
+    if (rows.length === 0) return;
+    await mutatePage(rows);
+  }
+}
+
+function exactEdgePairsWhere(
+  actorColumn: SQLiteColumn,
+  targetColumn: SQLiteColumn,
+  edges: InteractionEdge[],
+): SQL {
+  return or(
+    ...edges.map((edge) =>
+      and(eq(actorColumn, edge.actorApId), eq(targetColumn, edge.targetApId)),
+    ),
+  )!;
+}
+
+function affectedTargetApIds(edges: InteractionEdge[]): string[] {
+  return [...new Set(edges.map((edge) => edge.targetApId))];
+}
+
+/**
+ * Remove every retained interaction performed by one actor predicate against
+ * still-present content and reconcile denormalized counters from the surviving
+ * edges. Each page is one atomic delete+recompute unit, so a 503 retry resumes
+ * from remaining edges without leaving an already-deleted contribution in a
+ * visible count.
+ */
+async function purgeRetainedInteractionEdges(
+  db: Database,
+  actorWhere: ActorEdgeWhere,
+): Promise<void> {
+  await drainAffectedEdges(
+    () =>
+      db
+        .select({ actorApId: likes.actorApId, targetApId: likes.objectApId })
+        .from(likes)
+        .where(actorWhere(likes.actorApId))
+        .orderBy(asc(likes.actorApId), asc(likes.objectApId))
+        .limit(INTERACTION_EDGE_PAGE),
+    (edges) => {
+      const targetApIds = affectedTargetApIds(edges);
+      return runBatch(db, [
+        db
+          .delete(likes)
+          .where(exactEdgePairsWhere(likes.actorApId, likes.objectApId, edges)),
+        db
+          .update(objects)
+          .set({
+            likeCount: sql`(SELECT COUNT(*) FROM ${likes} WHERE ${likes.objectApId} = ${objects.apId})`,
+          })
+          .where(inArray(objects.apId, targetApIds)),
+      ]);
+    },
+  );
+
+  await drainAffectedEdges(
+    () =>
+      db
+        .select({
+          actorApId: announces.actorApId,
+          targetApId: announces.objectApId,
+        })
+        .from(announces)
+        .where(actorWhere(announces.actorApId))
+        .orderBy(asc(announces.actorApId), asc(announces.objectApId))
+        .limit(INTERACTION_EDGE_PAGE),
+    (edges) => {
+      const targetApIds = affectedTargetApIds(edges);
+      return runBatch(db, [
+        db
+          .delete(announces)
+          .where(
+            exactEdgePairsWhere(
+              announces.actorApId,
+              announces.objectApId,
+              edges,
+            ),
+          ),
+        db
+          .update(objects)
+          .set({
+            announceCount: sql`(SELECT COUNT(*) FROM ${announces} WHERE ${announces.objectApId} = ${objects.apId})`,
+          })
+          .where(inArray(objects.apId, targetApIds)),
+      ]);
+    },
+  );
+
+  await drainAffectedEdges(
+    () =>
+      db
+        .select({
+          actorApId: storyShares.actorApId,
+          targetApId: storyShares.storyApId,
+        })
+        .from(storyShares)
+        .where(actorWhere(storyShares.actorApId))
+        .orderBy(asc(storyShares.actorApId), asc(storyShares.storyApId))
+        .limit(INTERACTION_EDGE_PAGE),
+    (edges) => {
+      const targetApIds = affectedTargetApIds(edges);
+      return runBatch(db, [
+        db
+          .delete(storyShares)
+          .where(
+            exactEdgePairsWhere(
+              storyShares.actorApId,
+              storyShares.storyApId,
+              edges,
+            ),
+          ),
+        db
+          .update(objects)
+          .set({
+            shareCount: sql`(SELECT COUNT(*) FROM ${storyShares} WHERE ${storyShares.storyApId} = ${objects.apId})`,
+          })
+          .where(inArray(objects.apId, targetApIds)),
+      ]);
+    },
+  );
+
+  await drainAffectedEdges(
+    () =>
+      db
+        .select({
+          actorApId: bookmarks.actorApId,
+          targetApId: bookmarks.objectApId,
+        })
+        .from(bookmarks)
+        .where(actorWhere(bookmarks.actorApId))
+        .orderBy(asc(bookmarks.actorApId), asc(bookmarks.objectApId))
+        .limit(INTERACTION_EDGE_PAGE),
+    async (edges) => {
+      await db
+        .delete(bookmarks)
+        .where(
+          exactEdgePairsWhere(bookmarks.actorApId, bookmarks.objectApId, edges),
+        );
+    },
+  );
+
+  await drainAffectedEdges(
+    () =>
+      db
+        .select({
+          actorApId: storyViews.actorApId,
+          targetApId: storyViews.storyApId,
+        })
+        .from(storyViews)
+        .where(actorWhere(storyViews.actorApId))
+        .orderBy(asc(storyViews.actorApId), asc(storyViews.storyApId))
+        .limit(INTERACTION_EDGE_PAGE),
+    async (edges) => {
+      await db
+        .delete(storyViews)
+        .where(
+          exactEdgePairsWhere(
+            storyViews.actorApId,
+            storyViews.storyApId,
+            edges,
+          ),
+        );
+    },
+  );
+
+  await drainAffectedEdges(
+    () =>
+      db
+        .select({
+          actorApId: storyVotes.actorApId,
+          targetApId: storyVotes.storyApId,
+        })
+        .from(storyVotes)
+        .where(actorWhere(storyVotes.actorApId))
+        .orderBy(asc(storyVotes.actorApId), asc(storyVotes.storyApId))
+        .limit(INTERACTION_EDGE_PAGE),
+    async (edges) => {
+      await db
+        .delete(storyVotes)
+        .where(
+          exactEdgePairsWhere(
+            storyVotes.actorApId,
+            storyVotes.storyApId,
+            edges,
+          ),
+        );
+    },
+  );
+
+  // A blocked remote following a local actor contributes to follower_count;
+  // a local actor following the blocked remote contributes to following_count.
+  // Delete first, then recompute the local counterpart in the same batch.
+  await drainAffectedEdges(
+    () =>
+      db
+        .select({
+          actorApId: follows.followerApId,
+          targetApId: follows.followingApId,
+        })
+        .from(follows)
+        .where(actorWhere(follows.followerApId))
+        .orderBy(asc(follows.followerApId), asc(follows.followingApId))
+        .limit(INTERACTION_EDGE_PAGE),
+    (edges) => {
+      const targetApIds = affectedTargetApIds(edges);
+      return runBatch(db, [
+        db
+          .delete(follows)
+          .where(
+            exactEdgePairsWhere(
+              follows.followerApId,
+              follows.followingApId,
+              edges,
+            ),
+          ),
+        db
+          .update(actors)
+          .set({
+            followerCount: sql`(SELECT COUNT(*) FROM ${follows} WHERE ${follows.followingApId} = ${actors.apId} AND ${follows.status} = 'accepted')`,
+          })
+          .where(inArray(actors.apId, targetApIds)),
+      ]);
+    },
+  );
+
+  await drainAffectedEdges(
+    () =>
+      db
+        .select({
+          actorApId: follows.followingApId,
+          targetApId: follows.followerApId,
+        })
+        .from(follows)
+        .where(actorWhere(follows.followingApId))
+        .orderBy(asc(follows.followingApId), asc(follows.followerApId))
+        .limit(INTERACTION_EDGE_PAGE),
+    (edges) => {
+      const targetApIds = affectedTargetApIds(edges);
+      return runBatch(db, [
+        db
+          .delete(follows)
+          .where(
+            exactEdgePairsWhere(
+              follows.followingApId,
+              follows.followerApId,
+              edges,
+            ),
+          ),
+        db
+          .update(actors)
+          .set({
+            followingCount: sql`(SELECT COUNT(*) FROM ${follows} WHERE ${follows.followerApId} = ${actors.apId} AND ${follows.status} = 'accepted')`,
+          })
+          .where(inArray(actors.apId, targetApIds)),
+      ]);
+    },
+  );
+}
+
+/** Scan the interaction tables' distinct raw actor ids once in bounded pages. */
+async function purgeActorInteractionEdges(
+  db: Database,
+  blockedApId: string,
+): Promise<void> {
+  let cursor: string | undefined;
+  const after = (column: SQLiteColumn): SQL =>
+    cursor === undefined ? sql`` : sql`WHERE ${column} > ${cursor}`;
+
+  while (true) {
+    const rows = await db.all<{ actor_ap_id: string }>(sql`
+      SELECT actor_ap_id
+      FROM (
+        SELECT ${likes.actorApId} AS actor_ap_id FROM ${likes} ${after(likes.actorApId)}
+        UNION SELECT ${announces.actorApId} AS actor_ap_id FROM ${announces} ${after(announces.actorApId)}
+        UNION SELECT ${bookmarks.actorApId} AS actor_ap_id FROM ${bookmarks} ${after(bookmarks.actorApId)}
+        UNION SELECT ${storyShares.actorApId} AS actor_ap_id FROM ${storyShares} ${after(storyShares.actorApId)}
+        UNION SELECT ${storyViews.actorApId} AS actor_ap_id FROM ${storyViews} ${after(storyViews.actorApId)}
+        UNION SELECT ${storyVotes.actorApId} AS actor_ap_id FROM ${storyVotes} ${after(storyVotes.actorApId)}
+        UNION SELECT ${follows.followerApId} AS actor_ap_id FROM ${follows} ${after(follows.followerApId)}
+        UNION SELECT ${follows.followingApId} AS actor_ap_id FROM ${follows} ${after(follows.followingApId)}
+      ) AS retained_interaction_actor_ids
+      ORDER BY actor_ap_id
+      LIMIT ${ACTOR_IDENTITY_SCAN_PAGE}
+    `);
+    if (rows.length === 0) return;
+    cursor = rows[rows.length - 1]!.actor_ap_id;
+    const aliases = rows
+      .map((row) => row.actor_ap_id)
+      .filter((actorApId) => isSameActivityPubActor(actorApId, blockedApId));
+    for (
+      let index = 0;
+      index < aliases.length;
+      index += INTERACTION_EDGE_PAGE
+    ) {
+      const chunk = aliases.slice(index, index + INTERACTION_EDGE_PAGE);
+      await purgeRetainedInteractionEdges(db, (column) =>
+        inArray(column, chunk),
+      );
+    }
+  }
 }
 
 /**
@@ -230,6 +592,11 @@ export async function purgeActorContent(
   let deletedObjects = 0;
   let deletedActivities = 0;
   try {
+    // Clean still-visible local counterpart state first. If a later media/
+    // authored-content page fails, the active block no longer leaves the
+    // blocked actor's reactions or relationship counts exposed while the
+    // operator retries the idempotent cleanup.
+    await purgeActorInteractionEdges(db, blockedApId);
     await purgeActorObjects(db, blockedApId, media, (count) => {
       deletedObjects += count;
     });
@@ -267,6 +634,9 @@ export async function purgeDomainContent(
   let deletedObjects = 0;
   let deletedActivities = 0;
   try {
+    await purgeRetainedInteractionEdges(db, (column) =>
+      activityPubUrlHostMatchesDomain(column, domain),
+    );
     await purgeMatchingObjects(
       db,
       activityPubUrlHostMatchesDomain(objects.attributedTo, domain),

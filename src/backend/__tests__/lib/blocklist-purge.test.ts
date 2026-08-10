@@ -2,7 +2,18 @@ import { expect, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
-import { activities, actors, objects } from "../../../db/index.ts";
+import {
+  activities,
+  actors,
+  announces,
+  bookmarks,
+  follows,
+  likes,
+  objects,
+  storyShares,
+  storyViews,
+  storyVotes,
+} from "../../../db/index.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 import {
   purgeActorContent,
@@ -64,6 +75,154 @@ async function activityExists(db: Database, apId: string): Promise<boolean> {
   return !!row;
 }
 
+async function seedInteractionSurface(
+  db: Database,
+  actorApIds: string[],
+  suffix: string,
+) {
+  const localActor = `https://yuru.test/ap/users/local-${suffix}`;
+  const postApId = `https://yuru.test/ap/objects/post-${suffix}`;
+  const storyApId = `https://yuru.test/ap/objects/story-${suffix}`;
+  await seedActor(db, localActor, `local-${suffix}`);
+  await db
+    .update(actors)
+    .set({
+      followerCount: actorApIds.length,
+      followingCount: actorApIds.length,
+    })
+    .where(eq(actors.apId, localActor));
+  await db.insert(objects).values([
+    {
+      apId: postApId,
+      type: "Note",
+      attributedTo: localActor,
+      content: "local post",
+      visibility: "public",
+      likeCount: actorApIds.length,
+      announceCount: actorApIds.length,
+      replyCount: actorApIds.length,
+      isLocal: 1,
+    },
+    {
+      apId: storyApId,
+      type: "Story",
+      attributedTo: localActor,
+      content: "local story",
+      visibility: "public",
+      likeCount: actorApIds.length,
+      shareCount: actorApIds.length,
+      isLocal: 1,
+    },
+  ]);
+
+  for (const [index, actorApId] of actorApIds.entries()) {
+    await db.insert(objects).values({
+      apId: `https://content.example/objects/reply-${suffix}-${index}`,
+      type: "Note",
+      attributedTo: actorApId,
+      content: "remote reply",
+      inReplyTo: postApId,
+      visibility: "public",
+      isLocal: 0,
+    });
+    await db.insert(likes).values([
+      { actorApId, objectApId: postApId },
+      { actorApId, objectApId: storyApId },
+    ]);
+    await db.insert(announces).values({ actorApId, objectApId: postApId });
+    await db.insert(bookmarks).values({ actorApId, objectApId: postApId });
+    await db.insert(storyViews).values({ actorApId, storyApId });
+    await db.insert(storyVotes).values({
+      id: `vote-${suffix}-${index}`,
+      storyApId,
+      actorApId,
+      optionIndex: 0,
+    });
+    await db.insert(storyShares).values({
+      id: `share-${suffix}-${index}`,
+      storyApId,
+      actorApId,
+    });
+    await db.insert(follows).values([
+      {
+        followerApId: actorApId,
+        followingApId: localActor,
+        status: "accepted",
+      },
+      {
+        followerApId: localActor,
+        followingApId: actorApId,
+        status: "accepted",
+      },
+    ]);
+  }
+
+  return { localActor, postApId, storyApId };
+}
+
+async function interactionSnapshot(
+  db: Database,
+  surface: Awaited<ReturnType<typeof seedInteractionSurface>>,
+) {
+  const post = await db
+    .select({
+      likeCount: objects.likeCount,
+      announceCount: objects.announceCount,
+      replyCount: objects.replyCount,
+    })
+    .from(objects)
+    .where(eq(objects.apId, surface.postApId))
+    .get();
+  const story = await db
+    .select({
+      likeCount: objects.likeCount,
+      shareCount: objects.shareCount,
+    })
+    .from(objects)
+    .where(eq(objects.apId, surface.storyApId))
+    .get();
+  const localActor = await db
+    .select({
+      followerCount: actors.followerCount,
+      followingCount: actors.followingCount,
+    })
+    .from(actors)
+    .where(eq(actors.apId, surface.localActor))
+    .get();
+
+  return {
+    post,
+    story,
+    localActor,
+    likeActors: (
+      await db.select({ actorApId: likes.actorApId }).from(likes)
+    ).map((row) => row.actorApId),
+    announceActors: (
+      await db.select({ actorApId: announces.actorApId }).from(announces)
+    ).map((row) => row.actorApId),
+    bookmarkActors: (
+      await db.select({ actorApId: bookmarks.actorApId }).from(bookmarks)
+    ).map((row) => row.actorApId),
+    viewActors: (
+      await db.select({ actorApId: storyViews.actorApId }).from(storyViews)
+    ).map((row) => row.actorApId),
+    voteActors: (
+      await db.select({ actorApId: storyVotes.actorApId }).from(storyVotes)
+    ).map((row) => row.actorApId),
+    shareActors: (
+      await db.select({ actorApId: storyShares.actorApId }).from(storyShares)
+    ).map((row) => row.actorApId),
+    followActors: (
+      await db
+        .select({
+          followerApId: follows.followerApId,
+          followingApId: follows.followingApId,
+        })
+        .from(follows)
+    ).flatMap((row) => [row.followerApId, row.followingApId]),
+  };
+}
+
 test("purgeActorContent removes the blocked actor's posts and leaves others", async () => {
   const db = await freshDb();
   const evil = "https://evil.example/users/x";
@@ -123,6 +282,82 @@ test("purgeActorContent removes every cosmetic author spelling but preserves a p
     siblingPost: true,
     remainingActivityActors: [pathCaseSibling],
   });
+});
+
+test("purgeActorContent removes retained interaction edges and reconciles counters for every cosmetic spelling", async () => {
+  const db = await freshDb();
+  const canonical = "https://remote.example/users/alice";
+  const cosmetic = "https://REMOTE.example:443/users/alice/#legacy";
+  const pathCaseSibling = "https://remote.example/users/Alice";
+  const safe = "https://safe.example/users/bob";
+  const surface = await seedInteractionSurface(
+    db,
+    [canonical, cosmetic, pathCaseSibling, safe],
+    "actor-purge",
+  );
+
+  await purgeActorContent(db, canonical);
+
+  const snapshot = await interactionSnapshot(db, surface);
+  expect(snapshot.post).toEqual({
+    likeCount: 2,
+    announceCount: 2,
+    replyCount: 2,
+  });
+  expect(snapshot.story).toEqual({ likeCount: 2, shareCount: 2 });
+  expect(snapshot.localActor).toEqual({ followerCount: 2, followingCount: 2 });
+  for (const actorIds of [
+    snapshot.likeActors,
+    snapshot.announceActors,
+    snapshot.bookmarkActors,
+    snapshot.viewActors,
+    snapshot.voteActors,
+    snapshot.shareActors,
+    snapshot.followActors,
+  ]) {
+    expect(actorIds).not.toContain(canonical);
+    expect(actorIds).not.toContain(cosmetic);
+    expect(actorIds).toContain(pathCaseSibling);
+    expect(actorIds).toContain(safe);
+  }
+});
+
+test("purgeActorContent drains more than two pages of cosmetic interaction spellings", async () => {
+  const db = await freshDb();
+  const canonical = "https://remote.example/users/alice";
+  const localActor = "https://yuru.test/ap/users/cosmetic-pages";
+  const objectApId = "https://yuru.test/ap/objects/cosmetic-pages";
+  const aliases = Array.from(
+    { length: 81 },
+    (_, index) =>
+      `https://REMOTE.example:443/users/alice/#legacy-${String(index).padStart(3, "0")}`,
+  );
+  await seedActor(db, localActor, "cosmetic-pages");
+  await db.insert(objects).values({
+    apId: objectApId,
+    type: "Note",
+    attributedTo: localActor,
+    content: "local",
+    likeCount: aliases.length,
+    isLocal: 1,
+  });
+  for (const actorApId of aliases) {
+    await db.insert(likes).values({ actorApId, objectApId });
+  }
+
+  expect(await purgeActorContent(db, canonical)).toEqual({
+    complete: true,
+    deletedObjects: 0,
+    deletedActivities: 0,
+  });
+  expect(await db.select().from(likes)).toEqual([]);
+  expect(
+    await db
+      .select({ likeCount: objects.likeCount })
+      .from(objects)
+      .where(eq(objects.apId, objectApId))
+      .get(),
+  ).toEqual({ likeCount: 0 });
 });
 
 test("purgeActorContent finds cosmetic actor rows across bounded history pages", async () => {
@@ -260,6 +495,7 @@ test("purgeDomainContent matches the same hostname boundary as block decisions",
     `https://${domain}:8443/users/apex`,
     `https://node.${domain}:9443/users/subdomain`,
     `https://${domain}.:443/users/trailing-dot`,
+    `http://legacy.${domain}:8080/users/http-actor`,
   ];
   const survivingActors = [
     `https://${domain}@safe.example/users/credential-lookalike`,
@@ -307,6 +543,106 @@ test("purgeDomainContent matches the same hostname boundary as block decisions",
       .map((row) => row.actorApId)
       .sort(),
   ).toEqual([...survivingActors].sort());
+});
+
+test("purgeDomainContent removes retained interaction edges from the host and subdomains and reconciles counters", async () => {
+  const db = await freshDb();
+  const apex = "https://blocked.example/users/alice";
+  const subdomain = "https://node.blocked.example/users/bob";
+  const suffixLookalike = "https://notblocked.example/users/carol";
+  const safe = "https://safe.example/users/dave";
+  const surface = await seedInteractionSurface(
+    db,
+    [apex, subdomain, suffixLookalike, safe],
+    "domain-purge",
+  );
+
+  await purgeDomainContent(db, "blocked.example");
+
+  const snapshot = await interactionSnapshot(db, surface);
+  expect(snapshot.post).toEqual({
+    likeCount: 2,
+    announceCount: 2,
+    replyCount: 2,
+  });
+  expect(snapshot.story).toEqual({ likeCount: 2, shareCount: 2 });
+  expect(snapshot.localActor).toEqual({ followerCount: 2, followingCount: 2 });
+  for (const actorIds of [
+    snapshot.likeActors,
+    snapshot.announceActors,
+    snapshot.bookmarkActors,
+    snapshot.viewActors,
+    snapshot.voteActors,
+    snapshot.shareActors,
+    snapshot.followActors,
+  ]) {
+    expect(actorIds).not.toContain(apex);
+    expect(actorIds).not.toContain(subdomain);
+    expect(actorIds).toContain(suffixLookalike);
+    expect(actorIds).toContain(safe);
+  }
+});
+
+test("purgeDomainContent commits interaction cleanup in bounded pages and converges after a failed page", async () => {
+  const db = await freshDb();
+  const localActor = "https://yuru.test/ap/users/domain-pages";
+  const objectApId = "https://yuru.test/ap/objects/domain-pages";
+  const actorApIds = Array.from(
+    { length: 81 },
+    (_, index) =>
+      `https://node.bulk-interactions.example/users/${String(index).padStart(3, "0")}`,
+  );
+  await seedActor(db, localActor, "domain-pages");
+  await db.insert(objects).values({
+    apId: objectApId,
+    type: "Note",
+    attributedTo: localActor,
+    content: "local",
+    likeCount: actorApIds.length,
+    isLocal: 1,
+  });
+  for (const actorApId of actorApIds) {
+    await db.insert(likes).values({ actorApId, objectApId });
+  }
+  await db.run(
+    sql.raw(`
+      CREATE TRIGGER reject_second_domain_interaction_page
+      BEFORE DELETE ON likes
+      WHEN OLD.actor_ap_id = 'https://node.bulk-interactions.example/users/040'
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated interaction-page purge failure');
+      END
+    `),
+  );
+
+  expect(await purgeDomainContent(db, "bulk-interactions.example")).toEqual({
+    complete: false,
+    deletedObjects: 0,
+    deletedActivities: 0,
+  });
+  expect(await db.select().from(likes)).toHaveLength(41);
+  expect(
+    await db
+      .select({ likeCount: objects.likeCount })
+      .from(objects)
+      .where(eq(objects.apId, objectApId))
+      .get(),
+  ).toEqual({ likeCount: 41 });
+
+  await db.run(sql`DROP TRIGGER reject_second_domain_interaction_page`);
+  expect(await purgeDomainContent(db, "bulk-interactions.example")).toEqual({
+    complete: true,
+    deletedObjects: 0,
+    deletedActivities: 0,
+  });
+  expect(await db.select().from(likes)).toEqual([]);
+  expect(
+    await db
+      .select({ likeCount: objects.likeCount })
+      .from(objects)
+      .where(eq(objects.apId, objectApId))
+      .get(),
+  ).toEqual({ likeCount: 0 });
 });
 
 test("purgeDomainContent parses an explicit port after an IPv6 hostname", async () => {
