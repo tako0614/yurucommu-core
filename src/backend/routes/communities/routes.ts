@@ -9,11 +9,13 @@ import {
   isNull,
   or,
   sql,
+  type SQLWrapper,
 } from "drizzle-orm";
 import {
   communities,
   communityJoinRequests,
   communityMembers,
+  follows,
   mediaUploads,
   objects,
 } from "../../../db/index.ts";
@@ -32,6 +34,7 @@ import {
 } from "./membership-shared.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import { communityRequiresMembership } from "../../lib/community-visibility.ts";
+import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
 import { reapReplacedMediaUrl } from "../posts/delete-cascade.ts";
 
 /**
@@ -45,6 +48,32 @@ type Batchable = {
 };
 
 const communitiesRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/**
+ * Public member count = role-bearing local memberships + accepted Follow-backed
+ * memberships. `communities.memberCount` intentionally remains the local-row
+ * denormalization; federated authority already lives in `follows`, so reads
+ * compose the two sources without adding a second mutable counter lifecycle.
+ */
+function projectedCommunityMemberCountSql(
+  communityApIdVal: string | SQLWrapper,
+) {
+  return sql<number>`
+    ${communities.memberCount} + (
+      SELECT COUNT(*)
+      FROM ${follows}
+      WHERE ${follows.followingApId} = ${communityApIdVal}
+        AND ${follows.status} = 'accepted'
+        AND ${operatorActorNotBlockedSql(sql`${follows.followerApId}`)}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ${communityMembers}
+          WHERE ${communityMembers.communityApId} = ${communityApIdVal}
+            AND ${communityMembers.actorApId} = ${follows.followerApId}
+        )
+    )
+  `;
+}
 
 function isValidCommunityIconUrl(value: string): boolean {
   const trimmed = value.trim();
@@ -216,7 +245,7 @@ communitiesRouter.get("/", async (c) => {
       visibility: communities.visibility,
       joinPolicy: communities.joinPolicy,
       postPolicy: communities.postPolicy,
-      memberCount: communities.memberCount,
+      memberCount: projectedCommunityMemberCountSql(communities.apId),
       createdAt: communities.createdAt,
       lastMessageAt: communities.lastMessageAt,
     })
@@ -460,19 +489,25 @@ communitiesRouter.get("/:identifier", async (c) => {
   const restricted =
     communityRequiresMembership(community.visibility) && !isMember;
 
-  // member_count is the maintained `communities.memberCount` column (kept atomic
-  // by addMemberAtomic/removeMemberAtomic). post_count has no denorm column, so it
-  // is counted (indexed range via objects_comm_published_idx) — but only when the
-  // viewer is allowed to see it.
-  const postCount = restricted
-    ? 0
-    : (
-        await db
+  // `communities.memberCount` is the local-row denormalization. Compose it with
+  // accepted Follow-backed membership at read time, while preserving private
+  // community redaction. Post count similarly remains an indexed projection.
+  const [memberCountRow, postCountRow] = restricted
+    ? [{ count: 0 }, { count: 0 }]
+    : await Promise.all([
+        db
+          .select({
+            count: projectedCommunityMemberCountSql(community.apId),
+          })
+          .from(communities)
+          .where(eq(communities.apId, community.apId))
+          .get(),
+        db
           .select({ count: count() })
           .from(objects)
           .where(eq(objects.communityApId, community.apId))
-          .get()
-      )?.count || 0;
+          .get(),
+      ]);
 
   return c.json({
     community: {
@@ -484,8 +519,8 @@ communitiesRouter.get("/:identifier", async (c) => {
       visibility: community.visibility,
       join_policy: community.joinPolicy,
       post_policy: community.postPolicy,
-      member_count: restricted ? 0 : community.memberCount || 0,
-      post_count: postCount,
+      member_count: memberCountRow?.count || 0,
+      post_count: postCountRow?.count || 0,
       created_by: restricted ? null : community.createdBy,
       created_at: community.createdAt,
       is_member: isMember,

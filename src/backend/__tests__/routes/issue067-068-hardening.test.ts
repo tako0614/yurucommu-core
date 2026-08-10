@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import type { SQL } from "drizzle-orm";
+import { SQLiteSyncDialect } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
 
 import { assertSpyCalls, spy } from "#test/mock";
@@ -176,12 +178,18 @@ function createDrizzleMockDb(
     };
   });
 
+  const allSpy = spy((..._args: unknown[]) => {
+    const result = nextResult();
+    return Promise.resolve(Array.isArray(result) ? result : []);
+  });
+
   const db = {
     select: selectSpy,
     selectDistinct: selectDistinctSpy,
     // Exact personal-block lookup uses the select chain above. A miss falls
     // back to one raw SQL identity-set query; this generic mock has no blocks.
     get: spy(() => Promise.resolve({ matched: 0 })),
+    all: allSpy,
     insert: insertSpy,
     update: updateSpy,
     delete: deleteSpy,
@@ -400,6 +408,7 @@ test("issue067/068 hardening - community member list is pagination-bounded with 
     results: [
       { apId: communityApId },
       [], // members (empty array)
+      [{ total: 0 }],
     ],
   });
 
@@ -418,9 +427,16 @@ test("issue067/068 hardening - community member list is pagination-bounded with 
   );
 
   expect(res.status).toEqual(200);
-  expect(body).toEqual(expect.any(Object));
-  // Verify the db.select was called with pagination chain
+  expect(body).toMatchObject({ members: [], has_more: false, total: 0 });
+  // The page and total are two executions of the canonical local+federated
+  // roster union. The page binds limit+1 and offset after the roster params.
   assert_called(db.select);
+  assertSpyCalls(db.all, 2);
+  const pageSql = new SQLiteSyncDialect().sqlToQuery(
+    db.all.calls[0]!.args[0] as SQL,
+  );
+  expect(pageSql.sql).toMatch(/LIMIT \?\s+OFFSET \?/u);
+  expect(pageSql.params.slice(-2)).toEqual([26, 10]);
 });
 
 test("issue067/068 hardening - DM requests query uses quoted contains match to avoid substring leaks", async () => {

@@ -5,7 +5,9 @@ import { Hono } from "hono";
 import type { Database } from "../../../db/index.ts";
 import {
   activities,
+  actorCache,
   actors,
+  blockedActors,
   communities,
   communityBans,
   communityMembers,
@@ -79,6 +81,14 @@ async function seed(db: Database): Promise<void> {
       object: GROUP,
     }),
     direction: "inbound",
+  });
+  await db.insert(actorCache).values({
+    apId: REMOTE,
+    preferredUsername: "raider",
+    name: "Remote Raider",
+    iconUrl: "https://remote.example/media/raider.png",
+    inbox: `${REMOTE}/inbox`,
+    rawJson: JSON.stringify({ id: REMOTE, type: "Person" }),
   });
   // Remote member: accepted follows edge to the Group, NO communityMembers row.
   await db.insert(follows).values({
@@ -157,6 +167,119 @@ function queueOutageEnv(db: Database): Env {
     DELIVERY_DLQ: queue,
   } as unknown as Env;
 }
+
+test("member roster projects accepted federated members with immutable roles", async () => {
+  const db = await freshDb();
+  await seed(db);
+  // A legacy exact Follow edge for a role-bearing local member must not render
+  // the same actor twice in the authority union.
+  await db.insert(follows).values({
+    followerApId: OWNER,
+    followingApId: GROUP,
+    status: "accepted",
+    acceptedAt: "2025-12-31T00:00:00.000Z",
+  });
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/town/members`),
+    env,
+  );
+
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as {
+    members: Array<{
+      ap_id: string;
+      name: string | null;
+      role: string;
+      joined_at: string;
+      can_change_role: boolean;
+    }>;
+    has_more: boolean;
+    total: number;
+  };
+  expect(body.total).toBe(2);
+  expect(body.has_more).toBe(false);
+  expect(body.members.map((member) => member.ap_id)).toEqual([OWNER, REMOTE]);
+  expect(body.members[0]?.can_change_role).toBe(true);
+  expect(body.members[1]).toMatchObject({
+    ap_id: REMOTE,
+    name: "Remote Raider",
+    role: "member",
+    joined_at: "2026-01-01T00:00:00.000Z",
+    can_change_role: false,
+  });
+
+  const secondPage = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/town/members?limit=1&offset=1`),
+    env,
+  );
+  expect(secondPage.status).toBe(200);
+  expect((await secondPage.json()) as unknown).toMatchObject({
+    members: [{ ap_id: REMOTE }],
+    has_more: false,
+    total: 2,
+  });
+});
+
+test("batch removal accepts a roster-visible federated member and durably Rejects it", async () => {
+  const db = await freshDb();
+  await seed(db);
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/town/members/batch/remove`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor_ap_ids: [REMOTE] }),
+    }),
+    env,
+  );
+
+  expect(res.status).toBe(200);
+  expect((await res.json()) as unknown).toMatchObject({
+    results: [{ ap_id: REMOTE, success: true }],
+    removed_count: 1,
+  });
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(
+        and(eq(follows.followerApId, REMOTE), eq(follows.followingApId, GROUP)),
+      ),
+  ).toHaveLength(0);
+  const reject = await db
+    .select()
+    .from(activities)
+    .where(and(eq(activities.actorApId, GROUP), eq(activities.type, "Reject")))
+    .get();
+  expect(reject?.objectApId).toBe(FOLLOW_ACT);
+  expect(
+    await db
+      .select()
+      .from(deliveryResolutions)
+      .where(eq(deliveryResolutions.activityApId, reject!.apId)),
+  ).toHaveLength(1);
+});
+
+test("public roster and total suppress a retained operator-blocked federated member", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await db
+    .insert(blockedActors)
+    .values({ actorApId: REMOTE, reason: "instance moderation" });
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/town/members`),
+    env,
+  );
+
+  expect(res.status).toBe(200);
+  expect((await res.json()) as unknown).toMatchObject({
+    members: [{ ap_id: OWNER }],
+    has_more: false,
+    total: 1,
+  });
+});
 
 test("an owner kick deletes the remote edge and durably sends a Group Reject", async () => {
   const db = await freshDb();

@@ -17,6 +17,7 @@ import { readFile } from "node:fs/promises";
 
 import { Hono } from "hono";
 
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
@@ -24,6 +25,7 @@ import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
+  blockedActors,
   communities,
   communityMembers,
   follows,
@@ -643,6 +645,59 @@ test("community discovery list hides private (non-member) + deleted communities"
   expect(member).not.toContain("goneclub");
 });
 
+test("community discovery count includes accepted Follow-backed members", async () => {
+  const db = await freshDb();
+  const owner = await insertLocalActor(db, "count-owner");
+  const apId = await insertCommunity(db, "countclub");
+  await db
+    .update(communities)
+    .set({ memberCount: 1 })
+    .where(eq(communities.apId, apId));
+  await db.insert(communityMembers).values({
+    communityApId: apId,
+    actorApId: owner,
+    role: "owner",
+  });
+  await db.insert(follows).values({
+    followerApId: "https://remote.example/users/count-member",
+    followingApId: apId,
+    status: "accepted",
+  });
+
+  const res = await appWith(db, null, communitiesRouter).request(
+    `${APP_URL}/`,
+    undefined,
+    envFor(db),
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as {
+    communities: Array<{ name: string; member_count: number }>;
+  };
+  expect(
+    body.communities.find((community) => community.name === "countclub")
+      ?.member_count,
+  ).toBe(2);
+
+  await db.insert(blockedActors).values({
+    actorApId: "https://remote.example/users/count-member",
+    reason: "instance moderation",
+  });
+
+  const blockedRes = await appWith(db, null, communitiesRouter).request(
+    `${APP_URL}/`,
+    undefined,
+    envFor(db),
+  );
+  expect(blockedRes.status).toBe(200);
+  const blockedBody = (await blockedRes.json()) as {
+    communities: Array<{ name: string; member_count: number }>;
+  };
+  expect(
+    blockedBody.communities.find((community) => community.name === "countclub")
+      ?.member_count,
+  ).toBe(1);
+});
+
 test("community detail redacts a private community's metadata from non-members", async () => {
   const db = await freshDb();
   const alice = await insertLocalActor(db, "alice");
@@ -667,6 +722,12 @@ test("community detail redacts a private community's metadata from non-members",
     communityApId: apId,
     actorApId: alice,
     joinedAt: "2026-06-20T00:00:00.000Z",
+  });
+  await db.insert(follows).values({
+    followerApId: "https://remote.example/users/raider",
+    followingApId: apId,
+    status: "accepted",
+    acceptedAt: "2026-06-21T00:00:00.000Z",
   });
 
   type Detail = {
@@ -700,7 +761,7 @@ test("community detail redacts a private community's metadata from non-members",
   // Member: full detail.
   const asAlice = await detailFor(fakeActor(alice, "alice"));
   expect(asAlice.summary).toBe("secret summary");
-  expect(asAlice.member_count).toBe(3);
+  expect(asAlice.member_count).toBe(4);
   expect(asAlice.created_by).toBe(alice);
 });
 

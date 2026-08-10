@@ -36,6 +36,8 @@ export interface CommunityMember {
   icon_url: string | null;
   role: "owner" | "moderator" | "member";
   joined_at: string;
+  /** False for Follow-backed federated membership, which has no local role row. */
+  can_change_role?: boolean;
 }
 
 export interface CommunityMessage {

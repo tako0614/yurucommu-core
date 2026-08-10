@@ -1,14 +1,16 @@
 import type { Context, Hono } from "hono";
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import {
   communities,
   communityMembers,
   follows,
   runBatch,
+  type Database,
   type D1Statement,
 } from "../../../db/index.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
 import { communityRequiresMembership } from "../../lib/community-visibility.ts";
+import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
 import type { Env, Variables } from "../../types.ts";
 import {
   formatUsername,
@@ -30,6 +32,89 @@ import {
 } from "./membership-shared.ts";
 
 const MAX_MEMBER_BATCH_SIZE = 100;
+
+type CommunityRosterRow = {
+  actor_ap_id: string;
+  role: "owner" | "moderator" | "member";
+  joined_at: string;
+  can_change_role: number | boolean;
+};
+
+type RawSqlDatabase = {
+  all(query: SQL): Promise<unknown[]>;
+};
+
+/**
+ * The community roster has two authority sources: role-bearing local rows and
+ * accepted ActivityPub Follow edges to the Group. Keep the union in SQL so
+ * limit/offset and total describe the same complete roster. An exact local row
+ * wins over a retained Follow edge and is never presented twice.
+ */
+function communityRosterSql(communityApIdVal: string): SQL {
+  return sql`
+    SELECT
+      ${communityMembers.actorApId} AS actor_ap_id,
+      ${communityMembers.role} AS role,
+      ${communityMembers.joinedAt} AS joined_at,
+      1 AS can_change_role
+    FROM ${communityMembers}
+    WHERE ${communityMembers.communityApId} = ${communityApIdVal}
+
+    UNION ALL
+
+    SELECT
+      ${follows.followerApId} AS actor_ap_id,
+      'member' AS role,
+      COALESCE(${follows.acceptedAt}, ${follows.createdAt}) AS joined_at,
+      0 AS can_change_role
+    FROM ${follows}
+    WHERE ${follows.followingApId} = ${communityApIdVal}
+      AND ${follows.status} = 'accepted'
+      AND ${operatorActorNotBlockedSql(sql`${follows.followerApId}`)}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM ${communityMembers}
+        WHERE ${communityMembers.communityApId} = ${communityApIdVal}
+          AND ${communityMembers.actorApId} = ${follows.followerApId}
+      )
+  `;
+}
+
+async function removeFollowBackedMemberAndBan(
+  env: Env,
+  db: Database,
+  communityApIdVal: string,
+  actorApId: string,
+  originalFollowActivityApId: string | null,
+): Promise<void> {
+  const preparedResponse = originalFollowActivityApId
+    ? await prepareResponseIfRemote(
+        env,
+        db,
+        env.APP_URL,
+        "Reject",
+        communityApIdVal,
+        actorApId,
+        originalFollowActivityApId,
+      )
+    : null;
+  const statements: [D1Statement, ...D1Statement[]] = [
+    ...prepareRemoveRemoteMemberAndBanStatements(
+      db,
+      communityApIdVal,
+      actorApId,
+    ),
+  ];
+  if (preparedResponse) statements.push(...preparedResponse.statements);
+
+  // Ban, relay-edge removal, Reject Activity, and durable first-hop delivery
+  // intent are one D1 commit. A persistence failure leaves the original edge
+  // available for an exact retry.
+  await runBatch(db, statements);
+  // Queue is only a post-commit wakeup. The durable intent remains for the
+  // normal sweep when publication is temporarily unavailable.
+  await preparedResponse?.publish();
+}
 
 function validateBatchApIds(ids: unknown): string | null {
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -109,33 +194,13 @@ export function registerMembershipMemberRoutes(
         if (!remoteFollow) {
           return c.json({ error: "User is not a member" }, 404);
         }
-        const preparedResponse = remoteFollow.activityApId
-          ? await prepareResponseIfRemote(
-              c.env,
-              db,
-              c.env.APP_URL,
-              "Reject",
-              community.apId,
-              targetApId,
-              remoteFollow.activityApId,
-            )
-          : null;
-        const statements: D1Statement[] = [
-          ...prepareRemoveRemoteMemberAndBanStatements(
-            db,
-            community.apId,
-            targetApId,
-          ),
-        ];
-        if (preparedResponse) statements.push(...preparedResponse.statements);
-
-        // Ban, relay-edge removal, Reject Activity, and durable first-hop
-        // delivery intent are one D1 commit. A persistence failure must leave
-        // both peers' relationship retryable from the original accepted edge.
-        await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
-        // Queue is only a post-commit wakeup. The durable intent remains for the
-        // normal sweep when publication is temporarily unavailable.
-        await preparedResponse?.publish();
+        await removeFollowBackedMemberAndBan(
+          c.env,
+          db,
+          community.apId,
+          targetApId,
+          remoteFollow.activityApId,
+        );
         return c.json({ success: true });
       }
 
@@ -283,42 +348,52 @@ export function registerMembershipMemberRoutes(
         }
       }
 
-      // Fetch limit+1 to signal whether more members exist beyond this page —
-      // previously the roster was silently truncated at the page size with no
-      // has_more, so a client could not tell a >page community from a complete
-      // one. `total` is an accurate COUNT (the indexed communityApId scan is
-      // cheap) so the UI can show the real member count.
-      const [scanned, countRow] = await Promise.all([
-        db
-          .select()
-          .from(communityMembers)
-          .where(eq(communityMembers.communityApId, community.apId))
-          .orderBy(desc(communityMembers.role), asc(communityMembers.joinedAt))
-          .limit(limit + 1)
-          .offset(offset),
-        db
-          .select({ c: count() })
-          .from(communityMembers)
-          .where(eq(communityMembers.communityApId, community.apId))
-          .get(),
+      // Fetch limit+1 to signal whether more members exist beyond this page.
+      // Both the page and total use the same union, so federated members cannot
+      // disappear from the manager roster or its pagination metadata.
+      const roster = communityRosterSql(community.apId);
+      const rawDb = db as unknown as RawSqlDatabase;
+      const [scannedRows, countRows] = await Promise.all([
+        rawDb.all(sql`
+          SELECT actor_ap_id, role, joined_at, can_change_role
+          FROM (${roster}) AS community_roster
+          ORDER BY
+            CASE role
+              WHEN 'owner' THEN 0
+              WHEN 'moderator' THEN 1
+              ELSE 2
+            END,
+            joined_at ASC,
+            actor_ap_id ASC
+          LIMIT ${limit + 1}
+          OFFSET ${offset}
+        `),
+        rawDb.all(sql`
+          SELECT COUNT(*) AS total
+          FROM (${roster}) AS community_roster
+        `),
       ]);
+      const scanned = scannedRows as CommunityRosterRow[];
+      const countRow = countRows[0] as { total?: number } | undefined;
       const hasMore = scanned.length > limit;
       const members = hasMore ? scanned.slice(0, limit) : scanned;
-      const total = countRow?.c ?? members.length;
+      const total = countRow?.total ?? members.length;
 
-      const memberApIds = members.map((m) => m.actorApId);
+      const memberApIds = members.map((m) => m.actor_ap_id);
       const actorInfoMap = await batchLoadActorInfo(db, memberApIds);
 
       const result = members.map((m) => {
-        const actorInfo = actorInfoMap.get(m.actorApId);
+        const actorInfo = actorInfoMap.get(m.actor_ap_id);
         return {
-          ap_id: m.actorApId,
-          username: formatUsername(m.actorApId),
+          ap_id: m.actor_ap_id,
+          username: formatUsername(m.actor_ap_id),
           preferred_username: actorInfo?.preferredUsername || null,
           name: actorInfo?.name || null,
           icon_url: actorInfo?.iconUrl || null,
           role: m.role,
-          joined_at: m.joinedAt,
+          joined_at: m.joined_at,
+          can_change_role:
+            m.can_change_role === true || m.can_change_role === 1,
         };
       });
 
@@ -362,21 +437,39 @@ export function registerMembershipMemberRoutes(
       // (<=100) plus the community param would otherwise exceed D1's 100-bound-
       // parameter cap.
       const membershipByApId = new Map<string, { role: string }>();
+      const followByApId = new Map<string, { activityApId: string | null }>();
       for (const chunk of chunkForInClause(body.actor_ap_ids)) {
-        const rows = await db
-          .select({
-            actorApId: communityMembers.actorApId,
-            role: communityMembers.role,
-          })
-          .from(communityMembers)
-          .where(
-            and(
-              eq(communityMembers.communityApId, community.apId),
-              inArray(communityMembers.actorApId, chunk),
+        const [memberRows, followRows] = await Promise.all([
+          db
+            .select({
+              actorApId: communityMembers.actorApId,
+              role: communityMembers.role,
+            })
+            .from(communityMembers)
+            .where(
+              and(
+                eq(communityMembers.communityApId, community.apId),
+                inArray(communityMembers.actorApId, chunk),
+              ),
             ),
-          );
-        for (const r of rows) {
+          db
+            .select({
+              actorApId: follows.followerApId,
+              activityApId: follows.activityApId,
+            })
+            .from(follows)
+            .where(
+              and(
+                eq(follows.followingApId, community.apId),
+                inArray(follows.followerApId, chunk),
+              ),
+            ),
+        ]);
+        for (const r of memberRows) {
           membershipByApId.set(r.actorApId, { role: r.role });
+        }
+        for (const r of followRows) {
+          followByApId.set(r.actorApId, { activityApId: r.activityApId });
         }
       }
 
@@ -393,11 +486,23 @@ export function registerMembershipMemberRoutes(
 
           const targetMembership = membershipByApId.get(targetApId);
           if (!targetMembership) {
-            results.push({
-              ap_id: targetApId,
-              success: false,
-              error: "Not a member",
-            });
+            const remoteFollow = followByApId.get(targetApId);
+            if (!remoteFollow) {
+              results.push({
+                ap_id: targetApId,
+                success: false,
+                error: "Not a member",
+              });
+              continue;
+            }
+            await removeFollowBackedMemberAndBan(
+              c.env,
+              db,
+              community.apId,
+              targetApId,
+              remoteFollow.activityApId,
+            );
+            results.push({ ap_id: targetApId, success: true });
             continue;
           }
 
