@@ -16,6 +16,7 @@ import {
   blockedActors as blockedActorsTable,
   blockedDomains as blockedDomainsTable,
 } from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import type { Env } from "../../types.ts";
 import { planEndpointsFromActorCache } from "../../lib/delivery/planner.ts";
 import {
@@ -236,18 +237,26 @@ test("blocklist-out: enqueueDeliveryToActor skips a blocked actor (no queue send
 
 test("blocklist-out: enqueueDeliveryToActor still delivers to an allowed actor", async () => {
   const sent: unknown[] = [];
-  const db = createMockDb([], {
-    domains: ["blocked.example"],
-  });
+  const { db } = await createTestDb();
+  await db
+    .insert(blockedDomainsTable)
+    .values({ domain: "blocked.example", reason: "test" });
   const env = {
-    DB_INSTANCE: db as unknown as Database,
+    DB_INSTANCE: db,
     DELIVERY_QUEUE: {
       send: (body: unknown) => {
         sent.push(body);
         return Promise.resolve();
       },
+      sendBatch: (messages: readonly { body: unknown }[]) => {
+        sent.push(...messages.map((message) => message.body));
+        return Promise.resolve();
+      },
     },
-    DELIVERY_DLQ: { send: () => Promise.resolve() },
+    DELIVERY_DLQ: {
+      send: () => Promise.resolve(),
+      sendBatch: () => Promise.resolve(),
+    },
   } as unknown as Env;
 
   await enqueueDeliveryToActor(
@@ -256,7 +265,11 @@ test("blocklist-out: enqueueDeliveryToActor still delivers to an allowed actor",
     "https://ok.example/ap/users/dm",
   );
 
-  expect(sent.length).toEqual(1);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({
+    type: "resolve_actor",
+    recipientActorApId: "https://ok.example/ap/users/dm",
+  });
 });
 
 test("blocklist-out: batched Move re-Follows skip a blocked target", async () => {

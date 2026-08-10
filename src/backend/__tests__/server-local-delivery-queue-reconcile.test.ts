@@ -35,7 +35,9 @@ function recordingQueue() {
       send: async (body: DeliveryQueueMessageV1) => {
         sent.push(body);
       },
-      sendBatch: async () => {},
+      sendBatch: async (messages: Array<{ body: DeliveryQueueMessageV1 }>) => {
+        sent.push(...messages.map((message) => message.body));
+      },
     } as unknown as import("@cloudflare/workers-types").Queue<DeliveryQueueMessageV1>,
   };
 }

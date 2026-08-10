@@ -18,7 +18,12 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actorCache, activities, actors } from "../../../db/index.ts";
+import {
+  actorCache,
+  activities,
+  actors,
+  deliveryResolutions,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import dmRoutes from "../../routes/dm/messages.ts";
 
@@ -29,6 +34,7 @@ const MIGRATIONS = [
   "0004_blocklist.sql",
   "0008_actor_fields_aka.sql",
   "0009_object_tags.sql",
+  "0023_delivery_resolution_outbox.sql",
 ];
 
 async function freshDb(): Promise<Database> {
@@ -166,6 +172,11 @@ test("remote DM Create carries a Mention tag using preferredUsername@host", asyn
 
   const res = await sendDmTo(db, senderApId, recipientApId);
   expect(res.status).toEqual(201);
+
+  expect(await db.select().from(deliveryResolutions).get()).toMatchObject({
+    recipientActorApId: recipientApId,
+    status: "pending",
+  });
 
   const create = await outboundCreate(db);
 

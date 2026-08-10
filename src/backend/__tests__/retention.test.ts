@@ -19,6 +19,8 @@ test("one bounded retention pass reuses the canonical empty-ledger cleanup paths
   ).resolves.toEqual({
     expiredStories: 0,
     reapedTombstones: 0,
+    enqueuedDeliveryEndpointJobs: 0,
+    enqueuedDeliveryResolutionJobs: 0,
     enqueuedNotificationPushJobs: 0,
   });
 });

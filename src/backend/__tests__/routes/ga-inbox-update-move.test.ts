@@ -2,7 +2,13 @@ import { expect, mock, test } from "bun:test";
 import { and, eq, sql } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
-import { actors, actorCache, activities, follows } from "../../../db/index.ts";
+import {
+  actors,
+  actorCache,
+  activities,
+  deliveryResolutions,
+  follows,
+} from "../../../db/index.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 import type {
   Activity,
@@ -580,8 +586,13 @@ test("[audit#20 Move D1] migrates a graph larger than parameter and batch-statem
   expect(migratedEdges).toHaveLength(localFollowers.length);
   expect(migratedEdges.every((edge) => edge.status === "pending")).toBe(true);
   expect(reFollows).toHaveLength(localFollowers.length);
-  expect(queueBatchSizes).toEqual([100, 20]);
+  // The durable outbox uses 50-row D1-safe chunks; each chunk is published as
+  // one Queue batch, still below the provider's 100-message limit.
+  expect(queueBatchSizes).toEqual([50, 50, 20]);
   expect(queuedBodies).toHaveLength(localFollowers.length);
+  expect(await db.select().from(deliveryResolutions)).toHaveLength(
+    localFollowers.length,
+  );
   for (const followerApId of localFollowers) {
     const row = await db
       .select({ followingCount: actors.followingCount })

@@ -46,13 +46,15 @@ import {
   upsertDeliveryJob,
 } from "./queue.ts";
 import { logger } from "../logger.ts";
+import {
+  claimDeliveryResolutionJob,
+  completeDeliveryResolutionJob,
+  enqueueDeliveryResolutionJobs,
+  MAX_RESOLVE_ATTEMPTS,
+  retryDeliveryResolutionJob,
+} from "./resolution-outbox.ts";
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
-// Cap on resolve_actor self-requeues (each ~60s apart) before giving up on a
-// permanently-unresolvable recipient — otherwise a dead host churns one queue
-// message every 60s forever.
-const MAX_RESOLVE_ATTEMPTS = 8;
-
 const log = logger.child({ component: "delivery.batching" });
 
 async function fetchAndCacheRemoteActor(
@@ -172,12 +174,15 @@ export async function enqueueFollowerEndpointDeliveries(
         deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
       }
 
-      const resolveRequests = planned.unknownRecipients.map((apId) => ({
-        body: buildResolveActorMessage(activityId, apId),
-      }));
-
       await sendQueueBatchChunked(queue, deliverRequests);
-      await sendQueueBatchChunked(queue, resolveRequests);
+      await enqueueDeliveryResolutionJobs(
+        db,
+        queue,
+        planned.unknownRecipients.map((recipientActorApId) => ({
+          activityId,
+          recipientActorApId,
+        })),
+      );
     }
 
     processed += page.length;
@@ -452,12 +457,15 @@ export async function processFanoutCommunity(
       deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
     }
 
-    const resolveRequests = planned.unknownRecipients.map((apId) => ({
-      body: buildResolveActorMessage(remoteActivityId, apId),
-    }));
-
     await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, deliverRequests);
-    await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, resolveRequests);
+    await enqueueDeliveryResolutionJobs(
+      db,
+      queueEnv.DELIVERY_QUEUE,
+      planned.unknownRecipients.map((recipientActorApId) => ({
+        activityId: remoteActivityId,
+        recipientActorApId,
+      })),
+    );
   }
 
   // TODO(remote-inbox-optimization): when the community has a large remote
@@ -477,11 +485,58 @@ export async function processResolveActor(
 ): Promise<void> {
   if (!requireQueue(env, "resolve_actor", message)) return;
 
+  const resolutionClaim = await claimDeliveryResolutionJob(
+    db,
+    msg.activityId,
+    msg.recipientActorApId,
+  );
+  if (resolutionClaim.state === "terminal") {
+    message.ack();
+    return;
+  }
+  if (
+    resolutionClaim.state === "deferred" ||
+    resolutionClaim.state === "busy"
+  ) {
+    message.retry({ delaySeconds: resolutionClaim.delaySeconds });
+    return;
+  }
+  const managedClaim =
+    resolutionClaim.state === "claimed" ? resolutionClaim : null;
+
+  // A projection cascade may delete the Activity while an old resolve message
+  // remains in flight. Never recreate delivery work for a deleted Activity.
+  const activityExists = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(eq(activities.apId, msg.activityId))
+    .get();
+  if (!activityExists) {
+    if (managedClaim) {
+      await completeDeliveryResolutionJob(
+        db,
+        managedClaim,
+        "discarded",
+        "activity_not_found",
+      );
+    }
+    message.ack();
+    return;
+  }
+
   // Defense-in-depth: the fanout/enqueue side already drops blocked recipients
   // via planEndpointsFromActorCache, but enforce the operator blocklist at the
   // resolve seam too so a re-resolved actor (or a domain blocked after enqueue)
   // never gets a delivery job. ACK silently — same posture as the inbox handler.
   if (await isActorBlocked(db, msg.recipientActorApId)) {
+    if (managedClaim) {
+      await completeDeliveryResolutionJob(
+        db,
+        managedClaim,
+        "discarded",
+        "recipient_blocked",
+      );
+    }
     message.ack();
     return;
   }
@@ -504,6 +559,37 @@ export async function processResolveActor(
     try {
       await fetchAndCacheRemoteActor(db, msg.recipientActorApId);
     } catch (e) {
+      if (managedClaim) {
+        const result = await retryDeliveryResolutionJob(db, managedClaim, e);
+        const nextAttempt = managedClaim.attempts + 1;
+        if (!result.owned) {
+          message.ack();
+          return;
+        }
+        if (result.terminal) {
+          log.warn("resolve_actor giving up after max attempts", {
+            event: "delivery.resolve_actor.exhausted",
+            actor: msg.recipientActorApId,
+            activityId: msg.activityId,
+            attempts: nextAttempt,
+            error: e,
+          });
+          message.ack();
+          return;
+        }
+        log.warn("resolve_actor fetch failed", {
+          event: "delivery.resolve_actor.failed",
+          actor: msg.recipientActorApId,
+          activityId: msg.activityId,
+          attempt: nextAttempt,
+          error: e,
+        });
+        // The retry intent is already durable. Ask the current queue message to
+        // retry too; if that signal is lost, the outbox sweep republishes it.
+        message.retry({ delaySeconds: 60 });
+        return;
+      }
+
       // Bound the retry: a permanently-unresolvable recipient (dead host,
       // persistent 5xx, SSRF-blocked) must NOT re-enqueue a fresh resolve_actor
       // every 60s forever. Give up after MAX_RESOLVE_ATTEMPTS so the activity is
@@ -557,6 +643,14 @@ export async function processResolveActor(
       actor: msg.recipientActorApId,
       activityId: msg.activityId,
     });
+    if (managedClaim) {
+      await completeDeliveryResolutionJob(
+        db,
+        managedClaim,
+        "discarded",
+        "endpoint_unresolved",
+      );
+    }
     message.ack();
     return;
   }
@@ -564,6 +658,9 @@ export async function processResolveActor(
   const jobId = await computeDeliveryJobId(msg.activityId, endpoint);
   await upsertDeliveryJob(db, jobId, msg.activityId, endpoint);
   await sendQueueMessage(env, buildDeliverEndpointMessage(jobId));
+  if (managedClaim) {
+    await completeDeliveryResolutionJob(db, managedClaim, "resolved");
+  }
   message.ack();
 }
 

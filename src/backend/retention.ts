@@ -1,14 +1,22 @@
 import type { Env } from "./types.ts";
 import { enqueuePendingNotificationPushJobs } from "./lib/notification-push.ts";
+import { enqueuePendingDeliveryEndpointJobs } from "./lib/delivery/queue.ts";
+import { enqueuePendingDeliveryResolutionJobs } from "./lib/delivery/resolution-outbox.ts";
 import { reapDrainedTombstones } from "./routes/actors.ts";
 import { cleanupExpiredStories } from "./routes/stories/query-helpers.ts";
 
 export type YurucommuRetentionStep =
-  "expired_stories" | "drained_tombstones" | "notification_push";
+  | "expired_stories"
+  | "drained_tombstones"
+  | "delivery_endpoint"
+  | "delivery_resolution"
+  | "notification_push";
 
 export interface YurucommuRetentionResult {
   readonly expiredStories: number;
   readonly reapedTombstones: number;
+  readonly enqueuedDeliveryEndpointJobs: number;
+  readonly enqueuedDeliveryResolutionJobs: number;
   readonly enqueuedNotificationPushJobs: number;
 }
 
@@ -34,6 +42,8 @@ export class YurucommuRetentionError extends Error {
  * handling:
  * - Story expiry uses the canonical object cascade and purges its media last.
  * - Tombstones remain until every Delete delivery has drained.
+ * - Federation delivery republishes due endpoint jobs and unresolved-recipient
+ *   outbox rows whose first Queue RPC or owning worker was lost.
  * - Notification push performs bounded pusher/job retention, stale-job
  *   recovery, and enqueues due durable outbox rows when a queue is available.
  *
@@ -54,6 +64,14 @@ export async function runYurucommuRetention(
   const reapedTombstones = await retentionStep("drained_tombstones", () =>
     reapDrainedTombstones(env.DB_INSTANCE),
   );
+  const enqueuedDeliveryEndpointJobs = await retentionStep(
+    "delivery_endpoint",
+    () => enqueuePendingDeliveryEndpointJobs(env),
+  );
+  const enqueuedDeliveryResolutionJobs = await retentionStep(
+    "delivery_resolution",
+    () => enqueuePendingDeliveryResolutionJobs(env),
+  );
   const enqueuedNotificationPushJobs = await retentionStep(
     "notification_push",
     () => enqueuePendingNotificationPushJobs(env),
@@ -62,6 +80,8 @@ export async function runYurucommuRetention(
   return {
     expiredStories,
     reapedTombstones,
+    enqueuedDeliveryEndpointJobs,
+    enqueuedDeliveryResolutionJobs,
     enqueuedNotificationPushJobs,
   };
 }

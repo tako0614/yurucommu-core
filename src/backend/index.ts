@@ -47,7 +47,7 @@ import {
 import { logger } from "./lib/logger.ts";
 
 const log = logger.child({ component: "backend.index" });
-let lastNotificationPushRecoverySweep = 0;
+let lastOutboxRecoverySweep = 0;
 import type { IQueueBatch } from "./runtime/queue.ts";
 import type {
   D1Database,
@@ -63,9 +63,11 @@ import type {
   DeliveryQueueMessageV1,
 } from "./lib/delivery/types.ts";
 import {
+  enqueuePendingDeliveryEndpointJobs,
   handleDeliveryDlqBatch,
   handleDeliveryQueueBatch,
 } from "./lib/delivery/queue.ts";
+import { enqueuePendingDeliveryResolutionJobs } from "./lib/delivery/resolution-outbox.ts";
 import { enqueuePendingNotificationPushJobs } from "./lib/notification-push.ts";
 import { runYurucommuRetention } from "./retention.ts";
 
@@ -620,10 +622,19 @@ function applyGlobalMiddleware(
     const method = c.req.method.toUpperCase();
     const now = Date.now();
     const mutating = !["GET", "HEAD", "OPTIONS"].includes(method);
-    const recoveryDue = now - lastNotificationPushRecoverySweep >= 60_000;
+    const recoveryDue = now - lastOutboxRecoverySweep >= 60_000;
     if (mutating || recoveryDue) {
-      if (recoveryDue) lastNotificationPushRecoverySweep = now;
+      if (recoveryDue) lastOutboxRecoverySweep = now;
       const sweep = (async () => {
+        try {
+          await enqueuePendingDeliveryEndpointJobs(c.env);
+          await enqueuePendingDeliveryResolutionJobs(c.env);
+        } catch (error) {
+          log.error("Failed to enqueue durable federation outbox", {
+            event: "delivery.outbox.enqueue_failed",
+            error,
+          });
+        }
         try {
           await enqueuePendingNotificationPushJobs(c.env);
         } catch (error) {

@@ -271,18 +271,18 @@ test("userInboxHandlers hardening - handleDelete performs dependent deletes and 
 
   await handleDelete(context, activity);
 
-  // Verify select was called 7 times: once in handleDelete (lookup object
-  // owner/type), once for the cascade's object/attachment snapshot, and five
+  // Verify select was called 8 times: once in handleDelete (lookup object
+  // owner/type), once for the cascade's object/attachment snapshot, and six
   // Activity-id subqueries for the complete durable projection cleanup
-  // (push/archive/claim/delivery/inbox).
-  assertSpyCalls(db.select, 7);
+  // (push/archive/claim/endpoint delivery/resolution/inbox).
+  assertSpyCalls(db.select, 8);
   // Verify delete was called for the full object cascade (likes, announces,
   // bookmarks, object_recipients, story_views, story_votes, story_shares) + the
-  // five durable Activity projections + the objects row itself = 13. The
+  // six durable Activity projections + the objects row itself = 14. The
   // cascade now runs for every object type via the shared helper so no child,
   // stale delivery, or dangling notification rows are orphaned.
-  assertSpyCalls(db.delete, 13);
-  // One batch commits the twelve child/projection deletes; the handler's
+  assertSpyCalls(db.delete, 14);
+  // One batch commits the thirteen child/projection deletes; the handler's
   // second batch co-commits the object row with its counter transition.
   assertSpyCalls(db.batch, 2);
   // Verify update was called (actor postCount decrement)

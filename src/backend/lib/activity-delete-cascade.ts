@@ -3,6 +3,7 @@ import { inArray, type SQL } from "drizzle-orm";
 import {
   activities,
   deliveryQueue,
+  deliveryResolutions,
   inboundActivityClaims,
   inbox,
   notificationArchived,
@@ -48,6 +49,11 @@ export function activityProjectionDeleteStatements(
       .delete(deliveryQueue)
       .where(
         inArray(deliveryQueue.activityApId, targetActivityIds()),
+      ) as D1Statement,
+    db
+      .delete(deliveryResolutions)
+      .where(
+        inArray(deliveryResolutions.activityApId, targetActivityIds()),
       ) as D1Statement,
     db
       .delete(inbox)

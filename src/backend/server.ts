@@ -21,7 +21,6 @@
 
 import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import process from "node:process";
-import { and, inArray, lt, or } from "drizzle-orm";
 import { BunAssets, BunDatabase, BunStorage } from "./runtime/bun.ts";
 import { MemoryKV } from "./runtime/memory-kv.ts";
 import type { Env, EnvVars } from "./types.ts";
@@ -29,8 +28,12 @@ import type {
   DeliveryDlqMessageV1,
   DeliveryQueueMessageV1,
 } from "./lib/delivery/types.ts";
-import { buildDeliverEndpointMessage } from "./lib/delivery/queue.ts";
-import { deliveryQueue, getDbSQLite } from "../db/index.ts";
+import {
+  buildDeliverEndpointMessage,
+  enqueuePendingDeliveryEndpointJobs,
+} from "./lib/delivery/queue.ts";
+import { enqueuePendingDeliveryResolutionJobs } from "./lib/delivery/resolution-outbox.ts";
+import { getDbSQLite } from "../db/index.ts";
 import { logger } from "./lib/logger.ts";
 import type {
   IQueueBatch,
@@ -293,20 +296,8 @@ function attachLocalDeliveryQueues(env: LocalServerEnv): void {
 // the platform persists in-flight messages and re-delivers them itself, so the
 // sweep must not run there.
 
-/** Statuses that still represent work the local queue must (re)drive. */
-const RECONCILE_PENDING_STATUSES = ["pending", "retry_wait"] as const;
-
-/**
- * Matches queue-delivery.ts STALE_PROCESSING_MS: a row marked `processing`
- * older than this lost its owning worker and is safe to re-enqueue.
- */
-const RECONCILE_STALE_PROCESSING_MS = 2 * 60 * 1000;
-
 /** How often the periodic reconciliation sweep runs. */
 const RECONCILE_SWEEP_INTERVAL_MS = 60 * 1000;
-
-/** How many rows to re-enqueue per sweep pass. */
-const RECONCILE_SWEEP_BATCH = 500;
 
 /**
  * Select non-terminal delivery_queue rows and re-enqueue them onto the local
@@ -315,34 +306,12 @@ const RECONCILE_SWEEP_BATCH = 500;
 export async function reconcileLocalDeliveryQueue(
   env: LocalServerEnv,
 ): Promise<number> {
-  const queue = env.DELIVERY_QUEUE;
-  if (!queue) return 0;
-
-  const db = env.DB_INSTANCE;
-  const staleBefore = new Date(
-    Date.now() - RECONCILE_STALE_PROCESSING_MS,
-  ).toISOString();
-
-  const rows = await db
-    .select({ id: deliveryQueue.id })
-    .from(deliveryQueue)
-    .where(
-      or(
-        inArray(deliveryQueue.status, [...RECONCILE_PENDING_STATUSES]),
-        and(
-          inArray(deliveryQueue.status, ["processing"]),
-          lt(deliveryQueue.processingStartedAt, staleBefore),
-        ),
-      ),
-    )
-    .limit(RECONCILE_SWEEP_BATCH);
-
-  if (rows.length === 0) return 0;
-
-  for (const row of rows) {
-    await queue.send(buildDeliverEndpointMessage(row.id));
-  }
-  return rows.length;
+  return await enqueuePendingDeliveryEndpointJobs(env, new Date(), {
+    // The local queue is process memory. Recreate even future retry timers now;
+    // processDeliverEndpoint will defer them to their stored nextAttemptAt.
+    includeDeferred: true,
+    includeFreshPending: true,
+  });
 }
 
 /**
@@ -353,12 +322,16 @@ export async function reconcileLocalDeliveryQueue(
 function startLocalDeliveryQueueReconciler(env: LocalServerEnv): void {
   const runSweep = async (trigger: "startup" | "interval") => {
     try {
-      const requeued = await reconcileLocalDeliveryQueue(env);
+      const endpointJobs = await reconcileLocalDeliveryQueue(env);
+      const resolutionJobs = await enqueuePendingDeliveryResolutionJobs(env);
+      const requeued = endpointJobs + resolutionJobs;
       if (requeued > 0) {
         log.info("Reconciled local delivery queue", {
           event: "server.local_delivery_queue.reconciled",
           trigger,
           requeued,
+          endpointJobs,
+          resolutionJobs,
         });
       }
     } catch (error) {

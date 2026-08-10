@@ -10,7 +10,7 @@ import type {
   IQueueProducer,
 } from "../../runtime/queue.ts";
 import type { Database } from "../../../db/index.ts";
-import { and, eq, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, lte, notInArray, or, sql } from "drizzle-orm";
 import { actorCache, deliveryQueue } from "../../../db/index.ts";
 import { isSafeRemoteUrl } from "../../federation-helpers.ts";
 import {
@@ -30,6 +30,14 @@ import {
   processNotificationPushJob,
   recoverDeadLetteredNotificationPushJob,
 } from "../notification-push.ts";
+import {
+  buildResolveActorMessage,
+  enqueueDeliveryResolutionJobs,
+  enqueuePendingDeliveryResolutionJobs,
+  persistDeliveryResolutionJobs,
+} from "./resolution-outbox.ts";
+
+export { buildResolveActorMessage } from "./resolution-outbox.ts";
 
 const log = logger.child({ component: "delivery.queue" });
 
@@ -223,21 +231,6 @@ export function buildDeliverEndpointMessage(
   };
 }
 
-export function buildResolveActorMessage(
-  activityId: string,
-  recipientActorApId: string,
-  attempts = 0,
-): DeliveryQueueMessageV1 {
-  return {
-    version: DELIVERY_QUEUE_MESSAGE_VERSION,
-    type: "resolve_actor",
-    activityId,
-    recipientActorApId,
-    ...(attempts > 0 ? { attempts } : {}),
-    scheduledAt: nowIso(),
-  };
-}
-
 export function buildReconcileJobMessage(
   jobId: string,
   reconcileAttempt: number,
@@ -286,6 +279,60 @@ export async function upsertDeliveryJob(
         notInArray(deliveryQueue.status, ["processing", "delivered"]),
       ),
     );
+}
+
+const PENDING_DELIVERY_SCAN_LIMIT = 500;
+const STALE_DELIVERY_PROCESSING_MS = 2 * 60 * 1000;
+
+/**
+ * Re-publish durable endpoint jobs whose first Queue RPC was lost, whose
+ * backoff has elapsed, or whose processing worker disappeared. Queue messages
+ * are wakeups; delivery_queue remains the retry authority.
+ */
+export async function enqueuePendingDeliveryEndpointJobs(
+  env: Env,
+  nowDate = new Date(),
+  options: {
+    readonly includeDeferred?: boolean;
+    readonly includeFreshPending?: boolean;
+  } = {},
+): Promise<number> {
+  if (!env.DELIVERY_QUEUE) return 0;
+  const now = nowDate.toISOString();
+  const staleBefore = new Date(
+    nowDate.getTime() - STALE_DELIVERY_PROCESSING_MS,
+  ).toISOString();
+  const rows = await env.DB_INSTANCE.select({ id: deliveryQueue.id })
+    .from(deliveryQueue)
+    .where(
+      or(
+        options.includeFreshPending
+          ? eq(deliveryQueue.status, "pending")
+          : and(
+              eq(deliveryQueue.status, "pending"),
+              lt(deliveryQueue.createdAt, staleBefore),
+            ),
+        options.includeDeferred
+          ? eq(deliveryQueue.status, "retry_wait")
+          : and(
+              eq(deliveryQueue.status, "retry_wait"),
+              lte(deliveryQueue.nextAttemptAt, now),
+            ),
+        and(
+          eq(deliveryQueue.status, "processing"),
+          lt(deliveryQueue.processingStartedAt, staleBefore),
+        ),
+      ),
+    )
+    .limit(PENDING_DELIVERY_SCAN_LIMIT);
+  for (let offset = 0; offset < rows.length; offset += 100) {
+    await env.DELIVERY_QUEUE.sendBatch(
+      rows.slice(offset, offset + 100).map((row) => ({
+        body: buildDeliverEndpointMessage(row.id),
+      })),
+    );
+  }
+  return rows.length;
 }
 
 export async function enqueueResolveForEndpointActors(
@@ -355,11 +402,15 @@ export async function enqueueResolveForEndpointActors(
 
       if (slice.length === 0) continue;
 
-      const requests = slice.map((recipientApId) => ({
-        body: buildResolveActorMessage(activityId, recipientApId),
-      }));
-
-      await env.DELIVERY_QUEUE.sendBatch(requests);
+      await enqueueDeliveryResolutionJobs(
+        db,
+        env.DELIVERY_QUEUE,
+        slice.map((recipientActorApId) => ({
+          activityId,
+          recipientActorApId,
+        })),
+        { reopenTerminal: true },
+      );
       enqueued += slice.length;
     }
 
@@ -422,6 +473,16 @@ export async function enqueueDeliveryToActor(
     return;
   }
 
+  if (db) {
+    const queue = queueAvailable(env) ? env.DELIVERY_QUEUE : undefined;
+    await enqueueDeliveryResolutionJobs(db, queue, [
+      { activityId, recipientActorApId },
+    ]);
+    if (!queue) reportProducerUnavailable("enqueueDeliveryToActor");
+    else producerUnavailableReported = false;
+    return;
+  }
+
   await sendQueueMessage(
     env,
     buildResolveActorMessage(activityId, recipientActorApId),
@@ -441,6 +502,22 @@ export async function enqueueDeliveriesToActor(
   recipientActorApId: string,
 ): Promise<void> {
   if (activityIds.length === 0) return;
+  const db = (env as Partial<Env>).DB_INSTANCE;
+  const intents = activityIds.map((activityId) => ({
+    activityId,
+    recipientActorApId,
+  }));
+  if (db && (await isActorBlocked(db, recipientActorApId))) {
+    log.info("Skipping outbound deliveries to blocked actor", {
+      event: "delivery.blocklist.actor_batch_skip",
+      actor: recipientActorApId,
+      activityCount: activityIds.length,
+    });
+    emitMetric("delivery.blocklist.actor_batch_skip", activityIds.length, {});
+    return;
+  }
+
+  if (db) await persistDeliveryResolutionJobs(db, intents);
   if (!queueAvailable(env)) {
     reportProducerUnavailable("enqueueDeliveriesToActor");
     // This batched path is used by account Move after its pending edges and
@@ -455,14 +532,8 @@ export async function enqueueDeliveriesToActor(
   }
   producerUnavailableReported = false;
 
-  const db = (env as Partial<Env>).DB_INSTANCE;
-  if (db && (await isActorBlocked(db, recipientActorApId))) {
-    log.info("Skipping outbound deliveries to blocked actor", {
-      event: "delivery.blocklist.actor_batch_skip",
-      actor: recipientActorApId,
-      activityCount: activityIds.length,
-    });
-    emitMetric("delivery.blocklist.actor_batch_skip", activityIds.length, {});
+  if (db) {
+    await enqueueDeliveryResolutionJobs(db, env.DELIVERY_QUEUE, intents);
     return;
   }
 
@@ -599,6 +670,15 @@ export async function handleDeliveryQueueBatch(
 
   // Community fanout can create local inbox rows inside this consumer rather
   // than an HTTP request. Flush the same DB-triggered outbox choke point here.
+  try {
+    await enqueuePendingDeliveryEndpointJobs(env);
+    await enqueuePendingDeliveryResolutionJobs(env);
+  } catch (error) {
+    log.error("Failed to enqueue durable federation outbox", {
+      event: "delivery.outbox.enqueue_failed",
+      error,
+    });
+  }
   try {
     await enqueuePendingNotificationPushJobs(env);
   } catch (error) {

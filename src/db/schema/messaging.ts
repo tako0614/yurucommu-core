@@ -9,6 +9,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { nowIso, nowIsoUtc } from "./date-utils.ts";
 
@@ -67,6 +68,47 @@ export const deliveryQueue = sqliteTable(
     index("delivery_queue_activity_idx").on(t.activityApId),
     index("delivery_queue_next_attempt_idx").on(t.nextAttemptAt),
     index("delivery_queue_status_next_idx").on(t.status, t.nextAttemptAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// DELIVERY_RESOLUTIONS
+// ---------------------------------------------------------------------------
+
+/**
+ * Durable first-hop outbox for an outbound Activity whose recipient endpoint
+ * is not yet known. Queue messages are only wakeups; this row remains the
+ * retry authority until actor resolution creates a deliveryQueue endpoint job.
+ */
+export const deliveryResolutions = sqliteTable(
+  "delivery_resolutions",
+  {
+    id: text("id").primaryKey(),
+    activityApId: text("activity_ap_id").notNull(),
+    recipientActorApId: text("recipient_actor_ap_id").notNull(),
+    status: text("status").notNull().default("pending"),
+    processingToken: text("processing_token"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at").notNull().$defaultFn(nowIsoUtc),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().$defaultFn(nowIsoUtc),
+    updatedAt: text("updated_at")
+      .notNull()
+      .$defaultFn(nowIsoUtc)
+      .$onUpdateFn(nowIsoUtc),
+    resolvedAt: text("resolved_at"),
+  },
+  (t) => [
+    uniqueIndex("delivery_resolutions_activity_actor_idx").on(
+      t.activityApId,
+      t.recipientActorApId,
+    ),
+    index("delivery_resolutions_status_next_idx").on(t.status, t.nextAttemptAt),
+    index("delivery_resolutions_terminal_retention_idx").on(
+      t.status,
+      t.updatedAt,
+    ),
+    index("delivery_resolutions_activity_idx").on(t.activityApId),
   ],
 );
 
