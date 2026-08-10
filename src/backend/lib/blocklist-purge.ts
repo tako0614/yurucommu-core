@@ -1,4 +1,4 @@
-import { asc, gt, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, gt, inArray, sql, type SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { activities, objects } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
@@ -33,8 +33,9 @@ export interface BlocklistContentPurgeResult {
  * patterns as too complex, which previously made a valid long domain block
  * retain all historical content. Extracting the authority with literal
  * instr/substr operations also keeps domain text in the URL path, lookalike
- * suffixes, credentials, and explicit ports outside the match — the same URL
- * boundary the former host-anchored patterns intended to enforce.
+ * suffixes, and credentials outside the match. Parse the authority down to its
+ * hostname so an explicit HTTPS port and a DNS root dot have the same meaning
+ * as the block decision path.
  */
 function activityPubUrlHostMatchesDomain(
   column: SQLiteColumn,
@@ -44,6 +45,23 @@ function activityPubUrlHostMatchesDomain(
   const authorityTail = sql`substr(${lowerUrl}, 9)`;
   const slash = sql`instr(${authorityTail}, '/')`;
   const authority = sql`substr(${authorityTail}, 1, ${slash} - 1)`;
+  const closingBracket = sql`instr(${authority}, ']')`;
+  const hostWithRootDot = sql`
+    CASE
+      WHEN substr(${authority}, 1, 1) = '[' AND ${closingBracket} > 1
+        THEN substr(${authority}, 1, ${closingBracket})
+      WHEN instr(${authority}, ':') > 0
+        THEN substr(${authority}, 1, instr(${authority}, ':') - 1)
+      ELSE ${authority}
+    END
+  `;
+  const host = sql`
+    CASE
+      WHEN substr(${hostWithRootDot}, -1) = '.'
+        THEN substr(${hostWithRootDot}, 1, length(${hostWithRootDot}) - 1)
+      ELSE ${hostWithRootDot}
+    END
+  `;
   const subdomainSuffix = `.${domain}`;
 
   return sql`
@@ -51,8 +69,8 @@ function activityPubUrlHostMatchesDomain(
     AND ${slash} > 1
     AND instr(${authority}, '@') = 0
     AND (
-      ${authority} = ${domain}
-      OR substr(${authority}, -length(${subdomainSuffix})) = ${subdomainSuffix}
+      ${host} = ${domain}
+      OR substr(${host}, -length(${subdomainSuffix})) = ${subdomainSuffix}
     )
   `;
 }
@@ -79,7 +97,9 @@ async function purgeObjects(
  * block consume memory in direct proportion to retained history. Keeping each
  * unit at D1_IN_CHUNK also means a failed statement leaves at most one page
  * incomplete; retrying the idempotent operator block resumes from the rows that
- * remain instead of rebuilding an unbounded in-memory id set.
+ * remain instead of rebuilding an unbounded in-memory id set. A stable AP-ID
+ * keyset prevents unmatched history before the current page from being scanned
+ * again after each successful delete.
  */
 async function purgeMatchingObjects(
   db: Database,
@@ -87,14 +107,18 @@ async function purgeMatchingObjects(
   media?: IObjectStorage,
   onPageDeleted?: (count: number) => void,
 ): Promise<void> {
+  let cursor: string | undefined;
   while (true) {
     const rows = await db
       .select({ apId: objects.apId })
       .from(objects)
-      .where(where)
+      .where(
+        cursor === undefined ? where : and(where, gt(objects.apId, cursor)),
+      )
       .orderBy(asc(objects.apId))
       .limit(D1_IN_CHUNK);
     if (rows.length === 0) return;
+    cursor = rows[rows.length - 1]!.apId;
     await purgeObjects(
       db,
       rows.map((row) => row.apId),
@@ -109,14 +133,18 @@ async function purgeMatchingActivities(
   where: SQL,
   onPageDeleted?: (count: number) => void,
 ): Promise<void> {
+  let cursor: string | undefined;
   while (true) {
     const rows = await db
       .select({ apId: activities.apId })
       .from(activities)
-      .where(where)
+      .where(
+        cursor === undefined ? where : and(where, gt(activities.apId, cursor)),
+      )
       .orderBy(asc(activities.apId))
       .limit(D1_IN_CHUNK);
     if (rows.length === 0) return;
+    cursor = rows[rows.length - 1]!.apId;
     await db.delete(activities).where(
       inArray(
         activities.apId,

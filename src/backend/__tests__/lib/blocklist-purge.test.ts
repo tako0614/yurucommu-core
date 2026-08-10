@@ -253,6 +253,92 @@ test("purgeDomainContent removes the host AND its subdomains but NOT a similarly
   );
 });
 
+test("purgeDomainContent matches the same hostname boundary as block decisions", async () => {
+  const db = await freshDb();
+  const domain = "port-blocked.example";
+  const blockedActorsWithNonCanonicalAuthorities = [
+    `https://${domain}:8443/users/apex`,
+    `https://node.${domain}:9443/users/subdomain`,
+    `https://${domain}.:443/users/trailing-dot`,
+  ];
+  const survivingActors = [
+    `https://${domain}@safe.example/users/credential-lookalike`,
+    `https://not${domain}:8443/users/suffix-lookalike`,
+  ];
+
+  for (const [index, actor] of [
+    ...blockedActorsWithNonCanonicalAuthorities,
+    ...survivingActors,
+  ].entries()) {
+    const objectApId = `https://content.example/objects/domain-boundary-${index}`;
+    await seedPost(db, objectApId, actor);
+    await db.insert(activities).values({
+      apId: `https://content.example/activities/domain-boundary-${index}`,
+      type: "Create",
+      actorApId: actor,
+      objectApId,
+      rawJson: "{}",
+      direction: "inbound",
+    });
+  }
+  await blockDomain(db, domain, null);
+
+  for (const actor of blockedActorsWithNonCanonicalAuthorities) {
+    expect(await isActorBlocked(db, actor)).toBe(true);
+  }
+  for (const actor of survivingActors) {
+    expect(await isActorBlocked(db, actor)).toBe(false);
+  }
+
+  const result = await purgeDomainContent(db, domain);
+
+  expect(result).toEqual({
+    complete: true,
+    deletedObjects: blockedActorsWithNonCanonicalAuthorities.length,
+    deletedActivities: blockedActorsWithNonCanonicalAuthorities.length,
+  });
+  expect(
+    (await db.select({ attributedTo: objects.attributedTo }).from(objects))
+      .map((row) => row.attributedTo)
+      .sort(),
+  ).toEqual([...survivingActors].sort());
+  expect(
+    (await db.select({ actorApId: activities.actorApId }).from(activities))
+      .map((row) => row.actorApId)
+      .sort(),
+  ).toEqual([...survivingActors].sort());
+});
+
+test("purgeDomainContent parses an explicit port after an IPv6 hostname", async () => {
+  const db = await freshDb();
+  const actor = "https://[2001:db8::1]:8443/users/alice";
+  const objectApId = "https://content.example/objects/ipv6-domain-target";
+  await seedPost(db, objectApId, actor);
+  await db.insert(activities).values({
+    apId: "https://content.example/activities/ipv6-domain-target",
+    type: "Create",
+    actorApId: actor,
+    objectApId,
+    rawJson: "{}",
+    direction: "inbound",
+  });
+  await blockDomain(db, actor, null);
+
+  expect(await isActorBlocked(db, actor)).toBe(true);
+  expect(await purgeDomainContent(db, actor)).toEqual({
+    complete: true,
+    deletedObjects: 1,
+    deletedActivities: 1,
+  });
+  expect(await objectExists(db, objectApId)).toBe(false);
+  expect(
+    await activityExists(
+      db,
+      "https://content.example/activities/ipv6-domain-target",
+    ),
+  ).toBe(false);
+});
+
 test("purgeDomainContent handles a long valid D1 domain without matching path text", async () => {
   const db = await freshDb();
   const domain = `${"a".repeat(63)}.example`;
@@ -332,23 +418,29 @@ test("purgeDomainContent handles a long valid D1 domain without matching path te
   });
 });
 
-test("purgeDomainContent cascades more than two D1 parameter chunks", async () => {
+test("purgeDomainContent crosses unrelated history and more than two D1 chunks", async () => {
   const db = await freshDb();
   const domain = "bulk-blocked.example";
   const actor = `https://${domain}/users/a`;
   const targetApIds = Array.from(
     { length: 181 },
-    (_, index) => `https://${domain}/objects/${index}`,
+    (_, index) => `https://content.example/zzzz-blocked-objects/${index}`,
   );
-  const survivorApId = "https://safe.example/objects/survivor";
+  const survivorApIds = Array.from(
+    { length: 513 },
+    (_, index) => `https://content.example/aaaa-safe-objects/${index}`,
+  );
 
   // Seed one statement per object so the fixture itself obeys D1's 100-bound-
-  // parameter ceiling. The purge must independently chunk its read, child
-  // cascade, and final object delete at the real production boundary.
+  // parameter ceiling. Unrelated rows sort before every target, so the purge
+  // must advance its keyset rather than restarting there for every delete page.
+  for (const [index, apId] of survivorApIds.entries()) {
+    await seedPost(db, apId, `https://safe.example/users/${index}`);
+  }
   for (const [index, apId] of targetApIds.entries()) {
     await seedPost(db, apId, actor);
     await db.insert(activities).values({
-      apId: `https://${domain}/activities/${index}`,
+      apId: `https://content.example/zzzz-blocked-activities/${index}`,
       type: "Create",
       actorApId: actor,
       objectApId: apId,
@@ -356,7 +448,6 @@ test("purgeDomainContent cascades more than two D1 parameter chunks", async () =
       direction: "inbound",
     });
   }
-  await seedPost(db, survivorApId, "https://safe.example/users/b");
 
   const result = await purgeDomainContent(db, domain);
 
@@ -377,7 +468,9 @@ test("purgeDomainContent cascades more than two D1 parameter chunks", async () =
       .from(activities)
       .where(eq(activities.actorApId, actor)),
   ).toEqual([]);
-  expect(await objectExists(db, survivorApId)).toBe(true);
+  expect(await db.select({ apId: objects.apId }).from(objects)).toHaveLength(
+    survivorApIds.length,
+  );
 });
 
 test("a domain block is enforced on subdomains (isActorBlocked)", async () => {
