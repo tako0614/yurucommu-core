@@ -11,6 +11,7 @@ import {
   isNull,
   lt,
   or,
+  sql,
   type SQL,
 } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
@@ -52,8 +53,9 @@ const ARCHIVED_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 // at 100 bound parameters (libsql, used by tests, allows ~32k and hides this).
 const MAX_ARCHIVE_BATCH_SIZE = 90;
 const MAX_READ_BATCH_SIZE = 90;
-// Multi-row INSERT chunk: each archive row binds 3 columns, so a chunk of N
-// rows uses 3*N bound params. 30*3 = 90, under D1's 100-param ceiling.
+// INSERT ... SELECT chunk: each requested id is one bind, plus actor + archive
+// timestamp. Keep the established 30-id chunk comfortably under D1's
+// 100-parameter ceiling.
 const ARCHIVE_CREATE_BATCH_SIZE = 30;
 // Bound the opportunistic retention-cleanup per run so a user with a very large
 // archived backlog doesn't load + delete it all in one fired-from-read-path run;
@@ -96,21 +98,40 @@ export const __archivedCleanupInternals = {
 };
 
 /**
- * Batch-insert archive rows with unique-constraint tolerance.
+ * Materialize archive markers only from rows in the authenticated actor's
+ * retained inbox. Keeping eligibility and insertion in the same statement
+ * prevents foreign, missing, or concurrently removed inbox rows from becoming
+ * durable markers. The unique constraint makes retries idempotent.
+ *
  * Returns the number of rows actually inserted.
  */
 async function batchArchiveInsert(
   db: Database,
-  rows: Array<{ actorApId: string; activityApId: string; archivedAt: string }>,
+  actorApId: string,
+  activityApIds: string[],
+  archivedAt: string,
   batchSize: number,
 ): Promise<number> {
   let inserted = 0;
 
-  for (let i = 0; i < rows.length; i += batchSize) {
-    const batch = rows.slice(i, i + batchSize);
+  for (let i = 0; i < activityApIds.length; i += batchSize) {
+    const batch = activityApIds.slice(i, i + batchSize);
+    const candidates = db
+      .select({
+        actorApId: inboxTable.actorApId,
+        activityApId: inboxTable.activityApId,
+        archivedAt: sql<string>`${archivedAt}`.as("archived_at"),
+      })
+      .from(inboxTable)
+      .where(
+        and(
+          eq(inboxTable.actorApId, actorApId),
+          inArray(inboxTable.activityApId, batch),
+        ),
+      );
     const result = await db
       .insert(notificationArchived)
-      .values(batch)
+      .select(candidates)
       .onConflictDoNothing();
     inserted += affectedRowCount(result);
   }
@@ -701,28 +722,11 @@ notifications.post("/archive", async (c) => {
   const now = new Date().toISOString();
   const uniqueIds = [...new Set(body.ids.map((id) => id.trim()))];
 
-  const alreadyArchived = await db
-    .select({ activityApId: notificationArchived.activityApId })
-    .from(notificationArchived)
-    .where(
-      and(
-        eq(notificationArchived.actorApId, actor.ap_id),
-        inArray(notificationArchived.activityApId, uniqueIds),
-      ),
-    );
-  const alreadyArchivedSet = new Set(
-    alreadyArchived.map((row) => row.activityApId),
-  );
-  const toArchive = uniqueIds.filter((id) => !alreadyArchivedSet.has(id));
-
-  const rows = toArchive.map((id) => ({
-    actorApId: actor.ap_id,
-    activityApId: id,
-    archivedAt: now,
-  }));
   const archived_count = await batchArchiveInsert(
     db,
-    rows,
+    actor.ap_id,
+    uniqueIds,
+    now,
     ARCHIVE_CREATE_BATCH_SIZE,
   );
 
@@ -782,35 +786,17 @@ notifications.post("/archive/all", async (c) => {
   const db = c.get("db");
   const now = new Date().toISOString();
 
-  const [alreadyArchived, inboxItems] = await Promise.all([
-    db
-      .select({ activityApId: notificationArchived.activityApId })
-      .from(notificationArchived)
-      .where(eq(notificationArchived.actorApId, actor.ap_id))
-      .limit(ARCHIVE_ALL_CAP),
-    db
-      .select({ activityApId: inboxTable.activityApId })
-      .from(inboxTable)
-      .where(eq(inboxTable.actorApId, actor.ap_id))
-      .limit(ARCHIVE_ALL_CAP),
-  ]);
-
-  const alreadyArchivedIds = new Set(
-    alreadyArchived.map((a) => a.activityApId),
-  );
-  const toArchive = inboxItems.filter(
-    (item) => !alreadyArchivedIds.has(item.activityApId),
-  );
-
-  const rows = toArchive.map((item) => ({
-    actorApId: actor.ap_id,
-    activityApId: item.activityApId,
-    archivedAt: now,
-  }));
+  const inboxItems = await db
+    .select({ activityApId: inboxTable.activityApId })
+    .from(inboxTable)
+    .where(eq(inboxTable.actorApId, actor.ap_id))
+    .limit(ARCHIVE_ALL_CAP);
 
   const archived_count = await batchArchiveInsert(
     db,
-    rows,
+    actor.ap_id,
+    inboxItems.map((item) => item.activityApId),
+    now,
     ARCHIVE_CREATE_BATCH_SIZE,
   );
 

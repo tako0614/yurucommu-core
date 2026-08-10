@@ -1,7 +1,15 @@
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { notificationArchived } from "../../../db/index.ts";
+import {
+  activities,
+  inbox,
+  insertMany,
+  notificationArchived,
+  runBatch,
+  type D1Statement,
+  type Database,
+} from "../../../db/index.ts";
 import notificationRoutes from "../../routes/notifications.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
@@ -55,7 +63,10 @@ function createApp(db: unknown, actor: { ap_id: string } | null) {
 }
 
 async function requestJson(app: Hono, path: string, init: RequestInit) {
-  const res = await app.fetch(new Request(`https://test.local${path}`, init));
+  const res = await app.fetch(
+    new Request(`https://test.local${path}`, init),
+    {},
+  );
   const text = await res.text();
   let body: unknown = null;
   try {
@@ -67,6 +78,39 @@ async function requestJson(app: Hono, path: string, init: RequestInit) {
 }
 
 const actor = { ap_id: "https://example.com/ap/users/alice" };
+
+async function seedInbox(
+  db: Database,
+  rows: Array<{ actorApId: string; activityApId: string }>,
+): Promise<void> {
+  const createdAt = new Date().toISOString();
+  const activityStatements = insertMany(
+    db,
+    activities,
+    rows.map(({ actorApId, activityApId }) => ({
+      apId: activityApId,
+      type: "Create",
+      actorApId,
+      rawJson: "{}",
+      direction: "inbound",
+      createdAt,
+    })),
+  );
+  const inboxStatements = insertMany(
+    db,
+    inbox,
+    rows.map(({ actorApId, activityApId }) => ({
+      actorApId,
+      activityApId,
+      read: 0,
+      createdAt,
+    })),
+  );
+  await runBatch(db, [...activityStatements, ...inboxStatements] as [
+    D1Statement,
+    ...D1Statement[],
+  ]);
+}
 
 function oversizedIds(): string[] {
   return Array.from(
@@ -117,6 +161,13 @@ test("POST /archive reports the libsql rows inserted across D1-sized chunks", as
     { length: 35 },
     (_, i) => `https://example.com/activities/archive-${i}`,
   );
+  await seedInbox(
+    db,
+    ids.map((activityApId) => ({
+      actorApId: actor.ap_id,
+      activityApId,
+    })),
+  );
 
   const first = await requestJson(app, "/api/notifications/archive", {
     method: "POST",
@@ -137,6 +188,78 @@ test("POST /archive reports the libsql rows inserted across D1-sized chunks", as
   expect(duplicate.res.status).toEqual(200);
   expect(duplicate.body).toEqual({ success: true, archived_count: 0 });
   expect(await db.select().from(notificationArchived)).toHaveLength(ids.length);
+});
+
+test("POST /archive creates markers only for the authenticated actor's retained inbox", async () => {
+  const { db } = await createTestDb();
+  const app = createApp(db, actor);
+  const ownId = "https://example.com/activities/own";
+  const foreignId = "https://example.com/activities/foreign";
+  const missingId = "https://example.com/activities/missing";
+  await seedInbox(db, [
+    {
+      actorApId: actor.ap_id,
+      activityApId: ownId,
+    },
+    {
+      actorApId: "https://example.com/ap/users/bob",
+      activityApId: foreignId,
+    },
+  ]);
+
+  const result = await requestJson(app, "/api/notifications/archive", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: [ownId, foreignId, missingId] }),
+  });
+
+  expect(result.res.status).toEqual(200);
+  expect(result.body).toEqual({ success: true, archived_count: 1 });
+  expect(await db.select().from(notificationArchived)).toEqual([
+    expect.objectContaining({
+      actorApId: actor.ap_id,
+      activityApId: ownId,
+    }),
+  ]);
+});
+
+test("POST /archive/all materializes only the authenticated actor's inbox and is idempotent", async () => {
+  const { db } = await createTestDb();
+  const app = createApp(db, actor);
+  const ownIds = [
+    "https://example.com/activities/own-all-1",
+    "https://example.com/activities/own-all-2",
+  ];
+  await seedInbox(db, [
+    ...ownIds.map((activityApId) => ({
+      actorApId: actor.ap_id,
+      activityApId,
+    })),
+    {
+      actorApId: "https://example.com/ap/users/bob",
+      activityApId: "https://example.com/activities/foreign-all",
+    },
+  ]);
+
+  const first = await requestJson(app, "/api/notifications/archive/all", {
+    method: "POST",
+  });
+  expect(first.res.status).toEqual(200);
+  expect(first.body).toEqual({ success: true, archived_count: ownIds.length });
+  expect(
+    (await db.select().from(notificationArchived)).map(
+      (row) => row.activityApId,
+    ),
+  ).toEqual(expect.arrayContaining(ownIds));
+  expect(await db.select().from(notificationArchived)).toHaveLength(
+    ownIds.length,
+  );
+
+  const duplicate = await requestJson(app, "/api/notifications/archive/all", {
+    method: "POST",
+  });
+  expect(duplicate.res.status).toEqual(200);
+  expect(duplicate.body).toEqual({ success: true, archived_count: 0 });
 });
 
 test("DELETE /archive rejects oversized ids array with 400 array_too_long", async () => {
