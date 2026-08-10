@@ -273,10 +273,8 @@ export async function mirrorRemoteStampAsset(
   if (responseType && responseType !== input.mediaType) {
     throw new Error("Remote Stamp asset content type changed");
   }
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength < 1 || bytes.byteLength > MAX_STAMP_ASSET_BYTES) {
-    throw new Error("Remote Stamp asset is too large");
-  }
+  const bytes = await readBoundedBody(response.body, MAX_STAMP_ASSET_BYTES);
+  if (bytes.byteLength < 1) throw new Error("Remote Stamp asset is empty");
   const dimensions = inspectStaticStampImage(bytes, input.mediaType);
   if (
     !dimensions ||

@@ -4,7 +4,11 @@ import { eq } from "drizzle-orm";
 import { messageStampRefs, stampAssetMirrors } from "../../../db/index.ts";
 import type { Env } from "../../types.ts";
 import type { IObjectStorage } from "../../runtime/types.ts";
-import { sha256Hex } from "../../lib/stamp-assets.ts";
+import {
+  MAX_STAMP_ASSET_BYTES,
+  mirrorRemoteStampAsset,
+  sha256Hex,
+} from "../../lib/stamp-assets.ts";
 import { mirrorPendingStampAssets } from "../../lib/stamp-mirror.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
@@ -58,6 +62,44 @@ function memoryStorage(): IObjectStorage {
     },
   };
 }
+
+test("remote Stamp assets stop streaming as soon as the byte cap is exceeded", async () => {
+  const chunk = new Uint8Array(1024 * 1024);
+  const totalChunks = 8;
+  let pulls = 0;
+  let cancelled = false;
+  const responseBody = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(chunk);
+      if (pulls === totalChunks) controller.close();
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  expect(MAX_STAMP_ASSET_BYTES).toBe(2 * 1024 * 1024);
+  await expect(
+    mirrorRemoteStampAsset(
+      memoryStorage(),
+      {
+        url: "https://remote.example/stamps/unbounded.png",
+        mediaType: "image/png",
+        width: 1,
+        height: 1,
+        sha256: "a".repeat(64),
+      },
+      async () =>
+        new Response(responseBody, {
+          headers: { "Content-Type": "image/png" },
+        }),
+    ),
+  ).rejects.toThrow("Stamp asset is too large");
+
+  expect(cancelled).toBe(true);
+  expect(pulls).toBeLessThan(totalChunks);
+});
 
 test("pending inbound Stamp asset is verified, mirrored, and projected locally", async () => {
   const { db } = await createTestDb();

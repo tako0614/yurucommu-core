@@ -166,9 +166,11 @@ addressing/read gates, block/mute policy, object identity checks, and size
 limits. A remote URL is never local display authority. Mirroring uses the
 existing redirect-denying, DNS-resolving SSRF gate, verifies content type,
 magic bytes, actual dimensions, body size, and SHA-256, then writes the exact
-digest key. Until mirroring succeeds, the client has bounded fallback text and
-may use the original remote image according to the same message visibility
-gate; a different digest is never substituted.
+digest key. The body-size limit is enforced while the response is streaming;
+an oversized or unterminated peer response is cancelled without first being
+buffered in full. Until mirroring succeeds, the client has bounded fallback
+text and may use the original remote image according to the same message
+visibility gate; a different digest is never substituted.
 
 ## HTTP Manifest distribution
 
