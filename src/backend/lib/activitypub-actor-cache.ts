@@ -14,11 +14,24 @@
  * one fetch/guard/upsert flow, so every cached actor row is now populated
  * identically regardless of entry path.
  */
-import { and, asc, eq, inArray, isNull, lt, lte, ne, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  ne,
+  notExists,
+  or,
+} from "drizzle-orm";
 import {
   actorCache,
   affectedRowCount,
+  type D1Statement,
   remoteActorFetchFailures,
+  runBatch,
 } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import {
@@ -426,9 +439,33 @@ export async function recordRemoteActorFetchFailure(
         and(
           eq(remoteActorFetchFailures.actorApId, actorApId),
           eq(remoteActorFetchFailures.processingToken, claimToken),
+          notExists(
+            db
+              .select({ apId: actorCache.apId })
+              .from(actorCache)
+              .where(eq(actorCache.apId, actorApId)),
+          ),
         ),
       );
     if (affectedRowCount(recorded) === 0) {
+      const cached = await db
+        .select({ apId: actorCache.apId })
+        .from(actorCache)
+        .where(eq(actorCache.apId, actorApId))
+        .get();
+      if (cached) {
+        // A successful writer won the race. Remove only this claimant's stale
+        // lease (never a newer owner's) so cache eviction cannot resurrect the
+        // losing request's failure decision later.
+        await db
+          .delete(remoteActorFetchFailures)
+          .where(
+            and(
+              eq(remoteActorFetchFailures.actorApId, actorApId),
+              eq(remoteActorFetchFailures.processingToken, claimToken),
+            ),
+          );
+      }
       const current = await db
         .select()
         .from(remoteActorFetchFailures)
@@ -541,6 +578,81 @@ export interface FetchAndUpsertActorCacheOptions {
   signer?: RemoteFetchSigner;
 }
 
+export type CacheRemoteActorDocumentOptions = Pick<
+  FetchAndUpsertActorCacheOptions,
+  "mode" | "publicKey"
+>;
+
+/**
+ * Validate and persist an already-fetched remote actor document.
+ *
+ * This is the single successful-write authority for `actor_cache`: the cache
+ * mutation and deletion of any older terminal/cooldown/lease row are committed
+ * atomically. Indexed fields come from the bounded parsed shape while
+ * `rawJson` preserves the original document, including extension fields such
+ * as `attachment`, `alsoKnownAs`, and `endpoints.rtcSignal`.
+ */
+export async function cacheRemoteActorDocument(
+  db: Database,
+  expectedActorApId: string,
+  rawDocument: unknown,
+  options: CacheRemoteActorDocumentOptions = {},
+): Promise<ActorCacheResult> {
+  const { mode = "upsert", publicKey = "allow-keyless" } = options;
+
+  if (!isSafeRemoteUrl(expectedActorApId)) {
+    return { ok: false, reason: "missing_inbox" };
+  }
+
+  const data = tryParseRemoteActor(rawDocument);
+  if (!data) return { ok: false, reason: "invalid_document" };
+  if (data.id !== expectedActorApId) {
+    return { ok: false, reason: "id_mismatch" };
+  }
+  if (
+    !data.inbox ||
+    !isSafeRemoteUrl(data.id) ||
+    !isSafeRemoteUrl(data.inbox)
+  ) {
+    return { ok: false, reason: "missing_inbox" };
+  }
+  if (publicKey === "require-key" && !data.publicKey?.publicKeyPem) {
+    return { ok: false, reason: "missing_public_key" };
+  }
+
+  const fields = {
+    ...buildActorCacheFields(data),
+    rawJson: JSON.stringify(rawDocument),
+  };
+  const write =
+    mode === "insert"
+      ? db
+          .insert(actorCache)
+          .values({ apId: data.id, ...fields })
+          .onConflictDoNothing()
+      : db
+          .insert(actorCache)
+          .values({ apId: data.id, ...fields })
+          .onConflictDoUpdate({ target: actorCache.apId, set: fields });
+  const clearFailure = db
+    .delete(remoteActorFetchFailures)
+    .where(eq(remoteActorFetchFailures.actorApId, data.id));
+
+  await runBatch(db, [
+    write as unknown as D1Statement,
+    clearFailure as unknown as D1Statement,
+  ]);
+
+  const row = await db
+    .select()
+    .from(actorCache)
+    .where(eq(actorCache.apId, data.id))
+    .get();
+  if (!row) return { ok: false, reason: "fetch_failed" };
+
+  return { ok: true, data, row };
+}
+
 /**
  * Fetch a remote actor document, validate it, and upsert it into
  * `actor_cache` using the single canonical column set. Returns a discriminated
@@ -567,7 +679,7 @@ export async function fetchAndUpsertActorCache(
     return { ok: false, reason: "missing_inbox" };
   }
 
-  let data: RemoteActorDocument | null;
+  let raw: unknown;
   try {
     const headers: Record<string, string> = {
       Accept: "application/activity+json, application/ld+json",
@@ -596,49 +708,12 @@ export async function fetchAndUpsertActorCache(
         ),
       };
     }
-    const raw: unknown = await res.json();
-    data = tryParseRemoteActor(raw);
+    raw = await res.json();
   } catch {
     return { ok: false, reason: "fetch_failed" };
   }
-
-  if (!data) return { ok: false, reason: "invalid_document" };
-  if (data.id !== actorApId) return { ok: false, reason: "id_mismatch" };
-  if (
-    !data.inbox ||
-    !isSafeRemoteUrl(data.id) ||
-    !isSafeRemoteUrl(data.inbox)
-  ) {
-    return { ok: false, reason: "missing_inbox" };
-  }
-  if (publicKey === "require-key" && !data.publicKey?.publicKeyPem) {
-    return { ok: false, reason: "missing_public_key" };
-  }
-
-  const fields = buildActorCacheFields(data);
-
-  if (mode === "insert") {
-    // Cache-when-absent: leave an existing row untouched. The early-existence
-    // check at the call site is best-effort, so two isolates racing the same
-    // cold actor can both reach this insert; `onConflictDoNothing` keeps that
-    // race-safe instead of throwing a primary-key violation.
-    await db
-      .insert(actorCache)
-      .values({ apId: data.id, ...fields })
-      .onConflictDoNothing();
-  } else {
-    await db
-      .insert(actorCache)
-      .values({ apId: data.id, ...fields })
-      .onConflictDoUpdate({ target: actorCache.apId, set: fields });
-  }
-
-  const row = await db
-    .select()
-    .from(actorCache)
-    .where(eq(actorCache.apId, data.id))
-    .get();
-  if (!row) return { ok: false, reason: "fetch_failed" };
-
-  return { ok: true, data, row };
+  return await cacheRemoteActorDocument(db, actorApId, raw, {
+    mode,
+    publicKey,
+  });
 }

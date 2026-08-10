@@ -21,7 +21,7 @@ import {
 } from "../federation-helpers.ts";
 import { tryParseRemoteActor } from "./activitypub-validators.ts";
 import {
-  buildActorCacheFields,
+  cacheRemoteActorDocument,
   getInstanceFetchSignerByDb,
 } from "./activitypub-actor-cache.ts";
 import { logger } from "./logger.ts";
@@ -339,22 +339,12 @@ export async function fetchActorPublicKey(
         isSafeRemoteUrl(actorData.id) &&
         isSafeRemoteUrl(actorData.inbox)
       ) {
-        // Reuse the already-fetched signature actor document and write it
-        // through the ONE canonical superset cache shape, so this opportunistic
-        // upsert populates `outbox` / `followersUrl` / `sharedInbox` identically
-        // to every other entry path.
-        const cacheFields = buildActorCacheFields(actorData);
-        // Single atomic upsert. A check-then-insert/update is racy across
-        // Worker isolates: two isolates racing the same cold actor can both
-        // miss the existence check and then both INSERT, and the loser hits a
-        // primary-key violation that would null out a successfully-fetched
-        // key and spuriously reject a validly-signed activity.
-        // `onConflictDoUpdate` collapses that to one race-safe statement
-        // (same pattern as fetchAndCacheRemoteActor in queue-batching.ts).
-        await db
-          .insert(actorCache)
-          .values({ apId: actorData.id, ...cacheFields })
-          .onConflictDoUpdate({ target: actorCache.apId, set: cacheFields });
+        // Reuse the already-fetched signature actor document through the one
+        // successful persistence boundary. This atomically refreshes the
+        // canonical cache shape and clears any older fetch-failure authority.
+        await cacheRemoteActorDocument(db, actorUrl, rawActor, {
+          publicKey: "require-key",
+        });
       }
 
       return result.publicKeyPem;

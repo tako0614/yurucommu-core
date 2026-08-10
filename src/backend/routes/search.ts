@@ -19,10 +19,8 @@ import {
   notDeleted,
   objects,
 } from "../../db/index.ts";
-import {
-  parseWebFinger,
-  tryParseRemoteActor,
-} from "../lib/activitypub-validators.ts";
+import { parseWebFinger } from "../lib/activitypub-validators.ts";
+import { cacheRemoteActorDocument } from "../lib/activitypub-actor-cache.ts";
 import { logger } from "../lib/logger.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
 import {
@@ -565,54 +563,18 @@ search.get("/remote", async (c) => {
     if (!actorRes.ok) return c.json({ actors: [] });
 
     const actorRaw: unknown = await actorRes.json();
-    const actorData = tryParseRemoteActor(actorRaw);
-    if (!actorData) return c.json({ actors: [] });
-
-    if (actorData.id !== actorLink.href || !isSafeRemoteUrl(actorData.id)) {
-      return c.json({ actors: [] });
-    }
-
-    // Cache the actor (upsert: check if exists, then insert or update)
-    const cacheFields = {
-      type: actorData.type || "Person",
-      preferredUsername: actorData.preferredUsername || null,
-      name: actorData.name || null,
-      summary: actorData.summary || null,
-      iconUrl: actorData.icon?.url || null,
-      inbox: actorData.inbox || "",
-      outbox: actorData.outbox || null,
-      publicKeyId: actorData.publicKey?.id || null,
-      publicKeyPem: actorData.publicKey?.publicKeyPem || null,
-      rawJson: JSON.stringify(actorRaw),
-    };
-
-    const existing = await db
-      .select({ apId: actorCache.apId })
-      .from(actorCache)
-      .where(eq(actorCache.apId, actorData.id))
-      .get();
-
-    if (existing) {
-      await db
-        .update(actorCache)
-        .set(cacheFields)
-        .where(eq(actorCache.apId, actorData.id));
-    } else {
-      await db.insert(actorCache).values({
-        apId: actorData.id,
-        ...cacheFields,
-      });
-    }
+    const cached = await cacheRemoteActorDocument(db, actorLink.href, actorRaw);
+    if (!cached.ok) return c.json({ actors: [] });
 
     return c.json({
       actors: [
         {
-          ap_id: actorData.id,
-          username: `${actorData.preferredUsername}@${safeDomain}`,
-          preferred_username: actorData.preferredUsername,
-          name: actorData.name,
-          summary: actorData.summary,
-          icon_url: actorData.icon?.url,
+          ap_id: cached.row.apId,
+          username: `${cached.row.preferredUsername ?? username}@${safeDomain}`,
+          preferred_username: cached.row.preferredUsername,
+          name: cached.row.name,
+          summary: cached.row.summary,
+          icon_url: cached.row.iconUrl,
         },
       ],
     });

@@ -9,6 +9,7 @@ import {
   activities,
   deliveryResolutions,
   follows,
+  remoteActorFetchFailures,
 } from "../../../db/index.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 import type {
@@ -207,6 +208,14 @@ test("handleUpdate(Person) re-fetches and upserts the remote actor immediately",
     rawJson: "{}",
     lastFetchedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
   });
+  await db.insert(remoteActorFetchFailures).values({
+    actorApId: ALICE,
+    kind: "gone",
+    reason: "fetch_not_ok",
+    httpStatus: 410,
+    failureCount: 1,
+    retryAt: null,
+  });
 
   const activity: Activity = {
     id: "https://remote.example/activities/upd-1",
@@ -228,6 +237,13 @@ test("handleUpdate(Person) re-fetches and upserts the remote actor immediately",
   expect(row?.name).toBe("Alice (updated)");
   expect(row?.publicKeyPem).toBe("ROTATED-PEM");
   expect(row?.iconUrl).toBe("https://remote.example/avatar-v2.png");
+  expect(
+    await db
+      .select()
+      .from(remoteActorFetchFailures)
+      .where(eq(remoteActorFetchFailures.actorApId, ALICE))
+      .get(),
+  ).toBeUndefined();
 });
 
 test("a retained remote relationship can recover a missing profile cache on direct navigation", async () => {

@@ -93,7 +93,6 @@ import {
 } from "../lib/activity-delete-cascade.ts";
 import {
   claimRemoteActorFetch,
-  clearRemoteActorFetchFailure,
   fetchAndUpsertActorCache,
   getRemoteActorFetchFailure,
   recordRemoteActorFetchFailure,
@@ -830,10 +829,20 @@ actorsRoute.get("/:identifier", async (c) => {
           new Date(),
           fetchClaim.token,
         );
-        return remoteActorFetchFailureResponse(c, failure);
+        // Another entry path may have successfully cached the actor while this
+        // claimed network request was failing. The failure update is fenced by
+        // actor_cache existence; re-read before returning a stale 410/503.
+        cachedActor = await db
+          .select()
+          .from(actorCache)
+          .where(eq(actorCache.apId, apId))
+          .get();
+        if (!cachedActor) {
+          return remoteActorFetchFailureResponse(c, failure);
+        }
+      } else {
+        cachedActor = recovered.row;
       }
-      await clearRemoteActorFetchFailure(db, apId, fetchClaim.token);
-      cachedActor = recovered.row;
     }
 
     // Project the remote actor's AS Person document (cached `rawJson`) so the

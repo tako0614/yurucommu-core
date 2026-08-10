@@ -283,6 +283,55 @@ test("remote actor fetch claims serialize concurrent GETs and fence stale owners
   });
 });
 
+test("a losing fetch claimant cannot overwrite a concurrently cached actor with failure authority", async () => {
+  const db = await freshDb();
+  const apId = "https://remote.example/users/race-winner";
+  const claimed = await claimRemoteActorFetch(
+    db,
+    apId,
+    new Date("2026-08-10T00:00:00.000Z"),
+  );
+  expect(claimed.owned).toBe(true);
+  if (!claimed.owned) throw new Error("fetch claim was not owned");
+
+  // Model another successful actor-ingestion path winning while this request
+  // still holds its fetch lease. The stale claimant must neither replace the
+  // lease with a 410 nor leave that lease behind to resurface after eviction.
+  await db.insert(actorCache).values({
+    apId,
+    type: "Person",
+    preferredUsername: "winner",
+    inbox: `${apId}/inbox`,
+    rawJson: JSON.stringify({
+      id: apId,
+      type: "Person",
+      inbox: `${apId}/inbox`,
+    }),
+  });
+  await recordRemoteActorFetchFailure(
+    db,
+    apId,
+    { ok: false, reason: "fetch_not_ok", status: 410, retryAfterSeconds: null },
+    new Date("2026-08-10T00:00:01.000Z"),
+    claimed.token,
+  );
+
+  expect(
+    await db
+      .select()
+      .from(remoteActorFetchFailures)
+      .where(eq(remoteActorFetchFailures.actorApId, apId))
+      .get(),
+  ).toBeUndefined();
+  expect(
+    await db
+      .select({ preferredUsername: actorCache.preferredUsername })
+      .from(actorCache)
+      .where(eq(actorCache.apId, apId))
+      .get(),
+  ).toEqual({ preferredUsername: "winner" });
+});
+
 test("410 Gone is terminal until bounded retention reaps the negative cache", async () => {
   const db = await freshDb();
   const apId = "https://remote.example/users/gone";
