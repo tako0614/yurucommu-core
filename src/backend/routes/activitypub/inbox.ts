@@ -41,6 +41,7 @@ import {
 import {
   fetchAndUpsertActorCache,
   getInstanceFetchSignerByDb,
+  isRemoteActorTombstoned,
 } from "../../lib/activitypub-actor-cache.ts";
 import { logger } from "../../lib/logger.ts";
 import { verifyHttpSignature } from "../../lib/ap-verify.ts";
@@ -306,6 +307,21 @@ async function verifyAndParseInbox(
   // acknowledging while moderation authority is unavailable could admit a
   // sender the operator has blocked.
   if (await isActivityBlocked(c, actor, activityType)) {
+    return c.body(null, 202);
+  }
+
+  // A verified self-Delete is durable identity authority. Signature
+  // verification still runs first (so an attacker cannot use an unverified
+  // actor spelling as an oracle), then every inbox shape silently discards
+  // later traffic before dedup allocation or handler effects. As with an
+  // operator block, 202 prevents a peer from retrying traffic that can never
+  // become admissible under this actor id.
+  if (await isRemoteActorTombstoned(c.get("db"), actor)) {
+    log.info("Discarding activity from tombstoned actor", {
+      event: "ap.actor_tombstone.discard",
+      actor,
+      activityType,
+    });
     return c.body(null, 202);
   }
 

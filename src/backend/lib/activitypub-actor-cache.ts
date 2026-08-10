@@ -25,12 +25,14 @@ import {
   ne,
   notExists,
   or,
+  sql,
 } from "drizzle-orm";
 import {
   actorCache,
   affectedRowCount,
   type D1Statement,
   remoteActorFetchFailures,
+  remoteActorTombstones,
   runBatch,
 } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
@@ -43,6 +45,7 @@ import {
   tryParseRemoteActor,
   type RemoteActorDocument,
 } from "./activitypub-validators.ts";
+import { normalizeActivityPubActorId } from "./activitypub-actor-identity.ts";
 
 /**
  * The signing identity used to HTTP-sign an outbound actor GET so instances
@@ -132,7 +135,8 @@ export type ActorCacheFailureReason =
   | "invalid_document" // body did not parse as a remote actor
   | "id_mismatch" // returned `id` did not match the requested URL
   | "missing_inbox" // no inbox, or inbox/id failed the SSRF safety check
-  | "missing_public_key"; // required public key absent (mode === "require-key")
+  | "missing_public_key" // required public key absent (mode === "require-key")
+  | "actor_tombstoned"; // verified Delete(Actor) is durable authority
 
 export type ActorCacheResult =
   | { ok: true; data: RemoteActorDocument; row: typeof actorCache.$inferSelect }
@@ -148,6 +152,36 @@ export type ActorCacheResult =
     };
 
 export type ActorCacheFailureResult = Extract<ActorCacheResult, { ok: false }>;
+
+function canonicalRemoteActorTombstoneId(actorApId: string): string {
+  return normalizeActivityPubActorId(actorApId) ?? actorApId;
+}
+
+/** Return the durable self-Delete authority for one actor identity, if any. */
+export async function getRemoteActorTombstone(
+  db: Database,
+  actorApId: string,
+): Promise<typeof remoteActorTombstones.$inferSelect | null> {
+  return (
+    (await db
+      .select()
+      .from(remoteActorTombstones)
+      .where(
+        eq(
+          remoteActorTombstones.actorApId,
+          canonicalRemoteActorTombstoneId(actorApId),
+        ),
+      )
+      .get()) ?? null
+  );
+}
+
+export async function isRemoteActorTombstoned(
+  db: Database,
+  actorApId: string,
+): Promise<boolean> {
+  return (await getRemoteActorTombstone(db, actorApId)) !== null;
+}
 
 export type RemoteActorFetchFailureKind = "gone" | "unavailable" | "invalid";
 
@@ -196,6 +230,7 @@ function classifyFetchFailure(
   if (failure.reason === "fetch_not_ok" && failure.status === 410) {
     return "gone";
   }
+  if (failure.reason === "actor_tombstoned") return "gone";
   if (
     failure.reason === "invalid_document" ||
     failure.reason === "id_mismatch" ||
@@ -624,31 +659,82 @@ export async function cacheRemoteActorDocument(
     ...buildActorCacheFields(data),
     rawJson: JSON.stringify(rawDocument),
   };
+  const tombstoneActorApId = canonicalRemoteActorTombstoneId(data.id);
+  const tombstoneAbsent = () =>
+    notExists(
+      db
+        .select({ actorApId: remoteActorTombstones.actorApId })
+        .from(remoteActorTombstones)
+        .where(eq(remoteActorTombstones.actorApId, tombstoneActorApId)),
+    );
+  // Keep the tombstone predicate inside the INSERT statement. A preflight
+  // read would leave a check/write gap in which Delete(Actor) could commit and
+  // then be undone by this stale network response.
+  const candidate = db
+    .select({
+      apId: sql<string>`${data.id}`.as("ap_id"),
+      type: sql<string>`${fields.type}`.as("type"),
+      preferredUsername: sql<string | null>`${fields.preferredUsername}`.as(
+        "preferred_username",
+      ),
+      name: sql<string | null>`${fields.name}`.as("name"),
+      summary: sql<string | null>`${fields.summary}`.as("summary"),
+      iconUrl: sql<string | null>`${fields.iconUrl}`.as("icon_url"),
+      inbox: sql<string>`${fields.inbox}`.as("inbox"),
+      outbox: sql<string | null>`${fields.outbox}`.as("outbox"),
+      followersUrl: sql<string | null>`${fields.followersUrl}`.as(
+        "followers_url",
+      ),
+      followingUrl: sql<string | null>`${fields.followingUrl}`.as(
+        "following_url",
+      ),
+      sharedInbox: sql<string | null>`${fields.sharedInbox}`.as("shared_inbox"),
+      publicKeyId: sql<string | null>`${fields.publicKeyId}`.as(
+        "public_key_id",
+      ),
+      publicKeyPem: sql<string | null>`${fields.publicKeyPem}`.as(
+        "public_key_pem",
+      ),
+      rawJson: sql<string>`${fields.rawJson}`.as("raw_json"),
+      lastFetchedAt: sql<string>`${fields.lastFetchedAt}`.as("last_fetched_at"),
+      createdAt: sql<string>`datetime('now')`.as("created_at"),
+    })
+    .from(sql`(SELECT 1) AS actor_cache_candidate`)
+    .where(tombstoneAbsent());
   const write =
     mode === "insert"
-      ? db
-          .insert(actorCache)
-          .values({ apId: data.id, ...fields })
-          .onConflictDoNothing()
+      ? db.insert(actorCache).select(candidate).onConflictDoNothing()
       : db
           .insert(actorCache)
-          .values({ apId: data.id, ...fields })
+          .select(candidate)
           .onConflictDoUpdate({ target: actorCache.apId, set: fields });
   const clearFailure = db
     .delete(remoteActorFetchFailures)
-    .where(eq(remoteActorFetchFailures.actorApId, data.id));
+    .where(
+      and(eq(remoteActorFetchFailures.actorApId, data.id), tombstoneAbsent()),
+    );
 
   await runBatch(db, [
     write as unknown as D1Statement,
     clearFailure as unknown as D1Statement,
   ]);
 
+  if (await isRemoteActorTombstoned(db, data.id)) {
+    return { ok: false, reason: "actor_tombstoned" };
+  }
   const row = await db
     .select()
     .from(actorCache)
     .where(eq(actorCache.apId, data.id))
     .get();
-  if (!row) return { ok: false, reason: "fetch_failed" };
+  if (!row) {
+    // Delete may have committed after the first tombstone read and removed the
+    // row. Recheck so the caller observes terminal deletion, not availability.
+    if (await isRemoteActorTombstoned(db, data.id)) {
+      return { ok: false, reason: "actor_tombstoned" };
+    }
+    return { ok: false, reason: "fetch_failed" };
+  }
 
   return { ok: true, data, row };
 }

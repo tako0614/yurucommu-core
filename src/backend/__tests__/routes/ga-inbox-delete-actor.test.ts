@@ -6,10 +6,14 @@ import {
   actorCache,
   actors,
   announces,
+  deliveryResolutions,
   follows,
   likes,
   objects,
+  remoteActorFetchFailures,
+  remoteActorTombstones,
 } from "../../../db/index.ts";
+import { cacheRemoteActorDocument } from "../../lib/activitypub-actor-cache.ts";
 import { handleDelete } from "../../routes/activitypub/handlers/inbox-content-handlers.ts";
 import type {
   Activity,
@@ -63,6 +67,13 @@ async function remoteDeleteState(db: Database) {
       .sort(),
     cachedActors: (await db.select({ apId: actorCache.apId }).from(actorCache))
       .map((actor) => actor.apId)
+      .sort(),
+    tombstones: (
+      await db
+        .select({ actorApId: remoteActorTombstones.actorApId })
+        .from(remoteActorTombstones)
+    )
+      .map((row) => row.actorApId)
       .sort(),
   };
 }
@@ -162,6 +173,55 @@ test("Delete(Actor) uses the verified actor spelling for cosmetic object ids", a
   expect(
     await db.select().from(actorCache).where(eq(actorCache.apId, REMOTE)),
   ).toEqual([]);
+  expect(
+    await db
+      .select({ actorApId: remoteActorTombstones.actorApId })
+      .from(remoteActorTombstones),
+  ).toEqual([{ actorApId: REMOTE }]);
+});
+
+test("Delete(Actor) establishes a durable tombstone that fences a late cache writer", async () => {
+  const db = await freshDb();
+  await db.insert(actorCache).values({
+    apId: REMOTE,
+    type: "Person",
+    inbox: `${REMOTE}/inbox`,
+    rawJson: "{}",
+  });
+  await db.insert(remoteActorFetchFailures).values({
+    actorApId: REMOTE,
+    kind: "unavailable",
+    reason: "fetch_failed",
+    failureCount: 1,
+    retryAt: "2026-08-10T00:00:30.000Z",
+  });
+  await db.insert(deliveryResolutions).values({
+    id: "pending-resolution-for-deleted-actor",
+    activityApId: `${LOCAL}/activities/pending`,
+    recipientActorApId: REMOTE,
+  });
+
+  await handleDelete(ctxFor(db), deleteActor(REMOTE));
+
+  expect(await db.select().from(remoteActorTombstones)).toMatchObject([
+    {
+      actorApId: REMOTE,
+      deleteActivityApId: `${REMOTE}#delete`,
+    },
+  ]);
+  expect(await db.select().from(remoteActorFetchFailures)).toEqual([]);
+  expect(await db.select().from(deliveryResolutions)).toEqual([]);
+
+  // Model a network read that began before the Delete batch and completes
+  // afterwards. A successful document must not recreate the deleted actor.
+  const lateCache = await cacheRemoteActorDocument(db, REMOTE, {
+    id: REMOTE,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${REMOTE}/inbox`,
+  });
+  expect(lateCache).toEqual({ ok: false, reason: "actor_tombstoned" });
+  expect(await db.select().from(actorCache)).toEqual([]);
 });
 
 test("Delete(Actor) removes retained state under a legacy cosmetic actor spelling", async () => {
@@ -444,16 +504,19 @@ test("Delete(Actor) rolls back counterpart counters when a later teardown statem
       local: { followerCount: 2, followingCount: 2 },
       edges: originalEdges,
       cachedActors: [REMOTE, otherRemote].sort(),
+      tombstones: [],
     },
     afterRetry: {
       local: { followerCount: 1, followingCount: 1 },
       edges: survivingEdges,
       cachedActors: [otherRemote],
+      tombstones: [REMOTE],
     },
     afterDuplicate: {
       local: { followerCount: 1, followingCount: 1 },
       edges: survivingEdges,
       cachedActors: [otherRemote],
+      tombstones: [REMOTE],
     },
   });
 });

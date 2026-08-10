@@ -24,6 +24,7 @@ import { planEndpointsFromActorCache } from "./planner.ts";
 import {
   fetchAndUpsertActorCache,
   getInstanceFetchSignerByDb,
+  isRemoteActorTombstoned,
 } from "../activitypub-actor-cache.ts";
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
@@ -604,6 +605,24 @@ export async function processResolveActor(
         managedClaim,
         "discarded",
         "activity_not_found",
+      );
+    }
+    message.ack();
+    return;
+  }
+
+  // A verified self-Delete is durable recipient authority. The Delete handler
+  // normally removes actor-addressed resolution rows atomically, but an
+  // already-claimed Queue message may outlive that row. Fence it here before
+  // any remote fetch or endpoint materialization; endpoint jobs may aggregate
+  // a shared inbox and therefore cannot safely be cancelled per actor later.
+  if (await isRemoteActorTombstoned(db, msg.recipientActorApId)) {
+    if (managedClaim) {
+      await completeDeliveryResolutionJob(
+        db,
+        managedClaim,
+        "discarded",
+        "recipient_tombstoned",
       );
     }
     message.ack();

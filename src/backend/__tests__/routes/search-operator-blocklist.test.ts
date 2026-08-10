@@ -122,6 +122,7 @@ const MIGRATIONS = [
   "0008_actor_fields_aka.sql",
   "0009_object_tags.sql",
   "0026_remote_actor_fetch_failures.sql",
+  "0027_remote_actor_tombstones.sql",
 ];
 
 async function freshDb(): Promise<Database> {

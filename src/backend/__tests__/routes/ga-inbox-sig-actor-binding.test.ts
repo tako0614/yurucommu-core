@@ -5,7 +5,11 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actorCache } from "../../../db/index.ts";
+import {
+  activities,
+  actorCache,
+  remoteActorTombstones,
+} from "../../../db/index.ts";
 import { generateKeyPair, signRequest } from "../../lib/ap-signing.ts";
 import { createYurucommuBackendApp } from "../../index.ts";
 import {
@@ -179,6 +183,39 @@ test("E2E: a valid signer reaches recipient validation (422 when unaddressed)", 
   // The signer binding passed; shared-inbox recipient validation then rejects
   // this unaddressed Create instead of silently acknowledging a dropped DM.
   expect(res.status).toBe(422);
+});
+
+test("E2E: a tombstoned remote actor cannot dispatch later signed activity", async () => {
+  const db = await freshDb();
+  const alice = await generateKeyPair();
+  // Keep a fresh key row to prove the request passes signature verification;
+  // this also models a stale cache writer racing the earlier Delete.
+  await cacheKey(db, ALICE, alice.publicKeyPem);
+  await db.insert(remoteActorTombstones).values({
+    actorApId: ALICE,
+    deleteActivityApId: `${ALICE}/activities/delete`,
+  });
+
+  const res = await postSigned(
+    db,
+    alice.privateKeyPem,
+    ALICE_KEY,
+    "/ap/inbox",
+    {
+      id: `${ALICE}/activities/after-delete`,
+      type: "Create",
+      actor: ALICE,
+      object: {
+        id: `${ALICE}/notes/after-delete`,
+        type: "Note",
+        attributedTo: ALICE,
+        content: "must not dispatch",
+      },
+    },
+  );
+
+  expect(res.status).toBe(202);
+  expect(await db.select().from(activities)).toEqual([]);
 });
 
 test("E2E: a relayed Announce signed by the relaying actor itself is accepted (202)", async () => {

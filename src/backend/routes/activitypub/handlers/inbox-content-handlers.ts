@@ -18,11 +18,14 @@ import {
   announces,
   bookmarks,
   communities,
+  deliveryResolutions,
   follows,
   inbox as inboxTable,
   likes,
   objectRecipients,
   objects,
+  remoteActorFetchFailures,
+  remoteActorTombstones,
   storyShares,
   storyViews,
   storyVotes,
@@ -70,7 +73,10 @@ import {
   fetchAndUpsertActorCache,
   getInstanceFetchSignerByDb,
 } from "../../../lib/activitypub-actor-cache.ts";
-import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
+import {
+  isSameActivityPubActor,
+  normalizeActivityPubActorId,
+} from "../../../lib/activitypub-actor-identity.ts";
 import { activityPubActorIdentityMatchesSql } from "../../../lib/activitypub-actor-identity-sql.ts";
 import { fetchWithTimeout } from "../../../lib/federation-fetch.ts";
 import { signRequest } from "../../../lib/ap-signing.ts";
@@ -1224,8 +1230,10 @@ function retainedRemoteActorWhere(column: SQLiteColumn, actorId: string) {
 async function handleRemoteActorDelete(
   c: ActivityContext,
   actorId: string,
+  deleteActivityApId: string,
 ): Promise<void> {
   const db = c.get("db");
+  const canonicalActorId = normalizeActivityPubActorId(actorId) ?? actorId;
 
   // A Delete(actor) is one authority transition: the remote identity, its
   // relationship authority, cached content, and every denormalized counter
@@ -1244,6 +1252,17 @@ async function handleRemoteActorDelete(
   // it loses a following. The subquery naturally scopes to LOCAL actors (remote
   // actors have no `actors` row); gt(...,0) guards underflow.
   await runBatch(db, [
+    // Establish deletion authority in the SAME batch that tears down retained
+    // state. A concurrent actor fetch must see either no tombstone before this
+    // batch (and be deleted by it) or the tombstone after it (and refuse its
+    // cache write); it can never commit between these effects.
+    db
+      .insert(remoteActorTombstones)
+      .values({
+        actorApId: canonicalActorId,
+        deleteActivityApId,
+      })
+      .onConflictDoNothing(),
     db
       .update(actors)
       .set({
@@ -1294,6 +1313,18 @@ async function handleRemoteActorDelete(
         or(
           retainedRemoteActorWhere(follows.followerApId, actorId),
           retainedRemoteActorWhere(follows.followingApId, actorId),
+        ),
+      ),
+    // Cancel recipient-addressed first-hop work while it still has actor
+    // identity. Once a resolution has been aggregated into delivery_queue by
+    // endpoint (especially a shared inbox), it can no longer be removed for
+    // one actor without suppressing delivery to unrelated recipients.
+    db
+      .delete(deliveryResolutions)
+      .where(
+        retainedRemoteActorWhere(
+          deliveryResolutions.recipientActorApId,
+          actorId,
         ),
       ),
 
@@ -1419,6 +1450,11 @@ async function handleRemoteActorDelete(
     db
       .delete(actorCache)
       .where(retainedRemoteActorWhere(actorCache.apId, actorId)),
+    db
+      .delete(remoteActorFetchFailures)
+      .where(
+        retainedRemoteActorWhere(remoteActorFetchFailures.actorApId, actorId),
+      ),
   ]);
 
   log.info("Processed inbound Delete(actor)", {
@@ -1460,7 +1496,7 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
     // signer. Tombstone the remote locally so a stale profile + dangling follow
     // edge + cached content do not survive indefinitely.
     if (isSameActivityPubActor(objectId, actorId)) {
-      await handleRemoteActorDelete(c, actorId);
+      await handleRemoteActorDelete(c, actorId, activity.id ?? actorId);
     }
     return;
   }

@@ -45,3 +45,16 @@ export const remoteActorFetchFailures = sqliteTable(
     index("remote_actor_fetch_failures_updated_idx").on(t.updatedAt),
   ],
 );
+
+/**
+ * Durable lifecycle authority established by a verified self-Delete(Actor).
+ *
+ * This is deliberately separate from actor_cache and fetch-failure backoff:
+ * cache data is disposable, a remote fetch can recover, but a signed deletion
+ * must fence late/concurrent cache writers and all subsequent inbound traffic.
+ */
+export const remoteActorTombstones = sqliteTable("remote_actor_tombstones", {
+  actorApId: text("actor_ap_id").primaryKey(),
+  deleteActivityApId: text("delete_activity_ap_id").notNull(),
+  deletedAt: text("deleted_at").notNull().$defaultFn(nowIsoUtc),
+});

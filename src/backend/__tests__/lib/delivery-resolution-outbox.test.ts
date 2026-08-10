@@ -7,6 +7,7 @@ import {
   actorCache,
   deliveryQueue,
   deliveryResolutions,
+  remoteActorTombstones,
 } from "../../../db/index.ts";
 import type { Env } from "../../types.ts";
 import type { IQueueMessage, IQueueProducer } from "../../runtime/queue.ts";
@@ -169,6 +170,63 @@ test("resolution completion creates the durable endpoint job before acknowledgin
   });
   expect(harness.sent).toHaveLength(1);
   expect(harness.sent[0]?.type).toBe("deliver_endpoint");
+});
+
+test("a tombstoned recipient is discarded before endpoint materialization", async () => {
+  const { db } = await createTestDb();
+  await seedActivity(db);
+  await db.insert(actorCache).values({
+    apId: RECIPIENT_ID,
+    type: "Person",
+    preferredUsername: "bob",
+    inbox: ENDPOINT,
+    sharedInbox: ENDPOINT,
+    rawJson: JSON.stringify({
+      id: RECIPIENT_ID,
+      type: "Person",
+      inbox: ENDPOINT,
+    }),
+    lastFetchedAt: new Date().toISOString(),
+  });
+  await persistDeliveryResolutionJobs(db, [
+    { activityId: ACTIVITY_ID, recipientActorApId: RECIPIENT_ID },
+  ]);
+  await db.update(deliveryResolutions).set({ status: "queued" });
+  await db.insert(remoteActorTombstones).values({
+    actorApId: RECIPIENT_ID,
+    deleteActivityApId: `${RECIPIENT_ID}#delete`,
+  });
+  const harness = queueHarness();
+  const env = envWith(db, harness.queue);
+  const acked: boolean[] = [];
+  const retries: number[] = [];
+  const body: DeliveryQueueMessageV1 = {
+    version: 1,
+    type: "resolve_actor",
+    activityId: ACTIVITY_ID,
+    recipientActorApId: RECIPIENT_ID,
+    scheduledAt: new Date().toISOString(),
+  };
+
+  await processResolveActor(db, env, body, {
+    id: "resolve-tombstoned",
+    body,
+    timestamp: new Date(),
+    attempts: 1,
+    ack: () => acked.push(true),
+    retry: (options) => retries.push(options?.delaySeconds ?? 0),
+  });
+
+  expect(acked).toEqual([true]);
+  expect(retries).toEqual([]);
+  expect(harness.sent).toEqual([]);
+  expect(await db.select().from(deliveryResolutions).get()).toMatchObject({
+    status: "discarded",
+    attempts: 0,
+    processingToken: null,
+    lastError: "recipient_tombstoned",
+  });
+  expect(await db.select().from(deliveryQueue).get()).toBeUndefined();
 });
 
 test("resolution defers without spending its remote-attempt budget when blocklist authority is unavailable", async () => {

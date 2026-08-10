@@ -157,6 +157,7 @@ async function freshDb(): Promise<Database> {
     "0011_drop_remote_actor_fks.sql",
     "0015_community_bans.sql",
     "0026_remote_actor_fetch_failures.sql",
+    "0027_remote_actor_tombstones.sql",
   ]) {
     const sql = await readFile(new URL(file, root), "utf8");
     await client.executeMultiple(sql);

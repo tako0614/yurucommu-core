@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { Hono } from "hono";
 
 import { assertSpyCalls, spy } from "#test/mock";
+import { remoteActorTombstones } from "../../db/index.ts";
 import inboxRoutes from "../routes/activitypub/inbox.ts";
 import { generateKeyPair, signRequest } from "../federation-helpers.ts";
 
@@ -108,7 +109,12 @@ function createInboxDbMock(
       return Promise.resolve([]);
     }),
     select: spy((..._args: unknown[]) => ({
-      from: () => ({ where: () => followerWhere }),
+      from: (table: unknown) => ({
+        where: () =>
+          table === remoteActorTombstones
+            ? { get: () => Promise.resolve(null) }
+            : followerWhere,
+      }),
     })),
   };
 

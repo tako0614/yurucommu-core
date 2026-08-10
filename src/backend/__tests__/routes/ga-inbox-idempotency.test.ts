@@ -115,6 +115,7 @@ async function freshDb(): Promise<Database> {
     "0008_actor_fields_aka.sql",
     "0009_object_tags.sql",
     "0022_inbound_dispatch_claims.sql",
+    "0027_remote_actor_tombstones.sql",
   ]) {
     const migration = await readFile(new URL(file, root), "utf8");
     await client.executeMultiple(migration);
