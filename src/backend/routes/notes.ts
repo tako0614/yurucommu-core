@@ -5,7 +5,7 @@ import type { SQL } from "drizzle-orm";
 import { actorNotes, actors, follows, type Database } from "../../db/index.ts";
 import type { Env, Variables } from "../types.ts";
 import { formatUsername } from "../federation-helpers.ts";
-import { excludeBlockedMutedAuthors } from "../lib/feed-exclude.ts";
+import { excludeModeratedActors } from "../lib/feed-exclude.ts";
 
 const notes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -98,7 +98,7 @@ async function loadActiveNotes(
       inArray(actorNotes.actorApId, followingSubquery),
     )!,
   ];
-  const excludeAuthors = excludeBlockedMutedAuthors(
+  const excludeAuthors = excludeModeratedActors(
     viewerApId,
     actorNotes.actorApId,
   );

@@ -5,9 +5,11 @@
  */
 
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
-import { actors, inbox, objects } from "../../../db/index.ts";
+import { activities, actors, inbox, objects } from "../../../db/index.ts";
 import { NO_AUDIENCE_PREDICATE } from "../../lib/community-visibility.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../../lib/feed-cursor.ts";
+import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
+import { notificationEligibilityWhere } from "../../lib/notification-eligibility.ts";
 import {
   ACTOR_SUMMARY_COLUMNS,
   errAuth,
@@ -20,7 +22,7 @@ import type { Input, ToolContext } from "./types.ts";
 export async function handleGetTimeline(
   c: ToolContext,
   input: Input,
-  _actor: { ap_id: string } | null,
+  actor: { ap_id: string } | null,
 ) {
   const db = c.get("db");
   const limit = toolLimit(input.limit, 20, 50);
@@ -30,6 +32,7 @@ export async function handleGetTimeline(
     eq(objects.visibility, "public"),
     NO_AUDIENCE_PREDICATE,
     isNull(objects.deletedAt),
+    excludeModeratedActors(actor?.ap_id ?? ""),
   ];
   // Composite (published, apId) cursor so agent pagination doesn't skip posts
   // sharing a published millisecond (see lib/feed-cursor.ts).
@@ -95,35 +98,40 @@ export async function handleGetNotifications(
   const limit = toolLimit(input.limit, 20, 50);
   const unreadOnly = Boolean(input.unread_only);
 
-  // Use query API with relations for inbox + activity join
-  const inboxEntries = await db.query.inbox.findMany({
-    where: and(
-      eq(inbox.actorApId, actor.ap_id),
-      ...(unreadOnly ? [eq(inbox.read, 0)] : []),
-    ),
-    with: {
-      activity: true,
-    },
-    orderBy: desc(inbox.createdAt),
-    limit,
-  });
-
-  // Filter: activity must not be from self and must be one of the expected types
-  const allowedTypes = new Set(["Follow", "Like", "Announce", "Create"]);
-  const filtered = inboxEntries.filter(
-    (entry) =>
-      entry.activity &&
-      entry.activity.actorApId !== actor.ap_id &&
-      allowedTypes.has(entry.activity.type),
-  );
+  // Apply the same eligibility owner as the web list/badge/realtime/push paths
+  // in SQL before the limit. A post-query filter both drifted from moderation
+  // policy and let blocked rows consume the agent's page budget.
+  const inboxEntries = await db
+    .select({
+      activityApId: inbox.activityApId,
+      activityType: activities.type,
+      activityActorApId: activities.actorApId,
+      activityObjectApId: activities.objectApId,
+      read: inbox.read,
+      createdAt: inbox.createdAt,
+    })
+    .from(inbox)
+    .innerJoin(activities, eq(inbox.activityApId, activities.apId))
+    .leftJoin(objects, eq(activities.objectApId, objects.apId))
+    .where(
+      and(
+        eq(inbox.actorApId, actor.ap_id),
+        ...(unreadOnly ? [eq(inbox.read, 0)] : []),
+        ...notificationEligibilityWhere(db, actor.ap_id, {
+          direct: "exclude",
+        }),
+      ),
+    )
+    .orderBy(desc(inbox.createdAt))
+    .limit(limit);
 
   return c.json(
     ok({
-      notifications: filtered.map((entry) => ({
+      notifications: inboxEntries.map((entry) => ({
         id: entry.activityApId,
-        type: entry.activity.type.toLowerCase(),
-        from_actor: entry.activity.actorApId,
-        object: entry.activity.objectApId,
+        type: entry.activityType.toLowerCase(),
+        from_actor: entry.activityActorApId,
+        object: entry.activityObjectApId,
         read: !!entry.read,
         created_at: entry.createdAt,
       })),

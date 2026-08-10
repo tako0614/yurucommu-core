@@ -15,6 +15,7 @@ import {
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import communityMessageRoutes from "../../routes/communities/messages.ts";
+import { blockDomain } from "../../lib/blocklist.ts";
 
 /**
  * Community chat reader (GET /:identifier/messages) — the message set is fetched
@@ -255,6 +256,49 @@ test("chat reader: empty channel returns no messages and has_more false", async 
     has_more: boolean;
   };
   expect(body.messages).toEqual([]);
+  expect(body.has_more).toBe(false);
+});
+
+test("chat reader suppresses retained operator-blocked messages before pagination", async () => {
+  const db = await freshDb();
+  const member = await insertLocalActor(db, "operator-chat-member");
+  const communityApId = await insertCommunity(db, "operator-chat");
+  await db.insert(communityMembers).values({
+    communityApId,
+    actorApId: member,
+    role: "member",
+  });
+  await seedChat(
+    db,
+    communityApId,
+    member,
+    "allowed-chat",
+    "2026-06-21T08:00:01.000Z",
+  );
+  await seedChat(
+    db,
+    communityApId,
+    "https://chat.defederated.example/users/retained-author",
+    "blocked-chat",
+    "2026-06-21T08:00:02.000Z",
+  );
+  await blockDomain(db, "defederated.example", "operator block");
+
+  const res = await appWith(
+    db,
+    fakeActor(member, "operator-chat-member"),
+  ).fetch(
+    new Request(`${APP_URL}/operator-chat/messages?limit=1`, { method: "GET" }),
+    envFor(db),
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as {
+    messages: Array<{ content: string }>;
+    has_more: boolean;
+  };
+  expect(body.messages.map((message) => message.content)).toEqual([
+    "allowed-chat",
+  ]);
   expect(body.has_more).toBe(false);
 });
 

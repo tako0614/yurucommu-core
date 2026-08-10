@@ -31,6 +31,7 @@ import { actorIsBlockedBy } from "../../lib/post-visibility.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import { logger } from "../../lib/logger.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
+import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
 
 const log = logger.child({ component: "stories.interactions" });
 
@@ -602,11 +603,17 @@ stories.get("/:id/views", async (c) => {
     return c.json({ error: "Story has expired" }, 410);
   }
 
-  // True total (uncapped) — stays accurate even when the list below is capped.
+  // True eligible total (uncapped) — stays accurate even when the list below is
+  // capped, while retained operator/personal-blocked viewers stay suppressed.
   const totalRow = await db
     .select({ value: count() })
     .from(storyViews)
-    .where(eq(storyViews.storyApId, apId))
+    .where(
+      and(
+        eq(storyViews.storyApId, apId),
+        excludeModeratedActors(actor.ap_id, storyViews.actorApId),
+      ),
+    )
     .get();
   const view_count = totalRow?.value ?? 0;
 
@@ -617,7 +624,12 @@ stories.get("/:id/views", async (c) => {
       viewedAt: storyViews.viewedAt,
     })
     .from(storyViews)
-    .where(eq(storyViews.storyApId, apId))
+    .where(
+      and(
+        eq(storyViews.storyApId, apId),
+        excludeModeratedActors(actor.ap_id, storyViews.actorApId),
+      ),
+    )
     .orderBy(desc(storyViews.viewedAt))
     .limit(STORY_VIEWERS_LIMIT);
 

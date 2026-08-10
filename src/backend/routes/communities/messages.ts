@@ -41,6 +41,7 @@ import {
   memberWhere,
   resolveCommunityApId,
 } from "./membership-shared.ts";
+import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
 
 const MAX_COMMUNITY_MESSAGE_LENGTH = 5000;
 const MAX_COMMUNITY_MESSAGES_LIMIT = 100;
@@ -158,6 +159,9 @@ messagesRouter.get("/:identifier/messages", async (c) => {
     eq(objectRecipients.type, "audience"),
     eq(objects.type, "Note"),
     isNull(objects.communityApId),
+    // A partial purge may retain remote chat objects. Defederation must hide
+    // them before cursor/limit so they cannot consume or shorten the page.
+    operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
   ];
   // Composite (published, apId) cursor so same-millisecond messages aren't
   // skipped on a load-older boundary (see lib/feed-cursor.ts).

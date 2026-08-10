@@ -6,9 +6,16 @@ import { createClient } from "@libsql/client";
 
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, follows, objects, storyViews } from "../../../db/index.ts";
+import {
+  actors,
+  follows,
+  objects,
+  storyViews,
+  storyVotes,
+} from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import storiesInteractions from "../../routes/stories/interactions.ts";
+import { blockDomain } from "../../lib/blocklist.ts";
 
 // Author-only "seen by" (viewer) list for a story: the author sees every actor
 // who registered a view (most-recent-first); a non-author (or anonymous) gets a
@@ -199,4 +206,61 @@ test("a non-author gets 404 (viewer list is not disclosed)", async () => {
   expect(asAuthor.status).toBe(200);
   const body = (await asAuthor.json()) as { view_count: number };
   expect(body.view_count).toBe(1);
+});
+
+test("story viewer identities and poll tallies suppress retained operator-blocked actors", async () => {
+  const db = await freshDb();
+  const author = await insertActor(db, "operator-story-author");
+  const allowedViewer = await insertActor(db, "allowed-story-viewer");
+  const blockedViewer =
+    "https://stories.defederated.example/users/blocked-story-viewer";
+  const storyApId = await seedStory(db, author);
+  await db.insert(storyViews).values([
+    {
+      actorApId: allowedViewer,
+      storyApId,
+      viewedAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      actorApId: blockedViewer,
+      storyApId,
+      viewedAt: "2026-01-02T00:00:00.000Z",
+    },
+  ]);
+  await db.insert(storyVotes).values([
+    {
+      id: "allowed-story-vote",
+      storyApId,
+      actorApId: allowedViewer,
+      optionIndex: 0,
+    },
+    {
+      id: "blocked-story-vote",
+      storyApId,
+      actorApId: blockedViewer,
+      optionIndex: 1,
+    },
+  ]);
+  await blockDomain(db, "defederated.example", "operator block");
+
+  const app = appFor(db, author);
+  const viewsRes = await app.request(`${APP_URL}/story1/views`, {}, env);
+  expect(viewsRes.status).toBe(200);
+  const views = (await viewsRes.json()) as {
+    view_count: number;
+    viewers: Array<{ actor: { ap_id: string } }>;
+  };
+  expect(views.view_count).toBe(1);
+  expect(views.viewers.map((viewer) => viewer.actor.ap_id)).toEqual([
+    allowedViewer,
+  ]);
+
+  const votesRes = await app.request(`${APP_URL}/story1/votes`, {}, env);
+  expect(votesRes.status).toBe(200);
+  const votes = (await votesRes.json()) as {
+    votes: Record<string, number>;
+    total: number;
+  };
+  expect(votes.votes).toEqual({ "0": 1 });
+  expect(votes.total).toBe(1);
 });

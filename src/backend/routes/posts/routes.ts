@@ -64,7 +64,7 @@ import {
 } from "../../lib/post-visibility.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { logger } from "../../lib/logger.ts";
-import { excludeBlockedMutedAuthors } from "../../lib/feed-exclude.ts";
+import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
 
 const log = logger.child({ component: "posts.routes" });
 
@@ -478,7 +478,7 @@ posts.get("/:id", async (c) => {
       .where(
         and(
           eq(objects.apId, post.apId),
-          excludeBlockedMutedAuthors(currentActor.ap_id),
+          excludeModeratedActors(currentActor.ap_id),
         ),
       )
       .get();
@@ -535,7 +535,7 @@ posts.get("/:id/replies", async (c) => {
     .where(
       and(
         postWhereByIdOrApId(baseUrl, postId),
-        excludeBlockedMutedAuthors(currentActor?.ap_id ?? ""),
+        excludeModeratedActors(currentActor?.ap_id ?? ""),
       ),
     )
     .get();
@@ -571,7 +571,7 @@ posts.get("/:id/replies", async (c) => {
       and(
         eq(objects.inReplyTo, parentPost.apId),
         cursorPredicate,
-        excludeBlockedMutedAuthors(currentActor?.ap_id ?? ""),
+        excludeModeratedActors(currentActor?.ap_id ?? ""),
       ),
     )
     .orderBy(desc(objects.published), desc(objects.apId))

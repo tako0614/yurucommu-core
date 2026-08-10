@@ -15,6 +15,7 @@ import {
   personalActorIsBlockedBy,
   personalActorIsSuppressedBy,
 } from "./personal-actor-moderation.ts";
+import { isActorBlocked } from "./blocklist.ts";
 
 export type ReadGateObject = {
   apId?: string;
@@ -159,6 +160,13 @@ export async function canViewerReadObjectFull(
   viewerApId: string | null | undefined,
 ): Promise<boolean> {
   const now = new Date().toISOString();
+
+  // Instance moderation is a read boundary, not only an ingest/delivery
+  // boundary. A failed or partial purge intentionally leaves retained objects
+  // for retry/reversible unblock; while their author is operator-blocked those
+  // rows must be inert through every single-object reader and interaction that
+  // consumes this canonical gate.
+  if (await isActorBlocked(db, obj.attributedTo)) return false;
 
   // Story author + expiry shortcuts need no community/follow query.
   if (obj.type === "Story") {

@@ -10,7 +10,8 @@ import { sql } from "drizzle-orm";
 import { actors, objects } from "../../../db/index.ts";
 
 import { NO_AUDIENCE_PREDICATE } from "../../lib/community-visibility.ts";
-import { excludeBlockedMutedAuthors } from "../../lib/feed-exclude.ts";
+import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
+import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
 import { extractHashtags } from "../posts/transformers.ts";
 import { postContentSearchPredicate } from "../search.ts";
 import {
@@ -79,6 +80,7 @@ async function searchUsers(c: ToolContext, input: Input) {
         // otherwise a scrubbed `deleted-<id>` tombstone can surface here.
         isNull(actors.deletedAt),
         eq(actors.isPrivate, 0),
+        operatorActorNotBlockedSql(sql`${actors.apId}`),
         or(
           sql`instr(lower(${actors.preferredUsername}), lower(${query})) > 0`,
           sql`instr(lower(${actors.name}), lower(${query})) > 0`,
@@ -124,8 +126,8 @@ async function searchPosts(
         NO_AUDIENCE_PREDICATE,
         isNull(objects.deletedAt),
         // Honor the caller's block/mute filter, matching the web search +
-        // feed surfaces (undefined for an anonymous caller → and() drops it).
-        excludeBlockedMutedAuthors(actor?.ap_id ?? ""),
+        // feed surfaces, plus the global operator defederation boundary.
+        excludeModeratedActors(actor?.ap_id ?? ""),
       ),
     )
     .orderBy(desc(objects.published), desc(objects.apId))
@@ -158,6 +160,7 @@ async function getTrending(c: ToolContext, input: Input) {
         eq(objects.visibility, "public"),
         NO_AUDIENCE_PREDICATE,
         isNull(objects.deletedAt),
+        operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
         sql`${objects.published} > ${sinceDate}`,
       ),
     )
@@ -206,7 +209,13 @@ async function getUserProfile(
       isPrivate: actors.isPrivate,
     })
     .from(actors)
-    .where(eq(actors.preferredUsername, username))
+    .where(
+      and(
+        eq(actors.preferredUsername, username),
+        isNull(actors.deletedAt),
+        operatorActorNotBlockedSql(sql`${actors.apId}`),
+      ),
+    )
     .get();
 
   if (!actorRecord) return c.json(errNotFound("User"), 404);

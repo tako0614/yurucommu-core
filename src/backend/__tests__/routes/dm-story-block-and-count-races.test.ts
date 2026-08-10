@@ -20,18 +20,22 @@ import {
   activities,
   actorCache,
   actors,
+  announces,
   blocks,
+  bookmarks,
   follows,
   inbox,
   likes,
   objects,
   storyShares,
+  storyViews,
+  storyVotes,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import { blockDomain } from "../../lib/blocklist.ts";
 import dmRoutes from "../../routes/dm/messages.ts";
 import storyRoutes from "../../routes/stories/interactions.ts";
-import postsRoutes from "../../routes/posts/routes.ts";
+import postsRoutes from "../../routes/posts.ts";
 import followRoutes from "../../routes/follow.ts";
 import {
   findFollowByActivityId,
@@ -931,6 +935,174 @@ test("post repost is rejected (404) when the author has blocked the booster", as
     envFor(db),
   );
   expect(res.status).toBe(404);
+});
+
+test("operator-blocked retained remote post rejects new like/repost/bookmark writes", async () => {
+  const db = await freshDb();
+  const viewer = await insertLocalActor(db, "operator-post-viewer");
+  const remoteAuthor =
+    "https://posts.defederated.example/users/retained-author";
+  const postApId = "https://posts.defederated.example/objects/retained-post";
+  await db.insert(actors).values({
+    apId: remoteAuthor,
+    type: "Person",
+    preferredUsername: "retained-author",
+    inbox: `${remoteAuthor}/inbox`,
+    outbox: `${remoteAuthor}/outbox`,
+    followersUrl: `${remoteAuthor}/followers`,
+    followingUrl: `${remoteAuthor}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db.insert(objects).values({
+    apId: postApId,
+    type: "Note",
+    attributedTo: remoteAuthor,
+    content: "retained post",
+    visibility: "public",
+    audienceJson: "[]",
+    toJson: "[]",
+    ccJson: "[]",
+    published: "2026-01-01T00:00:00.000Z",
+    isLocal: 0,
+  });
+  await blockDomain(db, "defederated.example", "operator block");
+
+  const app = appWith(
+    db,
+    fakeActor(viewer, "operator-post-viewer"),
+    postsRoutes,
+  );
+  const encoded = encodeURIComponent(postApId);
+  const [likeRes, repostRes, bookmarkRes] = await Promise.all([
+    app.fetch(
+      new Request(`${APP_URL}/${encoded}/like`, { method: "POST" }),
+      envFor(db),
+    ),
+    app.fetch(
+      new Request(`${APP_URL}/${encoded}/repost`, { method: "POST" }),
+      envFor(db),
+    ),
+    app.fetch(
+      new Request(`${APP_URL}/${encoded}/bookmark`, { method: "POST" }),
+      envFor(db),
+    ),
+  ]);
+
+  expect([likeRes.status, repostRes.status, bookmarkRes.status]).toEqual([
+    404, 404, 404,
+  ]);
+  expect(
+    await db.select().from(likes).where(eq(likes.objectApId, postApId)),
+  ).toHaveLength(0);
+  expect(
+    await db.select().from(announces).where(eq(announces.objectApId, postApId)),
+  ).toHaveLength(0);
+  expect(
+    await db.select().from(bookmarks).where(eq(bookmarks.objectApId, postApId)),
+  ).toHaveLength(0);
+});
+
+test("operator-blocked retained remote story is unreadable and rejects interactions", async () => {
+  const db = await freshDb();
+  const viewer = await insertLocalActor(db, "operator-story-viewer");
+  const remoteAuthor =
+    "https://stories.defederated.example/users/retained-author";
+  const storyApId =
+    "https://stories.defederated.example/objects/retained-story";
+  await db.insert(actors).values({
+    apId: remoteAuthor,
+    type: "Person",
+    preferredUsername: "retained-author",
+    inbox: `${remoteAuthor}/inbox`,
+    outbox: `${remoteAuthor}/outbox`,
+    followersUrl: `${remoteAuthor}/followers`,
+    followingUrl: `${remoteAuthor}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db.insert(objects).values({
+    apId: storyApId,
+    type: "Story",
+    attributedTo: remoteAuthor,
+    content: "retained story",
+    visibility: "public",
+    audienceJson: "[]",
+    toJson: "[]",
+    ccJson: "[]",
+    attachmentsJson: JSON.stringify({
+      overlays: [{ type: "Question", oneOf: ["yes", "no"] }],
+    }),
+    published: "2026-01-01T00:00:00.000Z",
+    endTime: "2099-01-01T00:00:00.000Z",
+    isLocal: 0,
+  });
+  await db.insert(follows).values({
+    followerApId: viewer,
+    followingApId: remoteAuthor,
+    status: "accepted",
+  });
+  await blockDomain(db, "defederated.example", "operator block");
+
+  const app = appWith(
+    db,
+    fakeActor(viewer, "operator-story-viewer"),
+    storyRoutes,
+  );
+  const encoded = encodeURIComponent(storyApId);
+  const responses = await Promise.all([
+    app.fetch(
+      new Request(`${APP_URL}/view`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ap_id: storyApId }),
+      }),
+      envFor(db),
+    ),
+    app.fetch(
+      new Request(`${APP_URL}/vote`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ap_id: storyApId, option_index: 0 }),
+      }),
+      envFor(db),
+    ),
+    app.fetch(
+      new Request(`${APP_URL}/${encoded}/like`, { method: "POST" }),
+      envFor(db),
+    ),
+    app.fetch(
+      new Request(`${APP_URL}/${encoded}/share`, { method: "POST" }),
+      envFor(db),
+    ),
+    app.fetch(new Request(`${APP_URL}/${encoded}/votes`), envFor(db)),
+    app.fetch(new Request(`${APP_URL}/${encoded}/shares`), envFor(db)),
+  ]);
+
+  expect(responses.map((response) => response.status)).toEqual([
+    404, 404, 404, 404, 404, 404,
+  ]);
+  expect(
+    await db
+      .select()
+      .from(storyViews)
+      .where(eq(storyViews.storyApId, storyApId)),
+  ).toHaveLength(0);
+  expect(
+    await db
+      .select()
+      .from(storyVotes)
+      .where(eq(storyVotes.storyApId, storyApId)),
+  ).toHaveLength(0);
+  expect(
+    await db
+      .select()
+      .from(storyShares)
+      .where(eq(storyShares.storyApId, storyApId)),
+  ).toHaveLength(0);
+  expect(
+    await db.select().from(likes).where(eq(likes.objectApId, storyApId)),
+  ).toHaveLength(0);
 });
 
 test("follow is rejected (404) when the target has blocked the follower, no edge", async () => {

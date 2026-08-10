@@ -25,7 +25,7 @@ import {
   objectApId,
 } from "../../federation-helpers.ts";
 import { storyToActivityPub } from "../../lib/activitypub-helpers.ts";
-import { excludeBlockedMutedAuthors } from "../../lib/feed-exclude.ts";
+import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
 import { maybeReapDrainedTombstones } from "../actors.ts";
 import { checkCommunityPostPermission } from "../posts/post-helpers.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
@@ -367,7 +367,7 @@ stories.get("/", async (c) => {
           ),
         );
 
-  const excludeAuthors = excludeBlockedMutedAuthors(actor.ap_id);
+  const excludeAuthors = excludeModeratedActors(actor.ap_id);
   if (excludeAuthors) {
     storiesWhere = and(storiesWhere, excludeAuthors);
   }
@@ -573,6 +573,7 @@ stories.get("/:actorId", async (c) => {
         eq(objects.attributedTo, targetApId),
         gt(objects.endTime, now),
         scopeCondition,
+        excludeModeratedActors(actor?.ap_id ?? ""),
       ),
     )
     .orderBy(desc(objects.published))

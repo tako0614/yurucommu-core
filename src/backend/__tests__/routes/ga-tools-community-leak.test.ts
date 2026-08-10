@@ -30,19 +30,28 @@ import { eq } from "drizzle-orm";
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
+  activities,
   actors,
   blocks,
+  bookmarks,
   follows,
+  inbox,
   likes,
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
 import {
+  handleGetUserProfile,
   handleSearchPosts,
+  handleSearchUsers,
   handleGetTrending,
 } from "../../routes/takos-tools/search.ts";
-import { handleGetTimeline as getTimeline } from "../../routes/takos-tools/timeline.ts";
 import {
+  handleGetNotifications,
+  handleGetTimeline as getTimeline,
+} from "../../routes/takos-tools/timeline.ts";
+import {
+  handleBookmarkPost,
   handleCreatePost,
   handleLikePost,
 } from "../../routes/takos-tools/posts.ts";
@@ -579,4 +588,178 @@ test("agent DM tools suppress an operator-blocked retained remote thread", async
     success: false,
     error: "Thread not found",
   });
+});
+
+test("agent content projections and mutations suppress an operator-blocked retained author", async () => {
+  const db = await freshDb();
+  const viewer = await insertLocalActor(db, "operator-content-viewer");
+  const allowedAuthor = await insertLocalActor(db, "allowed-content-author");
+  const remoteAuthor =
+    "https://content.defederated.example/users/retained-author";
+  await db.insert(actors).values({
+    apId: remoteAuthor,
+    type: "Person",
+    preferredUsername: "retained-author",
+    inbox: `${remoteAuthor}/inbox`,
+    outbox: `${remoteAuthor}/outbox`,
+    followersUrl: `${remoteAuthor}/followers`,
+    followingUrl: `${remoteAuthor}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+
+  const allowedPost = await insertPost(
+    db,
+    allowedAuthor,
+    "operator-allowed",
+    "operator-shared-token #operatorallowed",
+    isoMinutesAgo(2),
+    "[]",
+  );
+  const blockedPost = await insertPost(
+    db,
+    remoteAuthor,
+    "operator-blocked",
+    "operator-shared-token #operatorblocked",
+    isoMinutesAgo(1),
+    "[]",
+  );
+  await blockDomain(db, "defederated.example", "operator block");
+
+  const timelineResult = (await getTimeline(
+    ctxFor(db),
+    {},
+    { ap_id: viewer },
+  )) as unknown as {
+    __body: { data: { posts: Array<{ ap_id: string }> } };
+  };
+  expect(timelineResult.__body.data.posts.map((post) => post.ap_id)).toEqual([
+    allowedPost,
+  ]);
+
+  const searchResult = (await handleSearchPosts(
+    ctxFor(db),
+    { query: "operator-shared-token" },
+    { ap_id: viewer },
+  )) as unknown as {
+    __body: { data: { posts: Array<{ ap_id: string }> } };
+  };
+  expect(searchResult.__body.data.posts.map((post) => post.ap_id)).toEqual([
+    allowedPost,
+  ]);
+
+  const trendingResult = (await handleGetTrending(
+    ctxFor(db),
+    {},
+    { ap_id: viewer },
+  )) as unknown as {
+    __body: { data: { trending: Array<{ tag: string }> } };
+  };
+  const trendingTags = trendingResult.__body.data.trending.map(
+    (row) => row.tag,
+  );
+  expect(trendingTags).toContain("operatorallowed");
+  expect(trendingTags).not.toContain("operatorblocked");
+
+  const usersResult = (await handleSearchUsers(
+    ctxFor(db),
+    { query: "retained-author" },
+    { ap_id: viewer },
+  )) as unknown as {
+    __body: { data: { actors: Array<{ ap_id: string }> } };
+  };
+  expect(usersResult.__body.data.actors).toEqual([]);
+  const profileResult = (await handleGetUserProfile(
+    ctxFor(db),
+    { username: "retained-author" },
+    { ap_id: viewer },
+  )) as unknown as { __body: { success: boolean; error: string } };
+  expect(profileResult.__body).toEqual({
+    success: false,
+    error: "User not found",
+  });
+
+  await handleLikePost(
+    ctxFor(db),
+    { post_id: blockedPost, like: true },
+    { ap_id: viewer },
+  );
+  await handleBookmarkPost(
+    ctxFor(db),
+    { post_id: blockedPost, bookmark: true },
+    { ap_id: viewer },
+  );
+  expect(
+    await db.select().from(likes).where(eq(likes.objectApId, blockedPost)),
+  ).toHaveLength(0);
+  expect(
+    await db
+      .select()
+      .from(bookmarks)
+      .where(eq(bookmarks.objectApId, blockedPost)),
+  ).toHaveLength(0);
+});
+
+test("agent notifications apply shared moderation eligibility before the limit", async () => {
+  const db = await freshDb();
+  const viewer = await insertLocalActor(db, "operator-notification-viewer");
+  const allowedActor = await insertLocalActor(db, "allowed-notification-actor");
+  const blockedActor =
+    "https://notify.defederated.example/users/blocked-notification-actor";
+  await db.insert(actors).values({
+    apId: blockedActor,
+    type: "Person",
+    preferredUsername: "blocked-notification-actor",
+    inbox: `${blockedActor}/inbox`,
+    outbox: `${blockedActor}/outbox`,
+    followersUrl: `${blockedActor}/followers`,
+    followingUrl: `${blockedActor}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  const allowedActivity = `${APP_URL}/ap/activities/tool-notification-allowed`;
+  const blockedActivity =
+    "https://notify.defederated.example/activities/tool-notification-blocked";
+  await db.insert(activities).values([
+    {
+      apId: allowedActivity,
+      type: "Follow",
+      actorApId: allowedActor,
+      rawJson: "{}",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      apId: blockedActivity,
+      type: "Follow",
+      actorApId: blockedActor,
+      rawJson: "{}",
+      createdAt: "2026-01-02T00:00:00.000Z",
+    },
+  ]);
+  await db.insert(inbox).values([
+    {
+      actorApId: viewer,
+      activityApId: allowedActivity,
+      read: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      actorApId: viewer,
+      activityApId: blockedActivity,
+      read: 0,
+      createdAt: "2026-01-02T00:00:00.000Z",
+    },
+  ]);
+  await blockDomain(db, "defederated.example", "operator block");
+
+  const result = (await handleGetNotifications(
+    ctxFor(db),
+    { limit: 1 },
+    { ap_id: viewer },
+  )) as unknown as {
+    __body: { data: { notifications: Array<{ id: string }> } };
+  };
+  expect(
+    result.__body.data.notifications.map((notification) => notification.id),
+  ).toEqual([allowedActivity]);
 });

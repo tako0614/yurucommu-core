@@ -26,7 +26,7 @@ import {
   type DeliveryNotificationPushMessageV1,
   type DeliveryQueueMessageV1,
 } from "./delivery/types.ts";
-import { excludeBlockedMutedAuthors } from "./feed-exclude.ts";
+import { excludeModeratedActors } from "./feed-exclude.ts";
 import {
   NOTIFICATION_ACTIVITY_TYPES,
   notificationEligibilityWhere,
@@ -996,7 +996,7 @@ async function loadPushEvent(
           ne(activities.actorApId, actorApId),
           inArray(activities.type, [...NOTIFICATION_ACTIVITY_TYPES]),
           exists(currentCommunityMembership),
-          excludeBlockedMutedAuthors(actorApId, activities.actorApId),
+          excludeModeratedActors(actorApId, activities.actorApId),
         ),
       )
       .get();

@@ -31,7 +31,7 @@ import {
   isDomainBlocked,
 } from "../lib/blocklist.ts";
 import { type ActorInfo, loadActorInfoMap } from "./actors-helpers.ts";
-import { excludeBlockedMutedAuthors } from "../lib/feed-exclude.ts";
+import { excludeModeratedActors } from "../lib/feed-exclude.ts";
 import { withCache } from "../middleware/cache.ts";
 
 const log = logger.child({ component: "search" });
@@ -475,7 +475,7 @@ search.get("/posts", async (c) => {
         // Suppress blocked/muted authors so keyword search honors the same
         // moderation filter the home/timeline/notifications feeds apply
         // (undefined for an anonymous viewer → and() drops it).
-        excludeBlockedMutedAuthors(actor?.ap_id ?? ""),
+        excludeModeratedActors(actor?.ap_id ?? ""),
       ),
     )
     .orderBy(...postOrderByDrizzle(sort))
@@ -647,7 +647,7 @@ search.get("/hashtag/:tag", async (c) => {
   const postWhere = publicSearchableWhere(
     sql`instr(lower(${objects.content}), lower(${hashtagPattern})) > 0`,
     // Same block/mute moderation filter as the feeds (see /search/posts).
-    excludeBlockedMutedAuthors(actor?.ap_id ?? ""),
+    excludeModeratedActors(actor?.ap_id ?? ""),
   );
 
   // `LIKE '%#tag%'` is a SUPERSET prefilter: it also matches longer tags that

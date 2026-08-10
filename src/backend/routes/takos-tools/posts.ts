@@ -222,10 +222,16 @@ export async function handleLikePost(
   // Block-gate too (the read-gate passes for any public post, so it alone does
   // not stop a blocked actor): an actor the author blocked must not bump the
   // author's like_count, mirroring the canonical like route (interactions.ts).
+  if (!post) {
+    return c.json(errNotFound("Post"), 404);
+  }
+  // Creating an interaction requires current read/moderation entitlement.
+  // Removing a retained interaction stays available by id after access is
+  // revoked, matching the canonical web unlike cleanup path.
   if (
-    !post ||
-    !(await canViewerReadObjectFull(db, post, actor.ap_id)) ||
-    (await actorIsBlockedBy(db, post.attributedTo, actor.ap_id))
+    likeActive &&
+    (!(await canViewerReadObjectFull(db, post, actor.ap_id)) ||
+      (await actorIsBlockedBy(db, post.attributedTo, actor.ap_id)))
   ) {
     return c.json(errNotFound("Post"), 404);
   }
@@ -281,11 +287,29 @@ export async function handleBookmarkPost(
   if (!postId) return c.json(errRequired("Post ID"), 400);
 
   const post = await db
-    .select({ apId: objects.apId })
+    .select({
+      apId: objects.apId,
+      visibility: objects.visibility,
+      attributedTo: objects.attributedTo,
+      toJson: objects.toJson,
+      ccJson: objects.ccJson,
+      audienceJson: objects.audienceJson,
+      communityApId: objects.communityApId,
+      type: objects.type,
+      endTime: objects.endTime,
+    })
     .from(objects)
     .where(eq(objects.apId, postId))
     .get();
   if (!post) return c.json(errNotFound("Post"), 404);
+
+  if (
+    bookmark &&
+    (!(await canViewerReadObjectFull(db, post, actor.ap_id)) ||
+      (await actorIsBlockedBy(db, post.attributedTo, actor.ap_id)))
+  ) {
+    return c.json(errNotFound("Post"), 404);
+  }
 
   await togglePostRelation(db, bookmarks, actor.ap_id, post.apId, bookmark);
 

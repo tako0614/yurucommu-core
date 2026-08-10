@@ -15,6 +15,7 @@ import {
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import interactionsRoutes from "../../routes/posts/interactions.ts";
+import { blockDomain } from "../../lib/blocklist.ts";
 
 // DEEP round-2 #3 (MED security): GET /bookmarks re-implemented the visibility
 // gate and omitted the Story branch, so a personal (followers-only) Story —
@@ -181,6 +182,46 @@ test("POST /:id/bookmark allows a personal Story for an accepted follower", asyn
     { APP_URL } as never,
   );
   expect(res.status).toBe(200);
+});
+
+test("GET /bookmarks suppresses retained objects from an operator-blocked author", async () => {
+  const db = await freshDb();
+  const viewer = await insertActor(db, "operator-bookmark-viewer");
+  const remoteAuthor =
+    "https://bookmarks.defederated.example/users/retained-author";
+  await db.insert(actors).values({
+    apId: remoteAuthor,
+    type: "Person",
+    preferredUsername: "retained-author",
+    inbox: `${remoteAuthor}/inbox`,
+    outbox: `${remoteAuthor}/outbox`,
+    followersUrl: `${remoteAuthor}/followers`,
+    followingUrl: `${remoteAuthor}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  const retainedPost = `${APP_URL}/ap/objects/operator-retained-bookmark`;
+  await db.insert(objects).values({
+    apId: retainedPost,
+    type: "Note",
+    attributedTo: remoteAuthor,
+    content: "retained blocked bookmark",
+    visibility: "public",
+    audienceJson: "[]",
+    toJson: "[]",
+    ccJson: "[]",
+    published: new Date().toISOString(),
+  });
+  await db.insert(bookmarks).values({
+    actorApId: viewer,
+    objectApId: retainedPost,
+  });
+  await blockDomain(db, "defederated.example", "operator block");
+
+  const res = await appFor(db, viewer).request(`${APP_URL}/posts/bookmarks`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { posts: Array<{ ap_id: string }> };
+  expect(body.posts).toEqual([]);
 });
 
 test("a bto/bcc recipient can create and retain a bookmark without exposing to/cc", async () => {

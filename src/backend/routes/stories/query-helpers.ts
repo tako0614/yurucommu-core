@@ -19,6 +19,10 @@ import {
   purgeMediaBlobs,
 } from "../posts/delete-cascade.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
+import {
+  isActorBlocked,
+  operatorActorNotBlockedSql,
+} from "../../lib/blocklist.ts";
 
 // Bound the per-run expired-story reap. The cleanup is opportunistic (fired,
 // unawaited, from the hot story-read path), so a hostile followed host that
@@ -106,6 +110,9 @@ export async function canViewerReadStory(
   viewerApId: string | null | undefined,
 ): Promise<boolean> {
   if (!viewerApId) return false;
+  // Retained rows from a failed/partial purge are unreadable and cannot be
+  // interacted with while their author is instance-operator blocked.
+  if (await isActorBlocked(db, story.attributedTo)) return false;
   if (story.attributedTo === viewerApId) return true;
   if (story.communityApId) {
     const member = await db
@@ -149,7 +156,12 @@ export async function getVoteCounts(
       count: count(),
     })
     .from(storyVotes)
-    .where(eq(storyVotes.storyApId, storyApId))
+    .where(
+      and(
+        eq(storyVotes.storyApId, storyApId),
+        operatorActorNotBlockedSql(sql`${storyVotes.actorApId}`),
+      ),
+    )
     .groupBy(storyVotes.optionIndex);
 
   return Object.fromEntries(votes.map((v) => [v.optionIndex, v.count]));
@@ -183,7 +195,12 @@ export async function fetchBatchVotes(
       count: count(),
     })
     .from(storyVotes)
-    .where(inArray(storyVotes.storyApId, storyApIds))
+    .where(
+      and(
+        inArray(storyVotes.storyApId, storyApIds),
+        operatorActorNotBlockedSql(sql`${storyVotes.actorApId}`),
+      ),
+    )
     .groupBy(storyVotes.storyApId, storyVotes.optionIndex);
 
   const allVotes: Record<string, VoteResults> = {};
@@ -204,6 +221,7 @@ export async function fetchBatchVotes(
         and(
           inArray(storyVotes.storyApId, storyApIds),
           eq(storyVotes.actorApId, actorApId),
+          operatorActorNotBlockedSql(sql`${storyVotes.actorApId}`),
         ),
       );
     userVotes = Object.fromEntries(

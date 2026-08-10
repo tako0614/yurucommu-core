@@ -39,7 +39,8 @@ import {
   passesPostVisibilitySync,
 } from "../../lib/post-visibility.ts";
 import { logger } from "../../lib/logger.ts";
-import { excludeBlockedMutedAuthors } from "../../lib/feed-exclude.ts";
+import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
+import { isActorBlocked } from "../../lib/blocklist.ts";
 
 const log = logger.child({ component: "posts.interactions" });
 
@@ -337,6 +338,13 @@ posts.post("/:id/repost", async (c) => {
 
   const db = c.get("db");
   const baseUrl = c.env.APP_URL;
+
+  // Repost has a public-reach gate rather than the canonical read gate below,
+  // so enforce instance moderation explicitly before it can persist/fan out an
+  // Announce for a retained object from a defederated actor/domain.
+  if (await isActorBlocked(db, post.attributedTo)) {
+    return c.json({ error: "Post not found" }, 404);
+  }
 
   // A repost is always an Announce addressed to Public + the booster's
   // followers (see the activity built below), so it re-broadcasts the object to
@@ -650,7 +658,7 @@ posts.get("/bookmarks", async (c) => {
       and(
         eq(bookmarks.actorApId, actor.ap_id),
         cursorPredicate,
-        excludeBlockedMutedAuthors(actor.ap_id),
+        excludeModeratedActors(actor.ap_id),
       ),
     )
     .orderBy(desc(bookmarks.createdAt), desc(bookmarks.objectApId))

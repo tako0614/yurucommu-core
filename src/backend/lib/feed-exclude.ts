@@ -1,6 +1,7 @@
-import { type AnyColumn, sql, type SQL } from "drizzle-orm";
+import { and, type AnyColumn, sql, type SQL } from "drizzle-orm";
 import { blocks, mutes, objects } from "../../db/index.ts";
 import { activityPubActorIdentitySetSql } from "./activitypub-actor-identity-sql.ts";
+import { operatorActorNotBlockedSql } from "./blocklist.ts";
 
 /**
  * Predicate excluding posts authored by anyone the viewer has blocked or muted.
@@ -35,4 +36,25 @@ export function excludeBlockedMutedAuthors(
     `,
   );
   return sql`${column} NOT IN (${excludedIds})`;
+}
+
+/**
+ * Global operator moderation plus the current viewer's personal block/mute
+ * filter for a projected actor identity. Unlike the personal-only helper this
+ * always returns a predicate: anonymous/global feeds must still hide retained
+ * content from an instance-defederated actor or domain.
+ *
+ * Apply this in SQL before cursor/offset/limit. Post-query filtering lets a run
+ * of blocked rows consume the page and can make later visible content
+ * unreachable or report incorrect pagination metadata.
+ */
+export function excludeModeratedActors(
+  viewerApId: string,
+  column: AnyColumn = objects.attributedTo,
+): SQL {
+  const operatorVisible = operatorActorNotBlockedSql(sql`${column}`);
+  const personalVisible = excludeBlockedMutedAuthors(viewerApId, column);
+  return personalVisible
+    ? and(operatorVisible, personalVisible)!
+    : operatorVisible;
 }
