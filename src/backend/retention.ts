@@ -6,11 +6,13 @@ import { enqueuePendingDeliveryResolutionJobs } from "./lib/delivery/resolution-
 import { reapDrainedTombstones } from "./routes/actors.ts";
 import { cleanupExpiredStories } from "./routes/stories/query-helpers.ts";
 import { reapRemoteActorFetchFailures } from "./lib/activitypub-actor-cache.ts";
+import { mirrorPendingStampAssets } from "./lib/stamp-mirror.ts";
 
 export type YurucommuRetentionStep =
   | "expired_stories"
   | "drained_tombstones"
   | "remote_actor_fetch_failures"
+  | "stamp_asset_mirrors"
   | "delivery_fanout"
   | "delivery_endpoint"
   | "delivery_resolution"
@@ -20,6 +22,7 @@ export interface YurucommuRetentionResult {
   readonly expiredStories: number;
   readonly reapedTombstones: number;
   readonly reapedRemoteActorFetchFailures: number;
+  readonly mirroredStampAssets: number;
   readonly enqueuedDeliveryFanoutJobs: number;
   readonly enqueuedDeliveryEndpointJobs: number;
   readonly enqueuedDeliveryResolutionJobs: number;
@@ -75,6 +78,9 @@ export async function runYurucommuRetention(
     "remote_actor_fetch_failures",
     () => reapRemoteActorFetchFailures(env.DB_INSTANCE),
   );
+  const mirroredStampAssets = await retentionStep("stamp_asset_mirrors", () =>
+    mirrorPendingStampAssets(env),
+  );
   const enqueuedDeliveryFanoutJobs = await retentionStep(
     "delivery_fanout",
     () => enqueuePendingDeliveryFanoutJobs(env),
@@ -96,6 +102,7 @@ export async function runYurucommuRetention(
     expiredStories,
     reapedTombstones,
     reapedRemoteActorFetchFailures,
+    mirroredStampAssets,
     enqueuedDeliveryFanoutJobs,
     enqueuedDeliveryEndpointJobs,
     enqueuedDeliveryResolutionJobs,

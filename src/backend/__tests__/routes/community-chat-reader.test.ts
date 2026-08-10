@@ -43,6 +43,7 @@ const MIGRATIONS = [
   "0009_object_tags.sql",
   "0010_object_recipients_drop_actor_fk.sql",
   "0011_drop_remote_actor_fks.sql",
+  "0030_stamp_packs.sql",
 ];
 
 async function freshDb(): Promise<Database> {

@@ -13,6 +13,7 @@ export * from "./api/push-config.ts";
 export * from "./api/search.ts";
 export * from "./api/media.ts";
 export * from "./api/stories.ts";
+export * from "./api/stamps.ts";
 export * from "./api/notes.ts";
 export * from "./api/recommendations.ts";
 export * from "./api/moderation.ts";

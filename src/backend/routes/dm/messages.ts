@@ -12,6 +12,7 @@ import {
   blocks,
   dmReadStatus,
   inbox as inboxTable,
+  messageStampRefs,
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
@@ -42,10 +43,16 @@ import {
 } from "../../runtime/realtime-hub.ts";
 import { feedCursorWhere } from "../../lib/feed-cursor.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
+import { OBJECT_CONTEXT } from "../../lib/ap-context.ts";
 import { validateChatAttachments } from "../../lib/attachments.ts";
 import { logger } from "../../lib/logger.ts";
 import { isActorBlockedStrict } from "../../lib/blocklist.ts";
 import { deleteActivitiesCascade } from "../../lib/activity-delete-cascade.ts";
+import {
+  messageStampSnapshotFromProjection,
+  recordStampRecent,
+  resolveSendableStamp,
+} from "../../lib/stamps.ts";
 
 const log = logger.child({ component: "dm.messages" });
 
@@ -85,13 +92,25 @@ type SenderInfo = {
 type DmMessageRow = Pick<
   typeof objects.$inferSelect,
   "apId" | "attributedTo" | "content" | "attachmentsJson" | "published"
->;
+> & {
+  stampUri: string | null;
+  packUri: string | null;
+  revisionDigest: string | null;
+  remoteAssetUrl: string | null;
+  localAssetR2Key: string | null;
+  stampMediaType: string | null;
+  stampWidth: number | null;
+  stampHeight: number | null;
+  assetSha256: string | null;
+  stampAltText: string | null;
+};
 
 type DmMessageResponse = {
   id: string;
   sender: SenderInfo;
   content: string | null;
   attachments?: Attachment[];
+  stamp?: ReturnType<typeof messageStampSnapshotFromProjection>;
   created_at: string | null;
 };
 
@@ -208,8 +227,19 @@ async function fetchAuthorizedMessages(
       content: objects.content,
       attachmentsJson: objects.attachmentsJson,
       published: objects.published,
+      stampUri: messageStampRefs.stampUri,
+      packUri: messageStampRefs.packUri,
+      revisionDigest: messageStampRefs.revisionDigest,
+      remoteAssetUrl: messageStampRefs.remoteAssetUrl,
+      localAssetR2Key: messageStampRefs.localAssetR2Key,
+      stampMediaType: messageStampRefs.mediaType,
+      stampWidth: messageStampRefs.width,
+      stampHeight: messageStampRefs.height,
+      assetSha256: messageStampRefs.assetSha256,
+      stampAltText: messageStampRefs.altText,
     })
     .from(objects)
+    .leftJoin(messageStampRefs, eq(messageStampRefs.messageId, objects.apId))
     .where(whereClause!)
     .orderBy(desc(objects.published), desc(objects.apId))
     .limit(limit + 1);
@@ -264,6 +294,18 @@ function formatMessages(
 ): DmMessageResponse[] {
   return messages.reverse().map((msg) => {
     const info = authorMap.get(msg.attributedTo);
+    const stamp = messageStampSnapshotFromProjection({
+      stampUri: msg.stampUri,
+      packUri: msg.packUri,
+      revisionDigest: msg.revisionDigest,
+      remoteAssetUrl: msg.remoteAssetUrl,
+      localAssetR2Key: msg.localAssetR2Key,
+      mediaType: msg.stampMediaType,
+      width: msg.stampWidth,
+      height: msg.stampHeight,
+      assetSha256: msg.assetSha256,
+      altText: msg.stampAltText,
+    });
     return {
       id: msg.apId,
       sender: {
@@ -275,6 +317,7 @@ function formatMessages(
       },
       content: msg.content,
       attachments: safeJsonParse<Attachment[]>(msg.attachmentsJson, []),
+      ...(stamp ? { stamp } : {}),
       created_at: msg.published,
     };
   });
@@ -437,6 +480,7 @@ dm.post("/user/:encodedApId/messages", async (c) => {
   const body = await c.req.json<{
     content?: string;
     attachments?: unknown;
+    stamp?: unknown;
   }>();
   const baseUrl = c.env.APP_URL;
 
@@ -444,10 +488,35 @@ dm.post("/user/:encodedApId/messages", async (c) => {
   if (!attachmentsResult.ok) {
     return c.json({ error: attachmentsResult.error }, 400);
   }
-  const attachments = attachmentsResult.attachments as Attachment[];
+  let attachments = attachmentsResult.attachments as Attachment[];
+
+  const stampResult =
+    body.stamp === undefined
+      ? null
+      : await resolveSendableStamp(db, actor.ap_id, body.stamp, {
+          acceptLanguage: c.req.header("Accept-Language"),
+        });
+  if (stampResult && !stampResult.ok) {
+    return c.json({ error: stampResult.error }, stampResult.status);
+  }
+  if (
+    stampResult?.ok &&
+    (attachments.length > 0 ||
+      (typeof body.content === "string" && body.content.trim().length > 0))
+  ) {
+    return c.json(
+      { error: "A Stamp message cannot include text or other attachments" },
+      400,
+    );
+  }
+  if (stampResult?.ok) {
+    attachments = [stampResult.stamp.attachment];
+  }
 
   // An attachment-only message (LINE-style image send) carries no text.
-  const contentOrError = validateContent(body.content, attachments.length > 0);
+  const contentOrError = stampResult?.ok
+    ? `[Stamp: ${stampResult.stamp.snapshot.alt}]`
+    : validateContent(body.content, attachments.length > 0);
   if (typeof contentOrError !== "string") {
     return c.json({ error: contentOrError.error }, contentOrError.status);
   }
@@ -521,7 +590,7 @@ dm.post("/user/:encodedApId/messages", async (c) => {
   const apAttachments = toApAttachments(attachments, baseUrl);
   const remoteCreateActivity = !isRecipientLocal
     ? {
-        "@context": "https://www.w3.org/ns/activitystreams",
+        "@context": OBJECT_CONTEXT,
         id: deliveryActivityId,
         type: "Create",
         actor: actor.ap_id,
@@ -557,9 +626,30 @@ dm.post("/user/:encodedApId/messages", async (c) => {
     conversationId,
     published: now,
   });
+  const stampSnapshotStmt = stampResult?.ok
+    ? db.insert(messageStampRefs).values({
+        messageId: apId,
+        stampUri: stampResult.stamp.snapshot.id,
+        packUri: stampResult.stamp.snapshot.pack_id,
+        revisionId: stampResult.stamp.revisionId,
+        revisionDigest: stampResult.stamp.snapshot.revision,
+        localAssetR2Key: stampResult.stamp.localAssetR2Key,
+        mediaType: stampResult.stamp.snapshot.asset.media_type,
+        width: stampResult.stamp.snapshot.asset.width,
+        height: stampResult.stamp.snapshot.asset.height,
+        assetSha256: stampResult.stamp.snapshot.asset.sha256,
+        altText: stampResult.stamp.snapshot.alt,
+        createdAt: now,
+      })
+    : null;
+  const stampRecentStmt = stampResult?.ok
+    ? recordStampRecent(db, actor.ap_id, stampResult.stamp.snapshot.id, now)
+    : null;
   const batchOps = isRecipientLocal
     ? [
         noteStmt,
+        ...(stampSnapshotStmt ? [stampSnapshotStmt] : []),
+        ...(stampRecentStmt ? [stampRecentStmt] : []),
         db
           .insert(objectRecipients)
           .values({ objectApId: apId, recipientApId: otherApId, type: "to" })
@@ -583,6 +673,8 @@ dm.post("/user/:encodedApId/messages", async (c) => {
       ]
     : [
         noteStmt,
+        ...(stampSnapshotStmt ? [stampSnapshotStmt] : []),
+        ...(stampRecentStmt ? [stampRecentStmt] : []),
         db.insert(activities).values({
           apId: deliveryActivityId,
           type: "Create",
@@ -614,6 +706,7 @@ dm.post("/user/:encodedApId/messages", async (c) => {
     sender: buildSenderFromActor(actor),
     content,
     attachments,
+    ...(stampResult?.ok ? { stamp: stampResult.stamp.snapshot } : {}),
     created_at: now,
   };
 

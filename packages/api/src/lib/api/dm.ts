@@ -161,6 +161,25 @@ export async function sendUserDMMessage(
   };
 }
 
+export async function sendUserDMStamp(
+  userApId: string,
+  stampId: string,
+): Promise<{ message: DMMessage; conversation_id: string }> {
+  const res = await apiPost(
+    `/api/dm/user/${encodeURIComponent(userApId)}/messages`,
+    { stamp: { stamp_id: stampId } },
+  );
+  await assertOk(res, "Failed to send Stamp");
+  const data = (await res.json()) as {
+    message: DMMessage;
+    conversation_id: string;
+  };
+  return {
+    message: normalizeDmMessage(data.message),
+    conversation_id: data.conversation_id,
+  };
+}
+
 export async function sendUserDMTyping(userApId: string): Promise<void> {
   const res = await apiPost(
     `/api/dm/user/${encodeURIComponent(userApId)}/typing`,

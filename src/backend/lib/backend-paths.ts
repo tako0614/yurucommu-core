@@ -16,6 +16,7 @@ export const NON_SPA_PREFIXES = [
   "/.well-known",
   "/nodeinfo",
   "/media",
+  "/stamp-packs",
   "/hosted",
   "/.takos",
   "/healthz",

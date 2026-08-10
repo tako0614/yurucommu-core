@@ -2,8 +2,8 @@
  * Shared object-delete cascade.
  *
  * Migrations declare `ON DELETE CASCADE` on the object's interaction/edge
- * tables (likes, announces, bookmarks, object_recipients, story_views,
- * story_votes, story_shares), but SQLite enforces foreign keys only when
+ * tables (likes, announces, bookmarks, object_recipients, message_stamp_refs,
+ * story_views, story_votes, story_shares), but SQLite enforces foreign keys only when
  * `PRAGMA foreign_keys = ON` is set on the connection — which is NOT reliably
  * the case on every runtime/connection (D1 does not honour it, and the libsql
  * connection is not guaranteed to have it). Deleting an object row therefore
@@ -31,6 +31,7 @@ import {
   D1_MAX_BATCH_STATEMENTS,
   likes,
   mediaUploads,
+  messageStampRefs,
   objectRecipients,
   objects,
   runBatch,
@@ -288,7 +289,7 @@ export async function reapReplacedMediaUrl(
  * Delete all child rows that reference `objectApId` (the object's `ap_id`).
  *
  * Mirrors the `ON DELETE CASCADE` edges declared in the migrations:
- *   likes, announces, bookmarks, object_recipients,
+ *   likes, announces, bookmarks, object_recipients, message_stamp_refs,
  *   story_views, story_votes, story_shares.
  *
  * Also reaps the object-attached `media_uploads` rows, which have no FK to
@@ -362,6 +363,9 @@ export async function prepareObjectDeleteCascade(
         .delete(objectRecipients)
         .where(eq(objectRecipients.objectApId, objectApId)) as D1Statement,
       db
+        .delete(messageStampRefs)
+        .where(eq(messageStampRefs.messageId, objectApId)) as D1Statement,
+      db
         .delete(storyViews)
         .where(eq(storyViews.storyApId, objectApId)) as D1Statement,
       db
@@ -384,10 +388,10 @@ export async function prepareObjectDeleteCascade(
  * still own the final object delete and trailing {@link purgeMediaBlobs}.
  *
  * The old bulk callers invoked the singular helper once per object. On D1 that
- * meant one attachment read plus eight serial delete round-trips per post: five
+ * meant one attachment read plus many serial delete round-trips per post: five
  * empty posts took about ten seconds in a real workerd probe and larger domain
- * purges could outlive the request. Here each <=90-id D1-safe chunk issues one
- * atomic twelve-statement batch, so latency scales by chunks rather than posts.
+ * purges could outlive the request. Here each bounded D1-safe chunk issues one
+ * atomic batch, so latency scales by chunks rather than posts.
  */
 export async function deleteObjectsCascade(
   db: Database,
@@ -480,6 +484,9 @@ export async function deleteObjectsCascade(
       db
         .delete(objectRecipients)
         .where(inArray(objectRecipients.objectApId, chunk)),
+      db
+        .delete(messageStampRefs)
+        .where(inArray(messageStampRefs.messageId, chunk)),
       db.delete(storyViews).where(inArray(storyViews.storyApId, chunk)),
       db.delete(storyVotes).where(inArray(storyVotes.storyApId, chunk)),
       db.delete(storyShares).where(inArray(storyShares.storyApId, chunk)),

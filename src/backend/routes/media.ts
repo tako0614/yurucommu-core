@@ -143,6 +143,7 @@ function getExtensionFromMimeType(mimeType: string): string | null {
 
 // Validate filename: lowercase hex ID + allowed extension, no path traversal
 const VALID_MEDIA_FILENAME = /^[a-f0-9]+\.(jpg|png|gif|webp|mp4|webm)$/;
+const VALID_STAMP_FILENAME = /^([a-f0-9]{64})\.(webp|png)$/;
 
 function isValidMediaFilename(filename: string): boolean {
   if (!VALID_MEDIA_FILENAME.test(filename)) return false;
@@ -609,7 +610,51 @@ async function serveMediaByR2Key(c: MediaContext, r2Key: string) {
   }
 }
 
+async function serveStampAsset(c: MediaContext, filename: string) {
+  const match = VALID_STAMP_FILENAME.exec(filename);
+  if (!match) return c.notFound();
+  const digest = match[1]!;
+  const extension = match[2]!;
+  const media = c.env.MEDIA;
+  if (!media) return c.json({ error: "Object storage unavailable" }, 503);
+
+  try {
+    const object = await media.get(
+      `stamps/sha256/${digest.slice(0, 2)}/${filename}`,
+    );
+    if (!object) return c.notFound();
+
+    const contentType = extension === "webp" ? "image/webp" : "image/png";
+    const etag = `"sha256-${digest}"`;
+    const headers = {
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=31536000, immutable",
+      ETag: etag,
+      "X-Content-Type-Options": "nosniff",
+    };
+    if (c.req.header("If-None-Match") === etag) {
+      for (const [name, value] of Object.entries(headers))
+        c.header(name, value);
+      return c.body(null, 304);
+    }
+    if (!object.body) return c.body(null, 200, headers);
+    return c.body(object.body, 200, headers);
+  } catch (error) {
+    log.error("Stamp media fetch failed", {
+      event: "media.stamp.fetch_failed",
+      digest,
+      reason: errorMessage(error),
+      error,
+    });
+    return c.json({ error: "Failed to fetch media" }, 500);
+  }
+}
+
 // Serve media files from R2 with cache headers.
+media.get("/stamps/:filename", async (c) => {
+  return serveStampAsset(c, c.req.param("filename"));
+});
+
 media.get("/:id", async (c) => {
   const id = c.req.param("id");
   return serveMediaByR2Key(c, `uploads/${id}`);

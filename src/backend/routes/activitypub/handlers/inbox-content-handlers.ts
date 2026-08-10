@@ -25,6 +25,7 @@ import {
   follows,
   inbox as inboxTable,
   likes,
+  messageStampRefs,
   objectRecipients,
   objects,
   remoteActorFetchFailures,
@@ -32,8 +33,13 @@ import {
   storyShares,
   storyViews,
   storyVotes,
+  stampAssetMirrors,
 } from "../../../../db/index.ts";
-import { insertMany, runBatch } from "../../../../db/d1-write.ts";
+import {
+  insertMany,
+  runBatch,
+  type D1Statement,
+} from "../../../../db/d1-write.ts";
 import {
   addressesPublic,
   collectBoundedInboundAddresses,
@@ -96,6 +102,7 @@ import {
 } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
 import { anyOwnerSuppressesInboundActor } from "../../../lib/personal-actor-moderation.ts";
+import { inboundStampRefFromAttachmentsJson } from "../../../lib/stamps.ts";
 import {
   type Activity,
   type ActivityContext,
@@ -124,6 +131,48 @@ type ActorRow = typeof actors.$inferSelect;
 function isStoryType(type: string | string[] | undefined): boolean {
   if (!type) return false;
   return Array.isArray(type) ? type.includes("Story") : type === "Story";
+}
+
+function inboundStampProjectionStatements(
+  db: Database,
+  messageId: string,
+  attachmentsJson: string,
+  createdAt: string,
+): D1Statement[] {
+  const stamp = inboundStampRefFromAttachmentsJson(attachmentsJson);
+  if (!stamp) return [];
+
+  return [
+    db
+      .insert(messageStampRefs)
+      .values({
+        messageId,
+        stampUri: stamp.stampUri,
+        packUri: stamp.packUri,
+        revisionDigest: stamp.revisionDigest,
+        remoteAssetUrl: stamp.remoteAssetUrl,
+        mediaType: stamp.mediaType,
+        width: stamp.width,
+        height: stamp.height,
+        assetSha256: stamp.assetSha256,
+        altText: stamp.altText,
+        createdAt,
+      })
+      .onConflictDoNothing() as D1Statement,
+    db
+      .insert(stampAssetMirrors)
+      .values({
+        assetSha256: stamp.assetSha256,
+        remoteAssetUrl: stamp.remoteAssetUrl,
+        mediaType: stamp.mediaType,
+        status: "pending",
+        attempts: 0,
+        nextAttemptAt: createdAt,
+        createdAt,
+        updatedAt: createdAt,
+      })
+      .onConflictDoNothing() as D1Statement,
+  ];
 }
 
 /** Single-user instance policy: any local owner block/mute suppresses content writes. */
@@ -420,6 +469,13 @@ async function insertDirectNote(
     object.published,
     new Date().toISOString(),
   );
+  const attachmentsJson = boundInboundNoteAttachmentsJson(object.attachment);
+  const stampProjectionStatements = inboundStampProjectionStatements(
+    db,
+    objectId,
+    attachmentsJson,
+    publishedAt,
+  );
 
   const replyCountStatements = [
     ...(parentId ? [recomputeObjectReplyCount(db, parentId)] : []),
@@ -453,7 +509,7 @@ async function insertDirectNote(
         attributedTo: actor,
         content: boundInboundContent(object.content),
         summary: boundInboundSummary(object.summary),
-        attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
+        attachmentsJson,
         tagsJson: boundInboundTagsJson(object.tag),
         inReplyTo: parentId,
         visibility: "direct",
@@ -468,6 +524,7 @@ async function insertDirectNote(
         isLocal: 0,
       })
       .onConflictDoNothing(),
+    ...stampProjectionStatements,
     // The recipient link MUST co-commit with the object. Inbound-DM recipient
     // membership is resolved EXCLUSIVELY through object_recipients (contacts /
     // requests / unread-count), so an object that committed WITHOUT its
@@ -673,6 +730,13 @@ export async function handleCreate(
     object.published,
     new Date().toISOString(),
   );
+  const attachmentsJson = boundInboundNoteAttachmentsJson(object.attachment);
+  const stampProjectionStatements = inboundStampProjectionStatements(
+    db,
+    objectId,
+    attachmentsJson,
+    publishedAt,
+  );
 
   const shouldNotifyParent = !!(
     parentObj && isLocal(parentObj.attributedTo, baseUrl)
@@ -705,7 +769,7 @@ export async function handleCreate(
       attributedTo: actor,
       content: boundInboundContent(object.content),
       summary: boundInboundSummary(object.summary),
-      attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
+      attachmentsJson,
       tagsJson: boundInboundTagsJson(object.tag),
       inReplyTo: parentId,
       // Recipient-independent classification: a non-public Note is never stored
@@ -748,6 +812,7 @@ export async function handleCreate(
     await runBatch(db, [
       bumpPostCount,
       insertObject,
+      ...stampProjectionStatements,
       ...recipientProjectionStatements,
       recomputeObjectReplyCount(db, parentId),
       recomputeObjectReplyCount(db, objectId),
@@ -756,6 +821,7 @@ export async function handleCreate(
     await runBatch(db, [
       bumpPostCount,
       insertObject,
+      ...stampProjectionStatements,
       ...recipientProjectionStatements,
       recomputeObjectReplyCount(db, objectId),
     ]);

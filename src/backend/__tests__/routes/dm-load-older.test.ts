@@ -23,6 +23,7 @@ const MIGRATIONS = [
   "0004_blocklist.sql",
   "0008_actor_fields_aka.sql",
   "0009_object_tags.sql",
+  "0030_stamp_packs.sql",
 ];
 
 async function freshDb(): Promise<Database> {

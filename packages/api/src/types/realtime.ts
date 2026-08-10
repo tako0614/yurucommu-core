@@ -1,3 +1,5 @@
+import type { MessageStampSnapshot } from "./index.ts";
+
 /**
  * Realtime stream wire contract (browser <-> per-user RealtimeStreamDO).
  *
@@ -47,6 +49,7 @@ export interface TalkMessageEventData {
     };
     content: string | null;
     attachments?: unknown[];
+    stamp?: MessageStampSnapshot;
     created_at: string | null;
   };
 }

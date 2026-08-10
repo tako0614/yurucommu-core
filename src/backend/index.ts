@@ -33,6 +33,8 @@ import { moderationRoutes } from "./routes/moderation.ts";
 import { appsApiRoutes, appsServeRoutes } from "./routes/apps.ts";
 import mobileRoutes from "./routes/mobile.ts";
 import notificationPusherRoutes from "./routes/notification-pushers.ts";
+import stampsRoutes from "./routes/stamps.ts";
+import stampPackPublicRoutes from "./routes/stamp-pack-public.ts";
 import rtcRoutes from "./routes/rtc/index.ts";
 import realtimeRoutes from "./routes/realtime/index.ts";
 import { sweepRealtimeNotifications } from "./runtime/realtime-hub.ts";
@@ -71,6 +73,7 @@ import { enqueuePendingDeliveryResolutionJobs } from "./lib/delivery/resolution-
 import { enqueuePendingDeliveryFanoutJobs } from "./lib/delivery/fanout-outbox.ts";
 import { enqueuePendingNotificationPushJobs } from "./lib/notification-push.ts";
 import { runYurucommuRetention } from "./retention.ts";
+import { mirrorPendingStampAssets } from "./lib/stamp-mirror.ts";
 
 type YurucommuApp = Hono<{ Bindings: Env; Variables: Variables }>;
 
@@ -645,6 +648,14 @@ function applyGlobalMiddleware(
             error,
           });
         }
+        try {
+          await mirrorPendingStampAssets(c.env, 1);
+        } catch (error) {
+          log.error("Failed to mirror a pending Stamp asset", {
+            event: "stamp.asset.mirror_failed",
+            error,
+          });
+        }
         // Same choke point feeds the realtime stream: the push-jobs the inbox
         // trigger wrote tell us exactly which users gained a notification.
         await sweepRealtimeNotifications(c.env);
@@ -779,6 +790,7 @@ function applyGlobalMiddleware(
     return fedDiscoveryLimiter(c, next);
   });
   app.use("/ap/objects/*", rateLimit(RateLimitConfigs.federationDiscovery));
+  app.use("/stamp-packs/*", rateLimit(RateLimitConfigs.federationDiscovery));
   app.use(
     "/ap/users/*/outbox",
     rateLimit(RateLimitConfigs.federationDiscovery),
@@ -823,6 +835,8 @@ function mountCoreRoutes(app: YurucommuApp): void {
   app.route("/api/dm", dmRoutes);
   app.route("/api/media", mediaRoutes);
   app.route("/media", mediaRoutes);
+  app.route("/api/stamps", stampsRoutes);
+  app.route("/stamp-packs", stampPackPublicRoutes);
   app.route("/.takos/tools", takosToolsRoutes);
   app.route("/api/recommendations", recommendationsRoutes);
   app.route("/api/moderation", moderationRoutes);

@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { storyToActivityPub } from "../../lib/activitypub-helpers.ts";
+import {
+  storyToActivityPub,
+  toApAttachments,
+} from "../../lib/activitypub-helpers.ts";
 import type { Actor } from "../../types.ts";
 
 test("storyToActivityPub emits a single attachment object", () => {
@@ -80,4 +83,72 @@ test("storyToActivityPub federates the caption as Note content", () => {
   ) as Record<string, unknown>;
 
   expect("content" in withoutCaption).toBe(false);
+});
+
+test("toApAttachments emits a standard Image plus the bounded Stamp extension", () => {
+  const stampId = "https://alice.example/stamp-packs/cat/stamps/okay";
+  const packId = "https://alice.example/stamp-packs/cat";
+  const sha256 = "a".repeat(64);
+
+  expect(
+    toApAttachments(
+      [
+        {
+          type: "Image",
+          url: `/media/stamps/${sha256}.webp`,
+          r2_key: `stamps/sha256/aa/${sha256}.webp`,
+          content_type: "image/webp",
+          name: "了解！",
+          stamp: stampId,
+          stamp_pack: packId,
+          stamp_revision: `sha256:${"b".repeat(64)}`,
+          stamp_sha256: sha256,
+          width: 512,
+          height: 512,
+        },
+      ],
+      "https://yuru.test",
+    ),
+  ).toEqual([
+    {
+      type: "Image",
+      mediaType: "image/webp",
+      url: `https://yuru.test/media/stamps/${sha256}.webp`,
+      name: "了解！",
+      width: 512,
+      height: 512,
+      "yurucommu:stamp": stampId,
+      "yurucommu:pack": packId,
+      "yurucommu:revision": `sha256:${"b".repeat(64)}`,
+      "yurucommu:sha256": sha256,
+    },
+  ]);
+});
+
+test("toApAttachments degrades an invalid Stamp extension to an ordinary Document", () => {
+  expect(
+    toApAttachments(
+      [
+        {
+          url: "/media/stamps/image.webp",
+          content_type: "image/webp",
+          name: "fallback",
+          stamp: "not-a-url",
+          stamp_pack: "https://alice.example/stamp-packs/cat",
+          stamp_revision: "mutable",
+          stamp_sha256: "bad",
+          width: 512,
+          height: 512,
+        },
+      ],
+      "https://yuru.test",
+    ),
+  ).toEqual([
+    {
+      type: "Document",
+      mediaType: "image/webp",
+      url: "https://yuru.test/media/stamps/image.webp",
+      name: "fallback",
+    },
+  ]);
 });

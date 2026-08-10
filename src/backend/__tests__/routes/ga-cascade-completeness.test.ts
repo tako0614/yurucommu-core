@@ -33,6 +33,7 @@ import {
   inbox as inboxTable,
   likes,
   mediaUploads,
+  messageStampRefs,
   notificationArchived,
   notificationPushJobs,
   objectRecipients,
@@ -115,6 +116,19 @@ async function seedWithMediaAndChildren(
     recipientApId: interactorApId,
     type: "to",
   });
+  await db.insert(messageStampRefs).values({
+    messageId: objectApId,
+    stampUri: `${APP_URL}/stamp-packs/test/stamps/okay`,
+    packUri: `${APP_URL}/stamp-packs/test`,
+    revisionDigest: `sha256:${"a".repeat(64)}`,
+    localAssetR2Key: `stamps/sha256/bb/${"b".repeat(64)}.webp`,
+    mediaType: "image/webp",
+    width: 512,
+    height: 512,
+    assetSha256: "b".repeat(64),
+    altText: "OK",
+    createdAt: new Date().toISOString(),
+  });
   await db
     .insert(storyViews)
     .values({ actorApId: interactorApId, storyApId: objectApId });
@@ -136,7 +150,7 @@ async function countAllChildRows(
   objectApId: string,
   r2Key: string,
 ): Promise<number> {
-  const [l, a, b, r, sv, vo, sh, m] = await Promise.all([
+  const [l, a, b, r, stamp, sv, vo, sh, m] = await Promise.all([
     db.select().from(likes).where(eq(likes.objectApId, objectApId)),
     db.select().from(announces).where(eq(announces.objectApId, objectApId)),
     db.select().from(bookmarks).where(eq(bookmarks.objectApId, objectApId)),
@@ -144,6 +158,10 @@ async function countAllChildRows(
       .select()
       .from(objectRecipients)
       .where(eq(objectRecipients.objectApId, objectApId)),
+    db
+      .select()
+      .from(messageStampRefs)
+      .where(eq(messageStampRefs.messageId, objectApId)),
     db.select().from(storyViews).where(eq(storyViews.storyApId, objectApId)),
     db.select().from(storyVotes).where(eq(storyVotes.storyApId, objectApId)),
     db.select().from(storyShares).where(eq(storyShares.storyApId, objectApId)),
@@ -154,6 +172,7 @@ async function countAllChildRows(
     a.length +
     b.length +
     r.length +
+    stamp.length +
     sv.length +
     vo.length +
     sh.length +
@@ -174,9 +193,9 @@ test("deleteObjectCascade reaps the object-attached media_uploads row (no orphan
   await seedWithMediaAndChildren(db, target, author, other, targetKey);
   await seedWithMediaAndChildren(db, survivor, author, other, survivorKey);
 
-  // 7 cascade-keyed rows + 1 media_uploads row = 8 each.
-  expect(await countAllChildRows(db, target, targetKey)).toBe(8);
-  expect(await countAllChildRows(db, survivor, survivorKey)).toBe(8);
+  // 8 cascade-keyed rows + 1 media_uploads row = 9 each.
+  expect(await countAllChildRows(db, target, targetKey)).toBe(9);
+  expect(await countAllChildRows(db, survivor, survivorKey)).toBe(9);
 
   await deleteObjectCascade(db, target);
   await db.delete(objects).where(eq(objects.apId, target));
@@ -184,7 +203,7 @@ test("deleteObjectCascade reaps the object-attached media_uploads row (no orphan
   // Target fully reaped, including its media_uploads row.
   expect(await countAllChildRows(db, target, targetKey)).toBe(0);
   // Unrelated object's media + children untouched.
-  expect(await countAllChildRows(db, survivor, survivorKey)).toBe(8);
+  expect(await countAllChildRows(db, survivor, survivorKey)).toBe(9);
 });
 
 test("deleteObjectCascade cancels every durable projection of retained object activities", async () => {
@@ -387,7 +406,7 @@ test("cleanupExpiredStories reaps the FULL child set (announces, bookmarks, medi
   const storyKey = "uploads/story.jpg";
   await seedWithMediaAndChildren(db, story, author, other, storyKey, "Story");
 
-  expect(await countAllChildRows(db, story, storyKey)).toBe(8);
+  expect(await countAllChildRows(db, story, storyKey)).toBe(9);
 
   const removed = await cleanupExpiredStories(db);
   expect(removed).toBe(1);

@@ -18,3 +18,4 @@ export * from "./mobile.ts";
 export * from "./calls.ts";
 export * from "./federation.ts";
 export * from "./relations.ts";
+export * from "./stamps.ts";

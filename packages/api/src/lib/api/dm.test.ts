@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { clearYurucommuApiTransport } from "../transport.ts";
 import type { DMMessage } from "../../types/index.ts";
-import { fetchUserDMMessages } from "./dm.ts";
+import { fetchUserDMMessages, sendUserDMStamp } from "./dm.ts";
 
 function makeMessage(id: string): DMMessage {
   return {
@@ -64,4 +64,34 @@ test("fetchUserDMMessages defaults hasMore to false when the server omits it", a
 
   expect(result.messages).toEqual([]);
   expect(result.hasMore).toBe(false);
+});
+
+test("sendUserDMStamp sends only the selected logical Stamp id", async () => {
+  const originalFetch = globalThis.fetch;
+  clearYurucommuApiTransport();
+  let requestBody: unknown;
+  globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+    requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+    return Promise.resolve(
+      Response.json({
+        message: makeMessage("m-stamp"),
+        conversation_id: "conv-1",
+      }),
+    );
+  }) as typeof fetch;
+
+  try {
+    await sendUserDMStamp(
+      "https://example.com/ap/users/alice",
+      "https://example.com/stamp-packs/cat/stamps/okay",
+    );
+    expect(requestBody).toEqual({
+      stamp: {
+        stamp_id: "https://example.com/stamp-packs/cat/stamps/okay",
+      },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuApiTransport();
+  }
 });

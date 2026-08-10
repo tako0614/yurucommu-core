@@ -1,4 +1,49 @@
 import type { Actor } from "../types.ts";
+import { normalizeStampUri } from "./stamps.ts";
+
+const STAMP_SHA256 = /^[a-f0-9]{64}$/;
+const STAMP_REVISION = /^sha256:[a-f0-9]{64}$/;
+
+function stampActivityPubFields(
+  attachment: Record<string, unknown>,
+  mediaType: string | undefined,
+): Record<string, unknown> | null {
+  const stampId = normalizeStampUri(attachment.stamp);
+  const packId = normalizeStampUri(attachment.stamp_pack);
+  const revision = attachment.stamp_revision;
+  const sha256 = attachment.stamp_sha256;
+  const width = attachment.width;
+  const height = attachment.height;
+  if (
+    !stampId ||
+    !packId ||
+    typeof revision !== "string" ||
+    !STAMP_REVISION.test(revision) ||
+    typeof sha256 !== "string" ||
+    !STAMP_SHA256.test(sha256) ||
+    (mediaType !== "image/webp" && mediaType !== "image/png") ||
+    typeof width !== "number" ||
+    !Number.isInteger(width) ||
+    width < 1 ||
+    width > 512 ||
+    typeof height !== "number" ||
+    !Number.isInteger(height) ||
+    height < 1 ||
+    height > 512
+  ) {
+    return null;
+  }
+
+  return {
+    type: "Image",
+    width,
+    height,
+    "yurucommu:stamp": stampId,
+    "yurucommu:pack": packId,
+    "yurucommu:revision": revision,
+    "yurucommu:sha256": sha256,
+  };
+}
 
 interface StoryData {
   apId: string;
@@ -69,12 +114,14 @@ export function toApAttachments(
       undefined;
     const name =
       typeof a.name === "string" && a.name.length > 0 ? a.name : undefined;
+    const stampFields = stampActivityPubFields(a, mediaType);
     return [
       {
-        type: "Document",
+        type: stampFields ? "Image" : "Document",
         ...(mediaType ? { mediaType } : {}),
         url: safeUrlJoin(baseUrl, url),
         ...(name ? { name } : {}),
+        ...(stampFields ?? {}),
       },
     ];
   });

@@ -33,6 +33,7 @@ const MIGRATIONS = [
   // is a valid audience recipient — the community chat send relies on it.
   "0010_object_recipients_drop_actor_fk.sql",
   "0019_notification_push_delivery.sql",
+  "0030_stamp_packs.sql",
 ];
 
 async function freshDb(): Promise<Database> {

@@ -54,6 +54,27 @@ export interface MediaAttachment {
   name?: string;
 }
 
+export interface StampAsset {
+  url: string;
+  media_type: "image/webp" | "image/png";
+  width: number;
+  height: number;
+  sha256: string;
+}
+
+/** Immutable display data owned by one sent Message. */
+export interface MessageStampSnapshot {
+  id: string;
+  pack_id: string;
+  revision: `sha256:${string}`;
+  asset: StampAsset;
+  alt: string;
+}
+
+export interface StampSelection {
+  stamp_id: string;
+}
+
 // Post author info
 export interface PostAuthor {
   ap_id: string;
@@ -110,6 +131,8 @@ export interface DMMessage {
   content: string;
   /** Media attachments (image/video), same shape as post attachments. */
   attachments?: MediaAttachment[];
+  /** Present for a Stamp message; prefer this over fallback text/attachment. */
+  stamp?: MessageStampSnapshot;
   created_at: string;
 }
 

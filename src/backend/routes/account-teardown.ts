@@ -33,6 +33,7 @@ import {
   inbox,
   likes,
   mediaUploads,
+  messageStampRefs,
   mutes,
   notificationArchived,
   notificationPushers,
@@ -41,6 +42,11 @@ import {
   objectRecipients,
   objects,
   sessions,
+  stampEntitlements,
+  stampFavorites,
+  stampInstallations,
+  stampPacks,
+  stampRecents,
   storyShares,
   storyViews,
   storyVotes,
@@ -428,6 +434,22 @@ export async function teardownActor(
     .delete(dmTyping)
     .where(or(eq(dmTyping.actorApId, apId), eq(dmTyping.recipientApId, apId)));
 
+  // Actor-scoped Stamp picker and send authority. Published pack content is
+  // retained for immutable message history, but deletion closes the pack to
+  // new installs/sends instead of rewriting prior Message snapshots.
+  await db
+    .delete(stampEntitlements)
+    .where(eq(stampEntitlements.actorApId, apId));
+  await db
+    .delete(stampInstallations)
+    .where(eq(stampInstallations.actorApId, apId));
+  await db.delete(stampFavorites).where(eq(stampFavorites.actorApId, apId));
+  await db.delete(stampRecents).where(eq(stampRecents.actorApId, apId));
+  await db
+    .update(stampPacks)
+    .set({ status: "deleted", updatedAt: nowIso() })
+    .where(eq(stampPacks.publisherActorId, apId));
+
   // Community membership lifecycle rows.
   await db
     .delete(communityJoinRequests)
@@ -679,6 +701,9 @@ export async function teardownActor(
   await db
     .delete(objectRecipients)
     .where(inArray(objectRecipients.objectApId, authoredObjectIds()));
+  await db
+    .delete(messageStampRefs)
+    .where(inArray(messageStampRefs.messageId, authoredObjectIds()));
 
   // Recompute affected parents' replyCount as COUNT(*) of remaining replies.
   await db

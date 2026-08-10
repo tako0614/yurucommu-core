@@ -12,5 +12,9 @@ export const OBJECT_CONTEXT = [
   {
     Hashtag: "https://www.w3.org/ns/activitystreams#Hashtag",
     sensitive: "https://www.w3.org/ns/activitystreams#sensitive",
+    yurucommu: {
+      "@id": "https://yurucommu.com/ns/stamp#",
+      "@prefix": true,
+    },
   },
 ] as const;

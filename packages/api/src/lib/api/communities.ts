@@ -1,4 +1,7 @@
-import type { MediaAttachment } from "../../types/index.ts";
+import type {
+  MediaAttachment,
+  MessageStampSnapshot,
+} from "../../types/index.ts";
 import { normalizeActor } from "./normalize.ts";
 import {
   apiDelete,
@@ -52,6 +55,8 @@ export interface CommunityMessage {
   content: string;
   /** Media attachments (image/video), same shape as post attachments. */
   attachments?: MediaAttachment[];
+  /** Immutable sent Stamp projection. */
+  stamp?: MessageStampSnapshot;
   created_at: string;
 }
 
@@ -213,6 +218,19 @@ export async function sendCommunityMessage(
     },
   );
   await assertOk(res, "Failed to send message");
+  const data = (await res.json()) as { message: CommunityMessage };
+  return normalizeCommunityMessage(data.message);
+}
+
+export async function sendCommunityStamp(
+  identifier: string,
+  stampId: string,
+): Promise<CommunityMessage> {
+  const res = await apiPost(
+    `/api/communities/${encodeURIComponent(identifier)}/messages`,
+    { stamp: { stamp_id: stampId } },
+  );
+  await assertOk(res, "Failed to send Stamp");
   const data = (await res.json()) as { message: CommunityMessage };
   return normalizeCommunityMessage(data.message);
 }

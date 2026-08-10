@@ -5,6 +5,7 @@ import {
   communities,
   communityMembers,
   dmCommunityReadStatus,
+  messageStampRefs,
   notificationPushers,
   notificationPushJobs,
   objectRecipients,
@@ -42,6 +43,11 @@ import {
   resolveCommunityApId,
 } from "./membership-shared.ts";
 import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
+import {
+  messageStampSnapshotFromProjection,
+  recordStampRecent,
+  resolveSendableStamp,
+} from "../../lib/stamps.ts";
 
 const MAX_COMMUNITY_MESSAGE_LENGTH = 5000;
 const MAX_COMMUNITY_MESSAGES_LIMIT = 100;
@@ -177,9 +183,20 @@ messagesRouter.get("/:identifier/messages", async (c) => {
       content: objects.content,
       attachmentsJson: objects.attachmentsJson,
       published: objects.published,
+      stampUri: messageStampRefs.stampUri,
+      packUri: messageStampRefs.packUri,
+      revisionDigest: messageStampRefs.revisionDigest,
+      remoteAssetUrl: messageStampRefs.remoteAssetUrl,
+      localAssetR2Key: messageStampRefs.localAssetR2Key,
+      stampMediaType: messageStampRefs.mediaType,
+      stampWidth: messageStampRefs.width,
+      stampHeight: messageStampRefs.height,
+      assetSha256: messageStampRefs.assetSha256,
+      stampAltText: messageStampRefs.altText,
     })
     .from(objectRecipients)
     .innerJoin(objects, eq(objectRecipients.objectApId, objects.apId))
+    .leftJoin(messageStampRefs, eq(messageStampRefs.messageId, objects.apId))
     .where(and(...whereConditions))
     .orderBy(desc(objects.published), desc(objects.apId))
     .limit(limit + 1);
@@ -191,6 +208,18 @@ messagesRouter.get("/:identifier/messages", async (c) => {
 
   const result = messages.reverse().map((msg) => {
     const senderInfo = actorInfoMap.get(msg.attributedTo);
+    const stamp = messageStampSnapshotFromProjection({
+      stampUri: msg.stampUri,
+      packUri: msg.packUri,
+      revisionDigest: msg.revisionDigest,
+      remoteAssetUrl: msg.remoteAssetUrl,
+      localAssetR2Key: msg.localAssetR2Key,
+      mediaType: msg.stampMediaType,
+      width: msg.stampWidth,
+      height: msg.stampHeight,
+      assetSha256: msg.assetSha256,
+      altText: msg.stampAltText,
+    });
     return {
       id: msg.apId,
       sender: {
@@ -205,6 +234,7 @@ messagesRouter.get("/:identifier/messages", async (c) => {
       },
       content: msg.content,
       attachments: safeJsonParse<ChatAttachment[]>(msg.attachmentsJson, []),
+      ...(stamp ? { stamp } : {}),
       created_at: msg.published,
     };
   });
@@ -258,17 +288,43 @@ messagesRouter.post(
     const body = await c.req.json<{
       content?: string;
       attachments?: unknown;
+      stamp?: unknown;
     }>();
 
     const attachmentsResult = validateChatAttachments(body.attachments);
     if (!attachmentsResult.ok) {
       return c.json({ error: attachmentsResult.error }, 400);
     }
-    const attachments = attachmentsResult.attachments;
+    let attachments = attachmentsResult.attachments;
+
+    const stampResult =
+      body.stamp === undefined
+        ? null
+        : await resolveSendableStamp(db, actor.ap_id, body.stamp, {
+            acceptLanguage: c.req.header("Accept-Language"),
+          });
+    if (stampResult && !stampResult.ok) {
+      return c.json({ error: stampResult.error }, stampResult.status);
+    }
+    if (
+      stampResult?.ok &&
+      (attachments.length > 0 ||
+        (typeof body.content === "string" && body.content.trim().length > 0))
+    ) {
+      return c.json(
+        { error: "A Stamp message cannot include text or other attachments" },
+        400,
+      );
+    }
+    if (stampResult?.ok) {
+      attachments = [stampResult.stamp.attachment];
+    }
 
     // Guard non-string content before .trim() (else TypeError → 500). An
     // attachment-only message (image send) carries no text.
-    const rawContent = body.content;
+    const rawContent = stampResult?.ok
+      ? `[Stamp: ${stampResult.stamp.snapshot.alt}]`
+      : body.content;
     if (
       typeof rawContent !== "string" &&
       !(
@@ -382,8 +438,9 @@ messagesRouter.post(
     }
 
     // Persist the chat message atomically: the Note, its community-audience
-    // recipient row (which the GET-messages reader joins on), the Create
-    // activity, and the community's lastMessageAt. D1 has no interactive
+    // recipient row (which the GET-messages reader joins on), any immutable
+    // Stamp snapshot, the Create activity, and the community's lastMessageAt.
+    // D1 has no interactive
     // transactions; batch() is atomic, so a mid-write failure can no longer
     // leave an orphan Note with no recipient row. The recipient row is a plain
     // Drizzle insert now that recipient_ap_id no longer has a (wrong) FK to
@@ -401,6 +458,30 @@ messagesRouter.post(
         published: now,
         isLocal: 1,
       }),
+      ...(stampResult?.ok
+        ? [
+            db.insert(messageStampRefs).values({
+              messageId: objectApId,
+              stampUri: stampResult.stamp.snapshot.id,
+              packUri: stampResult.stamp.snapshot.pack_id,
+              revisionId: stampResult.stamp.revisionId,
+              revisionDigest: stampResult.stamp.snapshot.revision,
+              localAssetR2Key: stampResult.stamp.localAssetR2Key,
+              mediaType: stampResult.stamp.snapshot.asset.media_type,
+              width: stampResult.stamp.snapshot.asset.width,
+              height: stampResult.stamp.snapshot.asset.height,
+              assetSha256: stampResult.stamp.snapshot.asset.sha256,
+              altText: stampResult.stamp.snapshot.alt,
+              createdAt: now,
+            }),
+            recordStampRecent(
+              db,
+              actor.ap_id,
+              stampResult.stamp.snapshot.id,
+              now,
+            ),
+          ]
+        : []),
       db.insert(objectRecipients).values({
         objectApId,
         recipientApId: community.apId,
@@ -432,6 +513,7 @@ messagesRouter.post(
       },
       content,
       attachments,
+      ...(stampResult?.ok ? { stamp: stampResult.stamp.snapshot } : {}),
       created_at: now,
     };
 
