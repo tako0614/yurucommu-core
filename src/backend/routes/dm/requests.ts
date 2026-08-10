@@ -1,13 +1,8 @@
 // DM requests - list, accept, reject
 
 import { Hono } from "hono";
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import {
-  activities,
-  blocks,
-  objectRecipients,
-  objects,
-} from "../../../db/index.ts";
+import { and, asc, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
+import { activities, blocks, objects } from "../../../db/index.ts";
 import { resolveConversationId } from "./query-helpers.ts";
 import {
   buildActorInfoMap,
@@ -18,6 +13,11 @@ import {
 } from "./conversations-helpers.ts";
 import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
 import { deleteActivitiesCascade } from "../../lib/activity-delete-cascade.ts";
+import { D1_IN_CHUNK } from "../../lib/chunk.ts";
+import {
+  deleteObjectsCascade,
+  purgeMediaBlobs,
+} from "../posts/delete-cascade.ts";
 
 // Upper bound on the number of pending-request CONVERSATIONS returned. The list
 // is collapsed to one row per conversation in SQL (GROUP BY), so this bounds
@@ -123,18 +123,26 @@ requests.post("/requests/reject", async (c) => {
     body.sender_ap_id,
   );
 
-  // The set of the sender's messages in this conversation, as a reusable
-  // SUBQUERY (never materialised into an `IN (...)`, which would blow D1's
-  // 100-bound-parameter ceiling once a spammer has written >~100 messages).
+  // One exact owner predicate for every cleanup stage. A legacy/corrupt public
+  // row can share the conversation string; omitting the direct-Note scope from
+  // only the Activity/recipient subqueries would delete that survivor's
+  // projections while leaving its object behind.
+  const senderMessageWhere = (afterApId?: string) =>
+    and(
+      eq(objects.conversation, conversationId),
+      eq(objects.visibility, "direct"),
+      eq(objects.type, "Note"),
+      eq(objects.attributedTo, body.sender_ap_id),
+      afterApId ? gt(objects.apId, afterApId) : undefined,
+    );
+
+  // The complete sender message set stays a subquery here (never materialised
+  // into one unbounded `IN (...)`) so Activity hard deletion remains one
+  // constant-parameter atomic unit even after a spammer writes >100 messages.
   const senderObjectIds = db
     .select({ apId: objects.apId })
     .from(objects)
-    .where(
-      and(
-        eq(objects.conversation, conversationId),
-        eq(objects.attributedTo, body.sender_ap_id),
-      ),
-    );
+    .where(senderMessageWhere());
 
   // Drop every delivery Create activity and its durable projections FIRST,
   // before the objects vanish. These tables are addressed by AP id with no FK
@@ -148,21 +156,29 @@ requests.post("/requests/reject", async (c) => {
     inArray(activities.objectApId, senderObjectIds),
   );
 
-  // Delete the recipient rows for every message the sender wrote in this
-  // conversation (same subquery-not-IN reasoning as above).
-  await db
-    .delete(objectRecipients)
-    .where(inArray(objectRecipients.objectApId, senderObjectIds));
+  // Drain object ids in D1-safe keyset pages. Each page routes through the same
+  // semantic child + durable projection + media owner as single-message
+  // deletion, then drops the objects and finally performs the irreversible R2
+  // purge. This avoids both an unbounded parameter list and loading a spammer's
+  // complete private history into isolate memory.
+  let cursor: string | undefined;
+  while (true) {
+    const page = await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(senderMessageWhere(cursor))
+      .orderBy(asc(objects.apId))
+      .limit(D1_IN_CHUNK);
+    if (page.length === 0) break;
 
-  await db
-    .delete(objects)
-    .where(
-      and(
-        eq(objects.conversation, conversationId),
-        eq(objects.visibility, "direct"),
-        eq(objects.attributedTo, body.sender_ap_id),
-      ),
-    );
+    const apIds = page.map((row) => row.apId);
+    const mediaKeys = await deleteObjectsCascade(db, apIds, c.env.MEDIA);
+    await db.delete(objects).where(inArray(objects.apId, apIds));
+    await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
+
+    cursor = apIds.at(-1);
+    if (!cursor || page.length < D1_IN_CHUNK) break;
+  }
 
   if (body.block) {
     await db

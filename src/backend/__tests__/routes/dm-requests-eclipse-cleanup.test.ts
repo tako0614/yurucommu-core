@@ -14,12 +14,18 @@ import type { Database } from "../../../db/index.ts";
 import {
   activities,
   actors,
+  announces,
+  bookmarks,
   dmArchivedConversations,
   inbox as inboxTable,
+  likes,
+  mediaUploads,
   objectRecipients,
   objects,
+  insertMany,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
+import type { IObjectStorage } from "../../runtime/types.ts";
 import dmRoutes from "../../routes/dm/conversations.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
@@ -137,8 +143,31 @@ function appWith(db: Database, actor: Actor) {
   return app;
 }
 
-const envFor = (db: Database): Env =>
-  ({ APP_URL, DB_INSTANCE: db }) as unknown as Env;
+const envFor = (db: Database, media?: IObjectStorage): Env =>
+  ({ APP_URL, DB_INSTANCE: db, MEDIA: media }) as unknown as Env;
+
+function recordingStorage(): {
+  storage: IObjectStorage;
+  deleted: string[];
+} {
+  const deleted: string[] = [];
+  const storage = {
+    async put() {},
+    async get() {
+      return null;
+    },
+    async delete(key: string | string[]) {
+      deleted.push(...(Array.isArray(key) ? key : [key]));
+    },
+    async list() {
+      return { objects: [], truncated: false } as never;
+    },
+    async head() {
+      return null;
+    },
+  } as unknown as IObjectStorage;
+  return { storage, deleted };
+}
 
 test("GET /requests returns one row per conversation — a high-volume sender cannot eclipse others", async () => {
   const db = await freshDb();
@@ -185,7 +214,7 @@ test("GET /requests returns one row per conversation — a high-volume sender ca
   expect(floodRow?.content).toEqual("f24");
 });
 
-test("POST /requests/reject reaps the inbound activities + inbox rows (no phantom notification)", async () => {
+test("POST /requests/reject fully reaps only direct messages, including child/media state", async () => {
   const db = await freshDb();
   const alice = await insertLocalActor(db, "alice");
   const spammer = await insertLocalActor(db, "spammer");
@@ -210,7 +239,129 @@ test("POST /requests/reject reaps the inbound activities + inbox rows (no phanto
   await surfaceInbound(db, objA, spammer, alice);
   await surfaceInbound(db, objB, spammer, alice);
 
+  // Attach one private managed blob and interaction state. The old request
+  // path bypassed deleteObjectCascade, leaving every one of these rows behind.
+  const r2Key = "uploads/rejected-private.jpg";
+  await db
+    .update(objects)
+    .set({
+      attachmentsJson: JSON.stringify([
+        {
+          type: "Document",
+          url: "/media/rejected-private.jpg",
+          r2_key: r2Key,
+        },
+      ]),
+    })
+    .where(eq(objects.apId, objA));
+  await db.insert(mediaUploads).values({
+    id: "rejected-private-media",
+    r2Key,
+    uploaderApId: spammer,
+    contentType: "image/jpeg",
+    size: 123,
+  });
+  await db.insert(likes).values({ actorApId: alice, objectApId: objA });
+  await db.insert(announces).values({ actorApId: alice, objectApId: objA });
+  await db.insert(bookmarks).values({ actorApId: alice, objectApId: objA });
+
+  // A corrupt/legacy non-DM row may share the same conversation string. Reject
+  // owns only direct Note messages; the old activity/recipient subquery lacked
+  // that scope and data-lossed this survivor's projections before leaving its
+  // object row behind.
+  const publicSurvivor = `${APP_URL}/ap/objects/same-conversation-public`;
+  await db.insert(objects).values({
+    apId: publicSurvivor,
+    type: "Note",
+    attributedTo: spammer,
+    content: "not a direct message",
+    visibility: "public",
+    conversation: conv,
+  });
+  await db.insert(objectRecipients).values({
+    objectApId: publicSurvivor,
+    recipientApId: alice,
+    type: "to",
+  });
+  const survivorActivity = await surfaceInbound(
+    db,
+    publicSurvivor,
+    spammer,
+    alice,
+  );
+
+  const { storage, deleted } = recordingStorage();
+
   const res = await appWith(db, fakeActor(alice, "alice")).fetch(
+    new Request(`${APP_URL}/requests/reject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sender_ap_id: spammer }),
+    }),
+    envFor(db, storage),
+  );
+  expect(res.status).toEqual(200);
+
+  // Only the two direct messages are gone; the public same-conversation row and
+  // each of its projections survive.
+  expect(
+    (await db.select().from(objects).where(eq(objects.conversation, conv))).map(
+      (row) => row.apId,
+    ),
+  ).toEqual([publicSurvivor]);
+  expect(
+    (
+      await db
+        .select()
+        .from(activities)
+        .where(eq(activities.actorApId, spammer))
+    ).map((row) => row.apId),
+  ).toEqual([survivorActivity]);
+  expect(
+    (
+      await db.select().from(inboxTable).where(eq(inboxTable.actorApId, alice))
+    ).map((row) => row.activityApId),
+  ).toEqual([survivorActivity]);
+  expect(
+    (
+      await db
+        .select()
+        .from(objectRecipients)
+        .where(eq(objectRecipients.recipientApId, alice))
+    ).map((row) => row.objectApId),
+  ).toEqual([publicSurvivor]);
+  for (const rows of [
+    await db.select().from(likes).where(eq(likes.objectApId, objA)),
+    await db.select().from(announces).where(eq(announces.objectApId, objA)),
+    await db.select().from(bookmarks).where(eq(bookmarks.objectApId, objA)),
+    await db.select().from(mediaUploads).where(eq(mediaUploads.r2Key, r2Key)),
+  ]) {
+    expect(rows).toHaveLength(0);
+  }
+  expect(deleted).toEqual([r2Key]);
+});
+
+test("POST /requests/reject drains more than one D1-safe object page", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "paged-alice");
+  const spammer = await insertLocalActor(db, "paged-spammer");
+  const conversation = "conv-paged-spam";
+
+  await insertMany(
+    db,
+    objects,
+    Array.from({ length: 91 }, (_, index) => ({
+      apId: `${APP_URL}/ap/objects/paged-${String(index).padStart(3, "0")}`,
+      type: "Note",
+      attributedTo: spammer,
+      content: `spam ${index}`,
+      visibility: "direct",
+      conversation,
+      isLocal: 0,
+    })),
+  );
+
+  const response = await appWith(db, fakeActor(alice, "paged-alice")).fetch(
     new Request(`${APP_URL}/requests/reject`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -218,34 +369,13 @@ test("POST /requests/reject reaps the inbound activities + inbox rows (no phanto
     }),
     envFor(db),
   );
-  expect(res.status).toEqual(200);
-
-  // The objects, recipient links, AND the inbound activities + inbox rows are
-  // all gone — nothing left to resurface as a blank "mention" notification.
+  expect(response.status).toBe(200);
   expect(
-    (await db.select().from(objects).where(eq(objects.conversation, conv)))
-      .length,
-  ).toEqual(0);
-  expect(
-    (
-      await db
-        .select()
-        .from(activities)
-        .where(eq(activities.actorApId, spammer))
-    ).length,
-  ).toEqual(0);
-  expect(
-    (await db.select().from(inboxTable).where(eq(inboxTable.actorApId, alice)))
-      .length,
-  ).toEqual(0);
-  expect(
-    (
-      await db
-        .select()
-        .from(objectRecipients)
-        .where(eq(objectRecipients.recipientApId, alice))
-    ).length,
-  ).toEqual(0);
+    await db
+      .select()
+      .from(objects)
+      .where(eq(objects.conversation, conversation)),
+  ).toHaveLength(0);
 });
 
 test("archive keys on the STORED (legacy-scheme) conversation id, not the recomputed one", async () => {
