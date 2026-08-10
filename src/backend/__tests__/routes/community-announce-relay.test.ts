@@ -78,18 +78,30 @@ async function drainQueue(
   env: Env,
   bodies: DeliveryQueueMessageV1[],
 ): Promise<void> {
-  const messages = bodies.map((body) => ({
-    id: Math.random().toString(36),
-    timestamp: new Date(),
-    body,
-    attempts: 1,
-    ack() {},
-    retry() {},
-  }));
-  await handleDeliveryQueueBatch(
-    { messages, queue: "delivery", ackAll() {}, retryAll() {} } as never,
-    env,
-  );
+  // Community fanout is a bounded stage/cursor state machine. Drain only its
+  // continuation messages; leave deliver_endpoint wakeups in the harness so
+  // this test never performs a real network delivery.
+  while (true) {
+    const nextIndex = bodies.findIndex(
+      (body) => body.type === "fanout_community",
+    );
+    if (nextIndex < 0) return;
+    const [body] = bodies.splice(nextIndex, 1);
+    const messages = [
+      {
+        id: Math.random().toString(36),
+        timestamp: new Date(),
+        body,
+        attempts: 1,
+        ack() {},
+        retry() {},
+      },
+    ];
+    await handleDeliveryQueueBatch(
+      { messages, queue: "delivery", ackAll() {}, retryAll() {} } as never,
+      env,
+    );
+  }
 }
 
 test("a community Create emits a group Announce + carries it in the fanout", async () => {
@@ -213,7 +225,7 @@ test("the group's Announce (not the raw Create) is delivered to a REMOTE followe
 
   // Drain the captured fanout through the real handler; a delivery job for the
   // remote follower's inbox must reference the ANNOUNCE, not the raw Create.
-  await drainQueue(env, [...sent]);
+  await drainQueue(env, sent);
 
   const jobs = await db
     .select({ activityApId: deliveryQueue.activityApId })

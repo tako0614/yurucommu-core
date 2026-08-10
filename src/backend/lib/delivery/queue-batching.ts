@@ -14,6 +14,9 @@ import {
   deliveryQueue,
   follows,
   inbox as inboxTable,
+  insertMany,
+  runBatch,
+  type D1Statement,
 } from "../../../db/index.ts";
 import { isLocal, isSafeRemoteUrl } from "../../federation-helpers.ts";
 import { isActorBlocked } from "../blocklist.ts";
@@ -356,7 +359,7 @@ export async function processFanoutCommunity(
   }
 
   const activityExists = await db
-    .select({ apId: activities.apId })
+    .select({ apId: activities.apId, actorApId: activities.actorApId })
     .from(activities)
     .where(eq(activities.apId, msg.activityId))
     .get();
@@ -377,21 +380,31 @@ export async function processFanoutCommunity(
   }
   const queueEnv = env as QueueEnv;
 
-  // Resolve the activity's author so we never echo the post back into the
-  // author's own inbox.
-  const activityRow = await db
-    .select({ actorApId: activities.actorApId })
-    .from(activities)
-    .where(eq(activities.apId, msg.activityId))
-    .get();
-  const authorApId = activityRow?.actorApId ?? null;
+  const authorApId = activityExists.actorApId;
+  const stage = msg.stage ?? "local_members";
+  const cursor = msg.cursor ?? null;
+  const enqueueContinuation = async (
+    nextStage: NonNullable<DeliveryFanoutCommunityMessageV1["stage"]>,
+    nextCursor: string | null,
+  ) => {
+    await sendQueueMessage(env, {
+      version: DELIVERY_QUEUE_MESSAGE_VERSION,
+      type: "fanout_community",
+      activityId: msg.activityId,
+      communityApId: msg.communityApId,
+      ...(msg.announceActivityId
+        ? { announceActivityId: msg.announceActivityId }
+        : {}),
+      stage: nextStage,
+      ...(nextCursor ? { cursor: nextCursor } : {}),
+      scheduledAt: nowIso(),
+    });
+  };
 
-  // ----- 1. Local members: deliver to their inbox directly. ----------------
-  let memberCursor: string | null = null;
-  while (true) {
+  if (stage === "local_members") {
     const conditions = [eq(communityMembers.communityApId, msg.communityApId)];
-    if (memberCursor !== null) {
-      conditions.push(sql`${communityMembers.actorApId} > ${memberCursor}`);
+    if (cursor !== null) {
+      conditions.push(sql`${communityMembers.actorApId} > ${cursor}`);
     }
     const page = await db
       .select({ actorApId: communityMembers.actorApId })
@@ -399,114 +412,81 @@ export async function processFanoutCommunity(
       .where(and(...conditions))
       .orderBy(communityMembers.actorApId)
       .limit(FANOUT_FOLLOWER_PAGE_SIZE);
-
-    if (page.length === 0) break;
-    memberCursor = page[page.length - 1].actorApId;
-
     const localRecipients = page
-      .map((m) => m.actorApId)
+      .map((row) => row.actorApId)
       .filter((apId) => isLocal(apId, baseUrl) && apId !== authorApId);
-
     if (localRecipients.length > 0) {
       const now = nowIso();
-      await db
-        .insert(inboxTable)
-        .values(
-          localRecipients.map((actorApId) => ({
-            actorApId,
-            activityApId: msg.activityId,
-            read: 0,
-            createdAt: now,
-          })),
-        )
-        .onConflictDoNothing();
+      const statements = insertMany(
+        db,
+        inboxTable,
+        localRecipients.map((actorApId) => ({
+          actorApId,
+          activityApId: msg.activityId,
+          read: 0,
+          createdAt: now,
+        })),
+        { conflict: "ignore" },
+      );
+      if (statements.length > 0) {
+        await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
+      }
     }
-
-    if (page.length < FANOUT_FOLLOWER_PAGE_SIZE) break;
+    if (page.length === FANOUT_FOLLOWER_PAGE_SIZE) {
+      await enqueueContinuation(
+        "local_members",
+        page[page.length - 1].actorApId,
+      );
+    } else {
+      await enqueueContinuation("remote_members", null);
+    }
+    message.ack();
+    return;
   }
 
-  // ----- 2. Remote recipients: plan endpoints and deliver. -----------------
-  // Remote members of the community plus accepted followers of the community
-  // actor. A community member set is typically modest; followers of the
-  // community actor capture remote servers that follow the Group to receive
-  // its activities. Both are deduped before planning.
-  const remoteRecipients = new Set<string>();
-
-  // Remote community members.
-  {
-    let cursor: string | null = null;
-    let processed = 0;
-    while (processed < FANOUT_MAX_FOLLOWERS) {
-      const conditions = [
-        eq(communityMembers.communityApId, msg.communityApId),
-      ];
-      if (cursor !== null) {
-        conditions.push(sql`${communityMembers.actorApId} > ${cursor}`);
-      }
-      const page = await db
-        .select({ actorApId: communityMembers.actorApId })
-        .from(communityMembers)
-        .where(and(...conditions))
-        .orderBy(communityMembers.actorApId)
-        .limit(FANOUT_FOLLOWER_PAGE_SIZE);
-      if (page.length === 0) break;
-      cursor = page[page.length - 1].actorApId;
-      for (const m of page) {
-        if (!isLocal(m.actorApId, baseUrl) && m.actorApId !== authorApId) {
-          remoteRecipients.add(m.actorApId);
-        }
-      }
-      processed += page.length;
-      if (page.length < FANOUT_FOLLOWER_PAGE_SIZE) break;
+  let pageActorApIds: string[];
+  if (stage === "remote_members") {
+    const conditions = [eq(communityMembers.communityApId, msg.communityApId)];
+    if (cursor !== null) {
+      conditions.push(sql`${communityMembers.actorApId} > ${cursor}`);
     }
+    const page = await db
+      .select({ actorApId: communityMembers.actorApId })
+      .from(communityMembers)
+      .where(and(...conditions))
+      .orderBy(communityMembers.actorApId)
+      .limit(FANOUT_FOLLOWER_PAGE_SIZE);
+    pageActorApIds = page.map((row) => row.actorApId);
+  } else {
+    const conditions = [
+      eq(follows.followingApId, msg.communityApId),
+      eq(follows.status, "accepted"),
+    ];
+    if (cursor !== null) {
+      conditions.push(sql`${follows.followerApId} > ${cursor}`);
+    }
+    const page = await db
+      .select({ actorApId: follows.followerApId })
+      .from(follows)
+      .where(and(...conditions))
+      .orderBy(follows.followerApId)
+      .limit(FANOUT_FOLLOWER_PAGE_SIZE);
+    pageActorApIds = page.map((row) => row.actorApId);
   }
 
-  // Accepted followers of the community actor.
-  {
-    let cursor: string | null = null;
-    let processed = 0;
-    while (processed < FANOUT_MAX_FOLLOWERS) {
-      const conditions = [
-        eq(follows.followingApId, msg.communityApId),
-        eq(follows.status, "accepted"),
-      ];
-      if (cursor !== null) {
-        conditions.push(sql`${follows.followerApId} > ${cursor}`);
-      }
-      const page = await db
-        .select({ followerApId: follows.followerApId })
-        .from(follows)
-        .where(and(...conditions))
-        .orderBy(follows.followerApId)
-        .limit(FANOUT_FOLLOWER_PAGE_SIZE);
-      if (page.length === 0) break;
-      cursor = page[page.length - 1].followerApId;
-      for (const f of page) {
-        if (
-          !isLocal(f.followerApId, baseUrl) &&
-          f.followerApId !== authorApId
-        ) {
-          remoteRecipients.add(f.followerApId);
-        }
-      }
-      processed += page.length;
-      if (page.length < FANOUT_FOLLOWER_PAGE_SIZE) break;
-    }
-  }
-
-  const remoteList = [...remoteRecipients];
-  if (remoteList.length > 0) {
-    // Announce-relay: remote followers receive the GROUP's Announce of the post
-    // (when present) rather than the raw author activity, so it is attributed
-    // to the community. Local members above kept the raw `activityId`.
+  const remoteRecipients = [...new Set(pageActorApIds)].filter(
+    (apId) => !isLocal(apId, baseUrl) && apId !== authorApId,
+  );
+  if (remoteRecipients.length > 0) {
+    // Announce-relay: remote recipients receive the Group's Announce (when
+    // present); local members above retain the raw author Activity.
     const remoteActivityId = msg.announceActivityId ?? msg.activityId;
-    const planned = await planEndpointsFromActorCache(db, remoteList, {
+    const planned = await planEndpointsFromActorCache(db, remoteRecipients, {
       metricTags: {
         community: msg.communityApId,
         activity: remoteActivityId,
       },
     });
-
     const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
     for (const group of planned.groups) {
       const jobId = await computeDeliveryJobId(
@@ -516,7 +496,6 @@ export async function processFanoutCommunity(
       await upsertDeliveryJob(db, jobId, remoteActivityId, group.endpoint);
       deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
     }
-
     await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, deliverRequests);
     await enqueueDeliveryResolutionJobs(
       db,
@@ -528,14 +507,17 @@ export async function processFanoutCommunity(
     );
   }
 
-  // TODO(remote-inbox-optimization): when the community has a large remote
-  // footprint, prefer delivering once to each remote server's shared inbox via
-  // the community's own followers collection rather than expanding the full
-  // member/follower set here. Local delivery and community audience/addressing
-  // are already correct; this is purely a remote fan-out efficiency follow-up.
+  if (pageActorApIds.length === FANOUT_FOLLOWER_PAGE_SIZE) {
+    await enqueueContinuation(stage, pageActorApIds[pageActorApIds.length - 1]);
+  } else if (stage === "remote_members") {
+    await enqueueContinuation("remote_followers", null);
+  } else {
+    await completeDeliveryFanoutJob(db, intent);
+  }
 
-  await completeDeliveryFanoutJob(db, intent);
-
+  // TODO(remote-inbox-optimization): prefer one shared-inbox delivery per
+  // remote server when a community has a very large remote footprint. The
+  // stage/cursor lifecycle above is complete; this is an efficiency follow-up.
   message.ack();
 }
 
