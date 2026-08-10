@@ -105,12 +105,14 @@ export function parseRemoteStampPackManifest(
     const stamp = raw as Record<string, unknown>;
     const stampId = normalizedUri(stamp.id);
     const key = typeof stamp.key === "string" ? stamp.key.trim() : "";
+    const expectedStampId = `${id.replace(/\/+$/, "")}/stamps/${key}`;
     const revision = stamp.revision;
     const alt = parsedLocalizedText(stamp.alt, 200);
     const tags = stamp.tags;
     const assets = stamp.assets;
     if (
       !stampId ||
+      stampId !== expectedStampId ||
       seenIds.has(stampId) ||
       !PACK_STAMP_KEY.test(key) ||
       seenKeys.has(key) ||

@@ -32,6 +32,9 @@ customer can authorize a grant, but Core projects that grant to a local Actor's
    no price or DRM field participates in a pack manifest or revision identity.
 8. Stamp messages and reactions remain separate models. A Stamp message is an
    ordered Message; a reaction is an edge attached to another Message.
+9. A logical Stamp ID is exactly `<pack-id>/stamps/<key>`. A manifest cannot
+   claim an ID from another pack namespace, even when the publisher controls
+   both URLs.
 
 ## Persisted shape
 
@@ -70,10 +73,12 @@ stamps/sha256/<first-two-hex>/<digest>.<png|webp>
 ```
 
 Publishing writes one pack, release, logical Stamp set, revision set, and
-ordered release membership as one D1-safe transition. Reusing identical bytes
-reuses the content-addressed object. A DB failure after a new object write is
-repaired forward or deletes only a blob proven unreferenced; it never
-overwrites bytes at an existing digest.
+ordered release membership as one D1-safe transition. Parameter-budgeted
+multi-row inserts keep the supported 20-Stamp boundary within D1's batch
+statement limit. Reusing identical bytes reuses the content-addressed object.
+If the DB transition fails after a new object write, the digest-keyed blob may
+remain unreferenced, but it cannot overwrite or mutate bytes at an existing
+digest and can be reused by a later successful publication.
 
 A public free pack can issue a local Actor the `install` and `send` rights when
 they install it. Installation records one immutable release and picker order.
@@ -158,11 +163,17 @@ digest key. Until mirroring succeeds, the client has bounded fallback text and
 may use the original remote image according to the same message visibility
 gate; a different digest is never substituted.
 
-## Later manifest distribution
+## HTTP Manifest distribution
 
-Pack manifests and downloadable archives are a later slice. Their identity
-contains content and hashes only. Store-specific price, region, promotion, and
-revenue-sharing data belongs to a separate offer provider. Remote Manifest
-installation must use conditional HTTP (`ETag`/`If-None-Match`), bounded bodies,
-SSRF protection, hash verification, and a new immutable local release rather
-than mutating previously installed content.
+A public or unlisted Pack URI is also its JSON Manifest sharing URL. The v1
+Manifest contains one immutable release and at most 20 logical Stamps. Every
+Stamp ID must be exactly `<pack-id>/stamps/<key>`, and every revision and asset
+is bound to lowercase SHA-256 content identity.
+
+Remote installation uses conditional HTTP (`ETag`/`If-None-Match`), bounded
+bodies, redirect-denying and DNS-resolving SSRF protection, image decoding,
+dimension and hash verification, and one D1-safe transition. An update creates
+a new immutable local release; it never mutates a release already referenced
+by a Message snapshot. Store-specific price, region, promotion, and
+revenue-sharing data belongs to a separate offer provider and is not part of
+the Manifest. Downloadable archives remain outside v1.

@@ -12,6 +12,7 @@ import { refreshRemoteStampPack } from "../../lib/stamp-pack-import.ts";
 import { sha256Hex } from "../../lib/stamp-assets.ts";
 import {
   buildStampPackManifest,
+  parseRemoteStampPackManifest,
   STAMP_PACK_SCHEMA,
 } from "../../lib/stamp-manifest.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
@@ -22,6 +23,37 @@ const PNG = Uint8Array.from(
   ),
   (character) => character.charCodeAt(0),
 );
+
+test("remote manifest cannot claim a logical Stamp id outside its Pack namespace", async () => {
+  const packId = "https://remote.example/stamp-packs/cat";
+  const assetSha256 = await sha256Hex(PNG);
+  const manifest = buildStampPackManifest({
+    baseUrl: "https://remote.example",
+    id: packId,
+    release: 1,
+    name: { en: "Cat" },
+    publisher: "https://remote.example/users/alice",
+    visibility: "public",
+    stamps: [
+      {
+        id: "https://victim.example/stamp-packs/dog/stamps/okay",
+        key: "okay",
+        revision: `sha256:${"a".repeat(64)}`,
+        alt: { en: "Okay" },
+        tags: [],
+        asset: {
+          url: "https://cdn.remote.example/cat/okay.png",
+          mediaType: "image/png",
+          width: 1,
+          height: 1,
+          sha256: assetSha256,
+        },
+      },
+    ],
+  });
+
+  expect(parseRemoteStampPackManifest(manifest, packId)).toBeNull();
+});
 
 function memoryStorage() {
   const values = new Map<string, { bytes: Uint8Array; contentType: string }>();
@@ -168,4 +200,45 @@ test("remote pack install mirrors assets and revalidates with If-None-Match", as
       .from(stampPackReleases)
       .where(eq(stampPackReleases.packId, packId)),
   ).toHaveLength(1);
+});
+
+test("remote pack import keeps the advertised 20-Stamp boundary in one D1-safe batch", async () => {
+  const { db } = await createTestDb();
+  const { storage } = memoryStorage();
+  const packId = "https://remote.example/stamp-packs/twenty";
+  const assetUrl = "https://cdn.remote.example/twenty/shared.png";
+  const assetSha256 = await sha256Hex(PNG);
+  const manifest = buildStampPackManifest({
+    baseUrl: "https://remote.example",
+    id: packId,
+    release: 1,
+    name: { en: "Twenty" },
+    publisher: "https://remote.example/users/alice",
+    visibility: "public",
+    stamps: Array.from({ length: 20 }, (_, index) => ({
+      id: `${packId}/stamps/stamp_${index}`,
+      key: `stamp_${index}`,
+      revision: `sha256:${index.toString(16).padStart(64, "0")}`,
+      alt: { en: `Stamp ${index}` },
+      tags: [],
+      asset: {
+        url: assetUrl,
+        mediaType: "image/png" as const,
+        width: 1,
+        height: 1,
+        sha256: assetSha256,
+      },
+    })),
+  });
+  const fetcher = async (url: string) =>
+    url === packId
+      ? new Response(JSON.stringify(manifest), {
+          headers: { "Content-Type": "application/json" },
+        })
+      : new Response(PNG, { headers: { "Content-Type": "image/png" } });
+
+  const imported = await refreshRemoteStampPack(db, storage, packId, fetcher);
+
+  expect(imported.changed).toBe(true);
+  expect(await db.select().from(stampRevisions)).toHaveLength(20);
 });

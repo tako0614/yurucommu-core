@@ -12,6 +12,7 @@ import {
   stampReleaseItems,
   stampRevisions,
   stamps as stampRows,
+  insertMany,
   runBatch,
   type D1Statement,
 } from "../../db/index.ts";
@@ -300,16 +301,22 @@ stamps.post("/packs", async (c) => {
       manifestSha256,
       publishedAt: now,
     }),
-    ...prepared.flatMap((stamp, index) => [
-      db.insert(stampRows).values({
+    ...insertMany(
+      db,
+      stampRows,
+      prepared.map((stamp, index) => ({
         id: stamp.stampId,
         packId,
         key: stamp.key,
         currentRevisionId: stamp.revisionId,
         sortOrder: index,
         enabled: true,
-      }),
-      db.insert(stampRevisions).values({
+      })),
+    ),
+    ...insertMany(
+      db,
+      stampRevisions,
+      prepared.map((stamp) => ({
         id: stamp.revisionId,
         stampId: stamp.stampId,
         revisionDigest: stamp.revisionDigest,
@@ -323,14 +330,18 @@ stamps.post("/packs", async (c) => {
         tagsJson: JSON.stringify(stamp.tags),
         animated: false,
         createdAt: now,
-      }),
-      db.insert(stampReleaseItems).values({
+      })),
+    ),
+    ...insertMany(
+      db,
+      stampReleaseItems,
+      prepared.map((stamp, index) => ({
         releaseId,
         stampId: stamp.stampId,
         revisionId: stamp.revisionId,
         sortOrder: index,
-      }),
-    ]),
+      })),
+    ),
     db.insert(stampEntitlements).values({
       actorApId: actor.ap_id,
       packId,

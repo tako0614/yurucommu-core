@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import {
   remoteStampPackCache,
+  insertMany,
   runBatch,
   stampAssetMirrors,
   stampInstallations,
@@ -278,7 +279,7 @@ export async function refreshRemoteStampPack(
       publishedAt: checkedAt,
     }),
     db.update(stamps).set({ enabled: false }).where(eq(stamps.packId, packId)),
-    ...imported.flatMap((item, index) => [
+    ...imported.map((item, index) =>
       db
         .insert(stamps)
         .values({
@@ -297,30 +298,38 @@ export async function refreshRemoteStampPack(
             enabled: true,
           },
         }),
-      db
-        .insert(stampRevisions)
-        .values({
-          id: item.revisionId,
-          stampId: item.stamp.id,
-          revisionDigest: item.stamp.revision,
-          assetUrl: item.asset.url,
-          assetR2Key: item.asset.r2Key,
-          mediaType: item.asset.mediaType,
-          width: item.asset.width,
-          height: item.asset.height,
-          assetSha256: item.asset.sha256,
-          altJson: JSON.stringify(item.stamp.alt),
-          tagsJson: JSON.stringify(item.stamp.tags),
-          animated: false,
-          createdAt: checkedAt,
-        })
-        .onConflictDoNothing(),
-      db.insert(stampReleaseItems).values({
+    ),
+    ...insertMany(
+      db,
+      stampRevisions,
+      imported.map((item) => ({
+        id: item.revisionId,
+        stampId: item.stamp.id,
+        revisionDigest: item.stamp.revision,
+        assetUrl: item.asset.url,
+        assetR2Key: item.asset.r2Key,
+        mediaType: item.asset.mediaType,
+        width: item.asset.width,
+        height: item.asset.height,
+        assetSha256: item.asset.sha256,
+        altJson: JSON.stringify(item.stamp.alt),
+        tagsJson: JSON.stringify(item.stamp.tags),
+        animated: false,
+        createdAt: checkedAt,
+      })),
+      { conflict: "ignore" },
+    ),
+    ...insertMany(
+      db,
+      stampReleaseItems,
+      imported.map((item, index) => ({
         releaseId,
         stampId: item.stamp.id,
         revisionId: item.revisionId,
         sortOrder: index,
-      }),
+      })),
+    ),
+    ...imported.map((item) =>
       db
         .insert(stampAssetMirrors)
         .values({
@@ -347,7 +356,7 @@ export async function refreshRemoteStampPack(
             updatedAt: checkedAt,
           },
         }),
-    ]),
+    ),
     db
       .update(stampInstallations)
       .set({ installedReleaseId: releaseId, updatedAt: checkedAt })

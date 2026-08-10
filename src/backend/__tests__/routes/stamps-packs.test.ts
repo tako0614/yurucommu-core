@@ -419,3 +419,46 @@ test("POST /api/stamps/packs publishes owned PNG bytes as an immutable release",
   );
   expect(conditional.status).toBe(304);
 });
+
+test("POST /api/stamps/packs keeps the advertised 20-Stamp boundary inside one D1-safe batch", async () => {
+  const { db } = await createTestDb();
+  const media = memoryMedia();
+  await media.binding.put("uploads/b0.png", ONE_PIXEL_PNG.buffer, {
+    httpMetadata: { contentType: "image/png" },
+  });
+  await db.insert(mediaUploads).values({
+    id: "b0",
+    r2Key: "uploads/b0.png",
+    uploaderApId: me.ap_id,
+    contentType: "image/png",
+    size: ONE_PIXEL_PNG.byteLength,
+  });
+
+  const response = await createApp(db, me).fetch(
+    new Request("https://test.local/api/stamps/packs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: "twenty",
+        name: { en: "Twenty" },
+        visibility: "public",
+        stamps: Array.from({ length: 20 }, (_, index) => ({
+          key: `stamp_${index}`,
+          source_r2_key: "uploads/b0.png",
+          alt: { en: `Stamp ${index}` },
+          tags: [],
+        })),
+      }),
+    }),
+    {
+      APP_URL: "https://test.local",
+      DB_INSTANCE: db,
+      MEDIA: media.binding,
+    } as unknown as Env,
+  );
+
+  expect(response.status).toBe(201);
+  expect(
+    ((await response.json()) as { stamps: unknown[] }).stamps,
+  ).toHaveLength(20);
+});
