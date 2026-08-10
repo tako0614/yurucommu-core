@@ -21,8 +21,15 @@ import { reconcileLocalDeliveryQueue } from "../server.ts";
 async function freshDb(): Promise<Database> {
   const client = createClient({ url: ":memory:" });
   const root = new URL("../../../migrations/", import.meta.url);
-  const sql = await readFile(new URL("0001_init.sql", root), "utf8");
-  await client.executeMultiple(sql);
+  for (const migration of [
+    "0001_init.sql",
+    "0027_remote_actor_tombstones.sql",
+    "0029_delivery_endpoint_recipients.sql",
+  ]) {
+    await client.executeMultiple(
+      await readFile(new URL(migration, root), "utf8"),
+    );
+  }
   return drizzle(client, { schema }) as unknown as Database;
 }
 

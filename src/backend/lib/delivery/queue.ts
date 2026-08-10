@@ -13,17 +13,23 @@ import {
   and,
   asc,
   eq,
+  exists,
   inArray,
   lt,
   lte,
   notInArray,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
 import {
   actorCache,
   affectedRowCount,
+  deliveryEndpointRecipients,
   deliveryQueue,
+  insertMany,
+  runBatch,
+  type D1Statement,
   type Database,
 } from "../../../db/index.ts";
 import { isSafeRemoteUrl } from "../../federation-helpers.ts";
@@ -276,32 +282,89 @@ export async function upsertDeliveryJob(
   jobId: string,
   activityId: string,
   endpoint: string,
-): Promise<void> {
-  await db
-    .insert(deliveryQueue)
-    .values({
-      id: jobId,
-      inboxUrl: endpoint,
-      activityApId: activityId,
-      attempts: 0,
-      nextAttemptAt: nowIso(),
-      status: "pending",
-    })
-    .onConflictDoNothing();
+  recipientActorApIds: readonly string[],
+): Promise<boolean> {
+  const uniqueRecipientActorApIds = [...new Set(recipientActorApIds)];
+  if (uniqueRecipientActorApIds.length === 0) return false;
 
-  // Guard against overwriting in-flight or completed jobs.
-  await db
-    .update(deliveryQueue)
-    .set({
-      inboxUrl: endpoint,
-      activityApId: activityId,
-    })
-    .where(
+  const recipientInserts = insertMany(
+    db,
+    deliveryEndpointRecipients,
+    uniqueRecipientActorApIds.map((recipientActorApId) => ({
+      deliveryJobId: jobId,
+      recipientActorApId,
+    })),
+    { conflict: "ignore" },
+  );
+  const firstRecipientInsert = recipientInserts[0];
+  if (!firstRecipientInsert) return false;
+  const hasRetainedRecipient = () =>
+    exists(
+      db
+        .select({ deliveryJobId: deliveryEndpointRecipients.deliveryJobId })
+        .from(deliveryEndpointRecipients)
+        .where(eq(deliveryEndpointRecipients.deliveryJobId, jobId)),
+    );
+  const now = nowIso();
+
+  // One deep materialization unit owns endpoint aggregation, recipient
+  // attribution, tombstone fencing, and compatibility with legacy jobs. The
+  // recipient trigger drops a deleted actor before the final cleanup runs.
+  // A newly-created job is marked attributed; a pre-0029 conflict retains its
+  // default 0 because its full historical recipient set cannot be recovered.
+  await runBatch(db, [
+    firstRecipientInsert,
+    ...recipientInserts.slice(1),
+    db
+      .insert(deliveryQueue)
+      .values({
+        id: jobId,
+        inboxUrl: endpoint,
+        activityApId: activityId,
+        attempts: 0,
+        nextAttemptAt: now,
+        status: "pending",
+        recipientAttributionComplete: 1,
+      })
+      .onConflictDoNothing() as unknown as D1Statement,
+    // Guard against overwriting in-flight or completed jobs, and do not update
+    // a new all-tombstoned candidate that retained no recipient mapping.
+    db
+      .update(deliveryQueue)
+      .set({ inboxUrl: endpoint, activityApId: activityId })
+      .where(
+        and(
+          eq(deliveryQueue.id, jobId),
+          notInArray(deliveryQueue.status, ["processing", "delivered"]),
+          hasRetainedRecipient(),
+        ),
+      ) as unknown as D1Statement,
+    // Only jobs born under the recipient-aware implementation are safe to
+    // delete when every supplied recipient was already tombstoned. Legacy jobs
+    // remain conservative because they may represent unknown co-recipients.
+    db.delete(deliveryQueue).where(
       and(
         eq(deliveryQueue.id, jobId),
-        notInArray(deliveryQueue.status, ["processing", "delivered"]),
+        eq(deliveryQueue.recipientAttributionComplete, 1),
+        notExists(
+          db
+            .select({
+              deliveryJobId: deliveryEndpointRecipients.deliveryJobId,
+            })
+            .from(deliveryEndpointRecipients)
+            .where(eq(deliveryEndpointRecipients.deliveryJobId, jobId)),
+        ),
       ),
-    );
+    ) as unknown as D1Statement,
+  ]);
+
+  return Boolean(
+    await db
+      .select({ id: deliveryQueue.id })
+      .from(deliveryQueue)
+      .where(eq(deliveryQueue.id, jobId))
+      .get(),
+  );
 }
 
 const PENDING_DELIVERY_SCAN_LIMIT = 500;

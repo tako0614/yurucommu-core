@@ -12,6 +12,7 @@ import { filterBlockedActorApIdsStrict } from "../blocklist.ts";
 export type PlannedEndpointGroup = {
   endpoint: string;
   recipientCount: number;
+  recipientActorApIds: string[];
 };
 
 export type PlanEndpointsResult = {
@@ -144,7 +145,7 @@ export async function planEndpointsFromActorCache(
 
   const byApId = new Map(rows.map((r) => [r.apId, r as ActorCacheRow]));
   const unknownRecipients: string[] = [];
-  const endpointCounts = new Map<string, number>();
+  const endpointRecipients = new Map<string, string[]>();
   let sharedInboxRecipients = 0;
 
   for (const apId of allowedRecipients) {
@@ -158,17 +159,17 @@ export async function planEndpointsFromActorCache(
     }
 
     if (chosen.usedSharedInbox) sharedInboxRecipients++;
-    endpointCounts.set(
-      chosen.endpoint,
-      (endpointCounts.get(chosen.endpoint) ?? 0) + 1,
-    );
+    const groupedRecipients = endpointRecipients.get(chosen.endpoint);
+    if (groupedRecipients) groupedRecipients.push(apId);
+    else endpointRecipients.set(chosen.endpoint, [apId]);
   }
 
   const groups: PlannedEndpointGroup[] = Array.from(
-    endpointCounts.entries(),
-  ).map(([endpoint, recipientCount]) => ({
+    endpointRecipients.entries(),
+  ).map(([endpoint, recipientActorApIds]) => ({
     endpoint,
-    recipientCount,
+    recipientCount: recipientActorApIds.length,
+    recipientActorApIds,
   }));
 
   // Observability: sharedInbox aggregation ratio.

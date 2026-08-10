@@ -31,9 +31,15 @@ const ISO = "2026-01-01T00:00:00.000Z";
 async function freshDb(): Promise<Database> {
   const client = createClient({ url: ":memory:" });
   const root = new URL("../../../../migrations/", import.meta.url);
-  await client.executeMultiple(
-    await readFile(new URL("0001_init.sql", root), "utf8"),
-  );
+  for (const migration of [
+    "0001_init.sql",
+    "0027_remote_actor_tombstones.sql",
+    "0029_delivery_endpoint_recipients.sql",
+  ]) {
+    await client.executeMultiple(
+      await readFile(new URL(migration, root), "utf8"),
+    );
+  }
   return drizzle(client, { schema }) as unknown as Database;
 }
 

@@ -1,6 +1,7 @@
 /**
- * Messaging/DM tables: activities, inbox, deliveryQueue, deliveryCircuit,
- * notificationArchived, dmTyping, dmReadStatus, dmArchivedConversations, mediaUploads
+ * Messaging/DM tables: activities, inbox, deliveryQueue,
+ * deliveryEndpointRecipients, deliveryCircuit, notificationArchived, dmTyping,
+ * dmReadStatus, dmArchivedConversations, mediaUploads
  */
 
 import {
@@ -62,6 +63,9 @@ export const deliveryQueue = sqliteTable(
     nextAttemptAt: text("next_attempt_at").notNull().$defaultFn(nowIso),
     deliveredAt: text("delivered_at"),
     error: text("error"),
+    recipientAttributionComplete: integer("recipient_attribution_complete")
+      .notNull()
+      .default(0),
     createdAt: text("created_at").notNull().$defaultFn(nowIso),
   },
   (t) => [
@@ -69,6 +73,27 @@ export const deliveryQueue = sqliteTable(
     index("delivery_queue_next_attempt_idx").on(t.nextAttemptAt),
     index("delivery_queue_status_next_idx").on(t.status, t.nextAttemptAt),
     index("delivery_queue_terminal_retention_idx").on(t.status, t.createdAt),
+  ],
+);
+
+/**
+ * Recipient attribution for endpoint-aggregated jobs created after migration
+ * 0029. Legacy delivery_queue rows deliberately remain unattributed rather
+ * than pretending an incomplete reconstruction is authoritative.
+ */
+export const deliveryEndpointRecipients = sqliteTable(
+  "delivery_endpoint_recipients",
+  {
+    deliveryJobId: text("delivery_job_id").notNull(),
+    recipientActorApId: text("recipient_actor_ap_id").notNull(),
+    createdAt: text("created_at").notNull().$defaultFn(nowIsoUtc),
+  },
+  (t) => [
+    primaryKey({ columns: [t.deliveryJobId, t.recipientActorApId] }),
+    index("delivery_endpoint_recipients_actor_idx").on(
+      t.recipientActorApId,
+      t.deliveryJobId,
+    ),
   ],
 );
 

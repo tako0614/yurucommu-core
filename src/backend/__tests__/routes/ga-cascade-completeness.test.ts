@@ -25,6 +25,7 @@ import {
   actors,
   announces,
   bookmarks,
+  deliveryEndpointRecipients,
   deliveryQueue,
   deliveryFanouts,
   deliveryResolutions,
@@ -221,6 +222,11 @@ test("deleteObjectCascade cancels every durable projection of retained object ac
       activityApId,
       inboxUrl: "https://remote.example/inbox",
       status: "processing",
+      recipientAttributionComplete: 1,
+    });
+    await db.insert(deliveryEndpointRecipients).values({
+      deliveryJobId: `projection-delivery-${suffix}`,
+      recipientActorApId: "https://remote.example/users/bob",
     });
     await db.insert(deliveryResolutions).values({
       id: `projection-resolution-${suffix}`,
@@ -282,6 +288,11 @@ test("deleteObjectCascade cancels every durable projection of retained object ac
   ]) {
     expect(ids).toEqual([survivorActivity]);
   }
+  expect(
+    (await db.select().from(deliveryEndpointRecipients)).map(
+      (row) => row.deliveryJobId,
+    ),
+  ).toEqual(["projection-delivery-survivor"]);
 });
 
 test("activity cascade removes a community fanout keyed by its Announce activity", async () => {

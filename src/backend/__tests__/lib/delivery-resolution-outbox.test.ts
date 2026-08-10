@@ -5,6 +5,7 @@ import { stub } from "#test/mock";
 import {
   activities,
   actorCache,
+  deliveryEndpointRecipients,
   deliveryQueue,
   deliveryResolutions,
   remoteActorTombstones,
@@ -19,6 +20,7 @@ import {
 import {
   enqueueDeliveryToActor,
   enqueuePendingDeliveryEndpointJobs,
+  upsertDeliveryJob,
 } from "../../lib/delivery/queue.ts";
 import {
   claimDeliveryResolutionJob,
@@ -171,6 +173,12 @@ test("resolution completion creates the durable endpoint job before acknowledgin
     activityApId: ACTIVITY_ID,
     inboxUrl: ENDPOINT,
     status: "pending",
+    recipientAttributionComplete: 1,
+  });
+  expect(
+    await db.select().from(deliveryEndpointRecipients).get(),
+  ).toMatchObject({
+    recipientActorApId: RECIPIENT_ID,
   });
   expect(harness.sent).toHaveLength(1);
   expect(harness.sent[0]?.type).toBe("deliver_endpoint");
@@ -218,6 +226,38 @@ test("the tombstone fence preserves unrelated recipients in the same insert", as
       type: "resolve_actor",
       recipientActorApId: otherRecipient,
     }),
+  ]);
+});
+
+test("endpoint materialization drops a tombstoned recipient but keeps its live co-recipient", async () => {
+  const { db } = await createTestDb();
+  await db.insert(remoteActorTombstones).values({
+    actorApId: RECIPIENT_ID,
+    deleteActivityApId: `${RECIPIENT_ID}#delete`,
+  });
+  const endpointJobId = "endpoint-attribution-race";
+
+  expect(
+    await upsertDeliveryJob(db, endpointJobId, ACTIVITY_ID, ENDPOINT, [
+      RECIPIENT_ID,
+    ]),
+  ).toBe(false);
+  expect(await db.select().from(deliveryQueue)).toEqual([]);
+  expect(await db.select().from(deliveryEndpointRecipients)).toEqual([]);
+
+  const otherRecipient = "https://other.example/users/carol";
+  expect(
+    await upsertDeliveryJob(db, endpointJobId, ACTIVITY_ID, ENDPOINT, [
+      RECIPIENT_ID,
+      otherRecipient,
+    ]),
+  ).toBe(true);
+  expect(await db.select().from(deliveryQueue).get()).toMatchObject({
+    id: endpointJobId,
+    recipientAttributionComplete: 1,
+  });
+  expect(await db.select().from(deliveryEndpointRecipients)).toEqual([
+    expect.objectContaining({ recipientActorApId: otherRecipient }),
   ]);
 });
 
@@ -504,4 +544,27 @@ test("a full follower page persists and enqueues below D1 and Queue batch limits
   );
   expect(await db.select().from(deliveryResolutions)).toHaveLength(200);
   expect(harness.sent).toHaveLength(200);
+});
+
+test("a full shared-endpoint group persists recipient attribution below D1 limits", async () => {
+  const { db } = await createTestDb();
+  const recipients = Array.from(
+    { length: 200 },
+    (_, index) => `https://shared.example/users/follower-${index}`,
+  );
+
+  expect(
+    await upsertDeliveryJob(
+      db,
+      "full-attributed-endpoint-job",
+      ACTIVITY_ID,
+      "https://shared.example/inbox",
+      recipients,
+    ),
+  ).toBe(true);
+  expect(await db.select().from(deliveryEndpointRecipients)).toHaveLength(200);
+  expect(await db.select().from(deliveryQueue).get()).toMatchObject({
+    id: "full-attributed-endpoint-job",
+    recipientAttributionComplete: 1,
+  });
 });

@@ -149,6 +149,13 @@ test("delivery/planner - aggregates by sharedInbox and prefers sharedInbox", asy
     );
     expect(byEndpoint.get("https://a.example/shared")).toEqual(2);
     expect(byEndpoint.get("https://b.example/inbox")).toEqual(1);
+    expect(
+      res.groups.find((group) => group.endpoint === "https://a.example/shared")
+        ?.recipientActorApIds,
+    ).toEqual([
+      "https://a.example/ap/users/u1",
+      "https://a.example/ap/users/u2",
+    ]);
   } finally {
     dateNowStub.restore();
   }

@@ -5,6 +5,8 @@ import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
   actors,
+  deliveryEndpointRecipients,
+  deliveryQueue,
   announces,
   deliveryResolutions,
   follows,
@@ -14,6 +16,8 @@ import {
   remoteActorTombstones,
 } from "../../../db/index.ts";
 import { cacheRemoteActorDocument } from "../../lib/activitypub-actor-cache.ts";
+import { upsertDeliveryJob } from "../../lib/delivery/queue.ts";
+import { computeDeliveryJobId } from "../../lib/delivery/transformers.ts";
 import { handleDelete } from "../../routes/activitypub/handlers/inbox-content-handlers.ts";
 import type {
   Activity,
@@ -222,6 +226,60 @@ test("Delete(Actor) establishes a durable tombstone that fences a late cache wri
   });
   expect(lateCache).toEqual({ ok: false, reason: "actor_tombstoned" });
   expect(await db.select().from(actorCache)).toEqual([]);
+});
+
+test("Delete(Actor) cancels only endpoint jobs whose attributed recipient set becomes empty", async () => {
+  const db = await freshDb();
+  const cosmeticRemote = "https://REMOTE.example/users/alice/";
+  const otherRecipient = "https://remote.example/users/carol";
+  const activityId = `${LOCAL}/activities/attributed-delivery`;
+  const directEndpoint = "https://remote.example/users/alice/inbox";
+  const sharedEndpoint = "https://remote.example/inbox";
+  const directJobId = await computeDeliveryJobId(activityId, directEndpoint);
+  const sharedJobId = await computeDeliveryJobId(activityId, sharedEndpoint);
+
+  expect(
+    await upsertDeliveryJob(db, directJobId, activityId, directEndpoint, [
+      cosmeticRemote,
+    ]),
+  ).toBe(true);
+  expect(
+    await upsertDeliveryJob(db, sharedJobId, activityId, sharedEndpoint, [
+      cosmeticRemote,
+      otherRecipient,
+    ]),
+  ).toBe(true);
+
+  await handleDelete(ctxFor(db), deleteActor(REMOTE));
+
+  expect(
+    await db
+      .select({ id: deliveryQueue.id })
+      .from(deliveryQueue)
+      .orderBy(deliveryQueue.id),
+  ).toEqual([{ id: sharedJobId }]);
+  expect(await db.select().from(deliveryEndpointRecipients)).toEqual([
+    expect.objectContaining({
+      deliveryJobId: sharedJobId,
+      recipientActorApId: otherRecipient,
+    }),
+  ]);
+});
+
+test("Delete(Actor) preserves legacy endpoint jobs with unknown attribution", async () => {
+  const db = await freshDb();
+  await db.insert(deliveryQueue).values({
+    id: "legacy-unattributed-job",
+    activityApId: `${LOCAL}/activities/legacy-delivery`,
+    inboxUrl: "https://remote.example/inbox",
+  });
+
+  await handleDelete(ctxFor(db), deleteActor(REMOTE));
+
+  expect(await db.select().from(deliveryQueue).get()).toMatchObject({
+    id: "legacy-unattributed-job",
+    recipientAttributionComplete: 0,
+  });
 });
 
 test("Delete(Actor) removes retained state under a legacy cosmetic actor spelling", async () => {

@@ -8,6 +8,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
@@ -18,6 +19,8 @@ import {
   announces,
   bookmarks,
   communities,
+  deliveryEndpointRecipients,
+  deliveryQueue,
   deliveryResolutions,
   follows,
   inbox as inboxTable,
@@ -1316,9 +1319,8 @@ async function handleRemoteActorDelete(
         ),
       ),
     // Cancel recipient-addressed first-hop work while it still has actor
-    // identity. Once a resolution has been aggregated into delivery_queue by
-    // endpoint (especially a shared inbox), it can no longer be removed for
-    // one actor without suppressing delivery to unrelated recipients.
+    // identity. Endpoint-aggregated work is handled by its separate recipient
+    // attribution immediately below.
     db
       .delete(deliveryResolutions)
       .where(
@@ -1327,6 +1329,33 @@ async function handleRemoteActorDelete(
           actorId,
         ),
       ),
+    // Endpoint jobs created after 0029 retain every actor identity they
+    // represent. Remove only this deleted actor's attribution first, then
+    // cancel a recipient-aware job only if no co-recipient remains. Legacy
+    // jobs stay fail-safe because their attribution-complete flag is 0.
+    db
+      .delete(deliveryEndpointRecipients)
+      .where(
+        retainedRemoteActorWhere(
+          deliveryEndpointRecipients.recipientActorApId,
+          actorId,
+        ),
+      ),
+    db.delete(deliveryQueue).where(
+      and(
+        eq(deliveryQueue.recipientAttributionComplete, 1),
+        notExists(
+          db
+            .select({
+              deliveryJobId: deliveryEndpointRecipients.deliveryJobId,
+            })
+            .from(deliveryEndpointRecipients)
+            .where(
+              eq(deliveryEndpointRecipients.deliveryJobId, deliveryQueue.id),
+            ),
+        ),
+      ),
+    ),
 
     // Recompute the replyCount of any LOCAL parent the remote's cached objects
     // replied to, counting only replies that will remain after this batch.

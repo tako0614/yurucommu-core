@@ -183,8 +183,16 @@ export async function enqueueFollowerEndpointDeliveries(
       const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
       for (const group of planned.groups) {
         const jobId = await computeDeliveryJobId(activityId, group.endpoint);
-        await upsertDeliveryJob(db, jobId, activityId, group.endpoint);
-        deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
+        const active = await upsertDeliveryJob(
+          db,
+          jobId,
+          activityId,
+          group.endpoint,
+          group.recipientActorApIds,
+        );
+        if (active) {
+          deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
+        }
       }
 
       // Persist every durable first-hop row before the first Queue RPC. Queue
@@ -536,8 +544,16 @@ export async function processFanoutCommunity(
         remoteActivityId,
         group.endpoint,
       );
-      await upsertDeliveryJob(db, jobId, remoteActivityId, group.endpoint);
-      deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
+      const active = await upsertDeliveryJob(
+        db,
+        jobId,
+        remoteActivityId,
+        group.endpoint,
+        group.recipientActorApIds,
+      );
+      if (active) {
+        deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
+      }
     }
     await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, deliverRequests);
     await enqueueDeliveryResolutionJobs(
@@ -773,7 +789,21 @@ export async function processResolveActor(
   }
 
   const jobId = await computeDeliveryJobId(msg.activityId, endpoint);
-  await upsertDeliveryJob(db, jobId, msg.activityId, endpoint);
+  const active = await upsertDeliveryJob(db, jobId, msg.activityId, endpoint, [
+    msg.recipientActorApId,
+  ]);
+  if (!active) {
+    if (managedClaim) {
+      await completeDeliveryResolutionJob(
+        db,
+        managedClaim,
+        "discarded",
+        "recipient_tombstoned",
+      );
+    }
+    message.ack();
+    return;
+  }
   await sendQueueMessage(env, buildDeliverEndpointMessage(jobId));
   if (managedClaim) {
     await completeDeliveryResolutionJob(db, managedClaim, "resolved");
