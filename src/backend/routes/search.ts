@@ -25,6 +25,11 @@ import {
 } from "../lib/activitypub-validators.ts";
 import { logger } from "../lib/logger.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
+import {
+  filterBlockedActorApIds,
+  isActorBlocked,
+  isDomainBlocked,
+} from "../lib/blocklist.ts";
 import { type ActorInfo, loadActorInfoMap } from "./actors-helpers.ts";
 import { excludeBlockedMutedAuthors } from "../lib/feed-exclude.ts";
 import { withCache } from "../middleware/cache.ts";
@@ -371,6 +376,10 @@ search.get("/actors", async (c) => {
       )
       .limit(ACTOR_SEARCH_SCAN_CAP),
   ]);
+  const blockedCachedApIds = await filterBlockedActorApIds(
+    db,
+    cachedRows.map((actor) => actor.apId),
+  );
 
   // UNION local + cached, with local taking priority on apId collision.
   const seen = new Set(localRows.map((a) => a.apId));
@@ -385,7 +394,7 @@ search.get("/actors", async (c) => {
   }[] = [
     ...localRows,
     ...cachedRows
-      .filter((a) => !seen.has(a.apId))
+      .filter((a) => !seen.has(a.apId) && !blockedCachedApIds.has(a.apId))
       .map((a) => ({
         apId: a.apId,
         preferredUsername: a.preferredUsername,
@@ -498,6 +507,14 @@ search.get("/remote", async (c) => {
   const [, username, domain] = match;
   const safeDomain = normalizeRemoteDomain(domain);
   if (!safeDomain) return c.json({ actors: [] });
+  const db = c.get("db");
+
+  // Remote search is an active federation fetch, not a passive local lookup.
+  // A domain the operator defederated must never be contacted through this
+  // convenience endpoint after ingress and delivery have already been cut.
+  if (await isDomainBlocked(db, safeDomain)) {
+    return c.json({ actors: [] });
+  }
 
   try {
     // WebFinger lookup
@@ -519,6 +536,12 @@ search.get("/remote", async (c) => {
       (l) => l.rel === "self" && l.type === "application/activity+json",
     );
     if (!actorLink?.href || !isSafeRemoteUrl(actorLink.href)) {
+      return c.json({ actors: [] });
+    }
+    // WebFinger may redirect discovery authority to a different actor host.
+    // Re-check the resolved actor before the signed GET so an allowed alias
+    // cannot bypass an actor or domain block and repopulate the local cache.
+    if (await isActorBlocked(db, actorLink.href)) {
       return c.json({ actors: [] });
     }
 
@@ -550,7 +573,6 @@ search.get("/remote", async (c) => {
     }
 
     // Cache the actor (upsert: check if exists, then insert or update)
-    const db = c.get("db");
     const cacheFields = {
       type: actorData.type || "Person",
       preferredUsername: actorData.preferredUsername || null,
