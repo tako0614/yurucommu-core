@@ -24,6 +24,10 @@ const APP_URL = "https://yuru.test";
 const OLD_ACTOR = "https://remote.example/users/old";
 const NEW_ACTOR = "https://remote.example/users/new";
 const ALICE = "https://remote.example/users/alice";
+const GONE_ACTOR = "https://remote.example/users/gone";
+const TRANSIENT_ACTOR = "https://remote.example/users/transient";
+const INVALID_ACTOR = "https://remote.example/users/invalid";
+const SLOW_TRANSIENT_ACTOR = "https://remote.example/users/slow-transient";
 
 // ---------------------------------------------------------------------------
 // Module mock — the only network seam these handlers reach is
@@ -35,6 +39,8 @@ const ALICE = "https://remote.example/users/alice";
 // ---------------------------------------------------------------------------
 
 const fetchedUrls: string[] = [];
+let releaseSlowTransientFetch: () => void = () => {};
+let slowTransientFetchGate: Promise<void> = Promise.resolve();
 
 mock.module("../../lib/federation-fetch.ts", () => ({
   FederationBodyTooLargeError: class FederationBodyTooLargeError extends Error {},
@@ -75,6 +81,36 @@ mock.module("../../lib/federation-fetch.ts", () => ({
           headers: { "content-type": "application/activity+json" },
         },
       );
+    }
+    if (url === GONE_ACTOR) {
+      return new Response("gone", { status: 410 });
+    }
+    if (url === TRANSIENT_ACTOR) {
+      return new Response("temporarily unavailable", {
+        status: 503,
+        headers: { "retry-after": "120" },
+      });
+    }
+    if (url === INVALID_ACTOR) {
+      return new Response(
+        JSON.stringify({
+          id: "https://remote.example/users/not-the-requested-actor",
+          type: "Person",
+          preferredUsername: "invalid",
+          inbox: `${INVALID_ACTOR}/inbox`,
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/activity+json" },
+        },
+      );
+    }
+    if (url === SLOW_TRANSIENT_ACTOR) {
+      const callCount = fetchedUrls.filter(
+        (fetchedUrl) => fetchedUrl === SLOW_TRANSIENT_ACTOR,
+      ).length;
+      if (callCount === 1) await slowTransientFetchGate;
+      return new Response("temporarily unavailable", { status: 503 });
     }
     return new Response("not found", { status: 404 });
   },
@@ -263,6 +299,137 @@ test("an anonymous profile read cannot hydrate a retained remote relationship", 
 
   expect(res.status).toBe(404);
   expect(fetchedUrls).toEqual([]);
+});
+
+test("a retained remote profile reports a terminal gone state without refetching", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  const owner = `${APP_URL}/ap/users/owner`;
+  await seedActor(db, owner, "owner");
+  await db.insert(follows).values({
+    followerApId: GONE_ACTOR,
+    followingApId: owner,
+    status: "accepted",
+  });
+  const app = actorApiFor(db, owner);
+  const request = () =>
+    app.fetch(
+      new Request(`${APP_URL}/api/actors/${encodeURIComponent(GONE_ACTOR)}`),
+      { APP_URL, DB_INSTANCE: db } as unknown as Env,
+    );
+
+  const first = await request();
+  const second = await request();
+
+  expect(first.status).toBe(410);
+  expect(await first.json()).toEqual({
+    error: "Remote actor is gone",
+    code: "ACTOR_GONE",
+  });
+  expect(second.status).toBe(410);
+  expect(fetchedUrls.filter((url) => url === GONE_ACTOR)).toHaveLength(1);
+});
+
+test("a transient remote profile failure is retryable but cooled down", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  const owner = `${APP_URL}/ap/users/owner`;
+  await seedActor(db, owner, "owner");
+  await db.insert(follows).values({
+    followerApId: TRANSIENT_ACTOR,
+    followingApId: owner,
+    status: "accepted",
+  });
+  const app = actorApiFor(db, owner);
+  const request = () =>
+    app.fetch(
+      new Request(
+        `${APP_URL}/api/actors/${encodeURIComponent(TRANSIENT_ACTOR)}`,
+      ),
+      { APP_URL, DB_INSTANCE: db } as unknown as Env,
+    );
+
+  const first = await request();
+  const second = await request();
+
+  expect(first.status).toBe(503);
+  expect(first.headers.get("retry-after")).toBe("120");
+  expect(await first.json()).toEqual({
+    error: "Remote actor is temporarily unavailable",
+    code: "ACTOR_UNAVAILABLE",
+    retry_after: 120,
+  });
+  expect(second.status).toBe(503);
+  expect(second.headers.get("retry-after")).toBe("120");
+  expect(fetchedUrls.filter((url) => url === TRANSIENT_ACTOR)).toHaveLength(1);
+});
+
+test("an invalid remote actor document is a cooled-down bad gateway", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  const owner = `${APP_URL}/ap/users/owner`;
+  await seedActor(db, owner, "owner");
+  await db.insert(follows).values({
+    followerApId: INVALID_ACTOR,
+    followingApId: owner,
+    status: "accepted",
+  });
+  const app = actorApiFor(db, owner);
+  const request = () =>
+    app.fetch(
+      new Request(`${APP_URL}/api/actors/${encodeURIComponent(INVALID_ACTOR)}`),
+      { APP_URL, DB_INSTANCE: db } as unknown as Env,
+    );
+
+  const first = await request();
+  const second = await request();
+
+  expect(first.status).toBe(502);
+  expect(first.headers.get("retry-after")).toBe("300");
+  expect(await first.json()).toEqual({
+    error: "Remote actor returned invalid data",
+    code: "ACTOR_INVALID",
+    retry_after: 300,
+  });
+  expect(second.status).toBe(502);
+  expect(fetchedUrls.filter((url) => url === INVALID_ACTOR)).toHaveLength(1);
+});
+
+test("concurrent profile cache recovery owns one outbound fetch lease", async () => {
+  fetchedUrls.length = 0;
+  slowTransientFetchGate = new Promise<void>((resolve) => {
+    releaseSlowTransientFetch = resolve;
+  });
+  const db = await freshDb();
+  const owner = `${APP_URL}/ap/users/owner`;
+  await seedActor(db, owner, "owner");
+  await db.insert(follows).values({
+    followerApId: SLOW_TRANSIENT_ACTOR,
+    followingApId: owner,
+    status: "accepted",
+  });
+  const app = actorApiFor(db, owner);
+  const request = () =>
+    app.fetch(
+      new Request(
+        `${APP_URL}/api/actors/${encodeURIComponent(SLOW_TRANSIENT_ACTOR)}`,
+      ),
+      { APP_URL, DB_INSTANCE: db } as unknown as Env,
+    );
+
+  const firstPromise = request();
+  while (!fetchedUrls.includes(SLOW_TRANSIENT_ACTOR)) {
+    await Bun.sleep(0);
+  }
+  const second = await request();
+  releaseSlowTransientFetch();
+  const first = await firstPromise;
+
+  expect(first.status).toBe(503);
+  expect(second.status).toBe(503);
+  expect(
+    fetchedUrls.filter((url) => url === SLOW_TRANSIENT_ACTOR),
+  ).toHaveLength(1);
 });
 
 test("handleUpdate(actor) rejects when the object id does not match the actor", async () => {

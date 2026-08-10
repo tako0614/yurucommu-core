@@ -14,9 +14,16 @@ import { getYurucommuApiTransport } from "../transport.ts";
  * Custom error class for API responses that includes the HTTP status code.
  */
 export class ApiError extends Error {
+  public readonly code: string | null;
+  public readonly retryAfterSeconds: number | null;
+
   constructor(
     public readonly status: number,
     message: string,
+    details: {
+      readonly code?: string | null;
+      readonly retryAfterSeconds?: number | null;
+    } = {},
   ) {
     // `message` is the human-facing server error (or a caller fallback); the
     // HTTP status lives on `.status`. Keep `.message` clean — many UI surfaces
@@ -24,6 +31,67 @@ export class ApiError extends Error {
     // reads as technical noise (e.g. "422: Add this account as an alias…").
     super(message);
     this.name = "ApiError";
+    this.code = details.code ?? null;
+    this.retryAfterSeconds = details.retryAfterSeconds ?? null;
+  }
+}
+
+interface ApiErrorDetails {
+  readonly message: string;
+  readonly code: string | null;
+  readonly retryAfterSeconds: number | null;
+}
+
+function parseRetryAfterSeconds(
+  bodyValue: unknown,
+  headerValue: string | null,
+): number | null {
+  const bodySeconds =
+    typeof bodyValue === "number" && Number.isFinite(bodyValue) && bodyValue > 0
+      ? Math.ceil(bodyValue)
+      : null;
+  if (bodySeconds !== null) return bodySeconds;
+  if (!headerValue) return null;
+  const numeric = Number(headerValue);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.ceil(numeric);
+  const dateMs = Date.parse(headerValue);
+  if (!Number.isFinite(dateMs) || dateMs <= Date.now()) return null;
+  return Math.ceil((dateMs - Date.now()) / 1000);
+}
+
+async function extractApiErrorDetails(
+  res: Response,
+  fallback: string,
+): Promise<ApiErrorDetails> {
+  try {
+    const data = (await res.json()) as {
+      error?: string | { message?: string };
+      code?: unknown;
+      retry_after?: unknown;
+    };
+    const err = data.error;
+    const message = typeof err === "string" ? err : err?.message;
+    const code =
+      typeof data.code === "string" && data.code.trim().length > 0
+        ? data.code.trim().slice(0, 100)
+        : null;
+    return {
+      message: message || fallback,
+      code,
+      retryAfterSeconds: parseRetryAfterSeconds(
+        data.retry_after,
+        res.headers.get("retry-after"),
+      ),
+    };
+  } catch {
+    return {
+      message: res.statusText || fallback,
+      code: null,
+      retryAfterSeconds: parseRetryAfterSeconds(
+        null,
+        res.headers.get("retry-after"),
+      ),
+    };
   }
 }
 
@@ -35,19 +103,7 @@ export async function extractErrorMessage(
   res: Response,
   fallback: string,
 ): Promise<string> {
-  try {
-    const data = (await res.json()) as {
-      error?: string | { message?: string };
-    };
-    // The server uses a flat `{ error: "message" }` envelope. Defensively also
-    // unwrap a nested `{ error: { message } }` so a stray non-flat error never
-    // renders as the "[object Object]" stringification.
-    const err = data.error;
-    const message = typeof err === "string" ? err : err?.message;
-    return message || fallback;
-  } catch {
-    return res.statusText || fallback;
-  }
+  return (await extractApiErrorDetails(res, fallback)).message;
 }
 
 /**
@@ -56,8 +112,8 @@ export async function extractErrorMessage(
  */
 export async function assertOk(res: Response, fallback: string): Promise<void> {
   if (!res.ok) {
-    const message = await extractErrorMessage(res, fallback);
-    throw new ApiError(res.status, message);
+    const details = await extractApiErrorDetails(res, fallback);
+    throw new ApiError(res.status, details.message, details);
   }
 }
 

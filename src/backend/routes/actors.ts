@@ -62,6 +62,7 @@ import {
 } from "./account-teardown.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import {
+  type AppContext,
   actorExists,
   createRelation,
   deleteRelation,
@@ -90,9 +91,46 @@ import {
   activityDeliveryDrainedGuard,
   deleteActivitiesCascade,
 } from "../lib/activity-delete-cascade.ts";
-import { fetchAndUpsertActorCache } from "../lib/activitypub-actor-cache.ts";
+import {
+  claimRemoteActorFetch,
+  clearRemoteActorFetchFailure,
+  fetchAndUpsertActorCache,
+  getRemoteActorFetchFailure,
+  recordRemoteActorFetchFailure,
+  type RemoteActorFetchFailureState,
+} from "../lib/activitypub-actor-cache.ts";
 
 const log = logger.child({ component: "actors" });
+
+function remoteActorFetchFailureResponse(
+  c: AppContext,
+  failure: RemoteActorFetchFailureState,
+): Response {
+  if (failure.kind === "gone") {
+    return c.json({ error: "Remote actor is gone", code: "ACTOR_GONE" }, 410);
+  }
+
+  const retryAfter = failure.retryAfterSeconds ?? 30;
+  c.header("Retry-After", retryAfter.toString());
+  if (failure.kind === "invalid") {
+    return c.json(
+      {
+        error: "Remote actor returned invalid data",
+        code: "ACTOR_INVALID",
+        retry_after: retryAfter,
+      },
+      502,
+    );
+  }
+  return c.json(
+    {
+      error: "Remote actor is temporarily unavailable",
+      code: "ACTOR_UNAVAILABLE",
+      retry_after: retryAfter,
+    },
+    503,
+  );
+}
 
 // Mastodon-parity profile metadata limits. Mastodon caps profile fields at 4
 // rows with bounded name/value lengths; we mirror that to keep the served
@@ -770,13 +808,31 @@ actorsRoute.get("/:identifier", async (c) => {
         return c.json({ error: "Actor not found" }, 404);
       }
 
+      const activeFailure = await getRemoteActorFetchFailure(db, apId);
+      if (activeFailure) {
+        return remoteActorFetchFailureResponse(c, activeFailure);
+      }
+
+      const fetchClaim = await claimRemoteActorFetch(db, apId);
+      if (!fetchClaim.owned) {
+        return remoteActorFetchFailureResponse(c, fetchClaim.failure);
+      }
+
       const recovered = await fetchAndUpsertActorCache(db, apId, {
         mode: "insert",
         signer: await getInstanceFetchSigner(c),
       });
       if (!recovered.ok) {
-        return c.json({ error: "Actor not found" }, 404);
+        const failure = await recordRemoteActorFetchFailure(
+          db,
+          apId,
+          recovered,
+          new Date(),
+          fetchClaim.token,
+        );
+        return remoteActorFetchFailureResponse(c, failure);
       }
+      await clearRemoteActorFetchFailure(db, apId, fetchClaim.token);
       cachedActor = recovered.row;
     }
 

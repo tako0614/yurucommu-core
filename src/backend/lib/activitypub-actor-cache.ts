@@ -14,8 +14,12 @@
  * one fetch/guard/upsert flow, so every cached actor row is now populated
  * identically regardless of entry path.
  */
-import { eq } from "drizzle-orm";
-import { actorCache } from "../../db/index.ts";
+import { and, asc, eq, inArray, isNull, lt, lte, ne, or } from "drizzle-orm";
+import {
+  actorCache,
+  affectedRowCount,
+  remoteActorFetchFailures,
+} from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import {
   fetchWithTimeout,
@@ -119,7 +123,399 @@ export type ActorCacheFailureReason =
 
 export type ActorCacheResult =
   | { ok: true; data: RemoteActorDocument; row: typeof actorCache.$inferSelect }
-  | { ok: false; reason: ActorCacheFailureReason };
+  | {
+      ok: false;
+      reason: "fetch_not_ok";
+      status: number;
+      retryAfterSeconds: number | null;
+    }
+  | {
+      ok: false;
+      reason: Exclude<ActorCacheFailureReason, "fetch_not_ok">;
+    };
+
+export type ActorCacheFailureResult = Extract<ActorCacheResult, { ok: false }>;
+
+export type RemoteActorFetchFailureKind = "gone" | "unavailable" | "invalid";
+
+export interface RemoteActorFetchFailureState {
+  readonly actorApId: string;
+  readonly kind: RemoteActorFetchFailureKind;
+  readonly reason: ActorCacheFailureReason;
+  readonly httpStatus: number | null;
+  readonly failureCount: number;
+  readonly retryAt: string | null;
+  readonly retryAfterSeconds: number | null;
+}
+
+const TRANSIENT_BACKOFF_BASE_SECONDS = 30;
+const INVALID_BACKOFF_BASE_SECONDS = 5 * 60;
+const MAX_FETCH_BACKOFF_SECONDS = 60 * 60;
+const MAX_REMOTE_RETRY_AFTER_SECONDS = 24 * 60 * 60;
+const FETCH_FAILURE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const FETCH_FAILURE_REAP_LIMIT = 50;
+// The default remote GET timeout is 15s. Keep the claim alive for twice that
+// window so request scheduling / D1 latency cannot let a peer steal it while
+// the owner is still completing the bounded network call.
+const REMOTE_ACTOR_FETCH_LEASE_MS = 30 * 1000;
+
+function clampSeconds(seconds: number, max: number): number {
+  return Math.max(1, Math.min(max, Math.ceil(seconds)));
+}
+
+function parseRetryAfterSeconds(
+  value: string | null,
+  nowMs: number,
+): number | null {
+  if (!value) return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric >= 0) {
+    return clampSeconds(numeric, MAX_REMOTE_RETRY_AFTER_SECONDS);
+  }
+  const dateMs = Date.parse(value);
+  if (!Number.isFinite(dateMs) || dateMs <= nowMs) return null;
+  return clampSeconds((dateMs - nowMs) / 1000, MAX_REMOTE_RETRY_AFTER_SECONDS);
+}
+
+function classifyFetchFailure(
+  failure: ActorCacheFailureResult,
+): RemoteActorFetchFailureKind {
+  if (failure.reason === "fetch_not_ok" && failure.status === 410) {
+    return "gone";
+  }
+  if (
+    failure.reason === "invalid_document" ||
+    failure.reason === "id_mismatch" ||
+    failure.reason === "missing_inbox" ||
+    failure.reason === "missing_public_key"
+  ) {
+    return "invalid";
+  }
+  return "unavailable";
+}
+
+function failureBackoffSeconds(
+  kind: RemoteActorFetchFailureKind,
+  failureCount: number,
+  remoteRetryAfterSeconds: number | null,
+): number | null {
+  if (kind === "gone") return null;
+  const base =
+    kind === "invalid"
+      ? INVALID_BACKOFF_BASE_SECONDS
+      : TRANSIENT_BACKOFF_BASE_SECONDS;
+  const exponent = Math.min(Math.max(0, failureCount - 1), 8);
+  const exponential = Math.min(MAX_FETCH_BACKOFF_SECONDS, base * 2 ** exponent);
+  return Math.max(exponential, remoteRetryAfterSeconds ?? 0);
+}
+
+function stateFromRow(
+  row: typeof remoteActorFetchFailures.$inferSelect,
+  nowMs: number,
+): RemoteActorFetchFailureState {
+  const retryAtMs = row.retryAt ? Date.parse(row.retryAt) : Number.NaN;
+  const retryAfterSeconds =
+    row.kind === "gone" || !Number.isFinite(retryAtMs)
+      ? null
+      : clampSeconds(
+          (retryAtMs - nowMs) / 1000,
+          MAX_REMOTE_RETRY_AFTER_SECONDS,
+        );
+  return {
+    actorApId: row.actorApId,
+    kind: row.kind as RemoteActorFetchFailureKind,
+    reason: row.reason as ActorCacheFailureReason,
+    httpStatus: row.httpStatus,
+    failureCount: row.failureCount,
+    retryAt: row.retryAt,
+    retryAfterSeconds,
+  };
+}
+
+/**
+ * Return an active terminal/cooldown decision. An expired retry window returns
+ * null so the caller may make one new network attempt and update the ledger.
+ */
+export async function getRemoteActorFetchFailure(
+  db: Database,
+  actorApId: string,
+  now: Date = new Date(),
+): Promise<RemoteActorFetchFailureState | null> {
+  const row = await db
+    .select()
+    .from(remoteActorFetchFailures)
+    .where(eq(remoteActorFetchFailures.actorApId, actorApId))
+    .get();
+  if (!row) return null;
+  if (row.kind === "gone") return stateFromRow(row, now.getTime());
+  const retryAtMs = row.retryAt ? Date.parse(row.retryAt) : Number.NaN;
+  if (!Number.isFinite(retryAtMs) || retryAtMs <= now.getTime()) return null;
+  return stateFromRow(row, now.getTime());
+}
+
+export type RemoteActorFetchClaim =
+  | { readonly owned: true; readonly token: string }
+  | {
+      readonly owned: false;
+      readonly failure: RemoteActorFetchFailureState;
+    };
+
+function activeLeaseFailure(
+  row: typeof remoteActorFetchFailures.$inferSelect,
+  nowMs: number,
+): RemoteActorFetchFailureState {
+  const leaseExpiresAtMs = row.leaseExpiresAt
+    ? Date.parse(row.leaseExpiresAt)
+    : Number.NaN;
+  const retryAfterSeconds = Number.isFinite(leaseExpiresAtMs)
+    ? clampSeconds(
+        (leaseExpiresAtMs - nowMs) / 1000,
+        MAX_REMOTE_RETRY_AFTER_SECONDS,
+      )
+    : TRANSIENT_BACKOFF_BASE_SECONDS;
+  return {
+    actorApId: row.actorApId,
+    kind: "unavailable",
+    reason: "fetch_failed",
+    httpStatus: null,
+    failureCount: row.failureCount,
+    retryAt: Number.isFinite(leaseExpiresAtMs) ? row.leaseExpiresAt : null,
+    retryAfterSeconds,
+  };
+}
+
+function currentFailureOrLease(
+  row: typeof remoteActorFetchFailures.$inferSelect,
+  nowMs: number,
+): RemoteActorFetchFailureState {
+  if (row.kind === "gone") return stateFromRow(row, nowMs);
+  const retryAtMs = row.retryAt ? Date.parse(row.retryAt) : Number.NaN;
+  if (Number.isFinite(retryAtMs) && retryAtMs > nowMs) {
+    return stateFromRow(row, nowMs);
+  }
+  return activeLeaseFailure(row, nowMs);
+}
+
+/**
+ * Claim the one remote GET allowed for an actor whose cache row is missing.
+ *
+ * The token fences completion: if a slow owner outlives this bounded lease, it
+ * cannot overwrite the failure recorded by a newer owner or clear a cache
+ * decision after that newer fetch succeeds.
+ */
+export async function claimRemoteActorFetch(
+  db: Database,
+  actorApId: string,
+  now: Date = new Date(),
+): Promise<RemoteActorFetchClaim> {
+  const nowIso = now.toISOString();
+  const token = crypto.randomUUID();
+  const leaseExpiresAt = new Date(
+    now.getTime() + REMOTE_ACTOR_FETCH_LEASE_MS,
+  ).toISOString();
+
+  const inserted = await db
+    .insert(remoteActorFetchFailures)
+    .values({
+      actorApId,
+      kind: "unavailable",
+      reason: "fetch_failed",
+      httpStatus: null,
+      failureCount: 0,
+      retryAt: null,
+      processingToken: token,
+      leaseExpiresAt,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    })
+    .onConflictDoNothing();
+  if (affectedRowCount(inserted) > 0) return { owned: true, token };
+
+  const claimed = await db
+    .update(remoteActorFetchFailures)
+    .set({ processingToken: token, leaseExpiresAt, updatedAt: nowIso })
+    .where(
+      and(
+        eq(remoteActorFetchFailures.actorApId, actorApId),
+        ne(remoteActorFetchFailures.kind, "gone"),
+        or(
+          isNull(remoteActorFetchFailures.retryAt),
+          lte(remoteActorFetchFailures.retryAt, nowIso),
+        ),
+        or(
+          isNull(remoteActorFetchFailures.processingToken),
+          isNull(remoteActorFetchFailures.leaseExpiresAt),
+          lte(remoteActorFetchFailures.leaseExpiresAt, nowIso),
+        ),
+      ),
+    );
+  if (affectedRowCount(claimed) > 0) return { owned: true, token };
+
+  const current = await db
+    .select()
+    .from(remoteActorFetchFailures)
+    .where(eq(remoteActorFetchFailures.actorApId, actorApId))
+    .get();
+  if (!current) {
+    // A successful owner may have deleted the ledger between our failed claim
+    // and this read. The current request did not own a GET, so fail closed and
+    // let a later profile load observe the newly cached actor or retry.
+    return {
+      owned: false,
+      failure: {
+        actorApId,
+        kind: "unavailable",
+        reason: "fetch_failed",
+        httpStatus: null,
+        failureCount: 0,
+        retryAt: null,
+        retryAfterSeconds: TRANSIENT_BACKOFF_BASE_SECONDS,
+      },
+    };
+  }
+  return {
+    owned: false,
+    failure: currentFailureOrLease(current, now.getTime()),
+  };
+}
+
+/** Persist one failed fetch and return the exact response/backoff authority. */
+export async function recordRemoteActorFetchFailure(
+  db: Database,
+  actorApId: string,
+  failure: ActorCacheFailureResult,
+  now: Date = new Date(),
+  claimToken?: string,
+): Promise<RemoteActorFetchFailureState> {
+  const prior = await db
+    .select({ failureCount: remoteActorFetchFailures.failureCount })
+    .from(remoteActorFetchFailures)
+    .where(eq(remoteActorFetchFailures.actorApId, actorApId))
+    .get();
+  const failureCount = Math.min((prior?.failureCount ?? 0) + 1, 1_000_000);
+  const kind = classifyFetchFailure(failure);
+  const remoteRetryAfterSeconds =
+    failure.reason === "fetch_not_ok" ? failure.retryAfterSeconds : null;
+  const backoffSeconds = failureBackoffSeconds(
+    kind,
+    failureCount,
+    remoteRetryAfterSeconds,
+  );
+  const nowIso = now.toISOString();
+  const retryAt =
+    backoffSeconds === null
+      ? null
+      : new Date(now.getTime() + backoffSeconds * 1000).toISOString();
+  const values = {
+    actorApId,
+    kind,
+    reason: failure.reason,
+    httpStatus: failure.reason === "fetch_not_ok" ? failure.status : null,
+    failureCount,
+    retryAt,
+    processingToken: null,
+    leaseExpiresAt: null,
+    updatedAt: nowIso,
+  };
+
+  if (claimToken) {
+    const recorded = await db
+      .update(remoteActorFetchFailures)
+      .set(values)
+      .where(
+        and(
+          eq(remoteActorFetchFailures.actorApId, actorApId),
+          eq(remoteActorFetchFailures.processingToken, claimToken),
+        ),
+      );
+    if (affectedRowCount(recorded) === 0) {
+      const current = await db
+        .select()
+        .from(remoteActorFetchFailures)
+        .where(eq(remoteActorFetchFailures.actorApId, actorApId))
+        .get();
+      if (current) return currentFailureOrLease(current, now.getTime());
+      return {
+        actorApId,
+        kind: "unavailable",
+        reason: "fetch_failed",
+        httpStatus: null,
+        failureCount: 0,
+        retryAt: null,
+        retryAfterSeconds: TRANSIENT_BACKOFF_BASE_SECONDS,
+      };
+    }
+  } else {
+    await db
+      .insert(remoteActorFetchFailures)
+      .values({ ...values, createdAt: nowIso })
+      .onConflictDoUpdate({
+        target: remoteActorFetchFailures.actorApId,
+        set: values,
+      });
+  }
+
+  return {
+    ...values,
+    retryAfterSeconds: backoffSeconds,
+  };
+}
+
+export async function clearRemoteActorFetchFailure(
+  db: Database,
+  actorApId: string,
+  claimToken?: string,
+): Promise<void> {
+  await db
+    .delete(remoteActorFetchFailures)
+    .where(
+      claimToken
+        ? and(
+            eq(remoteActorFetchFailures.actorApId, actorApId),
+            eq(remoteActorFetchFailures.processingToken, claimToken),
+          )
+        : eq(remoteActorFetchFailures.actorApId, actorApId),
+    );
+}
+
+/** Remove one D1-safe batch of stale negative-cache/backoff rows. */
+export async function reapRemoteActorFetchFailures(
+  db: Database,
+  now: Date = new Date(),
+): Promise<number> {
+  const cutoff = new Date(
+    now.getTime() - FETCH_FAILURE_RETENTION_MS,
+  ).toISOString();
+  const candidates = await db
+    .select({ actorApId: remoteActorFetchFailures.actorApId })
+    .from(remoteActorFetchFailures)
+    .where(
+      and(
+        lt(remoteActorFetchFailures.updatedAt, cutoff),
+        or(
+          isNull(remoteActorFetchFailures.leaseExpiresAt),
+          lte(remoteActorFetchFailures.leaseExpiresAt, now.toISOString()),
+        ),
+      ),
+    )
+    .orderBy(asc(remoteActorFetchFailures.updatedAt))
+    .limit(FETCH_FAILURE_REAP_LIMIT);
+  if (candidates.length === 0) return 0;
+  const result = await db.delete(remoteActorFetchFailures).where(
+    and(
+      inArray(
+        remoteActorFetchFailures.actorApId,
+        candidates.map((row) => row.actorApId),
+      ),
+      lt(remoteActorFetchFailures.updatedAt, cutoff),
+      or(
+        isNull(remoteActorFetchFailures.leaseExpiresAt),
+        lte(remoteActorFetchFailures.leaseExpiresAt, now.toISOString()),
+      ),
+    ),
+  );
+  return affectedRowCount(result);
+}
 
 export interface FetchAndUpsertActorCacheOptions {
   /** Fetch timeout in ms. Defaults to 15s. */
@@ -189,7 +585,17 @@ export async function fetchAndUpsertActorCache(
       headers,
       timeout,
     });
-    if (!res.ok) return { ok: false, reason: "fetch_not_ok" };
+    if (!res.ok) {
+      return {
+        ok: false,
+        reason: "fetch_not_ok",
+        status: res.status,
+        retryAfterSeconds: parseRetryAfterSeconds(
+          res.headers.get("retry-after"),
+          Date.now(),
+        ),
+      };
+    }
     const raw: unknown = await res.json();
     data = tryParseRemoteActor(raw);
   } catch {

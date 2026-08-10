@@ -5,10 +5,12 @@ import { enqueuePendingDeliveryEndpointJobs } from "./lib/delivery/queue.ts";
 import { enqueuePendingDeliveryResolutionJobs } from "./lib/delivery/resolution-outbox.ts";
 import { reapDrainedTombstones } from "./routes/actors.ts";
 import { cleanupExpiredStories } from "./routes/stories/query-helpers.ts";
+import { reapRemoteActorFetchFailures } from "./lib/activitypub-actor-cache.ts";
 
 export type YurucommuRetentionStep =
   | "expired_stories"
   | "drained_tombstones"
+  | "remote_actor_fetch_failures"
   | "delivery_fanout"
   | "delivery_endpoint"
   | "delivery_resolution"
@@ -17,6 +19,7 @@ export type YurucommuRetentionStep =
 export interface YurucommuRetentionResult {
   readonly expiredStories: number;
   readonly reapedTombstones: number;
+  readonly reapedRemoteActorFetchFailures: number;
   readonly enqueuedDeliveryFanoutJobs: number;
   readonly enqueuedDeliveryEndpointJobs: number;
   readonly enqueuedDeliveryResolutionJobs: number;
@@ -68,6 +71,10 @@ export async function runYurucommuRetention(
   const reapedTombstones = await retentionStep("drained_tombstones", () =>
     reapDrainedTombstones(env.DB_INSTANCE),
   );
+  const reapedRemoteActorFetchFailures = await retentionStep(
+    "remote_actor_fetch_failures",
+    () => reapRemoteActorFetchFailures(env.DB_INSTANCE),
+  );
   const enqueuedDeliveryFanoutJobs = await retentionStep(
     "delivery_fanout",
     () => enqueuePendingDeliveryFanoutJobs(env),
@@ -88,6 +95,7 @@ export async function runYurucommuRetention(
   return {
     expiredStories,
     reapedTombstones,
+    reapedRemoteActorFetchFailures,
     enqueuedDeliveryFanoutJobs,
     enqueuedDeliveryEndpointJobs,
     enqueuedDeliveryResolutionJobs,
