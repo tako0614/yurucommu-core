@@ -85,6 +85,7 @@ export function parseRemoteStampPackManifest(
     !id ||
     id !== expected ||
     !publisher ||
+    new URL(publisher).origin !== new URL(id).origin ||
     !name ||
     description === null ||
     !Number.isInteger(release) ||

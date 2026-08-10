@@ -35,6 +35,9 @@ customer can authorize a grant, but Core projects that grant to a local Actor's
 9. A logical Stamp ID is exactly `<pack-id>/stamps/<key>`. A manifest cannot
    claim an ID from another pack namespace, even when the publisher controls
    both URLs.
+10. A remote Manifest's publisher Actor has the same origin as its Pack URI.
+    The unsigned HTTP Manifest cannot attest an Actor identity belonging to a
+    different server; cross-origin publishing needs a future signed grant.
 
 ## Persisted shape
 

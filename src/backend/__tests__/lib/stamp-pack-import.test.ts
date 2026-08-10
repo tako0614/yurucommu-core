@@ -55,6 +55,37 @@ test("remote manifest cannot claim a logical Stamp id outside its Pack namespace
   expect(parseRemoteStampPackManifest(manifest, packId)).toBeNull();
 });
 
+test("remote manifest cannot name a publisher Actor on another origin", async () => {
+  const packId = "https://attacker.example/stamp-packs/cat";
+  const assetSha256 = await sha256Hex(PNG);
+  const manifest = buildStampPackManifest({
+    baseUrl: "https://attacker.example",
+    id: packId,
+    release: 1,
+    name: { en: "Impersonated Cat" },
+    publisher: "https://victim.example/users/alice",
+    visibility: "public",
+    stamps: [
+      {
+        id: `${packId}/stamps/okay`,
+        key: "okay",
+        revision: `sha256:${"a".repeat(64)}`,
+        alt: { en: "Okay" },
+        tags: [],
+        asset: {
+          url: "https://cdn.attacker.example/cat/okay.png",
+          mediaType: "image/png",
+          width: 1,
+          height: 1,
+          sha256: assetSha256,
+        },
+      },
+    ],
+  });
+
+  expect(parseRemoteStampPackManifest(manifest, packId)).toBeNull();
+});
+
 function memoryStorage() {
   const values = new Map<string, { bytes: Uint8Array; contentType: string }>();
   const storage = {
