@@ -339,6 +339,167 @@ test("remote community acceptance rolls back membership when delivery intent can
   expect(await db.select().from(deliveryResolutions)).toHaveLength(0);
 });
 
+test("POST /requests/reject removes a remote pending edge and emits a community Reject", async () => {
+  const db = await freshDb();
+  await seed(db);
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/gated/requests/reject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor_ap_id: REMOTE }),
+    }),
+    envFor(db),
+  );
+
+  expect(res.status).toBe(200);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(
+        and(eq(follows.followerApId, REMOTE), eq(follows.followingApId, GROUP)),
+      ),
+  ).toHaveLength(0);
+  const rejects = await db
+    .select()
+    .from(activities)
+    .where(eq(activities.type, "Reject"));
+  expect(rejects).toHaveLength(1);
+  expect(rejects[0]?.actorApId).toBe(GROUP);
+  expect(rejects[0]?.objectApId).toBe(FOLLOW_ACT);
+  const resolutions = await db.select().from(deliveryResolutions);
+  expect(resolutions).toHaveLength(1);
+  expect(resolutions[0]?.activityApId).toBe(rejects[0]?.apId);
+  expect(resolutions[0]?.recipientActorApId).toBe(REMOTE);
+});
+
+test("remote community rejection keeps the request pending when delivery intent cannot persist", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await db.run(sql`
+    CREATE TRIGGER reject_community_reject_resolution
+    BEFORE INSERT ON delivery_resolutions
+    BEGIN
+      SELECT RAISE(ABORT, 'simulated resolution ledger outage');
+    END
+  `);
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/gated/requests/reject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor_ap_id: REMOTE }),
+    }),
+    envFor(db),
+  );
+
+  expect(res.status).toBe(500);
+  expect(
+    (
+      await db
+        .select({ status: follows.status })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.followerApId, REMOTE),
+            eq(follows.followingApId, GROUP),
+          ),
+        )
+        .get()
+    )?.status,
+  ).toBe("pending");
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Reject")),
+  ).toHaveLength(0);
+  expect(await db.select().from(deliveryResolutions)).toHaveLength(0);
+});
+
+test("remote community rejection succeeds with a pending durable intent when Queue publication fails", async () => {
+  const db = await freshDb();
+  await seed(db);
+  const env = envFor(db);
+  env.DELIVERY_QUEUE = {
+    send: () => Promise.reject(new Error("simulated Queue outage")),
+    sendBatch: () => Promise.reject(new Error("simulated Queue outage")),
+  } as unknown as Env["DELIVERY_QUEUE"];
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/gated/requests/reject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor_ap_id: REMOTE }),
+    }),
+    env,
+  );
+
+  expect(res.status).toBe(200);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(
+        and(eq(follows.followerApId, REMOTE), eq(follows.followingApId, GROUP)),
+      ),
+  ).toHaveLength(0);
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Reject")),
+  ).toHaveLength(1);
+  const resolutions = await db.select().from(deliveryResolutions);
+  expect(resolutions).toHaveLength(1);
+  expect(resolutions[0]?.status).toBe("pending");
+});
+
+test("local community rejection completes only the local request", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await db.insert(actors).values({
+    apId: LOCAL,
+    type: "Person",
+    preferredUsername: "local",
+    inbox: `${LOCAL}/inbox`,
+    outbox: `${LOCAL}/outbox`,
+    followersUrl: `${LOCAL}/followers`,
+    followingUrl: `${LOCAL}/following`,
+    publicKeyPem: "pub",
+    privateKeyPem: "priv",
+  });
+  await db.insert(communityJoinRequests).values({
+    communityApId: GROUP,
+    actorApId: LOCAL,
+    status: "pending",
+  });
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/gated/requests/reject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actor_ap_id: LOCAL }),
+    }),
+    envFor(db),
+  );
+
+  expect(res.status).toBe(200);
+  expect(
+    (
+      await db
+        .select({ status: communityJoinRequests.status })
+        .from(communityJoinRequests)
+        .where(
+          and(
+            eq(communityJoinRequests.communityApId, GROUP),
+            eq(communityJoinRequests.actorApId, LOCAL),
+          ),
+        )
+        .get()
+    )?.status,
+  ).toBe("rejected");
+  expect(
+    await db.select().from(activities).where(eq(activities.type, "Reject")),
+  ).toHaveLength(0);
+  expect(await db.select().from(deliveryResolutions)).toHaveLength(0);
+});
+
 test("community join requests hide an operator-blocked remote edge", async () => {
   const db = await freshDb();
   await seed(db);

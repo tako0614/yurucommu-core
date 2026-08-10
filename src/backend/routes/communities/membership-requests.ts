@@ -276,7 +276,7 @@ export function registerMembershipRequestRoutes(
         return c.json({ error: "Forbidden" }, 403);
       }
 
-      const request = await db
+      const localRequest = await db
         .select()
         .from(communityJoinRequests)
         .where(
@@ -287,19 +287,73 @@ export function registerMembershipRequestRoutes(
           ),
         )
         .get();
-      if (!request) {
+      const pendingEdge = await db
+        .select({ activityApId: follows.activityApId })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.followerApId, body.actor_ap_id),
+            eq(follows.followingApId, community.apId),
+            eq(follows.status, "pending"),
+          ),
+        )
+        .get();
+      if (!localRequest && !pendingEdge) {
         return c.json({ error: "Join request not found" }, 404);
       }
 
-      await db
-        .update(communityJoinRequests)
-        .set({ status: "rejected", processedAt: new Date().toISOString() })
-        .where(
-          and(
-            eq(communityJoinRequests.communityApId, community.apId),
-            eq(communityJoinRequests.actorApId, body.actor_ap_id),
-          ),
+      const now = new Date().toISOString();
+      const statements: D1Statement[] = [];
+
+      if (pendingEdge) {
+        statements.push(
+          db
+            .delete(follows)
+            .where(
+              and(
+                eq(follows.followerApId, body.actor_ap_id),
+                eq(follows.followingApId, community.apId),
+                eq(follows.status, "pending"),
+              ),
+            ) as D1Statement,
         );
+      }
+
+      // A remote approval request exists as a pending Follow edge. Reject it
+      // with the Group actor and commit the edge removal, Activity, and durable
+      // delivery intent together so the local and remote states cannot diverge.
+      const preparedResponse = pendingEdge
+        ? await prepareResponseIfRemote(
+            c.env,
+            db,
+            c.env.APP_URL,
+            "Reject",
+            community.apId,
+            body.actor_ap_id,
+            pendingEdge.activityApId,
+          )
+        : null;
+      if (preparedResponse) statements.push(...preparedResponse.statements);
+
+      if (localRequest) {
+        statements.push(
+          db
+            .update(communityJoinRequests)
+            .set({ status: "rejected", processedAt: now })
+            .where(
+              and(
+                eq(communityJoinRequests.communityApId, community.apId),
+                eq(communityJoinRequests.actorApId, body.actor_ap_id),
+                eq(communityJoinRequests.status, "pending"),
+              ),
+            ) as D1Statement,
+        );
+      }
+
+      await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
+      // The durable intent is committed above; Queue is only a best-effort
+      // wakeup, so an outage cannot turn a committed rejection into a 500.
+      await preparedResponse?.publish();
 
       return c.json({ success: true });
     },
