@@ -9,9 +9,23 @@ import type {
   IQueueMessage,
   IQueueProducer,
 } from "../../runtime/queue.ts";
-import type { Database } from "../../../db/index.ts";
-import { and, eq, inArray, lt, lte, notInArray, or, sql } from "drizzle-orm";
-import { actorCache, deliveryQueue } from "../../../db/index.ts";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  lt,
+  lte,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
+import {
+  actorCache,
+  affectedRowCount,
+  deliveryQueue,
+  type Database,
+} from "../../../db/index.ts";
 import { isSafeRemoteUrl } from "../../federation-helpers.ts";
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
@@ -289,6 +303,50 @@ export async function upsertDeliveryJob(
 
 const PENDING_DELIVERY_SCAN_LIMIT = 500;
 const STALE_DELIVERY_PROCESSING_MS = 2 * 60 * 1000;
+const TERMINAL_DELIVERY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const TERMINAL_DELIVERY_PURGE_LIMIT = 50;
+const TERMINAL_DELIVERY_STATUSES = [
+  "delivered",
+  "dead_letter",
+  "failed",
+] as const;
+
+/**
+ * Bound terminal endpoint-ledger growth while retaining a 30-day idempotency
+ * and diagnostic window. Activity deletion still owns immediate projection
+ * cleanup; this path handles Activities that legitimately remain in history.
+ */
+export async function purgeTerminalDeliveryEndpointJobs(
+  db: Database,
+  nowDate = new Date(),
+): Promise<number> {
+  const cutoff = new Date(
+    nowDate.getTime() - TERMINAL_DELIVERY_RETENTION_MS,
+  ).toISOString();
+  const rows = await db
+    .select({ id: deliveryQueue.id })
+    .from(deliveryQueue)
+    .where(
+      and(
+        inArray(deliveryQueue.status, [...TERMINAL_DELIVERY_STATUSES]),
+        lte(deliveryQueue.createdAt, cutoff),
+      ),
+    )
+    .orderBy(asc(deliveryQueue.createdAt))
+    .limit(TERMINAL_DELIVERY_PURGE_LIMIT);
+  if (rows.length === 0) return 0;
+  const result = await db.delete(deliveryQueue).where(
+    and(
+      inArray(
+        deliveryQueue.id,
+        rows.map((row) => row.id),
+      ),
+      inArray(deliveryQueue.status, [...TERMINAL_DELIVERY_STATUSES]),
+      lte(deliveryQueue.createdAt, cutoff),
+    ),
+  );
+  return affectedRowCount(result);
+}
 
 /**
  * Re-publish durable endpoint jobs whose first Queue RPC was lost, whose
@@ -303,6 +361,7 @@ export async function enqueuePendingDeliveryEndpointJobs(
     readonly includeFreshPending?: boolean;
   } = {},
 ): Promise<number> {
+  await purgeTerminalDeliveryEndpointJobs(env.DB_INSTANCE, nowDate);
   if (!env.DELIVERY_QUEUE) return 0;
   const now = nowDate.toISOString();
   const staleBefore = new Date(

@@ -68,6 +68,7 @@ export const deliveryQueue = sqliteTable(
     index("delivery_queue_activity_idx").on(t.activityApId),
     index("delivery_queue_next_attempt_idx").on(t.nextAttemptAt),
     index("delivery_queue_status_next_idx").on(t.status, t.nextAttemptAt),
+    index("delivery_queue_terminal_retention_idx").on(t.status, t.createdAt),
   ],
 );
 
