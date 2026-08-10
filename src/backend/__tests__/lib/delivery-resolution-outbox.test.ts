@@ -11,7 +11,11 @@ import {
 } from "../../../db/index.ts";
 import type { Env } from "../../types.ts";
 import type { IQueueMessage, IQueueProducer } from "../../runtime/queue.ts";
-import { createTestDb } from "../helpers/d1-semantics.ts";
+import {
+  createTestDb,
+  readMigration,
+  stripPragmasNotHonouredByD1,
+} from "../helpers/d1-semantics.ts";
 import {
   enqueueDeliveryToActor,
   enqueuePendingDeliveryEndpointJobs,
@@ -170,6 +174,78 @@ test("resolution completion creates the durable endpoint job before acknowledgin
   });
   expect(harness.sent).toHaveLength(1);
   expect(harness.sent[0]?.type).toBe("deliver_endpoint");
+});
+
+test("a pre-existing actor tombstone fences new resolution materialization", async () => {
+  const { db } = await createTestDb();
+  await seedActivity(db);
+  await db.insert(remoteActorTombstones).values({
+    actorApId: RECIPIENT_ID,
+    deleteActivityApId: `${RECIPIENT_ID}#delete`,
+  });
+  const harness = queueHarness();
+
+  expect(
+    await enqueueDeliveryResolutionJobs(db, harness.queue, [
+      { activityId: ACTIVITY_ID, recipientActorApId: RECIPIENT_ID },
+    ]),
+  ).toBe(0);
+  expect(await db.select().from(deliveryResolutions)).toEqual([]);
+  expect(harness.sent).toEqual([]);
+});
+
+test("the tombstone fence preserves unrelated recipients in the same insert", async () => {
+  const { db } = await createTestDb();
+  await seedActivity(db);
+  await db.insert(remoteActorTombstones).values({
+    actorApId: RECIPIENT_ID,
+    deleteActivityApId: `${RECIPIENT_ID}#delete`,
+  });
+  const otherRecipient = "https://other.example/users/carol";
+  const harness = queueHarness();
+
+  expect(
+    await enqueueDeliveryResolutionJobs(db, harness.queue, [
+      { activityId: ACTIVITY_ID, recipientActorApId: RECIPIENT_ID },
+      { activityId: ACTIVITY_ID, recipientActorApId: otherRecipient },
+    ]),
+  ).toBe(1);
+  expect(await db.select().from(deliveryResolutions)).toEqual([
+    expect.objectContaining({ recipientActorApId: otherRecipient }),
+  ]);
+  expect(harness.sent).toEqual([
+    expect.objectContaining({
+      type: "resolve_actor",
+      recipientActorApId: otherRecipient,
+    }),
+  ]);
+});
+
+test("migration 0028 removes resolution rows written after the tombstone migration", async () => {
+  const { db, client } = await createTestDb({
+    through: "0027_remote_actor_tombstones.sql",
+  });
+  await seedActivity(db);
+  await db.insert(remoteActorTombstones).values({
+    actorApId: RECIPIENT_ID,
+    deleteActivityApId: `${RECIPIENT_ID}#delete`,
+  });
+  await persistDeliveryResolutionJobs(db, [
+    { activityId: ACTIVITY_ID, recipientActorApId: RECIPIENT_ID },
+  ]);
+  expect(await db.select().from(deliveryResolutions)).toHaveLength(1);
+
+  await client.executeMultiple(
+    stripPragmasNotHonouredByD1(
+      await readMigration("0028_remote_actor_delivery_fence.sql"),
+    ),
+  );
+
+  expect(await db.select().from(deliveryResolutions)).toEqual([]);
+  await persistDeliveryResolutionJobs(db, [
+    { activityId: ACTIVITY_ID, recipientActorApId: RECIPIENT_ID },
+  ]);
+  expect(await db.select().from(deliveryResolutions)).toEqual([]);
 });
 
 test("a tombstoned recipient is discarded before endpoint materialization", async () => {
