@@ -62,6 +62,35 @@ const ARCHIVE_CREATE_BATCH_SIZE = 30;
 // the rest drains on later runs.
 const ARCHIVE_CLEANUP_BATCH = 200;
 
+type ParsedNotificationIds =
+  | { readonly ok: true; readonly ids: string[] }
+  | { readonly ok: false; readonly reason: "invalid" | "too_long" };
+
+/**
+ * Runtime owner for notification mutation ID lists. JSON generic arguments do
+ * not validate input, and passing a string or mixed array to Drizzle's
+ * `inArray` can become a 500 or a partially applied write. Normalizing here
+ * keeps read, archive, and unarchive on one pre-write contract.
+ */
+function parseNotificationIds(
+  value: unknown,
+  maxSize: number,
+): ParsedNotificationIds {
+  if (!Array.isArray(value) || value.length === 0) {
+    return { ok: false, reason: "invalid" };
+  }
+  if (value.length > maxSize) {
+    return { ok: false, reason: "too_long" };
+  }
+  if (value.some((id) => typeof id !== "string" || id.trim().length === 0)) {
+    return { ok: false, reason: "invalid" };
+  }
+  return {
+    ok: true,
+    ids: [...new Set(value.map((id) => (id as string).trim()))],
+  };
+}
+
 /**
  * Tracks the last cleanup timestamp per actor so cleanup is throttled to one
  * run per `ARCHIVED_CLEANUP_INTERVAL_MS`. Entries older than the interval no
@@ -725,14 +754,11 @@ notifications.post("/read", async (c) => {
     }
     await markAllEligibleNotificationsRead(db, actor.ap_id);
   } else {
-    if (
-      !Array.isArray(body.ids) ||
-      body.ids.length === 0 ||
-      body.ids.some((id) => typeof id !== "string" || id.trim().length === 0)
-    ) {
+    const parsedIds = parseNotificationIds(body.ids, MAX_READ_BATCH_SIZE);
+    if (!parsedIds.ok && parsedIds.reason === "invalid") {
       return c.json({ error: "ids must be a non-empty array of strings" }, 400);
     }
-    if (body.ids.length > MAX_READ_BATCH_SIZE) {
+    if (!parsedIds.ok) {
       return c.json(
         {
           error: "array_too_long",
@@ -741,14 +767,13 @@ notifications.post("/read", async (c) => {
         400,
       );
     }
-    const uniqueIds = [...new Set(body.ids.map((id) => id.trim()))];
     await db
       .update(inboxTable)
       .set({ read: 1 })
       .where(
         and(
           eq(inboxTable.actorApId, actor.ap_id),
-          inArray(inboxTable.activityApId, uniqueIds),
+          inArray(inboxTable.activityApId, parsedIds.ids),
         ),
       );
   }
@@ -767,20 +792,16 @@ notifications.post("/archive", async (c) => {
   if (actor instanceof Response) return actor;
 
   const db = c.get("db");
-  const body = await c.req.json<{ ids: string[] }>().catch(() => null);
-  if (!body || typeof body !== "object") {
+  const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return c.json({ error: "Invalid request body" }, 400);
   }
 
-  if (
-    !body.ids ||
-    !Array.isArray(body.ids) ||
-    body.ids.length === 0 ||
-    body.ids.some((id) => typeof id !== "string" || id.trim().length === 0)
-  ) {
+  const parsedIds = parseNotificationIds(body.ids, MAX_ARCHIVE_BATCH_SIZE);
+  if (!parsedIds.ok && parsedIds.reason === "invalid") {
     return c.json({ error: "ids array is required" }, 400);
   }
-  if (body.ids.length > MAX_ARCHIVE_BATCH_SIZE) {
+  if (!parsedIds.ok) {
     return c.json(
       {
         error: `Batch size exceeds maximum of ${MAX_ARCHIVE_BATCH_SIZE}`,
@@ -790,12 +811,11 @@ notifications.post("/archive", async (c) => {
   }
 
   const now = new Date().toISOString();
-  const uniqueIds = [...new Set(body.ids.map((id) => id.trim()))];
 
   const archived_count = await batchArchiveInsert(
     db,
     actor.ap_id,
-    uniqueIds,
+    parsedIds.ids,
     now,
     ARCHIVE_CREATE_BATCH_SIZE,
   );
@@ -814,14 +834,16 @@ notifications.delete("/archive", async (c) => {
   if (actor instanceof Response) return actor;
 
   const db = c.get("db");
-  const body = await c.req.json<{ ids: string[] }>().catch(() => null);
-  if (!body || typeof body !== "object") {
+  const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return c.json({ error: "Invalid request body" }, 400);
   }
-  if (!body.ids || body.ids.length === 0) {
+
+  const parsedIds = parseNotificationIds(body.ids, MAX_ARCHIVE_BATCH_SIZE);
+  if (!parsedIds.ok && parsedIds.reason === "invalid") {
     return c.json({ error: "ids array is required" }, 400);
   }
-  if (body.ids.length > MAX_ARCHIVE_BATCH_SIZE) {
+  if (!parsedIds.ok) {
     return c.json(
       {
         error: "array_too_long",
@@ -836,7 +858,7 @@ notifications.delete("/archive", async (c) => {
     .where(
       and(
         eq(notificationArchived.actorApId, actor.ap_id),
-        inArray(notificationArchived.activityApId, body.ids),
+        inArray(notificationArchived.activityApId, parsedIds.ids),
       ),
     );
 
