@@ -1,5 +1,6 @@
 import { expect, mock, test } from "bun:test";
 import { and, eq, sql } from "drizzle-orm";
+import { Hono } from "hono";
 
 import type { Database } from "../../../db/index.ts";
 import {
@@ -14,6 +15,9 @@ import type {
   Activity,
   ActivityContext,
 } from "../../routes/activitypub/inbox-types.ts";
+import type { Actor, Env, Variables } from "../../types.ts";
+import { resolveActorApId } from "../../routes/actors-helpers.ts";
+import { isActorBlockedStrict } from "../../lib/blocklist.ts";
 
 const APP_URL = "https://yuru.test";
 
@@ -80,6 +84,7 @@ mock.module("../../lib/federation-fetch.ts", () => ({
 // pick up the stubbed fetch.
 const { handleUpdate, handleMove } =
   await import("../../routes/activitypub/handlers/inbox-content-handlers.ts");
+const { default: actorsRoute } = await import("../../routes/actors.ts");
 
 async function freshDb(): Promise<Database> {
   return (await createTestDb()).db;
@@ -119,6 +124,25 @@ async function seedActor(
     publicKeyPem: "pub",
     privateKeyPem: "priv",
   });
+}
+
+function actorApiFor(db: Database, currentActorApId: string | null) {
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set(
+      "actor",
+      currentActorApId
+        ? ({
+            ap_id: currentActorApId,
+            role: "member",
+          } as unknown as Actor)
+        : null,
+    );
+    await next();
+  });
+  app.route("/api/actors", actorsRoute);
+  return app;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +192,77 @@ test("handleUpdate(Person) re-fetches and upserts the remote actor immediately",
   expect(row?.name).toBe("Alice (updated)");
   expect(row?.publicKeyPem).toBe("ROTATED-PEM");
   expect(row?.iconUrl).toBe("https://remote.example/avatar-v2.png");
+});
+
+test("a retained remote relationship can recover a missing profile cache on direct navigation", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  const owner = `${APP_URL}/ap/users/owner`;
+  await seedActor(db, owner, "owner");
+  await db.insert(follows).values({
+    followerApId: ALICE,
+    followingApId: owner,
+    status: "accepted",
+  });
+
+  expect(await resolveActorApId(db, APP_URL, ALICE)).toBe(ALICE);
+  expect(await isActorBlockedStrict(db, ALICE)).toBe(false);
+
+  const res = await actorApiFor(db, owner).fetch(
+    new Request(`${APP_URL}/api/actors/${encodeURIComponent(ALICE)}`),
+    { APP_URL, DB_INSTANCE: db } as unknown as Env,
+  );
+
+  expect(res.status).toBe(200);
+  expect(fetchedUrls).toEqual([ALICE]);
+  expect((await res.json()) as unknown).toMatchObject({
+    actor: {
+      ap_id: ALICE,
+      username: "alice@remote.example",
+      name: "Alice (updated)",
+    },
+  });
+  expect(
+    await db.select().from(actorCache).where(eq(actorCache.apId, ALICE)).get(),
+  ).toMatchObject({ apId: ALICE, preferredUsername: "alice" });
+});
+
+test("a direct profile read does not fetch an unrelated cache-missing remote actor", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  const owner = `${APP_URL}/ap/users/owner`;
+  await seedActor(db, owner, "owner");
+
+  const res = await actorApiFor(db, owner).fetch(
+    new Request(`${APP_URL}/api/actors/${encodeURIComponent(ALICE)}`),
+    { APP_URL, DB_INSTANCE: db } as unknown as Env,
+  );
+
+  expect(res.status).toBe(404);
+  expect(fetchedUrls).toEqual([]);
+  expect(
+    await db.select().from(actorCache).where(eq(actorCache.apId, ALICE)).get(),
+  ).toBeUndefined();
+});
+
+test("an anonymous profile read cannot hydrate a retained remote relationship", async () => {
+  fetchedUrls.length = 0;
+  const db = await freshDb();
+  const owner = `${APP_URL}/ap/users/owner`;
+  await seedActor(db, owner, "owner");
+  await db.insert(follows).values({
+    followerApId: ALICE,
+    followingApId: owner,
+    status: "accepted",
+  });
+
+  const res = await actorApiFor(db, null).fetch(
+    new Request(`${APP_URL}/api/actors/${encodeURIComponent(ALICE)}`),
+    { APP_URL, DB_INSTANCE: db } as unknown as Env,
+  );
+
+  expect(res.status).toBe(404);
+  expect(fetchedUrls).toEqual([]);
 });
 
 test("handleUpdate(actor) rejects when the object id does not match the actor", async () => {

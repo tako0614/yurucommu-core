@@ -36,6 +36,7 @@ import {
   activityApId,
   formatUsername,
   generateId,
+  isLocal,
   isSafeRemoteUrl,
   parseLimit,
   parseOffset,
@@ -89,6 +90,7 @@ import {
   activityDeliveryDrainedGuard,
   deleteActivitiesCascade,
 } from "../lib/activity-delete-cascade.ts";
+import { fetchAndUpsertActorCache } from "../lib/activitypub-actor-cache.ts";
 
 const log = logger.child({ component: "actors" });
 
@@ -736,12 +738,47 @@ actorsRoute.get("/:identifier", async (c) => {
     if (await isActorBlockedStrict(db, apId)) {
       return c.json({ error: "Actor not found" }, 404);
     }
-    const cachedActor = await db
+    let cachedActor = await db
       .select()
       .from(actorCache)
       .where(eq(actorCache.apId, apId))
       .get();
-    if (!cachedActor) return c.json({ error: "Actor not found" }, 404);
+    if (!cachedActor) {
+      // A Follow edge can outlive the optional presentation cache (for
+      // example after cache eviction or an interrupted refresh). The profile
+      // link projected from that durable relationship must remain recoverable,
+      // but this public read route must not become an arbitrary remote-fetch
+      // proxy. Only an authenticated read of a safe non-local actor with a
+      // retained pending/accepted relationship may hydrate the missing row.
+      const retainedRelationship =
+        currentActor && !isLocal(apId, baseUrl) && isSafeRemoteUrl(apId)
+          ? await db
+              .select({ followerApId: follows.followerApId })
+              .from(follows)
+              .where(
+                and(
+                  or(
+                    eq(follows.followerApId, apId),
+                    eq(follows.followingApId, apId),
+                  ),
+                  inArray(follows.status, ["pending", "accepted"]),
+                ),
+              )
+              .get()
+          : null;
+      if (!retainedRelationship) {
+        return c.json({ error: "Actor not found" }, 404);
+      }
+
+      const recovered = await fetchAndUpsertActorCache(db, apId, {
+        mode: "insert",
+        signer: await getInstanceFetchSigner(c),
+      });
+      if (!recovered.ok) {
+        return c.json({ error: "Actor not found" }, 404);
+      }
+      cachedActor = recovered.row;
+    }
 
     // Project the remote actor's AS Person document (cached `rawJson`) so the
     // client banner/fields work for REMOTE actors too: `attachment` ->
