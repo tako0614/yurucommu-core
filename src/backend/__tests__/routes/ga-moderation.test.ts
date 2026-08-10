@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 
 /**
  * GA #10 / #22 — operator moderation surface.
@@ -12,10 +11,7 @@ import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 
 import { eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
@@ -26,29 +22,12 @@ import {
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import { moderationRoutes } from "../../routes/moderation.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0003_activity_remote_object_edges.sql",
-  "0004_blocklist.sql",
-  "0005_story_community_scope.sql",
-  "0006_dm_community_read_status.sql",
-  "0007_moderation_reports.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  await client.execute("PRAGMA foreign_keys = ON");
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function fakeActor(role: "owner" | "member"): Actor {

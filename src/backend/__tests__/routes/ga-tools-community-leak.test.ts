@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 
 /**
  * GA #4 + #5 — community-scope leak via the AI-agent (takos-tools) surface.
@@ -23,23 +22,23 @@ import { readFile } from "node:fs/promises";
  * post is also excluded.
  */
 
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   activities,
   actors,
+  announces,
   blocks,
   bookmarks,
   follows,
   inbox,
   likes,
+  mediaUploads,
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
+import type { IObjectStorage } from "../../runtime/types.ts";
 import {
   handleGetUserProfile,
   handleSearchPosts,
@@ -53,6 +52,7 @@ import {
 import {
   handleBookmarkPost,
   handleCreatePost,
+  handleDeletePost,
   handleLikePost,
 } from "../../routes/takos-tools/posts.ts";
 import { handleFollowUser } from "../../routes/takos-tools/follows.ts";
@@ -62,28 +62,12 @@ import {
 } from "../../routes/takos-tools/dm.ts";
 import { getConversationId } from "../../routes/dm/query-helpers.ts";
 import { blockDomain } from "../../lib/blocklist.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0003_activity_remote_object_edges.sql",
-  "0004_blocklist.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-  // The agent searchPosts tool now matches via the FTS predicate (same as web
-  // search), so the objects_fts virtual table + sync triggers must exist.
-  "0012_objects_content_fts.sql",
-];
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function insertLocalActor(
@@ -128,19 +112,42 @@ async function insertPost(
   return apId;
 }
 
-/** Minimal ToolContext stub: handlers only use c.get("db") and c.json(). */
+/** Minimal ToolContext stub: handlers only use c.get("db"), c.env and c.json(). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ctxFor(db: Database): any {
+function ctxFor(db: Database, media?: IObjectStorage): any {
   return {
     get(key: string) {
       if (key === "db") return db;
       return null;
     },
-    env: { APP_URL },
+    env: { APP_URL, MEDIA: media },
     json(value: unknown) {
       return { __body: value };
     },
   };
+}
+
+function recordingStorage(): {
+  storage: IObjectStorage;
+  deleted: string[];
+} {
+  const deleted: string[] = [];
+  const storage = {
+    async put() {},
+    async get() {
+      return null;
+    },
+    async delete(key: string | string[]) {
+      deleted.push(...(Array.isArray(key) ? key : [key]));
+    },
+    async list() {
+      return { objects: [], truncated: false } as never;
+    },
+    async head() {
+      return null;
+    },
+  } as unknown as IObjectStorage;
+  return { storage, deleted };
 }
 
 function isoMinutesAgo(min: number): string {
@@ -484,6 +491,175 @@ test("agent create_post reply is read-gated (cannot reply to an unreadable paren
   expect(
     (await db.select().from(objects).where(eq(objects.inReplyTo, parent)).all())
       .length,
+  ).toBe(1);
+});
+
+test("agent create_post returns a post_id that delete_post can actually delete", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "tool-create-delete-author");
+
+  const createResult = (await handleCreatePost(
+    ctxFor(db),
+    { content: "created by tool" },
+    { ap_id: author },
+  )) as unknown as {
+    __body: {
+      success: boolean;
+      data: { post_id: string; ap_id: string };
+    };
+  };
+  expect(createResult.__body.success).toBe(true);
+  const { post_id: postId, ap_id: apId } = createResult.__body.data;
+  expect(apId).toBe(`${APP_URL}/ap/objects/${postId}`);
+
+  const deleteResult = (await handleDeletePost(
+    ctxFor(db),
+    { post_id: postId },
+    { ap_id: author },
+  )) as unknown as { __body: { success: boolean } };
+  expect(deleteResult.__body.success).toBe(true);
+  expect(
+    await db.select().from(objects).where(eq(objects.apId, apId)),
+  ).toHaveLength(0);
+  expect(
+    (
+      await db
+        .select({ postCount: actors.postCount })
+        .from(actors)
+        .where(eq(actors.apId, author))
+        .get()
+    )?.postCount,
+  ).toBe(0);
+});
+
+test("agent delete_post reaps children/media and repairs parent and author counters", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "tool-delete-author");
+  const other = await insertLocalActor(db, "tool-delete-other");
+  const parent = `${APP_URL}/ap/objects/tool-delete-parent`;
+  const target = `${APP_URL}/ap/objects/tool-delete-target`;
+  const survivor = `${APP_URL}/ap/objects/tool-delete-survivor`;
+  const r2Key = "uploads/tool-delete.jpg";
+
+  await db.insert(objects).values([
+    {
+      apId: parent,
+      type: "Note",
+      attributedTo: other,
+      content: "parent",
+      visibility: "public",
+      replyCount: 2,
+    },
+    {
+      apId: target,
+      type: "Note",
+      attributedTo: author,
+      content: "delete me",
+      visibility: "public",
+      inReplyTo: parent,
+      attachmentsJson: JSON.stringify([
+        {
+          type: "Document",
+          url: "/media/tool-delete.jpg",
+          r2_key: r2Key,
+        },
+      ]),
+    },
+    {
+      apId: survivor,
+      type: "Note",
+      attributedTo: author,
+      content: "keep me",
+      visibility: "public",
+      inReplyTo: parent,
+    },
+  ]);
+  await db.update(actors).set({ postCount: 2 }).where(eq(actors.apId, author));
+  await db.insert(mediaUploads).values({
+    id: "tool-delete-media",
+    r2Key,
+    uploaderApId: author,
+    contentType: "image/jpeg",
+    size: 123,
+  });
+  await db.insert(likes).values({ actorApId: other, objectApId: target });
+  await db.insert(announces).values({ actorApId: other, objectApId: target });
+  await db.insert(bookmarks).values({ actorApId: other, objectApId: target });
+  await db.insert(objectRecipients).values({
+    objectApId: target,
+    recipientApId: other,
+    type: "to",
+  });
+
+  const { storage, deleted } = recordingStorage();
+  const result = (await handleDeletePost(
+    ctxFor(db, storage),
+    { post_id: target },
+    { ap_id: author },
+  )) as unknown as { __body: { success: boolean } };
+  expect(result.__body.success).toBe(true);
+
+  expect(
+    await db.select().from(objects).where(eq(objects.apId, target)),
+  ).toHaveLength(0);
+  expect(
+    await db.select().from(objects).where(eq(objects.apId, survivor)),
+  ).toHaveLength(1);
+  for (const rows of [
+    await db.select().from(likes).where(eq(likes.objectApId, target)),
+    await db.select().from(announces).where(eq(announces.objectApId, target)),
+    await db.select().from(bookmarks).where(eq(bookmarks.objectApId, target)),
+    await db
+      .select()
+      .from(objectRecipients)
+      .where(eq(objectRecipients.objectApId, target)),
+    await db.select().from(mediaUploads).where(eq(mediaUploads.r2Key, r2Key)),
+  ]) {
+    expect(rows).toHaveLength(0);
+  }
+  expect(deleted).toEqual([r2Key]);
+  expect(
+    (
+      await db
+        .select({ postCount: actors.postCount })
+        .from(actors)
+        .where(eq(actors.apId, author))
+        .get()
+    )?.postCount,
+  ).toBe(1);
+  expect(
+    (
+      await db
+        .select({ replyCount: objects.replyCount })
+        .from(objects)
+        .where(eq(objects.apId, parent))
+        .get()
+    )?.replyCount,
+  ).toBe(1);
+});
+
+test("agent delete_post does not decrement postCount for a direct message", async () => {
+  const db = await freshDb();
+  const author = await insertLocalActor(db, "tool-delete-direct-author");
+  const direct = `${APP_URL}/ap/objects/tool-delete-direct`;
+  await db.update(actors).set({ postCount: 1 }).where(eq(actors.apId, author));
+  await db.insert(objects).values({
+    apId: direct,
+    type: "Note",
+    attributedTo: author,
+    content: "direct",
+    visibility: "direct",
+  });
+
+  await handleDeletePost(ctxFor(db), { post_id: direct }, { ap_id: author });
+  expect(
+    (
+      await db
+        .select({ postCount: actors.postCount })
+        .from(actors)
+        .where(eq(actors.apId, author))
+        .get()
+    )?.postCount,
   ).toBe(1);
 });
 

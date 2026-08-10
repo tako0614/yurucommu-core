@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 
 /**
  * GA #13 + #14 — object delete must not orphan child rows.
@@ -19,11 +18,8 @@ import { readFile } from "node:fs/promises";
  * end-to-end against a real libsql DB.
  */
 
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { eq, or } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
@@ -40,30 +36,12 @@ import { deleteObjectCascade } from "../../routes/posts/delete-cascade.ts";
 import { handleDelete } from "../../routes/activitypub/handlers/inbox-content-handlers.ts";
 import type { ActivityContext } from "../../routes/activitypub/inbox-types.ts";
 import type { Activity } from "../../routes/activitypub/inbox-types.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0003_activity_remote_object_edges.sql",
-  "0004_blocklist.sql",
-  "0005_story_community_scope.sql",
-  "0006_dm_community_read_status.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  // Mirror src/db/index.ts: enforce the migrations' FK edges on this
-  // connection so this test also covers real engine-level cascade.
-  await client.execute("PRAGMA foreign_keys = ON");
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function insertActor(db: Database, username: string): Promise<string> {

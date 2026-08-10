@@ -1,15 +1,12 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actors, objects } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import postsRoutes from "../../routes/posts/routes.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 // ---------------------------------------------------------------------------
 // A DM note (`visibility="direct"`, created by createDmNote) is NOT counted in
@@ -24,25 +21,8 @@ import postsRoutes from "../../routes/posts/routes.ts";
 
 const APP_URL = "https://yuru.test";
 
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0003_activity_remote_object_edges.sql",
-  "0004_blocklist.sql",
-  "0005_story_community_scope.sql",
-  "0006_dm_community_read_status.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
-
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function appWith(db: Database, actor: Actor) {

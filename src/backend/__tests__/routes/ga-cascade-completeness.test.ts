@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 
 /**
  * GA #21 — object delete cascade completeness.
@@ -18,20 +17,21 @@ import { readFile } from "node:fs/promises";
  * delete, against a real libsql DB with the migrations' FK edges enabled.
  */
 
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   activities,
   actors,
   announces,
   bookmarks,
+  deliveryQueue,
+  inboundActivityClaims,
   inbox as inboxTable,
   likes,
   mediaUploads,
+  notificationArchived,
+  notificationPushJobs,
   objectRecipients,
   objects,
   storyShares,
@@ -40,28 +40,12 @@ import {
 } from "../../../db/index.ts";
 import { deleteObjectCascade } from "../../routes/posts/delete-cascade.ts";
 import { cleanupExpiredStories } from "../../routes/stories/query-helpers.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0003_activity_remote_object_edges.sql",
-  "0004_blocklist.sql",
-  "0005_story_community_scope.sql",
-  "0006_dm_community_read_status.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  await client.execute("PRAGMA foreign_keys = ON");
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function insertActor(db: Database, username: string): Promise<string> {
@@ -197,6 +181,86 @@ test("deleteObjectCascade reaps the object-attached media_uploads row (no orphan
   expect(await countAllChildRows(db, target, targetKey)).toBe(0);
   // Unrelated object's media + children untouched.
   expect(await countAllChildRows(db, survivor, survivorKey)).toBe(8);
+});
+
+test("deleteObjectCascade cancels every durable projection of retained object activities", async () => {
+  const db = await freshDb();
+  const author = await insertActor(db, "projection-author");
+  const recipient = await insertActor(db, "projection-recipient");
+  const targetObject = `${APP_URL}/ap/objects/projection-target`;
+  const survivorObject = `${APP_URL}/ap/objects/projection-survivor`;
+  const targetActivity = `${APP_URL}/ap/activities/projection-target`;
+  const survivorActivity = `${APP_URL}/ap/activities/projection-survivor`;
+
+  for (const objectApId of [targetObject, survivorObject]) {
+    await db.insert(objects).values({
+      apId: objectApId,
+      type: "Note",
+      attributedTo: author,
+      content: "projected",
+      visibility: "public",
+    });
+  }
+  for (const [activityApId, objectApId, suffix] of [
+    [targetActivity, targetObject, "target"],
+    [survivorActivity, survivorObject, "survivor"],
+  ] as const) {
+    await db.insert(activities).values({
+      apId: activityApId,
+      type: "Create",
+      actorApId: author,
+      objectApId,
+      rawJson: "{}",
+      direction: "outbound",
+    });
+    await db.insert(deliveryQueue).values({
+      id: `projection-delivery-${suffix}`,
+      activityApId,
+      inboxUrl: "https://remote.example/inbox",
+      status: "processing",
+    });
+    await db.insert(inboxTable).values({ actorApId: recipient, activityApId });
+    await db
+      .update(notificationPushJobs)
+      .set({
+        status: "processing",
+        processingToken: `projection-push-${suffix}`,
+      })
+      .where(eq(notificationPushJobs.activityApId, activityApId));
+    await db.insert(notificationArchived).values({
+      actorApId: recipient,
+      activityApId,
+    });
+    await db.insert(inboundActivityClaims).values({
+      activityApId,
+      processingToken: `projection-claim-${suffix}`,
+    });
+  }
+
+  await deleteObjectCascade(db, targetObject);
+
+  // The ledger Activity stays available for history/Undo, but no notification
+  // or delivery worker may continue projecting the deleted object.
+  expect(
+    (await db.select({ apId: activities.apId }).from(activities))
+      .map((row) => row.apId)
+      .sort(),
+  ).toEqual([survivorActivity, targetActivity].sort());
+  for (const ids of [
+    (await db.select().from(deliveryQueue)).map((row) => row.activityApId),
+    (await db.select().from(inboxTable)).map((row) => row.activityApId),
+    (await db.select().from(notificationArchived)).map(
+      (row) => row.activityApId,
+    ),
+    (await db.select().from(notificationPushJobs)).map(
+      (row) => row.activityApId,
+    ),
+    (await db.select().from(inboundActivityClaims)).map(
+      (row) => row.activityApId,
+    ),
+  ]) {
+    expect(ids).toEqual([survivorActivity]);
+  }
 });
 
 test("deleteObjectCascade does not reap another author's media that shares no attachment", async () => {

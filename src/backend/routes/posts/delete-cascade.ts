@@ -28,7 +28,6 @@ import {
   announces,
   bookmarks,
   communities,
-  inbox as inboxTable,
   likes,
   mediaUploads,
   objectRecipients,
@@ -38,6 +37,7 @@ import {
   storyViews,
   storyVotes,
 } from "../../../db/index.ts";
+import { activityProjectionDeleteStatements } from "../../lib/activity-delete-cascade.ts";
 import { chunkForInClause, D1_IN_CHUNK } from "../../lib/chunk.ts";
 
 type CascadeObject = {
@@ -289,7 +289,9 @@ export async function reapReplacedMediaUrl(
  * a `media` binding is passed, the backing R2 blobs are best-effort deleted too
  * so storage does not leak; pass `c.env.MEDIA` from the request context.
  *
- * Does not touch the `objects` row or `activities` (SET NULL, not CASCADE).
+ * Does not touch the `objects` row or `activities` (SET NULL, not CASCADE),
+ * but cancels every durable notification/delivery projection of Activities
+ * that target the object.
  */
 export async function deleteObjectCascade(
   db: Database,
@@ -308,7 +310,7 @@ export async function deleteObjectCascade(
  * meant one attachment read plus eight serial delete round-trips per post: five
  * empty posts took about ten seconds in a real workerd probe and larger domain
  * purges could outlive the request. Here each <=90-id D1-safe chunk issues one
- * atomic eight-statement batch, so latency scales by chunks rather than posts.
+ * atomic twelve-statement batch, so latency scales by chunks rather than posts.
  */
 export async function deleteObjectsCascade(
   db: Database,
@@ -370,10 +372,12 @@ export async function deleteObjectsCascade(
   }
 
   for (const chunk of chunkForInClause(existingApIds)) {
-    // Reap NOTIFICATION inbox rows that pointed at these objects (a Like /
-    // Announce / reply-Create that notified a local user). Delete only inbox
-    // projections, not activities: an outbound federation Delete may still
-    // need its retained ledger row for delivery.
+    // Cancel every notification/delivery projection of retained Activities
+    // that target these objects. A queued Create/Update must not be delivered
+    // after its object has disappeared, and an in-flight/terminal push job or
+    // claim must not retain that deleted payload. Keep the Activity ledger rows
+    // themselves; callers may need history/Undo, and the new outbound Delete
+    // Activity is created only after this cascade so it remains unaffected.
     await runBatch(db, [
       db.delete(likes).where(inArray(likes.objectApId, chunk)),
       db.delete(announces).where(inArray(announces.objectApId, chunk)),
@@ -384,17 +388,10 @@ export async function deleteObjectsCascade(
       db.delete(storyViews).where(inArray(storyViews.storyApId, chunk)),
       db.delete(storyVotes).where(inArray(storyVotes.storyApId, chunk)),
       db.delete(storyShares).where(inArray(storyShares.storyApId, chunk)),
-      db
-        .delete(inboxTable)
-        .where(
-          inArray(
-            inboxTable.activityApId,
-            db
-              .select({ id: activities.apId })
-              .from(activities)
-              .where(inArray(activities.objectApId, chunk)),
-          ),
-        ),
+      ...activityProjectionDeleteStatements(
+        db,
+        inArray(activities.objectApId, chunk),
+      ),
     ]);
   }
 

@@ -13,17 +13,15 @@ import {
 } from "../../db/index.ts";
 
 /**
- * Build one atomic hard-delete unit for activities and every durable
- * projection keyed by their AP IDs.
+ * Build the atomic cleanup unit for every durable projection of matching
+ * activities while retaining the activity ledger rows themselves.
  *
  * The inbox FK/trigger only removes push jobs in selected non-terminal states;
  * delivery work, archived markers, in-flight/terminal push jobs, and inbound
- * claim leases otherwise survive as orphans. Keep the activities rows until
- * the final statement so every preceding subquery sees the same target set.
- * Semantic edges (`likes`, `announces`, `follows`) are intentionally caller-
- * owned because removing them also requires domain-specific counter repair.
+ * claim leases otherwise survive. This projection-only form is also used when
+ * an object is deleted but its historical Activity must remain available.
  */
-export function activityDeleteCascadeStatements(
+export function activityProjectionDeleteStatements(
   db: Database,
   activityWhere: SQL,
 ): readonly [D1Statement, ...D1Statement[]] {
@@ -54,6 +52,24 @@ export function activityDeleteCascadeStatements(
     db
       .delete(inbox)
       .where(inArray(inbox.activityApId, targetActivityIds())) as D1Statement,
+  ];
+}
+
+/**
+ * Build one atomic hard-delete unit for activities and every durable
+ * projection keyed by their AP IDs.
+ *
+ * Keep the activities rows until the final statement so every preceding
+ * subquery sees the same target set. Semantic edges (`likes`, `announces`,
+ * `follows`) are intentionally caller-owned because removing them also
+ * requires domain-specific counter repair.
+ */
+export function activityDeleteCascadeStatements(
+  db: Database,
+  activityWhere: SQL,
+): readonly [D1Statement, ...D1Statement[]] {
+  return [
+    ...activityProjectionDeleteStatements(db, activityWhere),
     db.delete(activities).where(activityWhere) as D1Statement,
   ];
 }

@@ -5,13 +5,18 @@
  *          yurucommu_like_post, yurucommu_bookmark_post
  */
 
-import { and, count, eq, gt } from "drizzle-orm";
+import { and, count, eq, gt, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { actors, bookmarks, likes, objects } from "../../../db/index.ts";
+import { objectApId } from "../../federation-helpers.ts";
 import {
   actorIsBlockedBy,
   canViewerReadObjectFull,
 } from "../../lib/post-visibility.ts";
+import {
+  deleteObjectCascade,
+  purgeMediaBlobs,
+} from "../posts/delete-cascade.ts";
 import {
   MAX_POST_CONTENT_LENGTH,
   normalizeVisibility,
@@ -32,6 +37,21 @@ import type { Input, ToolContext } from "./types.ts";
 // narrow structural cast so the object write + postCount update commit together.
 type Batchable = { batch: (stmts: unknown[]) => Promise<unknown> };
 
+/**
+ * Tool results expose both a full `ap_id` and a compact `post_id`, so every
+ * tool mutation must accept either form. Keep the historical `/ap/notes/:id`
+ * candidate too: older versions minted tool posts under that non-canonical
+ * path, and their returned compact IDs must remain usable for cleanup.
+ */
+function toolPostWhereByIdOrApId(baseUrl: string, postId: string) {
+  const normalizedBase = baseUrl.replace(/\/+$/u, "");
+  return or(
+    eq(objects.apId, postId),
+    eq(objects.apId, objectApId(normalizedBase, postId)),
+    eq(objects.apId, `${normalizedBase}/ap/notes/${postId}`),
+  );
+}
+
 export async function handleCreatePost(
   c: ToolContext,
   input: Input,
@@ -44,7 +64,10 @@ export async function handleCreatePost(
   // Constrain visibility to the canonical enum (unknown → "public"), matching
   // the web post route; a raw value would be invisible to every feed filter.
   const visibility = normalizeVisibility(String(input.visibility || "public"));
-  const inReplyTo = input.in_reply_to ? String(input.in_reply_to) : null;
+  const requestedInReplyTo = input.in_reply_to
+    ? String(input.in_reply_to)
+    : null;
+  let inReplyTo: string | null = null;
 
   if (!content) return c.json(errRequired("Content"), 400);
   // Enforce the same content cap as the canonical post route so this MCP path
@@ -62,7 +85,7 @@ export async function handleCreatePost(
   // private-community), bumping that restricted parent's reply_count and exposing
   // its existence via the stored in_reply_to (a privacy oracle), or reply to a
   // parent whose author blocked the actor (block bypass + notification).
-  if (inReplyTo) {
+  if (requestedInReplyTo) {
     const parent = await db
       .select({
         apId: objects.apId,
@@ -76,7 +99,7 @@ export async function handleCreatePost(
         endTime: objects.endTime,
       })
       .from(objects)
-      .where(eq(objects.apId, inReplyTo))
+      .where(toolPostWhereByIdOrApId(c.env.APP_URL, requestedInReplyTo))
       .get();
     if (
       !parent ||
@@ -88,11 +111,14 @@ export async function handleCreatePost(
         404,
       );
     }
+    // Persist the resolved canonical/full AP identifier, never the compact
+    // caller input, so reply traversal and counter recomputation share one key.
+    inReplyTo = parent.apId;
   }
 
   const postId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const apId = `${c.env.APP_URL}/ap/notes/${postId}`;
+  const apId = objectApId(c.env.APP_URL.replace(/\/+$/u, ""), postId);
 
   // Co-commit the Note + author postCount bump (+ parent replyCount recompute for
   // a reply) atomically (no drift on a mid-write failure). Direct posts do NOT
@@ -150,9 +176,18 @@ export async function handleDeletePost(
   if (!postId) return c.json(errRequired("Post ID"), 400);
 
   const post = await db
-    .select({ apId: objects.apId })
+    .select({
+      apId: objects.apId,
+      inReplyTo: objects.inReplyTo,
+      visibility: objects.visibility,
+    })
     .from(objects)
-    .where(and(eq(objects.apId, postId), eq(objects.attributedTo, actor.ap_id)))
+    .where(
+      and(
+        toolPostWhereByIdOrApId(c.env.APP_URL, postId),
+        eq(objects.attributedTo, actor.ap_id),
+      ),
+    )
     .get();
   if (!post) {
     return c.json(
@@ -164,25 +199,52 @@ export async function handleDeletePost(
     );
   }
 
+  // Match the canonical post route: explicitly reap every child/projection and
+  // discover unreferenced managed media before removing the object. D1 cannot
+  // rely on FK cascade semantics across runtimes.
+  const mediaKeys = await deleteObjectCascade(db, post.apId, c.env.MEDIA);
+
   // #COUNTER-SYM: gate the decrement on the object STILL existing (correlated
   // EXISTS) and run it BEFORE the delete, so two concurrent/retried deletes of
   // the same post can't double-decrement postCount — the second batch's EXISTS
   // is false (the first already deleted the row) → its -1 matches 0 rows. gt(>0)
   // guards underflow. Mirrors the canonical web delete path (posts/routes.ts).
-  const objectExists = sql`EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${postId})`;
-  await (db as unknown as Batchable).batch([
-    db
-      .update(actors)
-      .set({ postCount: sql`${actors.postCount} - 1` })
-      .where(
-        and(
-          eq(actors.apId, actor.ap_id),
-          gt(actors.postCount, 0),
-          objectExists,
+  const objectExists = sql`EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${post.apId})`;
+  const ops: unknown[] = [];
+  // Direct messages never increment postCount, so their deletion must not
+  // decrement it. This keeps the tool path symmetric with canonical post/DM
+  // creation and deletion.
+  if (post.visibility !== "direct") {
+    ops.push(
+      db
+        .update(actors)
+        .set({ postCount: sql`${actors.postCount} - 1` })
+        .where(
+          and(
+            eq(actors.apId, actor.ap_id),
+            gt(actors.postCount, 0),
+            objectExists,
+          ),
         ),
-      ),
-    db.delete(objects).where(eq(objects.apId, postId)),
-  ]);
+    );
+  }
+  ops.push(db.delete(objects).where(eq(objects.apId, post.apId)));
+  if (post.inReplyTo) {
+    const parentId = post.inReplyTo;
+    ops.push(
+      db
+        .update(objects)
+        .set({
+          replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
+        })
+        .where(eq(objects.apId, parentId)),
+    );
+  }
+  await (db as unknown as Batchable).batch(ops);
+
+  // The irreversible external delete is last: failure leaks a blob instead of
+  // leaving a live post whose media has already been destroyed.
+  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
 
   return c.json(ok({ deleted: true }));
 }
@@ -217,7 +279,7 @@ export async function handleLikePost(
       endTime: objects.endTime,
     })
     .from(objects)
-    .where(eq(objects.apId, postId))
+    .where(toolPostWhereByIdOrApId(c.env.APP_URL, postId))
     .get();
   // Block-gate too (the read-gate passes for any public post, so it alone does
   // not stop a blocked actor): an actor the author blocked must not bump the
@@ -299,7 +361,7 @@ export async function handleBookmarkPost(
       endTime: objects.endTime,
     })
     .from(objects)
-    .where(eq(objects.apId, postId))
+    .where(toolPostWhereByIdOrApId(c.env.APP_URL, postId))
     .get();
   if (!post) return c.json(errNotFound("Post"), 404);
 
