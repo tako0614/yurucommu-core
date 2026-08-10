@@ -16,7 +16,7 @@ import {
 } from "../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
 import {
-  isActorBlocked,
+  isActorBlockedStrict,
   operatorActorNotBlockedSql,
 } from "../../lib/blocklist.ts";
 import { resolvePeerFollowActivityId } from "../follow-helpers.ts";
@@ -139,7 +139,7 @@ export function registerMembershipRequestRoutes(
       if (!manager) {
         return c.json({ error: "Forbidden" }, 403);
       }
-      if (await isActorBlocked(db, body.actor_ap_id)) {
+      if (await isActorBlockedStrict(db, body.actor_ap_id)) {
         return c.json({ error: "Join request not found" }, 404);
       }
 

@@ -13,7 +13,7 @@ import {
 import { formatUsername } from "../../federation-helpers.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
 import {
-  isActorBlocked,
+  isActorBlockedStrict,
   operatorActorNotBlockedSql,
 } from "../../lib/blocklist.ts";
 import { yurumeUnreadCounts } from "../../lib/unread-counts.ts";
@@ -422,7 +422,7 @@ contacts.get("/contact/:encodedApId", async (c) => {
   }
 
   // Otherwise treat it as a user (local actor or cached remote actor).
-  if (await isActorBlocked(db, apId)) {
+  if (await isActorBlockedStrict(db, apId)) {
     return c.json({ error: "Contact not found" }, 404);
   }
   const infoMap = await buildActorInfoMap(db, [apId]);

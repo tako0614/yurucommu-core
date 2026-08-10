@@ -15,7 +15,7 @@ import {
   personalActorIsBlockedBy,
   personalActorIsSuppressedBy,
 } from "./personal-actor-moderation.ts";
-import { isActorBlocked } from "./blocklist.ts";
+import { isActorBlockedStrict } from "./blocklist.ts";
 
 export type ReadGateObject = {
   apId?: string;
@@ -166,7 +166,7 @@ export async function canViewerReadObjectFull(
   // for retry/reversible unblock; while their author is operator-blocked those
   // rows must be inert through every single-object reader and interaction that
   // consumes this canonical gate.
-  if (await isActorBlocked(db, obj.attributedTo)) return false;
+  if (await isActorBlockedStrict(db, obj.attributedTo)) return false;
 
   // Story author + expiry shortcuts need no community/follow query.
   if (obj.type === "Story") {

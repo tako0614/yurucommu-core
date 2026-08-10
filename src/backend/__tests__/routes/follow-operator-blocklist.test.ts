@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile, readdir } from "node:fs/promises";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { Hono } from "hono";
@@ -146,4 +146,28 @@ test("a domain block prevents follow mutation before legacy rejected-edge cleanu
     edge: "rejected",
     activities: 0,
   });
+});
+
+test("a blocklist outage fails closed before creating a Follow edge or Activity", async () => {
+  const db = await freshDb();
+  const actor = await insertLocalActor(db, "alice");
+  const target = "https://possibly-blocked.example/users/bob";
+  await insertCachedRemoteActor(db, target);
+  await db.run(
+    sql`ALTER TABLE blocked_actors RENAME TO blocked_actors_offline`,
+  );
+
+  try {
+    const res = await postFollow(db, actor, target);
+
+    expect(res.status).toBe(500);
+    expect(await followState(db, actor.ap_id, target)).toEqual({
+      edge: null,
+      activities: 0,
+    });
+  } finally {
+    await db.run(
+      sql`ALTER TABLE blocked_actors_offline RENAME TO blocked_actors`,
+    );
+  }
 });

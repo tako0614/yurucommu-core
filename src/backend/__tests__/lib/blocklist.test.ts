@@ -4,7 +4,9 @@ import { spy } from "#test/mock";
 
 import {
   isActorBlocked,
+  isActorBlockedStrict,
   isDomainBlocked,
+  isDomainBlockedStrict,
   normalizeDomain,
 } from "../../lib/blocklist.ts";
 import type { Database } from "../../../db/index.ts";
@@ -175,6 +177,12 @@ test("isDomainBlocked falls back to false on DB errors", async () => {
   expect(
     await isActorBlocked(failingDb, "https://bad.example/users/eve"),
   ).toEqual(false);
+  await expect(isDomainBlockedStrict(failingDb, "bad.example")).rejects.toThrow(
+    "db down",
+  );
+  await expect(
+    isActorBlockedStrict(failingDb, "https://bad.example/users/eve"),
+  ).rejects.toThrow("db down");
 });
 
 test("blockDomain / unblockDomain reject invalid hostname input", async () => {

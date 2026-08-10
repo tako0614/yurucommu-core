@@ -19,8 +19,8 @@ import {
 } from "../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../lib/delivery/queue.ts";
 import {
-  filterBlockedActorApIds,
-  isActorBlocked,
+  filterBlockedActorApIdsStrict,
+  isActorBlockedStrict,
   operatorActorNotBlockedSql,
 } from "../lib/blocklist.ts";
 import {
@@ -75,7 +75,7 @@ follow.post("/", async (c) => {
   // defederated host, or mutate a retained relationship that unblock restores.
   // Match the personal-block route's not-found response to avoid presenting a
   // blocked target through this mutation surface.
-  if (await isActorBlocked(db, targetApId)) {
+  if (await isActorBlockedStrict(db, targetApId)) {
     return c.json({ error: "Target actor not found" }, 404);
   }
 
@@ -226,7 +226,7 @@ follow.post("/accept", async (c) => {
       400,
     );
   }
-  if (await isActorBlocked(db, requesterApId)) {
+  if (await isActorBlockedStrict(db, requesterApId)) {
     return c.json({ error: "No pending follow request" }, 404);
   }
 
@@ -328,7 +328,7 @@ follow.post("/accept/batch", async (c) => {
     );
   }
 
-  const blockedRequesterApIds = await filterBlockedActorApIds(
+  const blockedRequesterApIds = await filterBlockedActorApIdsStrict(
     db,
     requesterApIds,
   );

@@ -78,7 +78,7 @@ import {
 } from "./actors-helpers.ts";
 import { reapReplacedMediaUrl } from "./posts/delete-cascade.ts";
 import { safeUrlJoin } from "../lib/activitypub-helpers.ts";
-import { isActorBlocked } from "../lib/blocklist.ts";
+import { isActorBlockedStrict } from "../lib/blocklist.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../lib/feed-cursor.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
 import { logger } from "../lib/logger.ts";
@@ -732,7 +732,7 @@ actorsRoute.get("/:identifier", async (c) => {
     // reversible, but it must not stay directly discoverable while its actor
     // or domain is defederated. Apply the same complete actor/domain decision
     // as ingress and outbound delivery before projecting the cached profile.
-    if (await isActorBlocked(db, apId)) {
+    if (await isActorBlockedStrict(db, apId)) {
       return c.json({ error: "Actor not found" }, 404);
     }
     const cachedActor = await db

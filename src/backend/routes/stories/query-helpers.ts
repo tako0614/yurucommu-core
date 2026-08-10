@@ -20,7 +20,7 @@ import {
 } from "../posts/delete-cascade.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
 import {
-  isActorBlocked,
+  isActorBlockedStrict,
   operatorActorNotBlockedSql,
 } from "../../lib/blocklist.ts";
 
@@ -112,7 +112,7 @@ export async function canViewerReadStory(
   if (!viewerApId) return false;
   // Retained rows from a failed/partial purge are unreadable and cannot be
   // interacted with while their author is instance-operator blocked.
-  if (await isActorBlocked(db, story.attributedTo)) return false;
+  if (await isActorBlockedStrict(db, story.attributedTo)) return false;
   if (story.attributedTo === viewerApId) return true;
   if (story.communityApId) {
     const member = await db

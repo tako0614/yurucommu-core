@@ -192,6 +192,12 @@ function createDrizzleMockDb(
       Promise.all(stmts as PromiseLike<unknown>[]),
     ),
     query: {
+      blockedActors: {
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+      },
+      blockedDomains: {
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+      },
       objects: {
         findFirst: spy((..._args: unknown[]) =>
           Promise.resolve(queryFindFirstResult),

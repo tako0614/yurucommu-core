@@ -40,7 +40,7 @@ import {
 } from "../../lib/post-visibility.ts";
 import { logger } from "../../lib/logger.ts";
 import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
-import { isActorBlocked } from "../../lib/blocklist.ts";
+import { isActorBlockedStrict } from "../../lib/blocklist.ts";
 import { activityDeleteCascadeStatements } from "../../lib/activity-delete-cascade.ts";
 import { setPostLike } from "./like-mutation.ts";
 
@@ -219,7 +219,7 @@ posts.post("/:id/repost", async (c) => {
   // Repost has a public-reach gate rather than the canonical read gate below,
   // so enforce instance moderation explicitly before it can persist/fan out an
   // Announce for a retained object from a defederated actor/domain.
-  if (await isActorBlocked(db, post.attributedTo)) {
+  if (await isActorBlockedStrict(db, post.attributedTo)) {
     return c.json({ error: "Post not found" }, 404);
   }
 

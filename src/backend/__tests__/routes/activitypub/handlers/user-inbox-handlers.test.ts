@@ -115,6 +115,14 @@ function createMockDb(options: {
     update: updateSpy,
     delete: deleteSpy,
     batch: batchSpy,
+    query: {
+      blockedActors: {
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+      },
+      blockedDomains: {
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+      },
+    },
   };
 
   return { db, callTracker };
