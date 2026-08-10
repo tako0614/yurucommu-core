@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
+  activities,
   actors,
   announces,
   blocks,
@@ -17,6 +18,7 @@ import {
   dmCommunityReadStatus,
   dmReadStatus,
   dmTyping,
+  deliveryResolutions,
   follows,
   likes,
   mediaUploads,
@@ -244,6 +246,12 @@ test("account deletion keeps media metadata and retry authority when R2 purge fa
     accessToken: "tok-tako-retry",
     expiresAt: "2099-01-01T00:00:00.000Z",
   });
+  const remoteFollower = "https://remote.test/users/delete-retry";
+  await db.insert(follows).values({
+    followerApId: remoteFollower,
+    followingApId: tako,
+    status: "accepted",
+  });
 
   const { storage, setFailing, deleted } = failureInjectingStorage();
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -266,6 +274,18 @@ test("account deletion keeps media metadata and retry authority when R2 purge fa
       .where(eq(mediaUploads.r2Key, r2Key))
       .get(),
   ).toBeDefined();
+  const firstDelete = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(eq(activities.type, "Delete"))
+    .get();
+  expect(firstDelete).toBeDefined();
+  expect(
+    await db
+      .select()
+      .from(deliveryResolutions)
+      .where(eq(deliveryResolutions.activityApId, firstDelete!.apId)),
+  ).toHaveLength(1);
   expect(
     await db
       .select({ deletedAt: actors.deletedAt })
@@ -304,6 +324,18 @@ test("account deletion keeps media metadata and retry authority when R2 purge fa
       .where(eq(sessions.memberId, tako))
       .get(),
   ).toBeUndefined();
+  expect(
+    await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(eq(activities.type, "Delete")),
+  ).toEqual([firstDelete!]);
+  expect(
+    await db
+      .select()
+      .from(deliveryResolutions)
+      .where(eq(deliveryResolutions.activityApId, firstDelete!.apId)),
+  ).toHaveLength(1);
 });
 
 test("account deletion retry does not double-decrement follow counters after a mid-cascade R2 failure", async () => {

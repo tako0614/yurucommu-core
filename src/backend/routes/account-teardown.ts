@@ -1,4 +1,15 @@
-import { and, asc, eq, gt, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  ne,
+  not,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
@@ -188,7 +199,24 @@ export async function teardownActor(
   // Delete activity row is preserved through teardown (excluded from the
   // activities delete below) so the deliver_endpoint consumer can read its
   // rawJson after the actor's other rows are gone.
-  const deleteActivityId = activityApId(baseUrl, generateId());
+  // Retry the same durable Delete intent when an earlier teardown attempt
+  // failed after snapshotting followers. Minting a fresh Activity here would
+  // see an already-erased follower graph, then the cleanup below could delete
+  // the original Activity and its only endpoint/resolution jobs.
+  const existingDelete = await db
+    .select({ apId: activities.apId })
+    .from(activities)
+    .where(
+      and(
+        eq(activities.actorApId, apId),
+        eq(activities.type, "Delete"),
+        eq(activities.direction, "outbound"),
+      ),
+    )
+    .orderBy(asc(activities.createdAt))
+    .get();
+  const deleteActivityId =
+    existingDelete?.apId ?? activityApId(baseUrl, generateId());
   const deleteActivity = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: deleteActivityId,
@@ -199,14 +227,16 @@ export async function teardownActor(
     object: apId,
   };
   try {
-    await db.insert(activities).values({
-      apId: deleteActivityId,
-      type: "Delete",
-      actorApId: apId,
-      objectApId: apId,
-      rawJson: JSON.stringify(deleteActivity),
-      direction: "outbound",
-    });
+    if (!existingDelete) {
+      await db.insert(activities).values({
+        apId: deleteActivityId,
+        type: "Delete",
+        actorApId: apId,
+        objectApId: apId,
+        rawJson: JSON.stringify(deleteActivity),
+        direction: "outbound",
+      });
+    }
     await snapshotAndEnqueueFollowerDeliveries(db, env, deleteActivityId, apId);
   } catch (err) {
     // Queue publication is already best-effort inside the snapshot helper, but
@@ -454,11 +484,21 @@ export async function teardownActor(
   await db
     .delete(objectRecipients)
     .where(eq(objectRecipients.recipientApId, apId));
-  // Preserve the federation Delete activity (the delivery consumer needs its
-  // rawJson); all other activities by this actor go.
+  // Preserve every outbound federation Delete activity (the delivery consumer
+  // needs rawJson). Current retries reuse the oldest one, while retaining all
+  // covers rows created by older builds without cancelling their delivery
+  // projections before they drain.
   await deleteActivitiesCascade(
     db,
-    and(eq(activities.actorApId, apId), ne(activities.apId, deleteActivityId))!,
+    and(
+      eq(activities.actorApId, apId),
+      not(
+        and(
+          eq(activities.type, "Delete"),
+          eq(activities.direction, "outbound"),
+        )!,
+      ),
+    )!,
   );
 
   // Interactions on the actor's authored objects, via subqueries.
