@@ -171,7 +171,7 @@ export function formatPost(
     type: p.type,
     author: {
       ap_id: p.attributed_to,
-      username: formatUsername(p.attributed_to),
+      username: formatUsername(p.attributed_to, p.author_username),
       preferred_username: p.author_username,
       name: p.author_name,
       icon_url: p.author_icon_url,

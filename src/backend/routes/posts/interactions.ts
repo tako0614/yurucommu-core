@@ -741,7 +741,10 @@ posts.get("/bookmarks", async (c) => {
       type: obj.type,
       author: {
         ap_id: obj.attributedTo,
-        username: formatUsername(obj.attributedTo),
+        username: formatUsername(
+          obj.attributedTo,
+          authorInfo?.preferredUsername,
+        ),
         preferred_username: authorInfo?.preferredUsername ?? null,
         name: authorInfo?.name ?? null,
         icon_url: authorInfo?.iconUrl ?? null,

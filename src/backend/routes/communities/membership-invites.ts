@@ -59,7 +59,10 @@ export function registerMembershipInviteRoutes(
           invited_ap_id: inv.invitedApId,
           invited_by: {
             ap_id: inv.invitedByApId,
-            username: formatUsername(inv.invitedByApId),
+            username: formatUsername(
+              inv.invitedByApId,
+              invitedByInfo?.preferredUsername,
+            ),
             preferred_username: invitedByInfo?.preferredUsername || null,
             name: invitedByInfo?.name || null,
           },

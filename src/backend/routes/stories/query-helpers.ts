@@ -301,7 +301,7 @@ export function buildAuthor(
 ): StoryAuthor {
   return {
     ap_id: apId,
-    username: formatUsername(apId),
+    username: formatUsername(apId, data?.preferredUsername),
     preferred_username: data?.preferredUsername || null,
     name: data?.name || null,
     icon_url: data?.iconUrl || null,

@@ -554,7 +554,10 @@ notifications.get("/", async (c) => {
       created_at: entry.createdAt,
       actor: {
         ap_id: entry.activityActorApId,
-        username: formatUsername(entry.activityActorApId),
+        username: formatUsername(
+          entry.activityActorApId,
+          actorInfo?.preferredUsername,
+        ),
         preferred_username: actorInfo?.preferredUsername ?? null,
         name: actorInfo?.name ?? null,
         icon_url: actorInfo?.iconUrl ?? null,

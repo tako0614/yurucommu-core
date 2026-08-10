@@ -64,7 +64,7 @@ function formatNote(row: NoteRow, viewerApId: string): NoteResponse {
   return {
     actor: {
       ap_id: row.actorApId,
-      username: formatUsername(row.actorApId),
+      username: formatUsername(row.actorApId, row.preferredUsername),
       preferred_username: row.preferredUsername,
       name: row.name,
       icon_url: row.iconUrl,

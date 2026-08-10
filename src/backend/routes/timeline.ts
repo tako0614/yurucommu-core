@@ -302,7 +302,7 @@ function formatPost(
     type: p.type,
     author: {
       ap_id: p.attributedTo,
-      username: formatUsername(p.attributedTo),
+      username: formatUsername(p.attributedTo, author.preferredUsername),
       preferred_username: author.preferredUsername,
       name: author.name,
       icon_url: author.iconUrl,

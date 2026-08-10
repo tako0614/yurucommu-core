@@ -91,11 +91,41 @@ export function isLocal(apId: string, baseUrl: string): boolean {
   }
 }
 
-export function formatUsername(apId: string): string {
-  const url = new URL(apId);
-  const match = apId.match(/\/users\/([^\/]+)$/);
-  if (match) {
-    return `${match[1]}@${url.host}`;
+function cleanPreferredUsername(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * Render an actor handle without treating the actor-id path as fresher than
+ * ActivityPub's preferredUsername. Actor ids are stable across a profile rename,
+ * so `/users/old-name` may legitimately describe `preferredUsername=new-name`.
+ */
+export function formatUsername(
+  apId: string,
+  preferredUsername?: string | null,
+): string {
+  const preferred = cleanPreferredUsername(preferredUsername);
+  try {
+    const url = new URL(apId);
+    if (preferred) return `${preferred}@${url.host}`;
+    const match = url.pathname.match(/\/(?:users|groups)\/([^/]+)\/?$/u);
+    if (match) return `${match[1]}@${url.host}`;
+  } catch {
+    // Retained legacy rows must remain displayable/removable even if their id
+    // predates the current absolute-URL validation boundary.
   }
-  return apId;
+  return preferred || apId;
+}
+
+/** Always return a non-empty primary label for an actor roster row. */
+export function formatPreferredUsername(
+  apId: string,
+  preferredUsername?: string | null,
+): string {
+  const preferred = cleanPreferredUsername(preferredUsername);
+  if (preferred) return preferred;
+  const formatted = formatUsername(apId);
+  const separator = formatted.lastIndexOf("@");
+  return separator > 0 ? formatted.slice(0, separator) : formatted;
 }

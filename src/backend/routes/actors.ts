@@ -375,7 +375,7 @@ actorsRoute.get(
         following_count: a.followingCount,
         post_count: a.postCount,
         created_at: a.createdAt,
-        username: formatUsername(a.apId),
+        username: formatUsername(a.apId, a.preferredUsername),
       })),
     });
   },
@@ -661,7 +661,7 @@ actorsRoute.get("/:identifier/posts", async (c) => {
       type: p.type,
       author: {
         ap_id: p.attributedTo,
-        username: formatUsername(p.attributedTo),
+        username: formatUsername(p.attributedTo, author?.preferredUsername),
         preferred_username: author?.preferredUsername || null,
         name: author?.name || null,
         icon_url: author?.iconUrl || null,
@@ -761,7 +761,10 @@ actorsRoute.get("/:identifier", async (c) => {
         name: cachedActor.name,
         summary: cachedActor.summary,
         icon_url: cachedActor.iconUrl,
-        username: formatUsername(cachedActor.apId),
+        username: formatUsername(
+          cachedActor.apId,
+          cachedActor.preferredUsername,
+        ),
         fields: sanitizeProfileFields(rawAttachment),
         also_known_as: rawAlsoKnownAs.slice(0, MAX_ALSO_KNOWN_AS),
         moved_to: rawMovedTo,
@@ -818,7 +821,7 @@ actorsRoute.get("/:identifier", async (c) => {
       post_count: localActor.postCount,
       is_private: localActor.isPrivate,
       created_at: localActor.createdAt,
-      username: formatUsername(localActor.apId),
+      username: formatUsername(localActor.apId, localActor.preferredUsername),
       fields: sanitizeProfileFields(safeJsonParse(localActor.fieldsJson, [])),
       also_known_as: safeJsonParse<string[]>(localActor.alsoKnownAsJson, []),
       moved_to: localActor.movedTo,
@@ -1300,7 +1303,7 @@ actorsRoute.get("/me/export", async (c) => {
       fields: sanitizeProfileFields(safeJsonParse(profileRow.fieldsJson, [])),
       also_known_as: safeJsonParse<string[]>(profileRow.alsoKnownAsJson, []),
       moved_to: profileRow.movedTo,
-      username: formatUsername(profileRow.apId),
+      username: formatUsername(profileRow.apId, profileRow.preferredUsername),
     },
     outbox: {
       type: "OrderedCollection",

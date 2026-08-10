@@ -155,7 +155,7 @@ export function formatActorSummary(
 } {
   return {
     ap_id: apId,
-    username: formatUsername(apId),
+    username: formatUsername(apId, info?.preferredUsername),
     preferred_username: info?.preferredUsername || null,
     name: info?.name || null,
     icon_url: info?.iconUrl || null,

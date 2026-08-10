@@ -94,7 +94,7 @@ export function registerMembershipRequestRoutes(
         const actorInfo = actorInfoMap.get(apId);
         return {
           ap_id: apId,
-          username: formatUsername(apId),
+          username: formatUsername(apId, actorInfo?.preferredUsername),
           preferred_username: actorInfo?.preferredUsername || null,
           name: actorInfo?.name || null,
           icon_url: actorInfo?.iconUrl || null,

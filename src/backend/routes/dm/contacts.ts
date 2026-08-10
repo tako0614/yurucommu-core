@@ -296,7 +296,10 @@ contacts.get("/contacts", async (c) => {
       return {
         type: "community" as const,
         ap_id: cm.community.apId,
-        username: formatUsername(cm.community.apId),
+        username: formatUsername(
+          cm.community.apId,
+          cm.community.preferredUsername,
+        ),
         preferred_username: cm.community.preferredUsername,
         name: cm.community.name,
         icon_url: cm.community.iconUrl,
@@ -409,7 +412,7 @@ contacts.get("/contact/:encodedApId", async (c) => {
       contact: {
         type: "community" as const,
         ap_id: community.apId,
-        username: formatUsername(community.apId),
+        username: formatUsername(community.apId, community.preferredUsername),
         preferred_username: community.preferredUsername,
         name: community.name,
         icon_url: community.iconUrl,

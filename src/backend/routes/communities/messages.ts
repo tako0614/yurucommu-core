@@ -195,7 +195,10 @@ messagesRouter.get("/:identifier/messages", async (c) => {
       id: msg.apId,
       sender: {
         ap_id: msg.attributedTo,
-        username: formatUsername(msg.attributedTo),
+        username: formatUsername(
+          msg.attributedTo,
+          senderInfo?.preferredUsername,
+        ),
         preferred_username: senderInfo?.preferredUsername || null,
         name: senderInfo?.name || null,
         icon_url: senderInfo?.iconUrl || null,
@@ -422,7 +425,7 @@ messagesRouter.post(
       id: objectApId,
       sender: {
         ap_id: actor.ap_id,
-        username: formatUsername(actor.ap_id),
+        username: formatUsername(actor.ap_id, actor.preferred_username),
         preferred_username: actor.preferred_username,
         name: actor.name,
         icon_url: actor.icon_url,

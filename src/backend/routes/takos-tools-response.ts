@@ -78,7 +78,7 @@ export function ok(data: unknown): ToolResponse {
 export function formatActorSummary(a: ActorSummary): Record<string, unknown> {
   return {
     ap_id: a.apId,
-    username: formatUsername(a.apId),
+    username: formatUsername(a.apId, a.preferredUsername),
     preferred_username: a.preferredUsername,
     name: a.name,
     icon_url: a.iconUrl,

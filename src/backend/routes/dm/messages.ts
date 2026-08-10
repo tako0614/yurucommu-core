@@ -154,7 +154,7 @@ function buildSenderFromActor(actor: {
 }): SenderInfo {
   return {
     ap_id: actor.ap_id,
-    username: formatUsername(actor.ap_id),
+    username: formatUsername(actor.ap_id, actor.preferred_username),
     preferred_username: actor.preferred_username,
     name: actor.name,
     icon_url: actor.icon_url,
@@ -268,7 +268,7 @@ function formatMessages(
       id: msg.apId,
       sender: {
         ap_id: msg.attributedTo,
-        username: formatUsername(msg.attributedTo),
+        username: formatUsername(msg.attributedTo, info?.preferredUsername),
         preferred_username: info?.preferredUsername || null,
         name: info?.name || null,
         icon_url: info?.iconUrl || null,

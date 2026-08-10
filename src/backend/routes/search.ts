@@ -264,7 +264,7 @@ function formatPost(
     ap_id: post.apId,
     author: {
       ap_id: post.attributedTo,
-      username: formatUsername(post.attributedTo),
+      username: formatUsername(post.attributedTo, author?.preferredUsername),
       preferred_username: author?.preferredUsername ?? null,
       name: author?.name ?? null,
       icon_url: author?.iconUrl ?? null,
@@ -439,7 +439,7 @@ search.get("/actors", async (c) => {
     summary: a.summary,
     follower_count: a.followerCount,
     created_at: a.createdAt,
-    username: formatUsername(a.apId),
+    username: formatUsername(a.apId, a.preferredUsername),
   }));
 
   return c.json({ actors: result, limit, offset, has_more });

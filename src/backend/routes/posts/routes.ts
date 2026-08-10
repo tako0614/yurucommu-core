@@ -283,7 +283,7 @@ posts.post("/", async (c) => {
     type: "Note",
     author: {
       ap_id: actor.ap_id,
-      username: formatUsername(actor.ap_id),
+      username: formatUsername(actor.ap_id, actor.preferred_username),
       preferred_username: actor.preferred_username,
       name: actor.name,
       icon_url: actor.icon_url,

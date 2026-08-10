@@ -11,35 +11,57 @@ import { resolveNotificationTarget } from "./notification-target.ts";
 type ActorLike = {
   ap_id: string;
   username?: string;
-  preferred_username?: string;
+  preferred_username?: string | null;
+};
+
+type NormalizedActor<T extends ActorLike> = Omit<
+  T,
+  "username" | "preferred_username"
+> & {
+  username: string;
+  preferred_username: string;
 };
 
 function formatUsernameFromApId(
   apId: string,
-  preferred?: string,
+  preferred?: string | null,
 ): string | null {
   try {
     const url = new URL(apId);
-    const match = apId.match(/\/(users|groups)\/([^/]+)$/);
-    if (match) return `${match[2]}@${url.host}`;
     if (preferred) return `${preferred}@${url.host}`;
+    const match = url.pathname.match(/\/(users|groups)\/([^/]+)\/?$/u);
+    if (match) return `${match[2]}@${url.host}`;
   } catch {
     // Ignore malformed URLs and fallback to existing fields.
   }
   return null;
 }
 
-export function normalizeActor<T extends ActorLike>(actor: T): T {
-  if (!actor || !actor.ap_id) return actor;
+export function normalizeActor<T extends ActorLike>(
+  actor: T,
+): NormalizedActor<T> {
   const rawUsername = actor.username?.trim();
+  const declaredPreferred = actor.preferred_username?.trim() || null;
+  const rawSeparator = rawUsername?.lastIndexOf("@") ?? -1;
+  const rebasedRawUsername =
+    declaredPreferred &&
+    rawUsername &&
+    !rawUsername.includes("://") &&
+    rawSeparator > 0 &&
+    rawSeparator < rawUsername.length - 1
+      ? `${declaredPreferred}@${rawUsername.slice(rawSeparator + 1)}`
+      : null;
   const formatted =
-    rawUsername ||
-    formatUsernameFromApId(actor.ap_id, actor.preferred_username) ||
-    actor.preferred_username ||
+    rebasedRawUsername ||
+    (declaredPreferred
+      ? formatUsernameFromApId(actor.ap_id, declaredPreferred)
+      : rawUsername) ||
+    formatUsernameFromApId(actor.ap_id) ||
+    declaredPreferred ||
     actor.username ||
     actor.ap_id;
   const preferred =
-    actor.preferred_username?.trim() ||
+    declaredPreferred ||
     (formatted.includes("@") ? formatted.split("@")[0] : formatted);
 
   return {

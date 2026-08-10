@@ -11,6 +11,7 @@ export {
   activityApId,
   actorApId,
   communityApId,
+  formatPreferredUsername,
   formatUsername,
   generateId,
   getDomain,

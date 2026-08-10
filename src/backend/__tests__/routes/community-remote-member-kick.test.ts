@@ -221,6 +221,75 @@ test("member roster projects accepted federated members with immutable roles", a
   });
 });
 
+test("member roster uses the cached preferred username after a remote rename", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await db
+    .update(actorCache)
+    .set({ preferredUsername: "traveler", name: "Remote Traveler" })
+    .where(eq(actorCache.apId, REMOTE));
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/town/members`),
+    env,
+  );
+
+  expect(res.status).toBe(200);
+  expect((await res.json()) as unknown).toMatchObject({
+    members: [
+      { ap_id: OWNER },
+      {
+        ap_id: REMOTE,
+        username: "traveler@remote.example",
+        preferred_username: "traveler",
+        name: "Remote Traveler",
+      },
+    ],
+  });
+});
+
+test("member roster keeps a cache-missing federated member identifiable", async () => {
+  const db = await freshDb();
+  await seed(db);
+  await db.delete(actorCache).where(eq(actorCache.apId, REMOTE));
+
+  const res = await appFor(db).fetch(
+    new Request(`${APP_URL}/api/communities/town/members`),
+    env,
+  );
+
+  expect(res.status).toBe(200);
+  expect((await res.json()) as unknown).toMatchObject({
+    members: [
+      { ap_id: OWNER },
+      {
+        ap_id: REMOTE,
+        username: "raider@remote.example",
+        preferred_username: "raider",
+        name: null,
+        can_change_role: false,
+      },
+    ],
+  });
+
+  const removal = await appFor(db).fetch(
+    new Request(
+      `${APP_URL}/api/communities/town/members/${encodeURIComponent(REMOTE)}`,
+      { method: "DELETE" },
+    ),
+    env,
+  );
+  expect(removal.status).toBe(200);
+  expect(
+    await db
+      .select()
+      .from(follows)
+      .where(
+        and(eq(follows.followerApId, REMOTE), eq(follows.followingApId, GROUP)),
+      ),
+  ).toHaveLength(0);
+});
+
 test("batch removal accepts a roster-visible federated member and durably Rejects it", async () => {
   const db = await freshDb();
   await seed(db);

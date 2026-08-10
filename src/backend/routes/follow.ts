@@ -580,7 +580,7 @@ follow.get("/requests", async (c) => {
     const actorInfo = actorInfoMap.get(f.followerApId);
     return {
       ap_id: f.followerApId,
-      username: formatUsername(f.followerApId),
+      username: formatUsername(f.followerApId, actorInfo?.preferredUsername),
       preferred_username: actorInfo?.preferredUsername || null,
       name: actorInfo?.name || null,
       icon_url: actorInfo?.iconUrl || null,

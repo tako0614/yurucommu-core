@@ -73,7 +73,7 @@ recommendations.get("/users", async (c) => {
         preferred_username: info?.preferredUsername ?? null,
         name: info?.name ?? null,
         icon_url: info?.iconUrl ?? null,
-        username: formatUsername(row.ap_id),
+        username: formatUsername(row.ap_id, info?.preferredUsername),
         mutual_count: Number(row.mutual_count),
       };
     });

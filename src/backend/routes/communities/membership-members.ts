@@ -13,6 +13,7 @@ import { communityRequiresMembership } from "../../lib/community-visibility.ts";
 import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
 import type { Env, Variables } from "../../types.ts";
 import {
+  formatPreferredUsername,
   formatUsername,
   parseLimit,
   parseOffset,
@@ -384,10 +385,14 @@ export function registerMembershipMemberRoutes(
 
       const result = members.map((m) => {
         const actorInfo = actorInfoMap.get(m.actor_ap_id);
+        const preferredUsername = formatPreferredUsername(
+          m.actor_ap_id,
+          actorInfo?.preferredUsername,
+        );
         return {
           ap_id: m.actor_ap_id,
-          username: formatUsername(m.actor_ap_id),
-          preferred_username: actorInfo?.preferredUsername || null,
+          username: formatUsername(m.actor_ap_id, preferredUsername),
+          preferred_username: preferredUsername,
           name: actorInfo?.name || null,
           icon_url: actorInfo?.iconUrl || null,
           role: m.role,
