@@ -269,3 +269,51 @@ test("a PRIVATE community Create emits NO Announce (not federated as a Group)", 
     { announceActivityId?: string } | undefined;
   expect(fanout?.announceActivityId).toBeUndefined();
 });
+
+test("a retired community Create emits no Announce or fanout", async () => {
+  const db = await freshDb();
+  const communityApId = await insertCommunity(db, "retired");
+  await db
+    .update(communities)
+    .set({ deletedAt: "2026-08-10T00:00:00.000Z" })
+    .where(eq(communities.apId, communityApId));
+  const sent: DeliveryQueueMessageV1[] = [];
+  const activityId = `${APP_URL}/ap/activities/create-retired`;
+
+  await persistAndFanoutToCommunity(
+    db,
+    envFor(db, sent),
+    {
+      id: activityId,
+      type: "Create",
+      actor: `${APP_URL}/ap/users/owner`,
+    },
+    `${APP_URL}/ap/objects/note-retired`,
+    communityApId,
+  );
+
+  // Keep the author's ledger entry for retry/audit, but never mint or enqueue
+  // new audience delivery after the Group's lifecycle has closed.
+  expect(
+    await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(eq(activities.apId, activityId))
+      .get(),
+  ).toEqual({ apId: activityId });
+  expect(
+    await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(
+        and(
+          eq(activities.type, "Announce"),
+          eq(activities.actorApId, communityApId),
+        ),
+      )
+      .get(),
+  ).toBeUndefined();
+  expect(sent.some((message) => message.type === "fanout_community")).toBe(
+    false,
+  );
+});

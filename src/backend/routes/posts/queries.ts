@@ -16,7 +16,7 @@ import {
   likes,
   objects,
 } from "../../../db/index.ts";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Env } from "../../types.ts";
 import {
   activityApId,
@@ -467,9 +467,19 @@ export async function persistAndFanoutToCommunity(
     const row = await db
       .select({ visibility: communities.visibility })
       .from(communities)
-      .where(eq(communities.apId, communityApId))
+      .where(
+        and(eq(communities.apId, communityApId), isNull(communities.deletedAt)),
+      )
       .get();
-    isPublicCommunity = row?.visibility === "public";
+    if (!row) {
+      log.warn("Skipped fanout for a retired community", {
+        event: "posts.fanout.community_retired",
+        activityId: activity.id,
+        communityApId,
+      });
+      return;
+    }
+    isPublicCommunity = row.visibility === "public";
   }
 
   let announceActivityId: string | undefined;

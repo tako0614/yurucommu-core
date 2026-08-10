@@ -39,6 +39,7 @@ import { transformStoryData } from "../../routes/stories/query-helpers.ts";
 import dmRequestRoutes from "../../routes/dm/requests.ts";
 import communityMessageRoutes from "../../routes/communities/messages.ts";
 import communitiesRouter from "../../routes/communities/routes.ts";
+import allCommunityRoutes from "../../routes/communities.ts";
 import postsAggregator from "../../routes/posts.ts";
 import storyInteractionRoutes from "../../routes/stories/interactions.ts";
 
@@ -705,6 +706,7 @@ test("community detail redacts a private community's metadata from non-members",
 
 test("community detail 404s a soft-deleted community", async () => {
   const db = await freshDb();
+  const formerMember = await insertLocalActor(db, "former-member");
   const apId = `${APP_URL}/ap/groups/gone`;
   await db.insert(communities).values({
     apId,
@@ -718,7 +720,22 @@ test("community detail 404s a soft-deleted community", async () => {
     createdBy: localApId("owner"),
     deletedAt: "2026-06-20T00:00:00.000Z",
   });
-  const app = appWith(db, null, communitiesRouter);
+  await db.insert(communityMembers).values({
+    communityApId: apId,
+    actorApId: formerMember,
+    joinedAt: "2026-06-19T00:00:00.000Z",
+  });
+  const app = appWith(db, null, allCommunityRoutes);
   const res = await app.request(`${APP_URL}/gone`, undefined, envFor(db));
   expect(res.status).toBe(404);
+
+  // The roster endpoint historically had its own identifier query and could
+  // still enumerate retained members after the detail endpoint was closed.
+  const membersRes = await app.request(
+    `${APP_URL}/gone/members`,
+    undefined,
+    envFor(db),
+  );
+  expect(membersRes.status).toBe(200);
+  expect(await membersRes.json()).toEqual({ members: [] });
 });

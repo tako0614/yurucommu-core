@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { and, asc, count, desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { communities, communityMembers, follows } from "../../../db/index.ts";
 import { chunkForInClause } from "../../lib/chunk.ts";
 import { communityRequiresMembership } from "../../lib/community-visibility.ts";
@@ -11,6 +11,7 @@ import {
 } from "../../federation-helpers.ts";
 import {
   batchLoadActorInfo,
+  communityWhere,
   demoteOwnerIfAnotherExists,
   fetchCommunityId,
   memberWhere,
@@ -229,12 +230,7 @@ export function registerMembershipMemberRoutes(
       const community = await db
         .select({ apId: communities.apId, visibility: communities.visibility })
         .from(communities)
-        .where(
-          or(
-            eq(communities.apId, apId),
-            eq(communities.preferredUsername, identifier),
-          ),
-        )
+        .where(communityWhere(apId, identifier))
         .get();
       if (!community) {
         return c.json({ members: [] });
