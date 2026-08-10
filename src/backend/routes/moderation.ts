@@ -28,6 +28,8 @@ import {
 import {
   blockActor,
   blockDomain,
+  domainSuffixCandidates,
+  normalizeDomain,
   unblockActor,
   unblockDomain,
 } from "../lib/blocklist.ts";
@@ -91,6 +93,29 @@ function readReason(body: unknown): string | null {
   return typeof reason === "string" && reason.length > 0 ? reason : null;
 }
 
+function domainBlockCoversLocalHost(
+  domainOrUrl: string,
+  appUrl: string,
+): boolean {
+  const requestedDomain = normalizeDomain(domainOrUrl);
+  const localDomain = normalizeDomain(appUrl);
+  return (
+    requestedDomain !== null &&
+    localDomain !== null &&
+    domainSuffixCandidates(localDomain).includes(requestedDomain)
+  );
+}
+
+function actorBlockTargetsLocalHost(
+  actorApId: string,
+  appUrl: string,
+): boolean {
+  if (isLocal(actorApId, appUrl)) return true;
+  const actorDomain = normalizeDomain(actorApId);
+  const localDomain = normalizeDomain(appUrl);
+  return actorDomain !== null && actorDomain === localDomain;
+}
+
 // ---------------------------------------------------------------------------
 // Blocked domains
 // ---------------------------------------------------------------------------
@@ -125,6 +150,14 @@ moderationRoutes.post("/domains", async (c) => {
 
   const parsed = await readApIdBody(c, "domain");
   if ("error" in parsed) return parsed.error;
+  // A domain block immediately purges already-ingested content. Blocking the
+  // local host (or one of its parent domains) would therefore turn an operator
+  // typo into irreversible deletion of local posts and Activity rows. Reject
+  // before writing the blocklist row; this is a destructive safety boundary,
+  // not merely a delivery preference.
+  if (domainBlockCoversLocalHost(parsed.value, c.env.APP_URL)) {
+    return c.json({ error: "Cannot block the local domain" }, 400);
+  }
 
   try {
     await blockDomain(c.get("db"), parsed.value, readReason(parsed.body));
@@ -202,6 +235,13 @@ moderationRoutes.post("/actors", async (c) => {
 
   const parsed = await readApIdBody(c, "ap_id");
   if ("error" in parsed) return parsed.error;
+  // Operator actor blocks use the same destructive retained-content purge.
+  // They are only for remote actors; never let a local AP ID reach the block
+  // mutation or purge path. The normalized-host check also catches cosmetic
+  // trailing-root-dot spellings that URL-origin comparison alone misses.
+  if (actorBlockTargetsLocalHost(parsed.value, c.env.APP_URL)) {
+    return c.json({ error: "Cannot block a local actor" }, 400);
+  }
 
   try {
     await blockActor(c.get("db"), parsed.value, readReason(parsed.body));

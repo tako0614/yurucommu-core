@@ -129,6 +129,115 @@ test("owner can block, list, and unblock a domain", async () => {
   expect(remaining).toHaveLength(0);
 });
 
+test("operator moderation cannot block and purge its own domain", async () => {
+  const db = await freshDb();
+  const owner = fakeActor("owner");
+  await db.insert(actors).values({
+    apId: owner.ap_id,
+    type: owner.type,
+    preferredUsername: owner.preferred_username,
+    inbox: owner.inbox,
+    outbox: owner.outbox,
+    followersUrl: owner.followers_url,
+    followingUrl: owner.following_url,
+    publicKeyPem: owner.public_key_pem,
+    privateKeyPem: owner.private_key_pem,
+  });
+  const localObject = `${APP_URL}/ap/objects/local-domain-guard`;
+  await db.insert(objects).values({
+    apId: localObject,
+    type: "Note",
+    attributedTo: owner.ap_id,
+    content: "must survive an invalid self-defederation request",
+    visibility: "public",
+    isLocal: 1,
+  });
+
+  const app = appWith(db, owner);
+  const res = await app.request(
+    "/domains",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ domain: APP_URL, reason: "mistake" }),
+    },
+    env,
+  );
+
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({ error: "Cannot block the local domain" });
+  expect(await db.select().from(blockedDomains)).toHaveLength(0);
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, localObject))
+      .get(),
+  ).toEqual({ apId: localObject });
+
+  const parentDomainRes = await app.request(
+    "/domains",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ domain: "example.test", reason: "mistake" }),
+    },
+    { APP_URL: "https://social.example.test" } as unknown as Env,
+  );
+  expect(parentDomainRes.status).toBe(400);
+  expect(await db.select().from(blockedDomains)).toHaveLength(0);
+});
+
+test("operator moderation cannot block and purge a local actor", async () => {
+  const db = await freshDb();
+  const owner = fakeActor("owner");
+  await db.insert(actors).values({
+    apId: owner.ap_id,
+    type: owner.type,
+    preferredUsername: owner.preferred_username,
+    inbox: owner.inbox,
+    outbox: owner.outbox,
+    followersUrl: owner.followers_url,
+    followingUrl: owner.following_url,
+    publicKeyPem: owner.public_key_pem,
+    privateKeyPem: owner.private_key_pem,
+  });
+  const localObject = `${APP_URL}/ap/objects/local-actor-guard`;
+  await db.insert(objects).values({
+    apId: localObject,
+    type: "Note",
+    attributedTo: owner.ap_id,
+    content: "must survive an invalid local actor block",
+    visibility: "public",
+    isLocal: 1,
+  });
+
+  const app = appWith(db, owner);
+  const res = await app.request(
+    "/actors",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ap_id: `${APP_URL}./ap/users/owner`,
+        reason: "mistake",
+      }),
+    },
+    env,
+  );
+
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({ error: "Cannot block a local actor" });
+  expect(await db.select().from(blockedActors)).toHaveLength(0);
+  expect(
+    await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, localObject))
+      .get(),
+  ).toEqual({ apId: localObject });
+});
+
 test("domain block reports incomplete retained-content cleanup and converges on retry", async () => {
   const db = await freshDb();
   const domain = "partial-purge.example";
