@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { verifyOidcIdToken } from "../../lib/oidc-id-token.ts";
+import {
+  readVerifiedTakosumiWorkspaceGrant,
+  verifyOidcIdToken,
+} from "../../lib/oidc-id-token.ts";
 
 // ES256 ID Token verification: a valid token (signed by the issuer's key) passes
 // and yields its claims; signature/alg/iss/aud/exp tampering all fail closed.
@@ -83,6 +86,39 @@ test("verifies a valid ES256 id_token and returns its identity claims", async ()
     expect(claims.name).toBe("Tako");
     expect(claims.email).toBe("tako@example.com");
   });
+});
+
+test("reads only the exact Takosumi Workspace authority claim shape", () => {
+  expect(
+    readVerifiedTakosumiWorkspaceGrant({
+      sub: "subject-abc",
+      takosumi: {
+        workspace_id: "ws_yurucommu",
+        capsule_id: "cap_yurucommu",
+        role: "owner",
+      },
+    }),
+  ).toEqual({
+    workspaceId: "ws_yurucommu",
+    capsuleId: "cap_yurucommu",
+    role: "owner",
+  });
+  for (const takosumi of [
+    undefined,
+    null,
+    {},
+    { workspace_id: "ws", capsule_id: "cap", role: "root" },
+    { workspace_id: "", capsule_id: "cap", role: "owner" },
+    { workspace_id: "ws", capsule_id: "", role: "owner" },
+    { workspace_id: "ws", capsule_id: "cap", role: "owner", token: "x" },
+  ]) {
+    expect(
+      readVerifiedTakosumiWorkspaceGrant({
+        sub: "subject-abc",
+        takosumi,
+      }),
+    ).toBeUndefined();
+  }
 });
 
 test("accepts an issuer with a trailing slash mismatch", async () => {

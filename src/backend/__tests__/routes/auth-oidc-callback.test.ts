@@ -101,7 +101,6 @@ function envWith(db: Database, kv: MockKV): Env {
     KV: kv,
     OIDC_ISSUER_URL: ISSUER,
     OIDC_CLIENT_ID: CLIENT,
-    OIDC_OWNER_SUB: "takos-sub-1",
     ENCRYPTION_KEY: "0".repeat(64),
   } as unknown as Env;
 }
@@ -184,10 +183,15 @@ function validClaims(nonce: string) {
     iat: now,
     exp: now + 600,
     nonce,
+    takosumi: {
+      workspace_id: "ws_yurucommu",
+      capsule_id: "cap_yurucommu",
+      role: "owner",
+    },
   };
 }
 
-test("happy path: id_token claims become the identity, first login is owner, session created", async () => {
+test("happy path: the signed Takosumi Workspace owner claim boots the owner without a static subject pin", async () => {
   const db = await freshDb();
   const kv = new MockKV();
   const state = "state-ok";
