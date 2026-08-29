@@ -6,12 +6,6 @@ on:
       - "api-v*.*.*"
       - "v*.*.*"
   workflow_dispatch:
-    inputs:
-      publish:
-        description: "Publish @takosjp/yurucommu-core and @takosjp/yurucommu-api to npm"
-        required: false
-        default: false
-        type: boolean
 
 concurrency:
   group: yurucommu-core-packages-${{ github.ref }}
@@ -54,23 +48,3 @@ jobs:
       - run: bun run check:packed-consumer
       - run: bun run pack:core
       - run: bun run pack:api
-
-      - name: Preflight core npm release
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish == true
-        run: bun scripts/publish-package-resumable.mjs . --check-only
-
-      - name: Preflight API npm release
-        if: startsWith(github.ref, 'refs/tags/api-v') || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true
-        run: bun scripts/publish-package-resumable.mjs packages/api --check-only
-
-      - name: Publish core to npm
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish == true
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: bun scripts/publish-package-resumable.mjs .
-
-      - name: Publish API to npm
-        if: startsWith(github.ref, 'refs/tags/api-v') || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: bun scripts/publish-package-resumable.mjs packages/api

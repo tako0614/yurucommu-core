@@ -190,7 +190,16 @@ try {
     process.stdout.write(
       `\n==> npm publication ${packageCandidate.packageName}@${version}\n`,
     );
-    const result = await publishPreparedPackage(packageCandidate);
+    let result;
+    try {
+      result = await publishPreparedPackage(packageCandidate);
+    } catch (error) {
+      // publishPreparedPackage marks failures that crossed the npm mutation
+      // boundary.  Preserve that state even when registry readback times out
+      // or reports a mismatch after npm accepted the tarball.
+      if (error?.targetTouched === true) targetTouched = true;
+      throw error;
+    }
     actions.push({ name: packageCandidate.packageName, ...result });
     if (result.action !== "skipped") targetTouched = true;
     process.stdout.write(

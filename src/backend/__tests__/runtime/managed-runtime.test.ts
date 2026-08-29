@@ -354,4 +354,40 @@ describe("managed runtime data adapters", () => {
     await storage.delete("images/one.png");
     expect(requests.at(-1)!.method).toBe("DELETE");
   });
+
+  test("ObjectBucket forwards Blob bytes and metadata without length mismatches", async () => {
+    let captured: Request | undefined;
+    const bytes = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]);
+    const body = new Blob([bytes], { type: "video/webm" });
+    const storage = createManagedRuntimeObjectStorage({
+      materialization: materialization(),
+      gateway: {
+        async fetch(request) {
+          captured = request;
+          return Response.json({ ok: true });
+        },
+      },
+      alias: "media",
+      idempotencyKey: () => "yurucommu.object:blob",
+    });
+
+    await storage.put("videos/clip.webm", body, {
+      httpMetadata: { contentType: body.type },
+    });
+
+    expect(captured).toBeDefined();
+    expect(captured!.headers.get("content-type")).toBe("video/webm");
+    // Fetch's standard Blob Request framing is runtime-owned. This adapter
+    // must not synthesize a competing length header; when a runtime supplies
+    // one it must describe the Blob exactly.
+    const declaredLength = captured!.headers.get("content-length");
+    expect(
+      declaredLength === null || declaredLength === String(body.size),
+    ).toBe(true);
+    expect(captured!.body).toBeInstanceOf(ReadableStream);
+    // The adapter passes the Blob directly and must not consume the body before
+    // handing it to the host gateway.
+    expect(captured!.bodyUsed).toBe(false);
+    expect(new Uint8Array(await captured!.arrayBuffer())).toEqual(bytes);
+  });
 });

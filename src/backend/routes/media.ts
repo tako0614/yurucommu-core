@@ -234,7 +234,7 @@ media.post("/upload", async (c) => {
     // transcode pipeline, and buffering a 40MB video would pressure the Worker
     // memory budget.
     if (isVideo) {
-      await media.put(r2Key, file.stream(), {
+      await media.put(r2Key, file, {
         httpMetadata: { contentType },
       });
     } else {

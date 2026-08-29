@@ -334,7 +334,7 @@ class ManagedRuntimeObjectStorage implements IObjectStorage {
 
   async put(
     key: string,
-    value: ReadableStream | ArrayBuffer | string,
+    value: Blob | ReadableStream | ArrayBuffer | string,
     options?: {
       httpMetadata?: ObjectMetadata["httpMetadata"];
       customMetadata?: Record<string, string>;
