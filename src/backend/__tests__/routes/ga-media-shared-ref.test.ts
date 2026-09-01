@@ -25,7 +25,7 @@ import { eq, inArray } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
 import { actors, mediaUploads, objects } from "../../../db/index.ts";
-import type { IObjectStorage } from "../../runtime/types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import {
   deleteObjectCascade,
   deleteObjectsCascade,
@@ -83,7 +83,7 @@ async function insertObjectRefingKey(
 }
 
 /** Records the keys passed to `delete`. */
-function recordingStorage(): { storage: IObjectStorage; deleted: string[] } {
+function recordingStorage(): { storage: ObjectStore; deleted: string[] } {
   const deleted: string[] = [];
   const storage = {
     async put() {},
@@ -93,13 +93,7 @@ function recordingStorage(): { storage: IObjectStorage; deleted: string[] } {
     async delete(key: string | string[]) {
       for (const k of Array.isArray(key) ? key : [key]) deleted.push(k);
     },
-    async list() {
-      return { objects: [], truncated: false } as never;
-    },
-    async head() {
-      return null;
-    },
-  } as unknown as IObjectStorage;
+  } as unknown as ObjectStore;
   return { storage, deleted };
 }
 

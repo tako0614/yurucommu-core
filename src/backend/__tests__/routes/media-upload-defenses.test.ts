@@ -8,7 +8,7 @@ import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { mediaUploads } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
-import type { IObjectStorage } from "../../runtime/types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import mediaRoutes from "../../routes/media.ts";
 
 /**
@@ -236,9 +236,9 @@ test("passes the original video File to object storage", async () => {
   const db = await freshDb();
   const puts: Array<{
     value: unknown;
-    options: Parameters<IObjectStorage["put"]>[2];
+    options: Parameters<ObjectStore["put"]>[2];
   }> = [];
-  const media: IObjectStorage = {
+  const media: ObjectStore = {
     async put(_key, value, options) {
       puts.push({ value, options });
     },
@@ -246,12 +246,6 @@ test("passes the original video File to object storage", async () => {
       return null;
     },
     async delete() {},
-    async list() {
-      return { objects: [], truncated: false };
-    },
-    async head() {
-      return null;
-    },
   };
   const file = new File(
     [new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x01])],
@@ -274,5 +268,5 @@ test("passes the original video File to object storage", async () => {
   expect(await (puts[0]?.value as File).arrayBuffer()).toEqual(
     await file.arrayBuffer(),
   );
-  expect(puts[0]?.options?.httpMetadata?.contentType).toBe("video/webm");
+  expect(puts[0]?.options?.contentType).toBe("video/webm");
 });

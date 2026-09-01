@@ -235,7 +235,7 @@ media.post("/upload", async (c) => {
     // memory budget.
     if (isVideo) {
       await media.put(r2Key, file, {
-        httpMetadata: { contentType },
+        contentType,
       });
     } else {
       const original = new Uint8Array(await file.arrayBuffer());
@@ -247,7 +247,7 @@ media.post("/upload", async (c) => {
         cleaned.byteOffset + cleaned.byteLength,
       ) as ArrayBuffer;
       await media.put(r2Key, cleanedBuffer, {
-        httpMetadata: { contentType },
+        contentType,
       });
     }
 
@@ -579,13 +579,12 @@ async function serveMediaByR2Key(c: MediaContext, r2Key: string) {
     const object = await media.get(r2Key);
     if (!object) return c.notFound();
 
-    const contentType =
-      object.httpMetadata?.contentType || "application/octet-stream";
+    const contentType = object.contentType || "application/octet-stream";
     const cacheScope = authResult.isPublic ? "public" : "private";
     const maxAge = contentType.startsWith("video/")
       ? CACHE_MAX_AGE_VIDEO
       : CACHE_MAX_AGE_IMAGE;
-    const etag = object.httpEtag;
+    const etag = object.etag;
 
     if (!object.body) {
       return c.body(null, 200, {

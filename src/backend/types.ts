@@ -1,7 +1,7 @@
 import type { Database } from "../db/index.ts";
 import type {
   IKeyValueStore,
-  IObjectStorage,
+  ObjectStore,
   IStaticAssets,
 } from "./runtime/types.ts";
 import type { IQueueProducer } from "./runtime/queue.ts";
@@ -133,8 +133,8 @@ export interface EnvVars {
 /**
  * Application Environment
  *
- * Uses the runtime-neutral `I*` contracts. The Cloudflare worker entry
- * wraps the native `D1Database` / `R2Bucket` / `KVNamespace` / `Fetcher`
+ * Uses the runtime-neutral contracts. The Cloudflare worker entry
+ * wraps the native `D1Database` / object bucket / `KVNamespace` / `Fetcher`
  * bindings with the adapters in `runtime/cloudflare.ts` before handing
  * the Env to Hono. The local runtime compatibility classes already
  * implement these contracts directly.
@@ -145,7 +145,7 @@ export interface EnvVars {
  */
 export type Env = {
   DB_INSTANCE: Database;
-  MEDIA?: IObjectStorage;
+  MEDIA?: ObjectStore;
   KV: IKeyValueStore;
   ASSETS?: IStaticAssets;
   DELIVERY_QUEUE?: IQueueProducer<DeliveryQueueMessageV1>;

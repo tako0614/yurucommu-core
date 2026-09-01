@@ -11,7 +11,7 @@ import {
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
-import type { IObjectStorage } from "../../runtime/types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import storiesRoutes from "../../routes/stories/routes.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
@@ -27,8 +27,8 @@ async function freshDb(): Promise<Database> {
   return (await createTestDb()).db;
 }
 
-// Minimal IObjectStorage stub that records the keys passed to delete().
-function recordingStorage(): { storage: IObjectStorage; deleted: string[] } {
+// Minimal ObjectStore stub that records the keys passed to delete().
+function recordingStorage(): { storage: ObjectStore; deleted: string[] } {
   const deleted: string[] = [];
   const storage = {
     async put() {},
@@ -38,7 +38,7 @@ function recordingStorage(): { storage: IObjectStorage; deleted: string[] } {
     async delete(key: string | string[]) {
       for (const k of Array.isArray(key) ? key : [key]) deleted.push(k);
     },
-  } as unknown as IObjectStorage;
+  } as unknown as ObjectStore;
   return { storage, deleted };
 }
 
@@ -69,7 +69,7 @@ function fakeActor(apId: string, username: string): Actor {
 
 function envFor(
   db: Database,
-  storage: IObjectStorage,
+  storage: ObjectStore,
   failFanoutSend = false,
 ): Env {
   const queue = {

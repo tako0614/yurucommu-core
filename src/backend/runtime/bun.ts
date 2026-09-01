@@ -8,14 +8,14 @@
 import type {
   FirstResult,
   IDatabase,
-  IObjectStorage,
+  ObjectStore,
+  ObjectStoreBody,
+  ObjectStoreObject,
+  ObjectStorePutOptions,
   IStaticAssets,
-  ListObjectsResult,
-  ObjectMetadata,
   PreparedStatement,
   QueryResult,
   RunResult,
-  StorageObject,
 } from "./types.ts";
 import { constants as fsConstants } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -37,8 +37,18 @@ declare const require: (specifier: string) => unknown;
 // Re-export MemoryKV as it works in Bun too.
 export { MemoryKV };
 
-const { mkdir, unlink, readdir, stat, lstat, realpath, open, rename, utimes } =
-  await import("fs/promises");
+const {
+  mkdir,
+  unlink,
+  readdir,
+  stat,
+  lstat,
+  realpath,
+  open,
+  rename,
+  readFile,
+  readlink,
+} = await import("fs/promises");
 
 // Generation state is deliberately kept outside the public object namespace.
 // The sibling directory name is derived from the storage directory, so a
@@ -50,13 +60,16 @@ const GENERATION_MARKER = "generation-";
 const TEMP_MARKER = "tmp-";
 const LEASE_SUFFIX = "lease";
 const READER_LEASE_MARKER = "reader-";
-const TEMP_LEASE_TTL_MS = 30_000;
-const TEMP_LEASE_HEARTBEAT_MS = 1_000;
 const MARKER_READ_ATTEMPTS = 32;
 const OBJECT_RESOLVE_ATTEMPTS = 64;
 const OPEN_READ_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
 const GENERATION_ID_PATTERN = /^[0-9a-f-]{16,}$/u;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/u;
+const LEASE_BOOT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const LEASE_PID_NAMESPACE_ID_PATTERN = /^pid:\[[1-9][0-9]*\]$/u;
+const LEASE_PROCESS_START_TOKEN_PATTERN = /^[0-9]{1,32}$/u;
+const LEASE_TOKEN_MAX_LENGTH = 128;
 
 type CommitState =
   | { version: 1; state: "committed"; generation: string }
@@ -68,10 +81,46 @@ type ResolvedObject = {
   filePath: string;
   bodyHandle?: FileHandle;
   metadata: {
-    httpMetadata?: ObjectMetadata["httpMetadata"];
-    customMetadata?: Record<string, string>;
+    contentType?: string;
   };
-  releaseLease?: () => Promise<void>;
+  releaseBody?: () => Promise<void>;
+};
+
+type TempLease = (() => Promise<void>) & {
+  assertOwned(): Promise<void>;
+};
+
+type LeaseProcessIdentity = {
+  bootId: string;
+  pidNamespaceId: string;
+  processStartToken: string;
+};
+
+type LeaseOwner = {
+  version: 2;
+  pid: number;
+  token: string;
+  processIdentity: LeaseProcessIdentity;
+};
+
+type LeaseOwnerState = "live" | "dead" | "unknown";
+
+type LeaseProcessProbe = {
+  readPidNamespace(pid: number): Promise<string>;
+  readPidStat(pid: number): Promise<string>;
+  signal0(pid: number): void;
+};
+
+const defaultLeaseProcessProbe: LeaseProcessProbe = {
+  readPidNamespace(pid) {
+    return readlink(`/proc/${pid}/ns/pid`);
+  },
+  readPidStat(pid) {
+    return readFile(`/proc/${pid}/stat`, "utf8");
+  },
+  signal0(pid) {
+    process.kill(pid, 0);
+  },
 };
 
 type LiveLeaseState = {
@@ -84,6 +133,14 @@ type FileIdentity = {
   ino: number;
   nlink: number;
   mode: number;
+};
+
+type BunStorageOptions = {
+  syncDirectory?: typeof syncDirectory;
+  /** Deterministic test seam at the lease-assertion/publication boundary. */
+  beforeCommitRename?: (commitPath: string) => Promise<void>;
+  /** Deterministic test seam for Linux /proc visibility and PID incarnation. */
+  leaseProcessProbe?: LeaseProcessProbe;
 };
 
 function fileIdentity(stats: FileIdentity): FileIdentity {
@@ -135,6 +192,190 @@ function isFileIdentityRace(error: unknown): boolean {
   return (
     error instanceof Error &&
     error.message === "BunStorage file changed while opening"
+  );
+}
+
+function hasExactObjectKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): boolean {
+  const keys = Object.keys(value).sort();
+  return (
+    keys.length === expected.length &&
+    expected.every((key, index) => keys[index] === key)
+  );
+}
+
+function parseLeaseProcessIdentity(
+  value: unknown,
+): LeaseProcessIdentity | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    !hasExactObjectKeys(record, [
+      "bootId",
+      "pidNamespaceId",
+      "processStartToken",
+    ]) ||
+    typeof record.bootId !== "string" ||
+    !LEASE_BOOT_ID_PATTERN.test(record.bootId) ||
+    typeof record.pidNamespaceId !== "string" ||
+    !LEASE_PID_NAMESPACE_ID_PATTERN.test(record.pidNamespaceId) ||
+    typeof record.processStartToken !== "string" ||
+    !LEASE_PROCESS_START_TOKEN_PATTERN.test(record.processStartToken)
+  ) {
+    return undefined;
+  }
+  return {
+    bootId: record.bootId,
+    pidNamespaceId: record.pidNamespaceId,
+    processStartToken: record.processStartToken,
+  };
+}
+
+function parseLeaseOwner(ownerText: string): LeaseOwner | undefined {
+  try {
+    const value = JSON.parse(ownerText) as unknown;
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    const record = value as Record<string, unknown>;
+    const processIdentity = parseLeaseProcessIdentity(record.processIdentity);
+    if (
+      !hasExactObjectKeys(record, [
+        "pid",
+        "processIdentity",
+        "token",
+        "version",
+      ]) ||
+      record.version !== 2 ||
+      typeof record.pid !== "number" ||
+      !Number.isSafeInteger(record.pid) ||
+      record.pid <= 0 ||
+      typeof record.token !== "string" ||
+      record.token.length === 0 ||
+      record.token.length > LEASE_TOKEN_MAX_LENGTH ||
+      !processIdentity
+    ) {
+      return undefined;
+    }
+    return {
+      version: 2,
+      pid: record.pid,
+      token: record.token,
+      processIdentity,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function parseProcessStartToken(statText: string): string | undefined {
+  // /proc/<pid>/stat field 2 is parenthesized and may itself contain spaces or
+  // parentheses. The final ')' closes it; field 22 is then tail index 19.
+  const commandEnd = statText.lastIndexOf(")");
+  if (commandEnd < 0) return undefined;
+  const token = statText
+    .slice(commandEnd + 1)
+    .trim()
+    .split(/\s+/u)[19];
+  return token && LEASE_PROCESS_START_TOKEN_PATTERN.test(token)
+    ? token
+    : undefined;
+}
+
+async function loadLocalLeaseProcessIdentity(): Promise<
+  LeaseProcessIdentity | undefined
+> {
+  try {
+    const [bootId, pidNamespaceId, statText] = await Promise.all([
+      readFile("/proc/sys/kernel/random/boot_id", "utf8"),
+      readlink("/proc/self/ns/pid"),
+      readFile("/proc/self/stat", "utf8"),
+    ]);
+    return parseLeaseProcessIdentity({
+      bootId: bootId.trim(),
+      pidNamespaceId,
+      processStartToken: parseProcessStartToken(statText),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+let localLeaseProcessIdentity:
+  Promise<LeaseProcessIdentity | undefined> | undefined;
+
+function getLocalLeaseProcessIdentity(): Promise<
+  LeaseProcessIdentity | undefined
+> {
+  localLeaseProcessIdentity ??= loadLocalLeaseProcessIdentity();
+  return localLeaseProcessIdentity;
+}
+
+function pidIsDefinitelyAbsent(pid: number, probe: LeaseProcessProbe): boolean {
+  try {
+    probe.signal0(pid);
+    return false;
+  } catch (error) {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "ESRCH"
+    );
+  }
+}
+
+async function classifyLeaseOwner(
+  owner: LeaseOwner,
+  probe: LeaseProcessProbe,
+): Promise<LeaseOwnerState> {
+  const localIdentity = await getLocalLeaseProcessIdentity();
+  if (
+    !localIdentity ||
+    owner.processIdentity.bootId !== localIdentity.bootId ||
+    owner.processIdentity.pidNamespaceId !== localIdentity.pidNamespaceId
+  ) {
+    return "unknown";
+  }
+
+  let targetNamespaceId: string;
+  try {
+    targetNamespaceId = await probe.readPidNamespace(owner.pid);
+  } catch (error) {
+    if (!isNotFoundError(error)) return "unknown";
+    // hidepid=2 deliberately presents a live different-UID process as ENOENT.
+    // Only ESRCH from signal 0 corroborates that this same-boot/same-namespace
+    // PID is absent; EPERM and every other result remain unknown/fail-safe.
+    return pidIsDefinitelyAbsent(owner.pid, probe) ? "dead" : "unknown";
+  }
+  if (targetNamespaceId !== localIdentity.pidNamespaceId) return "unknown";
+
+  let targetStat: string;
+  try {
+    targetStat = await probe.readPidStat(owner.pid);
+  } catch (error) {
+    if (!isNotFoundError(error)) return "unknown";
+    return pidIsDefinitelyAbsent(owner.pid, probe) ? "dead" : "unknown";
+  }
+  const targetStartToken = parseProcessStartToken(targetStat);
+  if (!targetStartToken) return "unknown";
+  return targetStartToken === owner.processIdentity.processStartToken
+    ? "live"
+    : "dead";
+}
+
+const emittedLeaseDiagnostics = new Set<string>();
+
+function reportUnknownLeaseRetention(): void {
+  const code = "lease-owner-unknown";
+  if (emittedLeaseDiagnostics.has(code)) return;
+  emittedLeaseDiagnostics.add(code);
+  console.warn(
+    "BunStorage retained an unverifiable lease; automatic reclaim is disabled. Confirm that no writer is active before operator cleanup (lease-owner-unknown).",
   );
 }
 
@@ -251,8 +492,101 @@ async function readFileHandleFully(handle: FileHandle): Promise<Uint8Array> {
   return content;
 }
 
+/**
+ * Expose an already-open object file as a lazy body stream.
+ *
+ * Pathname leases are released before this stream is returned. A writer may
+ * publish a replacement or unlink the selected generation while a response is
+ * still being sent, but the open descriptor keeps those exact bytes stable on
+ * POSIX until the stream is consumed or cancelled.
+ */
+function createFileBodyStream(
+  handle: FileHandle,
+  byteLength: number,
+  release: () => Promise<void>,
+): ReadableStream<Uint8Array> {
+  const chunkSize = 64 * 1024;
+  let offset = 0;
+  let released = false;
+
+  const finish = async (): Promise<void> => {
+    if (released) return;
+    released = true;
+    await release().catch(() => undefined);
+  };
+
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        if (offset >= byteLength) {
+          controller.close();
+          await finish();
+          return;
+        }
+        const buffer = new Uint8Array(Math.min(chunkSize, byteLength - offset));
+        try {
+          const result = await handle.read(
+            buffer,
+            0,
+            buffer.byteLength,
+            offset,
+          );
+          if (
+            !Number.isInteger(result.bytesRead) ||
+            result.bytesRead <= 0 ||
+            result.bytesRead > buffer.byteLength
+          ) {
+            throw new Error(
+              `filesystem short read: expected ${buffer.byteLength} bytes, received ${String(result.bytesRead)}`,
+            );
+          }
+          offset += result.bytesRead;
+          controller.enqueue(buffer.subarray(0, result.bytesRead));
+          if (offset >= byteLength) {
+            controller.close();
+            await finish();
+          }
+        } catch (error) {
+          controller.error(error);
+          await finish();
+        }
+      },
+      async cancel() {
+        await finish();
+      },
+    },
+    { highWaterMark: 0 },
+  );
+}
+
 async function readFileHandleText(handle: FileHandle): Promise<string> {
   return new TextDecoder().decode(await readFileHandleFully(handle));
+}
+
+function parseObjectMetadata(valueText: string): {
+  contentType?: string;
+} {
+  const value = JSON.parse(valueText) as {
+    contentType?: unknown;
+    httpMetadata?: unknown;
+  };
+  if (value === null || typeof value !== "object") {
+    throw new Error("Invalid BunStorage generation metadata");
+  }
+  const legacyHttpMetadata = value.httpMetadata;
+  const legacyContentType =
+    legacyHttpMetadata !== null &&
+    typeof legacyHttpMetadata === "object" &&
+    "contentType" in legacyHttpMetadata
+      ? (legacyHttpMetadata as { contentType?: unknown }).contentType
+      : undefined;
+  const contentType =
+    typeof value.contentType === "string"
+      ? value.contentType
+      : typeof legacyContentType === "string"
+        ? legacyContentType
+        : undefined;
+  return contentType === undefined ? {} : { contentType };
 }
 
 /**
@@ -260,13 +594,12 @@ async function readFileHandleText(handle: FileHandle): Promise<string> {
  * Returns an empty object if the sidecar doesn't exist or can't be parsed.
  */
 async function readMetadata(metaPath: string): Promise<{
-  httpMetadata?: ObjectMetadata["httpMetadata"];
-  customMetadata?: Record<string, string>;
+  contentType?: string;
 }> {
   try {
     const metaFile = Bun.file(metaPath);
     if (await metaFile.exists()) {
-      return JSON.parse(await metaFile.text());
+      return parseObjectMetadata(await metaFile.text());
     }
   } catch {
     // No metadata file or unreadable
@@ -391,15 +724,23 @@ class BunPreparedStatement implements PreparedStatement {
 }
 
 /**
- * Bun Filesystem Storage Adapter
+ * Bun Filesystem Storage Adapter.
+ *
+ * The generation/lease protocol requires a local Linux POSIX filesystem with
+ * atomic same-directory rename and stable open-descriptor semantics. It does
+ * not claim multi-host fencing. A lease from another boot, PID namespace, or
+ * unreadable /proc owner is retained for explicit operator inspection rather
+ * than automatically reclaimed.
  */
-export class BunStorage implements IObjectStorage {
+export class BunStorage implements ObjectStore {
   private basePath: string;
   /**
    * Keep the directory-sync dependency injectable for deterministic storage
    * durability tests. Production callers use the real fsync implementation.
    */
   private readonly syncDirectory: typeof syncDirectory;
+  private readonly beforeCommitRename?: (commitPath: string) => Promise<void>;
+  private readonly leaseProcessProbe: LeaseProcessProbe;
   private realBasePath: string | null = null;
   private realInternalStorePath: string | null = null;
   /**
@@ -421,6 +762,16 @@ export class BunStorage implements IObjectStorage {
    */
   private readonly keyReadReservations = new Map<string, number>();
   /**
+   * Serialize the conservative post-reader reclamation pass per key. A hot
+   * object can have many concurrent streaming readers; running a full
+   * directory scan for every EOF makes writers wait behind an unbounded queue
+   * of equivalent cleanup work.
+   */
+  private readonly reclaimTasks = new Map<
+    string,
+    { requested: boolean; promise: Promise<void> }
+  >();
+  /**
    * Last marker successfully read by this adapter.  Atomic marker replacement
    * can make a path disappear or resolve to the next inode for a few syscalls;
    * retaining the last validated record lets readers use the old generation
@@ -428,17 +779,17 @@ export class BunStorage implements IObjectStorage {
    */
   private readonly lastCommitRecords = new Map<string, CommitRecord>();
 
-  constructor(
-    basePath: string,
-    options: { syncDirectory?: typeof syncDirectory } = {},
-  ) {
+  constructor(basePath: string, options: BunStorageOptions = {}) {
     this.basePath = basePath;
     this.syncDirectory = options.syncDirectory ?? syncDirectory;
+    this.beforeCommitRename = options.beforeCommitRename;
+    this.leaseProcessProbe =
+      options.leaseProcessProbe ?? defaultLeaseProcessProbe;
   }
 
   static async create(
     basePath: string,
-    options: { syncDirectory?: typeof syncDirectory } = {},
+    options: BunStorageOptions = {},
   ): Promise<BunStorage> {
     await mkdir(basePath, { recursive: true });
     const storage = new BunStorage(basePath, options);
@@ -516,8 +867,9 @@ export class BunStorage implements IObjectStorage {
       else this.generationReaders.set(leaseKey, count - 1);
       // A writer may have deferred this generation while the reader held its
       // lease. Re-run conservative GC after release; failure is non-fatal and
-      // startup recovery remains the final orphan cleanup authority.
-      await this.reclaimUnreferencedGenerations(key);
+      // startup recovery remains the final orphan cleanup authority. Queue the
+      // pass so EOF never blocks behind another reader's identical scan.
+      this.scheduleReclaim(key);
     };
   }
 
@@ -547,49 +899,121 @@ export class BunStorage implements IObjectStorage {
     return (this.keyReadReservations.get(key) ?? 0) > 0;
   }
 
+  private scheduleReclaim(key: string): void {
+    const active = this.reclaimTasks.get(key);
+    if (active) {
+      // One trailing pass is enough to observe a lease released while the
+      // current scan was in flight; never build one promise per reader.
+      active.requested = true;
+      return;
+    }
+    const state: { requested: boolean; promise: Promise<void> } = {
+      requested: false,
+      promise: Promise.resolve(),
+    };
+    state.promise = (async () => {
+      state.requested = false;
+      await this.reclaimUnreferencedGenerations(key).catch(() => undefined);
+    })();
+    this.reclaimTasks.set(key, state);
+    void state.promise
+      .finally(() => {
+        if (this.reclaimTasks.get(key) === state) {
+          this.reclaimTasks.delete(key);
+        }
+        if (state.requested) this.scheduleReclaim(key);
+      })
+      .catch(() => undefined);
+  }
+
   private async createTempLease(
     objectPath: string,
     leaseId: string,
     kind: "generation" | "reader" = "generation",
-  ): Promise<() => Promise<void>> {
+  ): Promise<TempLease> {
     const marker = kind === "reader" ? READER_LEASE_MARKER : "";
     const leasePath = path.join(
       objectPath,
       `${TEMP_MARKER}${marker}${leaseId}.${LEASE_SUFFIX}`,
     );
+    const leaseToken = crypto.randomUUID();
+    const processIdentity = await getLocalLeaseProcessIdentity();
     const leaseOwner = JSON.stringify({
+      version: 2,
       pid: process.pid,
-      token: crypto.randomUUID(),
+      token: leaseToken,
+      // A missing /proc identity is deliberately persisted as unknown. This
+      // writer can still release its own inode/token, but a later process must
+      // retain it for operator inspection rather than guess that it is dead.
+      processIdentity: processIdentity ?? null,
     });
     let leaseHandle: FileHandle | undefined;
+    let leaseIdentity: FileIdentity | undefined;
     try {
       leaseHandle = await open(leasePath, "wx");
       await writeBufferFully(leaseHandle, new TextEncoder().encode(leaseOwner));
-      await syncAndClose(leaseHandle);
-      leaseHandle = undefined;
+      await leaseHandle.sync();
+      leaseIdentity = fileIdentity(await leaseHandle.stat());
+      await this.assertOwnedInternalFile(leasePath);
     } catch (error) {
       if (leaseHandle) await leaseHandle.close().catch(() => undefined);
       await this.unlinkOwnedInternalFile(leasePath);
       throw error;
     }
-    await this.assertOwnedInternalFile(leasePath);
 
-    const heartbeat = setInterval(() => {
-      void utimes(leasePath, new Date(), new Date()).catch(() => undefined);
-    }, TEMP_LEASE_HEARTBEAT_MS);
-    (heartbeat as unknown as { unref?: () => void }).unref?.();
+    const ownsLease = async (): Promise<boolean> => {
+      if (!leaseHandle || !leaseIdentity) return false;
+      let currentPathHandle: FileHandle | undefined;
+      try {
+        const heldIdentity = fileIdentity(await leaseHandle.stat());
+        if (
+          heldIdentity.nlink !== 1 ||
+          heldIdentity.dev !== leaseIdentity.dev ||
+          heldIdentity.ino !== leaseIdentity.ino ||
+          heldIdentity.mode !== leaseIdentity.mode
+        ) {
+          return false;
+        }
+        const opened = await this.openOwnedInternalFile(leasePath);
+        currentPathHandle = opened.handle;
+        if (
+          opened.identity.dev !== leaseIdentity.dev ||
+          opened.identity.ino !== leaseIdentity.ino ||
+          opened.identity.mode !== leaseIdentity.mode
+        ) {
+          return false;
+        }
+        return (await readFileHandleText(currentPathHandle)) === leaseOwner;
+      } catch {
+        return false;
+      } finally {
+        if (currentPathHandle) {
+          await currentPathHandle.close().catch(() => undefined);
+        }
+      }
+    };
+
     let released = false;
-    return async () => {
+    const release = async () => {
       if (released) return;
       released = true;
-      clearInterval(heartbeat);
-      await this.unlinkOwnedInternalFile(leasePath);
+      try {
+        if (await ownsLease()) await this.unlinkOwnedInternalFile(leasePath);
+      } finally {
+        await leaseHandle?.close().catch(() => undefined);
+        leaseHandle = undefined;
+      }
     };
+    return Object.assign(release, {
+      async assertOwned(): Promise<void> {
+        if (released || !(await ownsLease())) {
+          throw new Error("BunStorage writer lease ownership lost");
+        }
+      },
+    });
   }
 
-  private async createReaderLease(
-    key: string,
-  ): Promise<(() => Promise<void>) | undefined> {
+  private async createReaderLease(key: string): Promise<TempLease | undefined> {
     const objectPath = this.getInternalObjectPath(key);
     try {
       await assertPathChainWithinBasePath(
@@ -612,22 +1036,31 @@ export class BunStorage implements IObjectStorage {
   private async isLiveTempLease(leasePath: string): Promise<boolean> {
     let leaseHandle: FileHandle | undefined;
     try {
-      const opened = await this.openOwnedInternalFile(leasePath);
-      leaseHandle = opened.handle;
-      const leaseStats = await leaseHandle.stat();
-      if (Date.now() - leaseStats.mtimeMs > TEMP_LEASE_TTL_MS) return false;
-      const lease = JSON.parse(await readFileHandleText(leaseHandle)) as {
-        pid?: unknown;
-      };
-      if (!Number.isInteger(lease.pid) || Number(lease.pid) <= 0) return false;
       try {
-        process.kill(Number(lease.pid), 0);
+        const opened = await this.openOwnedInternalFile(leasePath);
+        leaseHandle = opened.handle;
+      } catch (error) {
+        if (isNotFoundError(error)) return false;
+        reportUnknownLeaseRetention();
         return true;
-      } catch {
-        return false;
       }
+
+      const leaseOwner = parseLeaseOwner(await readFileHandleText(leaseHandle));
+      if (!leaseOwner) {
+        reportUnknownLeaseRetention();
+        return true;
+      }
+      const state = await classifyLeaseOwner(
+        leaseOwner,
+        this.leaseProcessProbe,
+      );
+      if (state === "unknown") reportUnknownLeaseRetention();
+      // Absence or a different start token is proof that this exact local
+      // process incarnation is dead. Every other state is fail-safe retained.
+      return state !== "dead";
     } catch {
-      return false;
+      reportUnknownLeaseRetention();
+      return true;
     } finally {
       if (leaseHandle) await leaseHandle.close().catch(() => undefined);
     }
@@ -842,8 +1275,7 @@ export class BunStorage implements IObjectStorage {
   }
 
   private async readOwnedInternalFileMetadata(filePath: string): Promise<{
-    httpMetadata?: ObjectMetadata["httpMetadata"];
-    customMetadata?: Record<string, string>;
+    contentType?: string;
   }> {
     return this.parseGenerationMetadata(
       await this.readOwnedInternalFileText(filePath),
@@ -925,6 +1357,7 @@ export class BunStorage implements IObjectStorage {
           resolvedObjectPath,
           files,
         );
+        let objectKey: string | undefined;
         let retainedGeneration: string | null = null;
         try {
           const markerPath = path.join(resolvedObjectPath, COMMIT_FILE);
@@ -937,7 +1370,12 @@ export class BunStorage implements IObjectStorage {
               record.version === 1 &&
               typeof record.key === "string" &&
               record.keyHash === objectEntry.name &&
-              keyHash(record.key) === objectEntry.name &&
+              keyHash(record.key) === objectEntry.name
+            ) {
+              objectKey = record.key;
+            }
+            if (
+              objectKey !== undefined &&
               record.state === "committed" &&
               typeof record.generation === "string" &&
               GENERATION_ID_PATTERN.test(record.generation)
@@ -1009,6 +1447,16 @@ export class BunStorage implements IObjectStorage {
             !liveLeaseState.generations.has(generationMatch[1]!) &&
             !liveLeaseState.reader
           ) {
+            // Recovery can overlap a rolling writer. The marker and lease
+            // values above are only scan snapshots: if a valid marker gave us
+            // the object key, re-establish the same fresh deletion authority
+            // used by steady-state GC immediately before unlinking.
+            if (
+              objectKey !== undefined &&
+              !(await this.canReclaimGeneration(objectKey, generationMatch[1]!))
+            ) {
+              continue;
+            }
             await this.unlinkOwnedInternalFile(
               path.join(resolvedObjectPath, entry.name),
             );
@@ -1026,6 +1474,7 @@ export class BunStorage implements IObjectStorage {
 
   private async readCommitRecord(
     key: string,
+    allowCachedFallback = true,
   ): Promise<CommitRecord | undefined> {
     const markerPath = this.getCommitPath(key);
     let markerObserved = false;
@@ -1076,7 +1525,11 @@ export class BunStorage implements IObjectStorage {
       // legacy path after a rename race. The caller's resolve loop will reread
       // the marker; a truly absent marker still enables legacy compatibility.
       const cached = this.lastCommitRecords.get(key);
-      if (cached && lastNotFound) return cached;
+      if (allowCachedFallback && cached && lastNotFound) return cached;
+      // Reclamation must never act on a cached marker. An absent/racing marker
+      // is insufficient authority to delete a generation; a later pass or
+      // startup recovery can retry after the marker is readable.
+      if (!allowCachedFallback && lastNotFound) throw lastNotFound;
       if (markerObserved && lastNotFound) throw lastNotFound;
       return undefined;
     }
@@ -1107,29 +1560,19 @@ export class BunStorage implements IObjectStorage {
   }
 
   private async readGenerationMetadata(metaPath: string): Promise<{
-    httpMetadata?: ObjectMetadata["httpMetadata"];
-    customMetadata?: Record<string, string>;
+    contentType?: string;
   }> {
     return this.readOwnedInternalFileMetadata(metaPath);
   }
 
   private parseGenerationMetadata(valueText: string): {
-    httpMetadata?: ObjectMetadata["httpMetadata"];
-    customMetadata?: Record<string, string>;
+    contentType?: string;
   } {
-    const value = JSON.parse(valueText) as {
-      httpMetadata?: ObjectMetadata["httpMetadata"];
-      customMetadata?: Record<string, string>;
-    };
-    if (value === null || typeof value !== "object") {
-      throw new Error("Invalid BunStorage generation metadata");
-    }
-    return value;
+    return parseObjectMetadata(valueText);
   }
 
   private async readGenerationMetadataHandle(handle: FileHandle): Promise<{
-    httpMetadata?: ObjectMetadata["httpMetadata"];
-    customMetadata?: Record<string, string>;
+    contentType?: string;
   }> {
     return this.parseGenerationMetadata(await readFileHandleText(handle));
   }
@@ -1141,13 +1584,12 @@ export class BunStorage implements IObjectStorage {
     const releaseKeyRead = withLease
       ? this.acquireKeyReadReservation(key)
       : undefined;
-    let readerLease: (() => Promise<void>) | undefined;
-    let readerLeaseOwned = true;
+    let readerLease: TempLease | undefined;
     const releaseReaderLease = async () => {
       const release = readerLease;
       readerLease = undefined;
       await release?.();
-      if (release) await this.reclaimUnreferencedGenerations(key);
+      if (release) this.scheduleReclaim(key);
     };
     try {
       if (withLease) readerLease = await this.createReaderLease(key);
@@ -1173,10 +1615,16 @@ export class BunStorage implements IObjectStorage {
             : undefined;
           let bodyHandle: FileHandle | undefined;
           let metadataHandle: FileHandle | undefined;
-          let released = false;
-          const releaseGenerationLease = async () => {
-            if (released) return;
-            released = true;
+          let generationProtectionReleased = false;
+          const releaseGenerationProtection = async () => {
+            if (generationProtectionReleased) return;
+            generationProtectionReleased = true;
+            await generationLease?.();
+          };
+          let bodyReleased = false;
+          const releaseBody = async () => {
+            if (bodyReleased) return;
+            bodyReleased = true;
             if (metadataHandle) {
               await metadataHandle.close().catch(() => undefined);
               metadataHandle = undefined;
@@ -1185,11 +1633,10 @@ export class BunStorage implements IObjectStorage {
               await bodyHandle.close().catch(() => undefined);
               bodyHandle = undefined;
             }
-            await generationLease?.();
           };
-          const releaseLease = async () => {
-            await releaseGenerationLease();
-            await releaseReaderLease();
+          const releaseAttempt = async () => {
+            await releaseBody();
+            await releaseGenerationProtection();
           };
           try {
             const filePath = this.getGenerationPath(key, generation, "body");
@@ -1203,7 +1650,7 @@ export class BunStorage implements IObjectStorage {
             const resolvedMetaPath =
               await this.resolveExistingInternalPath(metaPath);
             if (!resolvedFilePath || !resolvedMetaPath) {
-              await releaseGenerationLease();
+              await releaseAttempt();
               await yieldForFilesystem();
               continue;
             }
@@ -1220,12 +1667,20 @@ export class BunStorage implements IObjectStorage {
                 .handle;
               const metadata =
                 await this.readGenerationMetadataHandle(metadataHandle);
-              readerLeaseOwned = false;
+              await metadataHandle.close();
+              metadataHandle = undefined;
+              // Once the body FD is open and metadata is materialized, POSIX
+              // unlink semantics keep those exact bytes readable without any
+              // pathname lease. Release both local and cross-instance path
+              // protection now so an undrained lazy stream cannot retain every
+              // superseded generation or one lease FD per object lifetime.
+              await releaseGenerationProtection();
+              await releaseReaderLease();
               return {
                 filePath: resolvedFilePath,
                 bodyHandle,
                 metadata,
-                releaseLease,
+                releaseBody,
               };
             }
 
@@ -1235,10 +1690,10 @@ export class BunStorage implements IObjectStorage {
             await openedMeta.handle.close();
             const metadata =
               await this.readGenerationMetadata(resolvedMetaPath);
-            await releaseGenerationLease();
+            await releaseGenerationProtection();
             return { filePath: resolvedFilePath, metadata };
           } catch (error) {
-            await releaseGenerationLease();
+            await releaseAttempt();
             if (
               isNotFoundError(error) &&
               attempt + 1 < OBJECT_RESOLVE_ATTEMPTS
@@ -1296,27 +1751,24 @@ export class BunStorage implements IObjectStorage {
               metadata = this.parseGenerationMetadata(
                 await readFileHandleText(metadataHandle),
               );
+              await metadataHandle.close();
+              metadataHandle = undefined;
             }
             let released = false;
-            const releaseLease = async () => {
+            const releaseBody = async () => {
               if (released) return;
               released = true;
-              if (metadataHandle) {
-                await metadataHandle.close().catch(() => undefined);
-                metadataHandle = undefined;
-              }
               if (bodyHandle) {
                 await bodyHandle.close().catch(() => undefined);
                 bodyHandle = undefined;
               }
-              await releaseReaderLease();
             };
-            readerLeaseOwned = false;
+            await releaseReaderLease();
             return {
               filePath: resolvedFilePath,
               bodyHandle,
               metadata,
-              releaseLease,
+              releaseBody,
             };
           } catch (error) {
             if (metadataHandle)
@@ -1337,7 +1789,7 @@ export class BunStorage implements IObjectStorage {
       return null;
     } finally {
       releaseKeyRead?.();
-      if (readerLeaseOwned) await releaseReaderLease();
+      await releaseReaderLease();
     }
   }
 
@@ -1380,6 +1832,8 @@ export class BunStorage implements IObjectStorage {
       );
       await syncAndClose(markerHandle);
       markerHandle = undefined;
+      await releaseLease.assertOwned();
+      await this.beforeCommitRename?.(markerPath);
       await rename(markerTempPath, markerPath);
       // The marker rename is the publication point. Mark the temporary path
       // gone immediately so a subsequent directory-fsync error cannot make
@@ -1397,44 +1851,72 @@ export class BunStorage implements IObjectStorage {
     key: string,
     generation: string | null | undefined,
   ): Promise<void> {
-    if (!generation) {
-      await this.reclaimUnreferencedGenerations(key);
-      return;
-    }
-    let current: CommitRecord | undefined;
-    try {
-      current = await this.readCommitRecord(key);
-    } catch {
-      // A malformed marker is fail-closed; leave bytes for startup recovery
-      // rather than risking removal of a generation we cannot identify.
-      return;
-    }
-    if (!(
-      current?.state === "committed" && current.generation === generation
-    )) {
-      const activeKey = `${keyHash(key)}:${generation}`;
-      const leasePath = path.join(
-        this.getInternalObjectPath(key),
-        `${TEMP_MARKER}${generation}.${LEASE_SUFFIX}`,
-      );
-      const liveLease = await this.isLiveTempLease(leasePath);
-      const readerLease = await this.hasLiveReaderLease(
-        this.getInternalObjectPath(key),
-      );
-      if (
-        !this.activeGenerations.has(activeKey) &&
-        !this.hasGenerationLease(key, generation) &&
-        !this.hasKeyReadReservation(key) &&
-        !liveLease &&
-        !readerLease
-      ) {
-        for (const suffix of ["body", "meta.json"] as const) {
-          const filePath = this.getGenerationPath(key, generation, suffix);
-          await this.unlinkOwnedInternalFile(filePath);
-        }
+    if (generation && (await this.canReclaimGeneration(key, generation))) {
+      for (const suffix of ["body", "meta.json"] as const) {
+        // Re-establish authority for each unlink. A reader or delayed writer
+        // can publish/acquire a lease after removal of the paired file starts;
+        // leaving one orphan is safer than deleting a newly-current pair.
+        if (!(await this.canReclaimGeneration(key, generation))) break;
+        const filePath = this.getGenerationPath(key, generation, suffix);
+        await this.unlinkOwnedInternalFile(filePath);
       }
     }
     await this.reclaimUnreferencedGenerations(key);
+  }
+
+  /**
+   * Establish deletion authority for one generation without trusting a stale
+   * marker snapshot.
+   *
+   * Writer ordering is lease -> generation files -> commit marker -> lease
+   * release. Reader ordering is reader lease -> marker/open body -> lease
+   * release. Checking both leases around an uncached marker read therefore
+   * prevents GC from unlinking either the currently published generation or a
+   * generation that an already-started reader can still reference.
+   */
+  private async canReclaimGeneration(
+    key: string,
+    generation: string,
+  ): Promise<boolean> {
+    if (
+      this.activeGenerations.has(`${keyHash(key)}:${generation}`) ||
+      this.hasGenerationLease(key, generation) ||
+      this.hasKeyReadReservation(key)
+    ) {
+      return false;
+    }
+
+    const objectPath = this.getInternalObjectPath(key);
+    const generationLeasePath = path.join(
+      objectPath,
+      `${TEMP_MARKER}${generation}.${LEASE_SUFFIX}`,
+    );
+    if (
+      (await this.isLiveTempLease(generationLeasePath)) ||
+      (await this.hasLiveReaderLease(objectPath))
+    ) {
+      return false;
+    }
+
+    let current: CommitRecord | undefined;
+    try {
+      current = await this.readCommitRecord(key, false);
+    } catch {
+      return false;
+    }
+    if (current?.state === "committed" && current.generation === generation) {
+      return false;
+    }
+
+    // A reader can acquire its cross-instance lease immediately before the
+    // authoritative marker read and still hold the previous generation after
+    // a concurrent publication. Recheck after the marker decision closes that
+    // window. Rechecking the writer lease keeps deletion fail-closed if a
+    // generation lease was transiently unreadable during the first probe.
+    return !(
+      (await this.hasLiveReaderLease(objectPath)) ||
+      (await this.isLiveTempLease(generationLeasePath))
+    );
   }
 
   private async reclaimUnreferencedGenerations(key: string): Promise<void> {
@@ -1482,14 +1964,19 @@ export class BunStorage implements IObjectStorage {
       ) {
         continue;
       }
+      // `retainedGeneration` and `liveLeaseState` are scan snapshots. A writer
+      // may publish and release its lease while this reclamation pass is in
+      // flight, so re-establish current marker + lease authority immediately
+      // before every destructive unlink.
+      if (!(await this.canReclaimGeneration(key, generation))) continue;
       await this.unlinkOwnedInternalFile(
         path.join(resolvedObjectPath, entry.name),
       );
     }
-    // A crashed writer can leave body/metadata/marker temp files after its
-    // lease expires.  Keep only temps belonging to an active/live generation;
-    // stale artifacts must be reclaimed during steady-state GC as well as
-    // startup recovery.
+    // A crashed local writer can leave body/metadata/marker temp files after
+    // its exact owner incarnation is proved dead. Keep only temps belonging to
+    // an active/retained generation; proved-unowned artifacts are reclaimed
+    // during steady-state GC as well as startup recovery.
     for (const entry of entries) {
       if (entry.isDirectory() || !entry.name.startsWith(TEMP_MARKER)) {
         continue;
@@ -1513,17 +2000,17 @@ export class BunStorage implements IObjectStorage {
 
   async put(
     key: string,
-    value: Blob | ReadableStream | ArrayBuffer | string,
-    options?: {
-      httpMetadata?: ObjectMetadata["httpMetadata"];
-      customMetadata?: Record<string, string>;
-    },
+    value: ObjectStoreBody,
+    options?: ObjectStorePutOptions,
   ): Promise<void> {
     // Serialize before touching the filesystem. A metadata-shape failure must
     // leave the currently committed generation completely untouched.
     const metadataPayload = JSON.stringify({
-      httpMetadata: options?.httpMetadata,
-      customMetadata: options?.customMetadata,
+      contentType: options?.contentType,
+      httpMetadata:
+        options?.contentType === undefined
+          ? undefined
+          : { contentType: options.contentType },
     });
     const filePath = this.getFilePath(key);
 
@@ -1575,7 +2062,7 @@ export class BunStorage implements IObjectStorage {
     );
     const activeGenerationKey = `${keyHash(key)}:${generation}`;
     this.activeGenerations.add(activeGenerationKey);
-    let releaseLease: (() => Promise<void>) | undefined;
+    let releaseLease: TempLease | undefined;
     let bodyHandle: FileHandle | undefined;
     let metadataHandle: FileHandle | undefined;
     let commitHandle: FileHandle | undefined;
@@ -1625,6 +2112,12 @@ export class BunStorage implements IObjectStorage {
       );
       await syncAndClose(commitHandle);
       commitHandle = undefined;
+      // Publication is permitted only while this exact lease inode/token is
+      // still owned. Recovery never expires a possibly-live owner solely by
+      // age, so this assertion and the marker rename form the fencing edge:
+      // a dead owner cannot resume, and a live owner cannot be reclaimed.
+      await releaseLease.assertOwned();
+      await this.beforeCommitRename?.(commitPath);
       await rename(commitTempPath, commitPath);
       // Rename makes the complete body+metadata generation authoritative.
       // Set both flags before fsync: if syncing the containing directory
@@ -1665,52 +2158,46 @@ export class BunStorage implements IObjectStorage {
     await this.removeGenerationIfUnreferenced(key, previousGeneration);
   }
 
-  async get(key: string): Promise<StorageObject | null> {
-    let releaseLease: (() => Promise<void>) | undefined;
+  async get(key: string): Promise<ObjectStoreObject | null> {
+    let releaseBody: (() => Promise<void>) | undefined;
+    let bodyHandedOff = false;
     try {
       const resolvedObject = await this.resolveObject(key, true);
       if (!resolvedObject) return null;
-      releaseLease = resolvedObject.releaseLease;
-
-      const content = resolvedObject.bodyHandle
-        ? await readFileHandleFully(resolvedObject.bodyHandle)
-        : new Uint8Array(await Bun.file(resolvedObject.filePath).arrayBuffer());
+      releaseBody = resolvedObject.releaseBody;
       const metadata = resolvedObject.metadata;
 
-      let bodyUsed = false;
+      if (!resolvedObject.bodyHandle) {
+        throw new Error("BunStorage object body is not open");
+      }
+      const byteLength = (await resolvedObject.bodyHandle.stat()).size;
+      if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
+        throw new Error("invalid filesystem object size");
+      }
+      const body = createFileBodyStream(
+        resolvedObject.bodyHandle,
+        byteLength,
+        async () => {
+          await releaseBody?.();
+          releaseBody = undefined;
+        },
+      );
+      bodyHandedOff = true;
 
       return {
         key,
-        body: new ReadableStream({
-          start(controller) {
-            controller.enqueue(content);
-            controller.close();
-          },
-        }),
-        bodyUsed,
-        arrayBuffer: async () => {
-          bodyUsed = true;
-          return content.buffer as ArrayBuffer;
-        },
-        text: async () => {
-          bodyUsed = true;
-          return new TextDecoder().decode(content);
-        },
-        json: async <T>() => {
-          bodyUsed = true;
-          return JSON.parse(new TextDecoder().decode(content)) as T;
-        },
-        httpMetadata: metadata.httpMetadata,
-        customMetadata: metadata.customMetadata,
+        body,
+        contentType: metadata.contentType,
+        byteLength,
       };
     } catch {
       return null;
     } finally {
-      await releaseLease?.();
+      if (!bodyHandedOff) await releaseBody?.();
     }
   }
 
-  async delete(key: string | string[]): Promise<void> {
+  async delete(key: string | readonly string[]): Promise<void> {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
       let markerPath: string;
@@ -1781,158 +2268,6 @@ export class BunStorage implements IObjectStorage {
         /* ignore */
       }
       await this.removeGenerationIfUnreferenced(k, previousGeneration);
-    }
-  }
-
-  async list(options?: {
-    prefix?: string;
-    limit?: number;
-    cursor?: string;
-    delimiter?: string;
-  }): Promise<ListObjectsResult> {
-    const objects: ListObjectsResult["objects"] = [];
-    const realBasePath = await this.getRealBasePath();
-    const committed = new Map<string, ResolvedObject>();
-    const deleted = new Set<string>();
-    const legacy: Array<{ key: string; filePath: string }> = [];
-
-    const readDirRecursive = async (dir: string, prefix: string = "") => {
-      try {
-        const entries = await readdir(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = `${dir}/${entry.name}`;
-          const realFullPath = await realpath(fullPath);
-          if (!isPathWithinBasePath(realBasePath, realFullPath)) continue;
-          const key = prefix ? `${prefix}/${entry.name}` : entry.name;
-
-          if (entry.isDirectory()) {
-            await readDirRecursive(fullPath, key);
-          } else if (!isInternalStorageName(entry.name)) {
-            legacy.push({ key, filePath: fullPath });
-          }
-        }
-      } catch {
-        // Directory doesn't exist
-      }
-    };
-
-    await readDirRecursive(realBasePath);
-
-    // Enumerate only validated commit records from the hidden generation
-    // store. This is deliberately separate from the legacy body scan so no
-    // user key can collide with an internal filename.
-    const internalRoot = this.getInternalStorePath();
-    try {
-      const resolvedRoot = await this.resolveExistingInternalPath(internalRoot);
-      if (resolvedRoot) {
-        const objectEntries = await readdir(resolvedRoot, {
-          withFileTypes: true,
-        });
-        for (const objectEntry of objectEntries) {
-          if (
-            !objectEntry.isDirectory() ||
-            !DIGEST_PATTERN.test(objectEntry.name)
-          ) {
-            continue;
-          }
-          const objectPath = path.join(resolvedRoot, objectEntry.name);
-          const resolvedObjectPath =
-            await this.resolveExistingInternalPath(objectPath);
-          if (!resolvedObjectPath) continue;
-          const markerPath = path.join(resolvedObjectPath, COMMIT_FILE);
-          try {
-            const record = JSON.parse(
-              await this.readOwnedInternalFileText(markerPath),
-            ) as Partial<CommitRecord>;
-            if (
-              record.version !== 1 ||
-              typeof record.key !== "string" ||
-              record.keyHash !== objectEntry.name ||
-              keyHash(record.key) !== objectEntry.name
-            ) {
-              continue;
-            }
-            if (record.state === "deleted" && record.generation === null) {
-              deleted.add(record.key);
-              continue;
-            }
-            if (
-              record.state !== "committed" ||
-              typeof record.generation !== "string" ||
-              !GENERATION_ID_PATTERN.test(record.generation)
-            ) {
-              continue;
-            }
-            const resolved = await this.resolveObject(record.key, true);
-            if (resolved) committed.set(record.key, resolved);
-          } catch {
-            // A malformed or incomplete marker is never exposed as an object.
-          }
-        }
-      }
-    } catch {
-      // The hidden store may not exist yet.
-    }
-
-    for (const [key, resolved] of committed) {
-      try {
-        if (deleted.has(key)) continue;
-        if (options?.prefix && !key.startsWith(options.prefix)) continue;
-        const stats = resolved.bodyHandle
-          ? await resolved.bodyHandle.stat()
-          : await stat(resolved.filePath);
-        objects.push({ key, size: stats.size, uploaded: stats.mtime });
-      } catch {
-        // The generation disappeared between the marker and this read.
-      } finally {
-        await resolved.releaseLease?.();
-      }
-    }
-    for (const candidate of legacy) {
-      if (committed.has(candidate.key) || deleted.has(candidate.key)) continue;
-      if (options?.prefix && !candidate.key.startsWith(options.prefix)) {
-        continue;
-      }
-      try {
-        const stats = await stat(candidate.filePath);
-        objects.push({
-          key: candidate.key,
-          size: stats.size,
-          uploaded: stats.mtime,
-        });
-      } catch {
-        // The legacy object disappeared between traversal and stat.
-      }
-    }
-
-    const limit = options?.limit ?? 1000;
-    const truncated = objects.length > limit;
-
-    return {
-      objects: objects.slice(0, limit),
-      truncated,
-      cursor: truncated ? String(limit) : undefined,
-    };
-  }
-
-  async head(key: string): Promise<ObjectMetadata | null> {
-    let releaseLease: (() => Promise<void>) | undefined;
-    try {
-      const resolvedObject = await this.resolveObject(key, true);
-      if (!resolvedObject) return null;
-      releaseLease = resolvedObject.releaseLease;
-      const metadata = resolvedObject.metadata;
-      return {
-        contentLength: resolvedObject.bodyHandle
-          ? (await resolvedObject.bodyHandle.stat()).size
-          : Bun.file(resolvedObject.filePath).size,
-        httpMetadata: metadata.httpMetadata,
-        customMetadata: metadata.customMetadata,
-      };
-    } catch {
-      return null;
-    } finally {
-      await releaseLease?.();
     }
   }
 }

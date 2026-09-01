@@ -25,7 +25,7 @@ import {
   insertMany,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
-import type { IObjectStorage } from "../../runtime/types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import dmRoutes from "../../routes/dm/conversations.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
@@ -143,11 +143,11 @@ function appWith(db: Database, actor: Actor) {
   return app;
 }
 
-const envFor = (db: Database, media?: IObjectStorage): Env =>
+const envFor = (db: Database, media?: ObjectStore): Env =>
   ({ APP_URL, DB_INSTANCE: db, MEDIA: media }) as unknown as Env;
 
 function recordingStorage(): {
-  storage: IObjectStorage;
+  storage: ObjectStore;
   deleted: string[];
 } {
   const deleted: string[] = [];
@@ -159,13 +159,7 @@ function recordingStorage(): {
     async delete(key: string | string[]) {
       deleted.push(...(Array.isArray(key) ? key : [key]));
     },
-    async list() {
-      return { objects: [], truncated: false } as never;
-    },
-    async head() {
-      return null;
-    },
-  } as unknown as IObjectStorage;
+  } as unknown as ObjectStore;
   return { storage, deleted };
 }
 
