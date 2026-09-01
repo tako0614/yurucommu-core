@@ -105,7 +105,7 @@ env は `EnvVars`（`types.ts`）に追加済み。secret（`_TURN_SECRET`/`_SFU
 - routes `routes/rtc/index.ts`（`index.ts` の `mountCoreRoutes` に `app.route("/", rtcRoutes)`）:
   - `POST /ap/rtc/signal` — s2s ingest。`verifyHttpSignature` → `signingActorFromKeyId`/`isActorMismatch` で signer===from を強制 → 受信者が local actor か確認 → sender が block 済みなら silently drop → `getSignalingHub().deliver`。per-IP rate-limit（`federationDiscovery`）。
   - `POST /api/rtc/ticket` — 通常の認証済みfetch（cookie / bearer）で、対象userのCall DO内に約60秒・一回限りのticketを発行。
-  - `GET /api/rtc/socket` — browser WS upgrade。`?actor=&ticket=`を必須とし、Call DO自身が検証・consumeする。cookie-at-upgrade経路は持たない。
+  - `GET /api/rtc/socket` — browser WS upgrade。`?actor=&ticket=`を必須とし、Call DO自身が検証・読み込む。cookie-at-upgrade経路は持たない。
   - `GET /api/rtc/ice` — 短命 ICE 発行。
   - `POST /api/rtc/calls` — 発信開始。双方向 block-list gate → `{callId, iceServers, sfuFocus}`。
   - `GET /api/rtc/calls[/:id]` — history / current state。
@@ -158,7 +158,7 @@ env は `EnvVars`（`types.ts`）に追加済み。secret（`_TURN_SECRET`/`_SFU
 1. 現行`yurucommu`/`yurumeet`のsourceには`CallClient`利用、call context/overlay/button、通話i18nが存在しない。
 2. 現行の生成Worker entry、`wrangler.jsonc`、`main.tf`に`CALL_SIGNALING`/`CallSignalingDurableObject`配線は存在しない。
 3. したがってCoreのprotocol testはgreenでも、どちらのproductにもユーザーが利用できる通話surfaceはなく、2-instance browser E2Eを成功したとは扱えない。
-4. 以前この文書にあった「Phase 2 UI/deploy配線済み」という記録はcurrent sourceと一致しないため撤回した。実装する場合はproduct側の正本・差分・owner gateを証拠とする。
+4. 以前この文書にあった「Phase 2 UI/deploy配線済み」という記録はcurrent sourceと一致しないため撤回した。実装する場合はproduct側の正本 (正とする情報)・差分・owner gateを証拠とする。
 
 **残**:
 

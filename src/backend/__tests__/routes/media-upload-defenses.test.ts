@@ -230,3 +230,40 @@ test("accepts a valid PNG and records it (200)", async () => {
   expect(rows.length).toBe(1);
   expect(rows[0]?.contentType).toBe("image/png");
 });
+
+test("passes a known video size to streaming object storage", async () => {
+  const db = await freshDb();
+  const puts: Array<{
+    value: unknown;
+    options: { contentLength?: number } | undefined;
+  }> = [];
+  const media = {
+    async put(
+      _key: string,
+      value: unknown,
+      options?: { contentLength?: number },
+    ) {
+      puts.push({ value, options });
+    },
+    async get() {
+      return null;
+    },
+    async delete() {},
+  };
+  const file = new File(
+    [new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x01])],
+    "clip.webm",
+    { type: "video/webm" },
+  );
+  const form = new FormData();
+  form.set("file", file);
+  const res = await appWith(db, fakeActor()).fetch(
+    new Request(`${APP_URL}/media/upload`, { method: "POST", body: form }),
+    { APP_URL, DB_INSTANCE: db, MEDIA: media } as unknown as Env,
+  );
+
+  expect(res.status).toBe(200);
+  expect(puts).toHaveLength(1);
+  expect(puts[0]?.value).toBeInstanceOf(ReadableStream);
+  expect(puts[0]?.options?.contentLength).toBe(file.size);
+});

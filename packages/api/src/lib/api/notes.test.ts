@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { clearYurucommuApiTransport } from "../transport.ts";
 import type { ActorNote } from "../../types/index.ts";
 import { createNote, deleteMyNote, fetchNotes } from "./notes.ts";
+import { withMockFetch } from "./test-helpers.ts";
 
 function makeNote(overrides: Partial<ActorNote> = {}): ActorNote {
   return {
@@ -19,23 +19,6 @@ function makeNote(overrides: Partial<ActorNote> = {}): ActorNote {
     is_mine: false,
     ...overrides,
   };
-}
-
-async function withMockFetch<T>(
-  handler: (input: RequestInfo | URL, init?: RequestInit) => Response,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const originalFetch = globalThis.fetch;
-  clearYurucommuApiTransport();
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-    Promise.resolve(handler(input, init))) as typeof fetch;
-
-  try {
-    return await fn();
-  } finally {
-    globalThis.fetch = originalFetch;
-    clearYurucommuApiTransport();
-  }
 }
 
 test("fetchNotes reads notes and normalizes actor usernames", async () => {

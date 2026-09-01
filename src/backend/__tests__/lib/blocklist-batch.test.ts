@@ -1,10 +1,6 @@
 import { expect, test } from "bun:test";
-import { readFile, readdir } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
 import { sql } from "drizzle-orm";
-import { createClient } from "@libsql/client";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { blockedActors } from "../../../db/index.ts";
 import { isSameActivityPubActor } from "../../lib/activitypub-actor-identity.ts";
@@ -15,15 +11,10 @@ import {
   isActorBlocked,
   unblockActor,
 } from "../../lib/blocklist.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  const files = (await readdir(root)).filter((f) => f.endsWith(".sql")).sort();
-  for (const file of files) {
-    await client.executeMultiple(await readFile(new URL(file, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 test("filterBlockedActorApIds: blocks by actor AND transitively by domain, in one pass", async () => {

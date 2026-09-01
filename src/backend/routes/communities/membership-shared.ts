@@ -1,8 +1,6 @@
 import type { Context } from "hono";
-import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
 import {
-  actorCache,
-  actors,
   communities,
   communityBans,
   communityMembers,
@@ -12,8 +10,8 @@ import {
   type Database,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
+import { loadActorInfoMap } from "../actors-helpers.ts";
 import { communityApId } from "../../federation-helpers.ts";
-import { chunkForInClause } from "../../lib/chunk.ts";
 import { activityPubActorIdentityMatchesSql } from "../../lib/activitypub-actor-identity-sql.ts";
 
 export const managerRoles = new Set(["owner", "moderator"]);
@@ -504,68 +502,32 @@ export async function batchLoadActorInfo(
   db: Database,
   apIds: string[],
   includeIcon = true,
-) {
-  if (apIds.length === 0) {
-    return new Map<
-      string,
-      {
-        preferredUsername: string | null;
-        name: string | null;
-        iconUrl?: string | null;
-      }
-    >();
-  }
-
-  type ActorInfo = {
-    preferredUsername: string | null;
-    name: string | null;
-    iconUrl?: string | null;
-  };
-
-  const selectLocalBase = {
-    apId: actors.apId,
-    preferredUsername: actors.preferredUsername,
-    name: actors.name,
-    iconUrl: actors.iconUrl,
-  } as const;
-  const selectCachedBase = {
-    apId: actorCache.apId,
-    preferredUsername: actorCache.preferredUsername,
-    name: actorCache.name,
-    iconUrl: actorCache.iconUrl,
-  } as const;
-
-  // Chunk the IN(...) lookups: a community roster page can carry up to ~90
-  // member ids and D1 caps a query at 100 bound parameters. Chunks are disjoint
-  // id slices, so per-chunk maps merge collision-free; cached-then-local
-  // ordering still gives local-wins within each chunk.
-  const map = new Map<string, ActorInfo>();
-  for (const ids of chunkForInClause(apIds)) {
-    const [localActors, cachedActors] = await Promise.all([
-      db.select(selectLocalBase).from(actors).where(inArray(actors.apId, ids)),
-      db
-        .select(selectCachedBase)
-        .from(actorCache)
-        .where(inArray(actorCache.apId, ids)),
-    ]);
-
-    // Cached first so local overrides
-    for (const a of cachedActors) {
-      const info: ActorInfo = {
-        preferredUsername: a.preferredUsername,
-        name: a.name,
-      };
-      if (includeIcon) info.iconUrl = a.iconUrl;
-      map.set(a.apId, info);
+): Promise<
+  Map<
+    string,
+    {
+      preferredUsername: string | null;
+      name: string | null;
+      iconUrl?: string | null;
     }
-    for (const a of localActors) {
-      const info: ActorInfo = {
-        preferredUsername: a.preferredUsername,
-        name: a.name,
-      };
-      if (includeIcon) info.iconUrl = a.iconUrl;
-      map.set(a.apId, info);
+  >
+> {
+  const actorInfoMap = await loadActorInfoMap(db, apIds, "author");
+  const map = new Map<
+    string,
+    {
+      preferredUsername: string | null;
+      name: string | null;
+      iconUrl?: string | null;
     }
+  >();
+
+  for (const [apId, actor] of actorInfoMap) {
+    const info = {
+      preferredUsername: actor.preferredUsername,
+      name: actor.name,
+    };
+    map.set(apId, includeIcon ? { ...info, iconUrl: actor.iconUrl } : info);
   }
   return map;
 }

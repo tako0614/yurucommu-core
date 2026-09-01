@@ -1,13 +1,10 @@
 import { expect, test } from "bun:test";
-import { readFile, readdir } from "node:fs/promises";
 import { and, desc, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { Hono } from "hono";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { activities, actors, follows } from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import followRoutes from "../../routes/follow.ts";
 
@@ -39,13 +36,7 @@ const REMOTE_FOLLOW_WIRE_ID = `${REMOTE_ORIGIN}/ap/activities/follow-123`;
 const INTERNAL_FOLLOW_ID = `${APP_URL}/ap/activities/inbound-${"ab".repeat(32)}`;
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  const files = (await readdir(root)).filter((f) => f.endsWith(".sql")).sort();
-  for (const f of files) {
-    await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function insertActor(db: Database, username: string, isPrivate = 1) {

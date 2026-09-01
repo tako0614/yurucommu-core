@@ -1,3 +1,5 @@
+import { isRecord, parseNonEmptyString } from "./parse-helpers.ts";
+
 export const MOBILE_PUSH_REGISTRATION_PATH =
   "/api/mobile/push-registrations" as const;
 
@@ -103,12 +105,6 @@ function parseShortIdentifier(value: unknown): string | null {
   return /^[a-z0-9._:-]+$/i.test(text) ? text : null;
 }
 
-function parseNonEmptyString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function parseMobileProductKind(value: unknown): MobileProductKind | null {
   if (typeof value !== "string") return null;
   return SOCIAL_CLIENT_KINDS.includes(value as SocialClientKind)
@@ -130,8 +126,4 @@ function parseOptionalHttpUrl(value: unknown): string | null | undefined {
   } catch {
     return undefined;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

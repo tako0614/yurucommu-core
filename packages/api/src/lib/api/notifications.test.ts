@@ -9,6 +9,7 @@ import {
   registerNotificationPusher,
   unregisterNotificationPusher,
 } from "./notifications.ts";
+import { withMockJsonFetch } from "./test-helpers.ts";
 
 function makeNotification(id: string): Notification {
   return {
@@ -27,31 +28,10 @@ function makeNotification(id: string): Notification {
   } as unknown as Notification;
 }
 
-async function withMockFetch<T>(
-  responseBody: unknown,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const originalFetch = globalThis.fetch;
-  clearYurucommuApiTransport();
-  globalThis.fetch = ((_input: RequestInfo | URL) =>
-    Promise.resolve(
-      new Response(JSON.stringify(responseBody), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    )) as unknown as typeof fetch;
-  try {
-    return await fn();
-  } finally {
-    globalThis.fetch = originalFetch;
-    clearYurucommuApiTransport();
-  }
-}
-
 // Regression: the notifications "load older" affordance depends on the client
 // surfacing the server's `has_more` (it was previously discarded).
 test("fetchNotifications surfaces has_more as hasMore and maps notifications", async () => {
-  const result = await withMockFetch(
+  const result = await withMockJsonFetch(
     { notifications: [makeNotification("n1")], has_more: true },
     () => fetchNotifications({ limit: 20 }),
   );
@@ -61,7 +41,7 @@ test("fetchNotifications surfaces has_more as hasMore and maps notifications", a
 });
 
 test("fetchNotifications defaults hasMore to false when the server omits it", async () => {
-  const result = await withMockFetch({ notifications: [] }, () =>
+  const result = await withMockJsonFetch({ notifications: [] }, () =>
     fetchNotifications({ limit: 20 }),
   );
 
@@ -113,7 +93,7 @@ test("markNotificationsRead sends the operation promised by its optional ids arg
 });
 
 test("notification pusher public config derives enabled only from both public values", async () => {
-  const configured = await withMockFetch(
+  const configured = await withMockJsonFetch(
     {
       gateway_url: "https://push.example/_matrix/push/v1/notify",
       web_push_public_key: "public-vapid-key",
@@ -126,7 +106,7 @@ test("notification pusher public config derives enabled only from both public va
     web_push_public_key: "public-vapid-key",
   });
 
-  const disabled = await withMockFetch(
+  const disabled = await withMockJsonFetch(
     { gateway_url: null, web_push_public_key: "public-vapid-key" },
     fetchNotificationPusherPublicConfig,
   );

@@ -1,5 +1,4 @@
 import {
-  TAKOSUMI_MANAGED_RELATIONAL_RUNTIME_CONTRACT,
   managedRelationalBatchGatewayRequest,
   managedRelationalConnection,
   parseManagedRelationalBatchResponse,
@@ -14,6 +13,7 @@ import {
 } from "drizzle-orm/sqlite-proxy";
 
 import * as schema from "../../db/schema.ts";
+import { isRecord } from "../lib/parse-helpers.ts";
 import { ManagedRuntimeGatewayError } from "./managed-runtime.ts";
 import type { ManagedRuntimeGateway } from "./managed-runtime.ts";
 
@@ -190,8 +190,4 @@ async function boundedResponse(
     statusText: response.statusText,
     headers: response.headers,
   });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

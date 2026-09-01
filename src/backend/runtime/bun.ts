@@ -20,6 +20,7 @@ import type {
 import {
   assertPathChainWithinBasePath,
   isPathWithinBasePath,
+  readStream,
   resolvePathWithinBasePath,
 } from "./shared.ts";
 import { MemoryKV } from "./memory-kv.ts";
@@ -37,29 +38,6 @@ export { MemoryKV };
 const { mkdir, unlink, readdir, stat, realpath } = await import("fs/promises");
 
 /**
- * Drain a ReadableStream into a single Uint8Array.
- */
-async function drainStream(
-  stream: ReadableStream<Uint8Array>,
-): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = [];
-  const reader = stream.getReader();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-  }
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
-}
-
-/**
  * Convert a put() value to Uint8Array.
  */
 async function toUint8Array(
@@ -67,7 +45,7 @@ async function toUint8Array(
 ): Promise<Uint8Array> {
   if (typeof value === "string") return new TextEncoder().encode(value);
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
-  return drainStream(value);
+  return readStream(value);
 }
 
 /**

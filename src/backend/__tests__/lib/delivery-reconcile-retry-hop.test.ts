@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile, readdir } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { deliveryQueue } from "../../../db/index.ts";
 import { Bulkhead } from "../../lib/delivery/queue.ts";
@@ -12,6 +8,7 @@ import type {
   DeliveryDeliverEndpointMessageV1,
   DeliveryQueueMessageV1,
 } from "../../lib/delivery/types.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 // DEEP round-2 #6: the reconcile-cycle counter (`reconcileAttempt`) was carried
 // across reconcile_job -> deliver_endpoint and deliver_endpoint(dead-letter) ->
@@ -27,13 +24,7 @@ import type {
 // delivery-endpoint-claim.test.ts.
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  const files = (await readdir(root)).filter((f) => f.endsWith(".sql")).sort();
-  for (const f of files) {
-    await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function recordingQueue() {

@@ -4,7 +4,10 @@ import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { BunAssets, BunStorage } from "../src/backend/runtime/bun.ts";
-import { resolvePathWithinBasePath } from "../src/backend/runtime/shared.ts";
+import {
+  isNotFoundError,
+  resolvePathWithinBasePath,
+} from "../src/backend/runtime/shared.ts";
 
 async function pathExists(filePath: string): Promise<boolean> {
   try {
@@ -28,6 +31,35 @@ test("resolvePathWithinBasePath rejects traversal and absolute paths", () => {
   assertThrows(() => resolvePathWithinBasePath(basePath, "../escape.txt"));
   assertThrows(() => resolvePathWithinBasePath(basePath, "/etc/passwd"));
   assertThrows(() => resolvePathWithinBasePath(basePath, "nested\0file.txt"));
+});
+
+test("isNotFoundError recognizes only ENOENT-shaped errors", () => {
+  expect(isNotFoundError({ code: "ENOENT" })).toEqual(true);
+  expect(isNotFoundError({ code: "EACCES" })).toEqual(false);
+  expect(isNotFoundError(new Error("ENOENT"))).toEqual(false);
+  expect(isNotFoundError(null)).toEqual(false);
+});
+
+test("BunStorage preserves every chunk from a ReadableStream", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "yurucommu-stream-"));
+  try {
+    const storage = await BunStorage.create(root);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("first"));
+        controller.enqueue(encoder.encode("-second"));
+        controller.close();
+      },
+    });
+
+    await storage.put("chunked.txt", stream);
+    expect(await (await storage.get("chunked.txt"))?.text()).toEqual(
+      "first-second",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("BunStorage blocks symlink escapes", async () => {

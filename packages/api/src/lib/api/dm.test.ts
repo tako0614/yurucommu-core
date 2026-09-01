@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { clearYurucommuApiTransport } from "../transport.ts";
 import type { DMMessage } from "../../types/index.ts";
 import { fetchUserDMMessages } from "./dm.ts";
+import { withMockJsonFetch } from "./test-helpers.ts";
 
 function makeMessage(id: string): DMMessage {
   return {
@@ -19,31 +19,10 @@ function makeMessage(id: string): DMMessage {
   } as unknown as DMMessage;
 }
 
-async function withMockFetch<T>(
-  responseBody: unknown,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const originalFetch = globalThis.fetch;
-  clearYurucommuApiTransport();
-  globalThis.fetch = ((_input: RequestInfo | URL) =>
-    Promise.resolve(
-      new Response(JSON.stringify(responseBody), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    )) as typeof fetch;
-  try {
-    return await fn();
-  } finally {
-    globalThis.fetch = originalFetch;
-    clearYurucommuApiTransport();
-  }
-}
-
 // Regression: the DM thread's "load older" affordance depends on the client
 // surfacing the server's `has_more` flag (it was previously discarded).
 test("fetchUserDMMessages surfaces has_more as hasMore and maps messages", async () => {
-  const result = await withMockFetch(
+  const result = await withMockJsonFetch(
     {
       messages: [makeMessage("m1")],
       conversation_id: "conv-1",
@@ -58,7 +37,7 @@ test("fetchUserDMMessages surfaces has_more as hasMore and maps messages", async
 });
 
 test("fetchUserDMMessages defaults hasMore to false when the server omits it", async () => {
-  const result = await withMockFetch({ messages: [] }, () =>
+  const result = await withMockJsonFetch({ messages: [] }, () =>
     fetchUserDMMessages("https://example.com/ap/users/alice"),
   );
 

@@ -141,7 +141,7 @@ WebSocket / SSE は現状**一切存在しない**（意図的にポーリング
 | ローカル通知（like/reply/follow/story 等） | `index.ts:571-611` の post-response `waitUntil`（既に push job flush してる所） | 受信者 DO へ `notification.new` + `unread` |
 | フェデレーション受信 / community fanout | `delivery/queue.ts:526-533` の consumer 末尾 flush 点 | 受信者 DO へ `notification.new` + `unread` |
 
-- 送信者 DO にも `talk.message` を emit → 送信者の他タブ/端末が同期。既存の楽観的更新（yurumeet の `pending`/`failed` バブル）と id dedupe マージで冪等。
+- 送信者 DO にも `talk.message` を emit → 送信者の他タブ/端末が同期。既存の楽観的更新（yurumeet の `pending`/`failed` バブル）と id dedupe マージにより、何度受け取っても結果は同じです。
 - emit は **best-effort**（失敗は warn、リクエスト本体は成功させる）。takos `notifications/service.ts:674-686` と同じ扱い。
 - **DB トリガーからは DO を呼べない**ため、トリガーが書いた inbox/push_jobs を読む既存 flush 点2つに emit を寄せるのが唯一正しい形（全 inbox 生成経路を一点で拾う）。
 
@@ -222,7 +222,7 @@ WebSocket / SSE は現状**一切存在しない**（意図的にポーリング
 |---|---|
 | cross-origin cookie（yurumeet 別 serverOrigin） | 短命チケット方式で cookie 非依存（§5.3） |
 | 既存 self-host が DO 未デプロイ | capability 検知 + フォールバックポーラーで無停止（§6.3） |
-| メッセージ順序 / 重複 | 既存 id dedupe マージ（`appendFresh` / `mergeMessagesById`）で冪等。WS も poll も同じ経路 |
+| メッセージ順序 / 重複 | 既存 id dedupe マージ（`appendFresh` / `mergeMessagesById`）で、何度受け取っても結果は同じ。WS も poll も同じ経路 |
 | 切断中の取りこぼし | ring-buffer replay（warm）／ buffer 外は `resync`→初回フェッチ（cold） |
 | DO migration tag 競合 | direct/tf 両経路で同一 class・同一 storage 種別・単調 tag |
 | emit 失敗でリクエスト巻き添え | emit は best-effort（warn 握り潰し）、REST 本体は成功させる |

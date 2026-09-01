@@ -23,6 +23,7 @@ import {
   isActorBlockedStrict,
   operatorActorNotBlockedSql,
 } from "../../lib/blocklist.ts";
+import { isRecord } from "../../lib/parse-helpers.ts";
 
 // Bound the per-run expired-story reap. The cleanup is opportunistic (fired,
 // unawaited, from the hot story-read path), so a hostile followed host that
@@ -385,10 +386,6 @@ export async function cleanupExpiredStories(
 
 const POSITION_FIELDS = ["x", "y", "width", "height"] as const;
 
-function isOverlayRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 // Bound the overlays payload (count + serialized size). The caption is
 // length-capped at the caller; without this an overlays blob could carry up to
 // the global 1 MiB body cap into the stored + federated story.
@@ -411,7 +408,7 @@ export function validateOverlays(overlays: unknown[]): {
 
   let questionCount = 0;
   for (const [i, raw] of overlays.entries()) {
-    if (!isOverlayRecord(raw)) {
+    if (!isRecord(raw)) {
       return { valid: false, error: `overlay[${i}] must be an object` };
     }
     const overlay = raw;
@@ -420,7 +417,7 @@ export function validateOverlays(overlays: unknown[]): {
       return { valid: false, error: `overlay[${i}].type is required` };
     }
 
-    if (!isOverlayRecord(overlay.position)) {
+    if (!isRecord(overlay.position)) {
       return { valid: false, error: `overlay[${i}].position is required` };
     }
 

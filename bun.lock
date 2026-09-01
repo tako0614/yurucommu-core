@@ -26,7 +26,7 @@
     },
     "packages/api": {
       "name": "@takosjp/yurucommu-api",
-      "version": "3.4.4",
+      "version": "3.4.5",
       "devDependencies": {
         "typescript": "^5.7.0",
       },

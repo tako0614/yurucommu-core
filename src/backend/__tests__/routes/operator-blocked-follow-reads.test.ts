@@ -1,14 +1,11 @@
 import { expect, test } from "bun:test";
-import { readFile, readdir } from "node:fs/promises";
 
-import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
 import { Hono } from "hono";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { activities, actorCache, actors, follows } from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import { blockActor, blockDomain } from "../../lib/blocklist.ts";
 import activityPubRoutes from "../../routes/activitypub.ts";
 import actorsRoute from "../../routes/actors.ts";
@@ -18,15 +15,7 @@ import type { Actor, Env, Variables } from "../../types.ts";
 const APP_URL = "https://yuru.test";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  const files = (await readdir(root))
-    .filter((file) => file.endsWith(".sql"))
-    .sort();
-  for (const file of files) {
-    await client.executeMultiple(await readFile(new URL(file, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function insertLocalActor(

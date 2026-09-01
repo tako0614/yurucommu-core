@@ -23,6 +23,7 @@ import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import process from "node:process";
 import { BunAssets, BunDatabase, BunStorage } from "./runtime/bun.ts";
 import { MemoryKV } from "./runtime/memory-kv.ts";
+import { isNotFoundError } from "./runtime/shared.ts";
 import type { Env, EnvVars } from "./types.ts";
 import type {
   DeliveryDlqMessageV1,
@@ -642,13 +643,4 @@ function bunLike(): BunLike {
   const bun = (globalThis as { Bun?: BunLike }).Bun;
   if (!bun) throw new Error("Bun runtime is required to start yurucommu");
   return bun;
-}
-
-function isNotFoundError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "ENOENT"
-  );
 }

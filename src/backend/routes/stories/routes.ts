@@ -182,26 +182,6 @@ function buildStoryResponse(
   };
 }
 
-/** Resolve remote author info for stories missing a joined author relation. */
-async function resolveRemoteAuthors(
-  db: Database,
-  storiesData: Array<{ author?: unknown; attributedTo: string }>,
-): Promise<
-  Record<
-    string,
-    {
-      preferredUsername: string | null;
-      name: string | null;
-      iconUrl: string | null;
-    }
-  >
-> {
-  const remoteIds = [
-    ...new Set(storiesData.filter((s) => !s.author).map((s) => s.attributedTo)),
-  ];
-  return fetchActorCache(db, remoteIds);
-}
-
 /** Create an outbound activity record and enqueue fanout to followers. */
 async function createAndFanoutActivity(
   db: Database,
@@ -414,9 +394,9 @@ stories.get("/", async (c) => {
 
   // Batch fetch author info
   const authorApIds = [...new Set(storiesData.map((s) => s.attributedTo))];
-  const [localAuthors, remoteAuthorCache] = await Promise.all([
+  const localAuthors =
     authorApIds.length > 0
-      ? db
+      ? await db
           .select({
             apId: actors.apId,
             preferredUsername: actors.preferredUsername,
@@ -425,19 +405,7 @@ stories.get("/", async (c) => {
           })
           .from(actors)
           .where(inArray(actors.apId, authorApIds))
-      : [],
-    Promise.resolve().then(async () => {
-      // We'll resolve after we know which are remote
-      return {} as Record<
-        string,
-        {
-          preferredUsername: string | null;
-          name: string | null;
-          iconUrl: string | null;
-        }
-      >;
-    }),
-  ]);
+      : [];
 
   const authorMap = new Map(localAuthors.map((a) => [a.apId, a]));
   const missingAuthorIds = authorApIds.filter((id) => !authorMap.has(id));

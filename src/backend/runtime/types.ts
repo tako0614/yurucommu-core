@@ -119,6 +119,11 @@ export interface IObjectStorage {
     options?: {
       httpMetadata?: ObjectMetadata["httpMetadata"];
       customMetadata?: Record<string, string>;
+      /**
+       * Known byte length for a streaming body.  Object backends that require
+       * an explicit length can reject an unknown stream without buffering it.
+       */
+      contentLength?: number;
     },
   ): Promise<void>;
 

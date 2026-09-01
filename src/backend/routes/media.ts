@@ -236,6 +236,10 @@ media.post("/upload", async (c) => {
     if (isVideo) {
       await media.put(r2Key, file.stream(), {
         httpMetadata: { contentType },
+        // Preserve the File's known size while keeping video bodies streamed;
+        // portable edge.objects backends require this length and must not
+        // drain the stream just to discover it.
+        contentLength: file.size,
       });
     } else {
       const original = new Uint8Array(await file.arrayBuffer());

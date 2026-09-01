@@ -1,29 +1,17 @@
 import { expect, test } from "bun:test";
-import { readdir, readFile } from "node:fs/promises";
 
 import { Hono } from "hono";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actorNotes, actors, follows } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import notesRoutes from "../../routes/notes.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  const files = (await readdir(root))
-    .filter((file) => file.endsWith(".sql"))
-    .sort();
-  for (const file of files) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function localApId(username: string): string {

@@ -1,11 +1,7 @@
 import { expect, test } from "bun:test";
-import { readFile, readdir } from "node:fs/promises";
 import { and, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { Hono } from "hono";
 
-import * as schema from "../../../../db/schema.ts";
 import type { Database } from "../../../../db/index.ts";
 import {
   activities,
@@ -16,6 +12,7 @@ import {
   objectRecipients,
   objects,
 } from "../../../../db/index.ts";
+import { createTestDb } from "../../helpers/d1-semantics.ts";
 import inboxRoutes from "../../../routes/activitypub/inbox.ts";
 import { generateKeyPair, signRequest } from "../../../federation-helpers.ts";
 
@@ -35,13 +32,7 @@ const APP_URL = "https://yuru.test";
 const ALICE = "https://remote.example/users/alice"; // remote sender
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../../migrations/", import.meta.url);
-  const files = (await readdir(root)).filter((f) => f.endsWith(".sql")).sort();
-  for (const f of files) {
-    await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 class MockKV {

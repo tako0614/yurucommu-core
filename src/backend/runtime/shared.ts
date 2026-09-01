@@ -2,36 +2,11 @@ import path from "node:path";
 
 export const DEFAULT_LIST_LIMIT = 1000;
 
-const FALLBACK_MIME = "application/octet-stream";
-
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html",
-  ".css": "text/css",
-  ".js": "application/javascript",
-  ".json": "application/json",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".webp": "image/webp",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-};
-
-export function getMimeType(ext: string): string {
-  return MIME_TYPES[ext] || FALLBACK_MIME;
-}
-
 export function nowSeconds(): number {
   return Date.now() / 1000;
 }
 
-export function hasNulByte(value: string): boolean {
+function hasNulByte(value: string): boolean {
   return value.includes("\0");
 }
 
@@ -60,7 +35,7 @@ export function resolvePathWithinBasePath(
   return resolvedPath;
 }
 
-function isNotFoundError(error: unknown): boolean {
+export function isNotFoundError(error: unknown): boolean {
   return (
     typeof error === "object" &&
     error !== null &&

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { clearYurucommuApiTransport } from "../transport.ts";
 import type { Post } from "../../types/index.ts";
 import { createPost, fetchBookmarks, fetchTimeline } from "./posts.ts";
+import { withMockJsonFetch } from "./test-helpers.ts";
 
 function makePost(overrides: Partial<Post> = {}): Post {
   return {
@@ -32,33 +33,10 @@ function makePost(overrides: Partial<Post> = {}): Post {
   };
 }
 
-async function withMockFetch<T>(
-  responseBody: unknown,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const originalFetch = globalThis.fetch;
-  clearYurucommuApiTransport();
-  globalThis.fetch = ((_input: RequestInfo | URL, _init?: RequestInit) => {
-    return Promise.resolve(
-      new Response(JSON.stringify(responseBody), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-  }) as typeof fetch;
-
-  try {
-    return await fn();
-  } finally {
-    globalThis.fetch = originalFetch;
-    clearYurucommuApiTransport();
-  }
-}
-
 test("createPost reads the current wrapped post response", async () => {
   const post = makePost();
 
-  const result = await withMockFetch({ post }, () =>
+  const result = await withMockJsonFetch({ post }, () =>
     createPost({ content: "hello" }),
   );
 
@@ -68,7 +46,7 @@ test("createPost reads the current wrapped post response", async () => {
 test("fetchBookmarks reads the posts + pagination fields", async () => {
   const post = makePost({ bookmarked: true });
 
-  const result = await withMockFetch(
+  const result = await withMockJsonFetch(
     { posts: [post], has_more: true, next_cursor: "c1" },
     () => fetchBookmarks(),
   );
@@ -105,7 +83,7 @@ test("fetchBookmarks surfaces authentication and server failures", async () => {
 // re-serves page 1 forever and never advances.
 test("fetchTimeline surfaces the server next_cursor and has_more", async () => {
   const post = makePost();
-  const result = await withMockFetch(
+  const result = await withMockJsonFetch(
     {
       posts: [post],
       has_more: true,
@@ -120,7 +98,7 @@ test("fetchTimeline surfaces the server next_cursor and has_more", async () => {
 });
 
 test("fetchTimeline defaults to no cursor / hasMore=false when the server omits them", async () => {
-  const result = await withMockFetch({ posts: [] }, () =>
+  const result = await withMockJsonFetch({ posts: [] }, () =>
     fetchTimeline({ limit: 20 }),
   );
 
