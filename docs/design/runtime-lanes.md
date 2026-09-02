@@ -174,6 +174,41 @@ projection の書き換え・column 数 guard・名前つき row は `sqlite-pro
 - enumeration（`list`）と `head` は core の `ObjectStore` に無いので adapter にもあり
   ません。Host は両方 projection しますが、port が使いません。
 
+## portable Worker は compatibility flag を要求しない
+
+wrapper host が生成する workerd config の `compatibilityFlags` は
+`["disallow_importable_env"]` だけで、`nodejs_compat` はありません。Takoform の
+`WorkerVersion` form は compatibility flag を運ばないので（Takoserver decision 0019）、
+**portable な方法で要求する手段自体がありません**。
+
+workerd は static import を module の instantiate 時に解決するので、published Worker
+export (`@takosjp/yurucommu-core/server`) が到達する graph に `node:` の static import
+が 1 つでもあると、その binding を一度も読まなくても Worker 全体が
+
+```
+Uncaught exception: remote.jsg.Error: No such module "node:path".
+```
+
+で load に失敗します。4.1.0 は `runtime/shared.ts` 経由でまさにこの dead な
+`node:path` を出荷していました。Host 側の表示は "the Worker Version's module does not
+export every handler it declares" で、原因とは別の場所を指します。
+
+`bun run check` の `check:worker-bundle`
+(`scripts/check-worker-bundle-portable.mjs`) が、published export を wrapper host と
+同じ形（browser platform / ESM / `node:*` を external）で bundle し直し、
+
+- `node:` の **static** import、
+- literal 指定の `require("…")`、
+- 素の `process.` / `process[`（capability probe は `globalThis.process` と書く）
+
+のいずれかがあれば失敗します。`node:path` を必要とする filesystem helper は
+`runtime/node-paths.ts` に隔離してあり、Bun/Node runtime だけが import します。
+
+lazy な `import("node:…")` は load を壊さないので、gate の
+`ALLOWED_LAZY_NODE_MODULES` に理由付きで列挙したものだけを許します。現在の唯一の項目は
+`node:dns/promises`（`lib/ssrf.ts` の host resolver seam。`globalThis.process` probe の
+内側にあり、wrapper host では評価されません）です。
+
 ## binding が無いとき
 
 Takoserver の self-host backend も managed Cloudflare backend も、`edge.kv` /

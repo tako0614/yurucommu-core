@@ -1,4 +1,12 @@
-import path from "node:path";
+/**
+ * Runtime helpers shared by EVERY lane, including the portable Worker.
+ *
+ * `edge-kv.ts` and `edge-objects.ts` import this module, so it is part of the
+ * bundle a wrapper host loads with no `nodejs_compat` flag. It must therefore
+ * stay free of `node:` specifiers; the filesystem path helpers that need
+ * `node:path` live in `node-paths.ts`, which only the Bun/Node runtime
+ * imports.
+ */
 
 export const DEFAULT_LIST_LIMIT = 1000;
 
@@ -33,67 +41,6 @@ export function nowSeconds(): number {
 
 export function hasNulByte(value: string): boolean {
   return value.includes("\0");
-}
-
-export function isPathWithinBasePath(
-  basePath: string,
-  candidatePath: string,
-): boolean {
-  const relative = path.relative(basePath, candidatePath);
-  return (
-    relative === "" ||
-    (!relative.startsWith("..") && !path.isAbsolute(relative))
-  );
-}
-
-export function resolvePathWithinBasePath(
-  basePath: string,
-  key: string,
-): string {
-  if (hasNulByte(key)) {
-    throw new Error("Invalid path");
-  }
-  const resolvedPath = path.resolve(basePath, key);
-  if (!isPathWithinBasePath(basePath, resolvedPath)) {
-    throw new Error("Path escapes base directory");
-  }
-  return resolvedPath;
-}
-
-function isNotFoundError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "ENOENT"
-  );
-}
-
-export async function assertPathChainWithinBasePath(
-  basePath: string,
-  targetPath: string,
-  realpath: (path: string) => Promise<string>,
-): Promise<void> {
-  let currentPath = targetPath;
-
-  while (true) {
-    try {
-      const realCurrentPath = await realpath(currentPath);
-      if (!isPathWithinBasePath(basePath, realCurrentPath)) {
-        throw new Error("Path escapes base directory");
-      }
-      return;
-    } catch (error) {
-      if (!isNotFoundError(error)) {
-        throw error;
-      }
-      const parentPath = path.dirname(currentPath);
-      if (parentPath === currentPath) {
-        throw error;
-      }
-      currentPath = parentPath;
-    }
-  }
 }
 
 export async function readStream(

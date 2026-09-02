@@ -24,7 +24,7 @@ import {
   assertPathChainWithinBasePath,
   isPathWithinBasePath,
   resolvePathWithinBasePath,
-} from "./shared.ts";
+} from "./node-paths.ts";
 import { MemoryKV } from "./memory-kv.ts";
 import { isBackendPath } from "../lib/backend-paths.ts";
 import { loadBunSqlite } from "./compat-bun/types.ts";

@@ -23,7 +23,7 @@ import {
   BunStorage,
   writeBufferFully as writeBufferFullyForTest,
 } from "../src/backend/runtime/bun.ts";
-import { resolvePathWithinBasePath } from "../src/backend/runtime/shared.ts";
+import { resolvePathWithinBasePath } from "../src/backend/runtime/node-paths.ts";
 
 type LeaseProcessIdentityFixture = {
   bootId: string;
