@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import { MOBILE_PUSH_REGISTRATION_PATH } from "./lib/mobile-contract.ts";
 import { NOTIFICATION_PUSHER_REGISTRATION_PATH } from "./lib/notification-pusher-contract.ts";
 import type { Env, EnvVars, Variables } from "./types.ts";
@@ -9,7 +9,13 @@ import {
   wrapRuntimeBindings,
   wrapRuntimeMessageBatch,
   type PortableWorkerBindings,
+  type RuntimeLane,
 } from "./runtime/lane.ts";
+import {
+  configuredAppUrl,
+  establishRequestPublicOrigin,
+  withRequiredBackgroundPublicOrigin,
+} from "./runtime/public-origin.ts";
 import type { EdgeQueueBatch } from "./runtime/edge-facades.ts";
 import {
   getMobileOidcAudience,
@@ -925,6 +931,65 @@ function mountStaticFallback(app: YurucommuApp): void {
   });
 }
 
+/**
+ * Give this request an `APP_URL` when the Host, not the deployer, chose it.
+ *
+ * Registered BEFORE every other route so `/readyz` and the `.well-known`
+ * discovery documents see the same origin the rest of the app mints ids from —
+ * a readiness probe that reported `APP_URL` missing on a Worker whose origin
+ * only its own traffic can reveal would never go ready.
+ *
+ * It runs on the `portable` lane alone. There, a wrapper host routes by
+ * hostname and delivers the request it received on the Worker's public
+ * endpoint, so the request URL IS the assigned origin (see
+ * runtime/public-origin.ts). A Worker deployed straight to Cloudflare answers
+ * on workers.dev, on every custom domain, and on every route pattern its
+ * account holds, so the same inference there would let whichever hostname
+ * happened to arrive first name the instance for good; that lane keeps
+ * requiring an explicit `APP_URL` exactly as before.
+ *
+ * It never fails a request. When no origin can be established — the request is
+ * plain http, KV is unbound, an operator hand-wrote the pin — `APP_URL` simply
+ * stays unset, which `/readyz` already reports as a hard missing binding.
+ * Turning that into a 500 would take the readiness probe down with it and
+ * replace a precise answer with a generic one.
+ */
+function publicOriginMiddleware() {
+  let warned = false;
+  return async (
+    c: Context<{ Bindings: Env; Variables: Variables }>,
+    next: Next,
+  ) => {
+    if (configuredAppUrl(c.env) !== null) return next();
+    // An unrecognised lane declaration is refused at the binding boundary by
+    // wrapRuntimeBindings. Reaching here with one means the app was composed
+    // directly, and the safe reading of "not a lane I know" is "do not infer".
+    let lane: RuntimeLane;
+    try {
+      lane = resolveRuntimeLane(c.env.YURUCOMMU_RUNTIME_LANE);
+    } catch {
+      return next();
+    }
+    if (lane !== "portable") return next();
+    try {
+      const origin = await establishRequestPublicOrigin(c.env, c.req.raw);
+      c.env = { ...c.env, APP_URL: origin };
+      warned = false;
+    } catch (error) {
+      // Once per isolate: this condition is a property of the deployment, not
+      // of the request, so it would otherwise repeat on every single one.
+      if (!warned) {
+        warned = true;
+        log.warn("Could not establish this instance's public origin", {
+          event: "runtime.public_origin.unestablished",
+          error,
+        });
+      }
+    }
+    return next();
+  };
+}
+
 export function createYurucommuBackendApp(
   options: CreateYurucommuBackendAppOptionsV1 = {},
 ): YurucommuApp {
@@ -941,6 +1006,10 @@ export function createYurucommuBackendApp(
     }
   }
 
+  // Before the readiness probes, because they report on APP_URL and the
+  // `.well-known` discovery documents publish it. Reads no body and consults no
+  // route, so it does not weaken the body-cap ordering below.
+  app.use("*", publicOriginMiddleware());
   mountReadinessRoutes(app, options.discovery);
   // Body-size cap must run BEFORE any handler reads the body or executes
   // expensive auth / rate-limit logic. Mounted after readiness probes so
@@ -1056,9 +1125,15 @@ export default {
     bindings: WorkerBindings,
   ): Promise<void> {
     const lane = resolveRuntimeLane(bindings.YURUCOMMU_RUNTIME_LANE);
+    // Federation delivery signs and addresses from this instance's own actor
+    // ids, and a queue invocation has no request to learn the origin from. When
+    // `APP_URL` is unset and no request has pinned one yet, this THROWS: the
+    // batch is retried later, after traffic has established the origin, instead
+    // of being delivered under `undefined/ap/users/…` to peers that would cache
+    // it. See runtime/public-origin.ts.
     return handleYurucommuQueueBatch(
       wrapRuntimeMessageBatch(batch, lane),
-      wrapRuntimeBindings(bindings),
+      await withRequiredBackgroundPublicOrigin(wrapRuntimeBindings(bindings)),
     );
   },
 
