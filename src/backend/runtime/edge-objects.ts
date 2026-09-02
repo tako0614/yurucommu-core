@@ -8,10 +8,10 @@
  * the Interface: an app written against R2 is supposed to port over unchanged.
  * The RESULT objects were not: the facade's `get()` answers with a plain record
  * of `{etag, size, contentType?, body, partial, range?}`, while a native
- * `R2ObjectBody` also carries `text()`, `json()`, `arrayBuffer()`, `blob()`,
- * `key`, `httpEtag`, `uploaded`, `httpMetadata` and `writeHttpMetadata()`. So
- * the facade WAS distinguishable from R2 — by exactly the members an app is
- * most likely to reach for. `await (await env.MEDIA.get(k)).text()`, which is
+ * `R2ObjectBody` also carries `text()`, `json()`, `arrayBuffer()`, `bytes()`,
+ * `blob()`, `key`, `httpEtag`, `uploaded`, `httpMetadata` and
+ * `writeHttpMetadata()`. So the facade WAS distinguishable from R2 — by exactly
+ * the members an app is most likely to reach for. `await (await env.MEDIA.get(k)).text()`, which is
  * legal R2, threw `o.text is not a function` on the portable lane.
  *
  * The wire contract is Takoserver's (ADR 0005) and does not move. This module
@@ -23,13 +23,13 @@
  *
  * PROVIDED, with R2's names and R2's semantics: `key`, `size`, `etag`,
  * `httpEtag`, `httpMetadata`, `customMetadata`, `range`, `writeHttpMetadata()`,
- * and on a body answer `body`, `bodyUsed`, `arrayBuffer()`, `text()`, `json()`,
- * `blob()`. The four body helpers and `bodyUsed` are a real `Response`'s, so a
- * second read REJECTS with a `TypeError` exactly as R2's do rather than
- * replaying a cached value, and reading `body` directly also marks the object
- * used. `blob()` answers with the bytes and no `type`; the stored content type
- * is read from `httpMetadata` / `writeHttpMetadata()`, which is where R2 keeps
- * it too.
+ * and on a body answer `body`, `bodyUsed`, `arrayBuffer()`, `bytes()`, `text()`,
+ * `json()`, `blob()`. The five body helpers and `bodyUsed` are a real
+ * `Response`'s, so a second read REJECTS with a `TypeError` exactly as R2's do
+ * rather than replaying a cached value, and reading `body` directly also marks
+ * the object used. `blob()` answers with the bytes and no `type`; the stored
+ * content type is read from `httpMetadata` / `writeHttpMetadata()`, which is
+ * where R2 keeps it too.
  *
  * BEST EFFORT: `uploaded`. The Host's `head` and `list` carry
  * `uploadedAtMillis`, so it is a `Date` there. Its `get` and `put` do NOT —
@@ -44,10 +44,12 @@
  *
  * `etag` is the Host's etag VERBATIM and is opaque: the self-host wrapper sends
  * a bare hex digest (R2's unquoted `etag` spelling) and the managed wrapper
- * forwards R2's quoted `httpEtag`. This facade does not rewrite it, because
- * that value is what every conditional request on either host must echo back.
- * `httpEtag` is derived: the same value, quoted when it was not already, which
- * is the header-safe spelling R2 guarantees.
+ * forwards R2's quoted `httpEtag`. This facade does not rewrite it: it is the
+ * Host's own identity for those bytes, and R2 does not rewrite its `etag`
+ * either. `httpEtag` is derived — the same value, quoted when it was not
+ * already — and THAT is the one a response emits, because a bare digest is not
+ * an entity-tag (RFC 9110 §8.8.3) and no cache can match one. The
+ * provider-neutral {@link ObjectStore} answer carries both for the same reason.
  *
  * ## The narrow spots of the facade itself, which parity does not widen
  *
@@ -90,7 +92,7 @@ import type {
   EdgeObjectMetadata,
   EdgeObjectsBinding,
 } from "./edge-facades.ts";
-import { readStream } from "./shared.ts";
+import { httpEtagOf, readStream } from "./shared.ts";
 
 /** A request or response the facade cannot express. */
 export class EdgeObjectsShapeError extends TypeError {
@@ -144,6 +146,7 @@ export interface EdgeR2ObjectBody extends EdgeR2Object {
   readonly body: ReadableStream<Uint8Array>;
   readonly bodyUsed: boolean;
   arrayBuffer(): Promise<ArrayBuffer>;
+  bytes(): Promise<Uint8Array>;
   text(): Promise<string>;
   json<T = unknown>(): Promise<T>;
   blob(): Promise<Blob>;
@@ -167,14 +170,6 @@ export interface EdgeObjectsListOptions {
   readonly delimiter?: string;
   readonly cursor?: string;
   readonly limit?: number;
-}
-
-/** R2 quotes its `httpEtag`; the Host's etag may or may not already be quoted. */
-function httpEtagOf(etag: string): string {
-  if (etag.length >= 2 && etag.startsWith('"') && etag.endsWith('"')) {
-    return etag;
-  }
-  return `"${etag}"`;
 }
 
 function writeContentType(
@@ -277,6 +272,13 @@ class EdgeR2ObjectWithBody
 
   arrayBuffer(): Promise<ArrayBuffer> {
     return this.#response.arrayBuffer();
+  }
+
+  async bytes(): Promise<Uint8Array> {
+    // Built on `arrayBuffer()` rather than `Response.bytes()`, which this repo
+    // cannot name while type-checking against the DOM lib. It is the same read,
+    // so the once-only semantics are the same: a second call rejects.
+    return new Uint8Array(await this.#response.arrayBuffer());
   }
 
   text(): Promise<string> {
@@ -437,6 +439,7 @@ export class EdgeObjectStorage implements ObjectStore {
         ? {}
         : { contentType: found.httpMetadata.contentType }),
       etag: found.etag,
+      httpEtag: found.httpEtag,
       byteLength: found.size,
     };
   }

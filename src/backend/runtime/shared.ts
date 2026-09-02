@@ -39,6 +39,28 @@ export function nowSeconds(): number {
   return Date.now() / 1000;
 }
 
+/**
+ * One backend etag in the spelling an `ETag` header may actually carry.
+ *
+ * RFC 9110 §8.8.3 defines an entity-tag as an optional `W/` marker followed by
+ * a QUOTED opaque-tag, so a bare digest is not a valid field value and no cache
+ * can match one. Backends do not agree on the spelling they hand over: R2 keeps
+ * `etag` bare and `httpEtag` quoted, the `edge.objects` self-host wrapper sends
+ * the raw hex digest, and S3 and the managed gateway forward an already-quoted
+ * one. Every object seam therefore carries the derived, header-safe form beside
+ * the verbatim one, and it is the derived form that reaches a response.
+ *
+ * A value that is already an entity-tag — quoted, weak or strong — is returned
+ * unchanged; anything else is quoted.
+ */
+export function httpEtagOf(etag: string): string {
+  const bare = etag.startsWith("W/") ? etag.slice(2) : etag;
+  if (bare.length >= 2 && bare.startsWith('"') && bare.endsWith('"')) {
+    return etag;
+  }
+  return `"${etag}"`;
+}
+
 export function hasNulByte(value: string): boolean {
   return value.includes("\0");
 }

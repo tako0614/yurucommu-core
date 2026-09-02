@@ -13,6 +13,7 @@ import {
   type ManagedRuntimeConnectionMaterialization,
 } from "@takosjp/takosumi-contract/managed-runtime-connections";
 
+import { httpEtagOf } from "./shared.ts";
 import type {
   IKeyValueStore,
   ObjectStore,
@@ -399,6 +400,16 @@ class ManagedRuntimeStorageObject implements ObjectStoreObject {
 
   get etag(): string | undefined {
     return this.response.headers.get("etag") ?? undefined;
+  }
+
+  /**
+   * The gateway forwards R2's quoted `httpEtag`, so this is normally the same
+   * string as `etag`. It is derived rather than assumed: the port's contract is
+   * that `httpEtag` is always an entity-tag a header may carry.
+   */
+  get httpEtag(): string | undefined {
+    const etag = this.etag;
+    return etag === undefined ? undefined : httpEtagOf(etag);
   }
 
   get byteLength(): number | undefined {

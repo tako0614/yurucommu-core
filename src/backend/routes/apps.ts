@@ -282,7 +282,10 @@ appsServeRoutes.get("/:clientId/:appName/*", async (c) => {
       filePath.includes("/assets/")
         ? "public, max-age=31536000, immutable"
         : "public, max-age=3600",
-      object.etag,
+      // The quoted entity-tag, never the port's verbatim `etag`: that one is a
+      // bare hex digest on the portable lane and is not a valid `ETag` field
+      // value (RFC 9110 §8.8.3).
+      object.httpEtag,
     );
     return new Response(object.body, { headers });
   }
@@ -295,7 +298,7 @@ appsServeRoutes.get("/:clientId/:appName/*", async (c) => {
       const headers = createHostedHeaders(
         "text/html; charset=utf-8",
         "no-cache",
-        indexObject.etag,
+        indexObject.httpEtag,
       );
       return new Response(indexObject.body, { headers });
     }

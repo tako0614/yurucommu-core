@@ -15,6 +15,7 @@
 import type { Context, MiddlewareHandler, Next } from "hono";
 import type { Env, Variables } from "../types.ts";
 import { logger } from "../lib/logger.ts";
+import { ifNoneMatchIsFresh } from "../lib/conditional-request.ts";
 import { bytesToHex } from "../lib/hex.ts";
 
 const log = logger.child({ component: "middleware.cache" });
@@ -224,8 +225,11 @@ function isConditionalHit(
   etag: string | null,
   lastModified: string | null,
 ): boolean {
-  const ifNoneMatch = c.req.header("If-None-Match");
-  if (ifNoneMatch && etag && ifNoneMatch === etag) {
+  // One `If-None-Match` reading for the whole backend. String equality was not
+  // one: the field is a LIST, `W/"x"` is a match for `"x"` under §13.1.2's weak
+  // comparison, and `*` matches any existing representation. `generateETag`
+  // already emits the quoted form these are compared against.
+  if (ifNoneMatchIsFresh(c.req.header("If-None-Match"), etag ?? undefined)) {
     return true;
   }
 

@@ -81,7 +81,19 @@ export interface ObjectStoreObject {
   key: string;
   body: ReadableStream<Uint8Array> | null;
   contentType?: string;
+  /**
+   * The backend's etag VERBATIM, and opaque. Backends disagree on the spelling:
+   * some hand over a bare digest, others an already-quoted tag. So this is a
+   * value to compare and to store, never one to put in a header.
+   */
   etag?: string;
+  /**
+   * The same etag as an entity-tag: quoted, and safe to emit (RFC 9110 §8.8.3).
+   * Present exactly when `etag` is. This is the value a response carries in
+   * `ETag` and the value a client echoes back in `If-None-Match`, so a
+   * conditional request is evaluated against this one, not against `etag`.
+   */
+  httpEtag?: string;
   byteLength?: number;
 }
 

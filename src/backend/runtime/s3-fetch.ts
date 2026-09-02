@@ -1,3 +1,4 @@
+import { httpEtagOf } from "./shared.ts";
 import type {
   ObjectStore,
   ObjectStoreBody,
@@ -135,7 +136,10 @@ class S3FetchObjectStore implements ObjectStore {
           ? null
           : boundedBody(response.body, this.maxObjectBytes, "get"),
       ...(contentType === undefined ? {} : { contentType }),
-      ...(etag === undefined ? {} : { etag }),
+      // S3 answers with a quoted entity-tag, so the derivation is a no-op here
+      // — but the port promises `httpEtag` on every backend, and deriving it
+      // is what makes that true without trusting one server's spelling.
+      ...(etag === undefined ? {} : { etag, httpEtag: httpEtagOf(etag) }),
       ...(byteLength === undefined ? {} : { byteLength }),
     };
   }

@@ -11,6 +11,7 @@ import {
 } from "../../db/index.ts";
 import { generateId } from "../federation-helpers.ts";
 import { canViewerReadObject } from "../lib/community-visibility.ts";
+import { ifNoneMatchIsFresh } from "../lib/conditional-request.ts";
 import { canViewerReadObjectFull } from "../lib/post-visibility.ts";
 import { stripImageMetadata } from "../lib/strip-image-metadata.ts";
 import { logger } from "../lib/logger.ts";
@@ -588,18 +589,44 @@ async function serveMediaByR2Key(c: MediaContext, r2Key: string) {
     const maxAge = contentType.startsWith("video/")
       ? CACHE_MAX_AGE_VIDEO
       : CACHE_MAX_AGE_IMAGE;
-    const etag = object.etag;
+    const cacheControl = `${cacheScope}, max-age=${maxAge}`;
+    // The HEADER form, not `object.etag`. An `ETag` field value is an
+    // entity-tag and an entity-tag's opaque-tag is always quoted (RFC 9110
+    // §8.8.3); the port's `etag` is the backend's verbatim spelling, which on
+    // the portable lane is a BARE hex digest. Serving that produced a field no
+    // cache could match and no client could echo back — media was effectively
+    // uncacheable on self-host. `httpEtag` is the quoted form on every lane.
+    const etag = object.httpEtag;
+
+    // §13.1.2 evaluates `If-None-Match` with the WEAK comparison function, so
+    // `W/"x"` from the client matches the `"x"` we sent; only the opaque-tags
+    // are compared. The validator on both sides of that comparison is the one
+    // we emitted, which is why it reads `httpEtag` and not `etag`. Reached only
+    // after the authorization gate above: `*` matches any representation that
+    // exists, so answering 304 earlier would disclose that a private object is
+    // there.
+    if (etag && ifNoneMatchIsFresh(c.req.header("If-None-Match"), etag)) {
+      // The port has no `head`, so the bytes were already fetched; a 304 must
+      // not carry them (§15.4.5), and dropping the stream unread would leak it.
+      await object.body?.cancel().catch(() => undefined);
+      // §15.4.5 also asks a 304 to carry the header fields a 200 would have
+      // sent that guide cache behaviour — here, the validator and the policy.
+      return c.body(null, 304, {
+        "Cache-Control": cacheControl,
+        ETag: etag,
+      });
+    }
 
     if (!object.body) {
       return c.body(null, 200, {
         "Content-Type": contentType,
-        "Cache-Control": `${cacheScope}, max-age=${maxAge}`,
+        "Cache-Control": cacheControl,
         ...(etag ? { ETag: etag } : {}),
       });
     }
     return c.body(object.body, 200, {
       "Content-Type": contentType,
-      "Cache-Control": `${cacheScope}, max-age=${maxAge}`,
+      "Cache-Control": cacheControl,
       ...(etag ? { ETag: etag } : {}),
     });
   } catch (error) {

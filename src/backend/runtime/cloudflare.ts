@@ -56,7 +56,14 @@ class CloudflareStorage implements ObjectStore {
       key,
       body: obj.body as unknown as ReadableStream,
       contentType: obj.httpMetadata?.contentType,
+      // R2 spells the same validator twice: `etag` bare, `httpEtag` quoted.
+      // This adapter has always handed the quoted one over as the port's
+      // opaque `etag`, and that stays — narrowing a published field to R2's
+      // bare spelling would silently change what every existing reader sees.
+      // `httpEtag` names the header-safe form explicitly, which on this lane is
+      // the same string.
       etag: obj.httpEtag,
+      httpEtag: obj.httpEtag,
       byteLength: obj.size,
     };
   }
