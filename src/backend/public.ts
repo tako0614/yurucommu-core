@@ -108,8 +108,17 @@ export {
 } from "./runtime/edge-queue.ts";
 export {
   EdgeObjectStorage,
+  EdgeObjectsBucket,
   EdgeObjectsShapeError,
+  type EdgeObjectHttpMetadata,
+  type EdgeObjectRange,
+  type EdgeObjectsGetOptions,
+  type EdgeObjectsListOptions,
+  type EdgeR2Object,
+  type EdgeR2ObjectBody,
+  type EdgeR2Objects,
   wrapEdgeObjects,
+  wrapEdgeObjectsAsBucket,
 } from "./runtime/edge-objects.ts";
 export type {
   IKeyValueStore,
