@@ -1,0 +1,138 @@
+<!--
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
+# Runtime lanes — 同じ bundle を Cloudflare と Takoserver の両方で動かす
+
+Status: **実装済み**（`src/backend/runtime/lane.ts` ほか。test は
+`src/backend/__tests__/runtime/`）
+Owner: `yurucommu-core`
+Consumers: `yurucommu`, `yurumeet`（Worker entry の composition）
+
+同一の Worker bundle が、内側からは見分けのつかない 2 つの backend で動きます。
+
+| lane | 出どころ | `env.DB` | `env.KV` | `env.MEDIA` | `env.DELIVERY_QUEUE` |
+| --- | --- | --- | --- | --- | --- |
+| `cloudflare` | Cloudflare Workers へ直接 deploy | `D1Database` | `KVNamespace` | `R2Bucket` | `Queue` |
+| `takoform-v1` | Takoform 経由で Takoserver Host へ publish | `edge.sql@1.0.0` | `edge.kv@1.0.0` | `edge.objects@1.0.0` | `edge.queue@1.0.0` |
+
+`takoform-v1` では Host が生成した entrypoint が module より先に `env` を差し替え、
+各 binding は Worker Version が宣言した Interface の **portable facade** になります。
+managed Cloudflare backend と self-host backend は同じ facade を projection します
+（同じ method、同じ option 名、同じ error 名）。Takoserver ADR 0005 が object storage
+について明言し、self-host wrapper が KV と SQL について同じことを繰り返しています。
+
+## lane は宣言する。推測しない
+
+binding の 5 つのうち **2 つは形で区別できません**。`edge.kv` と `KVNamespace` は
+同じ 5 つの method 名を持ち、queue producer はどちらも `send` / `sendBatch` です。
+推測した Worker は facade に `kv.get(key, {type:"json"})` を渡し、facade は第 2 引数を
+無視して bytes を返すので、失敗はずっと後から「壊れた session」「発火しない rate limit」
+として現れます。
+
+そこで lane は plain var `YURUCOMMU_RUNTIME_LANE` で宣言し、**識別できる binding で
+突き合わせます**。未設定は `cloudflare`（Takoform を経由していない Worker はそれです）。
+知らない値は default に落とさず起動を拒否します。
+
+- `DB` は両方向に decisive — `execute`/`query`/`transaction` と `prepare`/`batch` は
+  互いに素です。
+- `MEDIA` は片方向に decisive — `R2Bucket` は multipart helper で見分けられます。
+- 宣言と binding が食い違えば `RuntimeLaneError` で起動を拒否します。
+
+app 側の `deploy/takoform/main.tf` は既に
+`worker_plain_values = { YURUCOMMU_RUNTIME_LANE = "takoform-v1" }` を設定しています。
+
+## Worker entry からの使い方
+
+```ts
+import {
+  wrapRuntimeBindings,
+  wrapRuntimeMessageBatch,
+  resolveRuntimeLane,
+} from "@takosjp/yurucommu-core/server";
+
+export default {
+  async fetch(request, bindings, ctx) {
+    return app.fetch(request, wrapRuntimeBindings(bindings), ctx);
+  },
+  async queue(batch, bindings) {
+    const lane = resolveRuntimeLane(bindings.YURUCOMMU_RUNTIME_LANE);
+    return handleYurucommuQueueBatch(
+      wrapRuntimeMessageBatch(batch, lane),
+      wrapRuntimeBindings(bindings),
+    );
+  },
+};
+```
+
+`wrapCloudflareBindings` / `wrapCloudflareMessageBatch` はこれまで通り残ります。
+native binding だけを渡すと分かっている entry はそちらを直接呼んでも構いません。
+
+## lane ごとの差分（app が知っておくべきもの）
+
+### `edge.sql` — row は record であって配列ではない
+
+D1 は Drizzle に位置つき配列を渡し、`sqlite-proxy` は `rows[i][j]` を compile 済み
+field へ位置で対応させます。`edge.sql` が返すのは **result column 名を key とする
+record** です。Drizzle が生成する join はこうなります。
+
+```sql
+select "inbox"."actor_ap_id", ..., "activities"."actor_ap_id", ... from "inbox" inner join "activities" ...
+```
+
+SQLite はどちらの result column にも `actor_ap_id` という名前を付けるので、record は
+片方だけを残し、以降の field が 1 つずつずれます。**error ではなく静かな誤読**です。
+
+`edge-sql.ts` は送信前に projection list を書き換え、alias を持たない項目それぞれに
+一意で非数値な名前（`__c0`, `__c1`, ...）を与えます。Drizzle は result column 名を
+見ないので、この rename は Drizzle からは不可視です。さらに **guard** が付きます:
+返ってきた row の key 数が送った projection 項目数と一致しなければ、ずれた row を
+返す代わりに `EdgeSqlColumnMismatchError` を投げます。
+
+- `db.batch([...])` は facade の `transaction()`（all-or-none、1 往復）になります。
+- `begin` / `commit` / `savepoint` はこの request path にありません。`db.batch` を
+  使ってください（`managed-relational.ts` と同じ制約です）。
+- bound parameter は `null | number | string | {encoding:"base64", data}` のみ。
+  boolean は 0/1、`Uint8Array` / `ArrayBuffer` は base64 blob になります。
+- `select *` は rename できないため書き換えず、column 数の guard も効きません。
+  join を伴う `select *` を raw SQL で書かないでください。
+
+### `edge.kv` — 期限は相対 TTL ひとつだけ
+
+- read は常に bytes。`{type:"text"|"json"|"arrayBuffer"}` の decode は adapter が行います。
+- `expiration`（絶対秒）は現在時刻との差から `expirationTtlSeconds` に変換されます。
+- TTL の下限は 60 秒（Cloudflare KV 自身の下限でもある）。下回る指定は clamp せず拒否します。
+- metadata は **string 値のみ**。string でない値は stringify せず拒否します。
+- `list()` は **name しか返しません**。`expiration` と `metadata` は Host が返さないので、
+  この lane では常に absent です。「無い」ことから何も推論しないでください。
+
+### `edge.queue` — body は bytes
+
+- Cloudflare Queues と違い structured clone がありません。producer は body を JSON で
+  serialize し、consumer 側が同じ encoding で戻します。
+- consumer batch は別 object です: `acknowledge` / `acknowledgeAll` /
+  `timestampMillis`（`ack` / `ackAll` / `timestamp` ではない）。body は
+  `{encoding:"base64", data}` で届きます。
+- `retry({delaySeconds: 0})` は facade が拒否するので、0 は省略に変換されます。
+
+### `edge.objects` — R2 より狭い
+
+- `customMetadata` はありません。落とすのではなく拒否します（core は使っていません）。
+- streaming `put` には `contentLength` が必要です。ADR 0005 が「Host は宣言された
+  byte 数を streaming 中に enforce し、size を知るために body を buffer しない」と
+  定めているためです。`IObjectStorage.put` に optional な `contentLength` を足したので、
+  size が既に手元にある呼び出し（upload の `File.size`）は渡してください。無い場合は
+  Worker 側で buffer します。
+- `delete` は 1 key ずつ。配列形は逐次呼び出しになり、atomic ではありません。
+
+## self-host で無いもの
+
+Takoserver の self-host backend が projection するのは `edge.kv` と `edge.sql` **だけ**
+です（`selfhost-worker-wrapper.ts` の `projectEnv`）。したがって self-host された Worker
+には queue binding も object binding も存在せず、
+
+- `DELIVERY_QUEUE` / `DELIVERY_DLQ` 未 bind → 既存の同期 fallback delivery と readiness 報告
+- `MEDIA` 未 bind → 既存の "Object storage unavailable" (503)
+
+という、これまでと同じ挙動になります。managed Cloudflare backend では 4 つとも
+projection されます。
