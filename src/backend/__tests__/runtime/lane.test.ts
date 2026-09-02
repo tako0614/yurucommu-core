@@ -11,6 +11,7 @@ import {
   wrapRuntimeMessageBatch,
   wrapTakoserverBindings,
 } from "../../runtime/lane.ts";
+import worker from "../../public.ts";
 import {
   encodeEdgeBytes,
   isEdgeObjectsBinding,
@@ -315,5 +316,47 @@ describe("wrapRuntimeMessageBatch", () => {
     expect(() => wrapRuntimeMessageBatch(facadeBatch(), "cloudflare")).toThrow(
       RuntimeLaneError,
     );
+  });
+});
+
+describe("the published Worker export", () => {
+  const hostedBindings = () => ({
+    YURUCOMMU_RUNTIME_LANE: "takoform-v1",
+    APP_URL: "https://example.test",
+    DB: edgeSql(),
+    KV: edgeKv(),
+  });
+
+  // A queue name the app does not own: `handleYurucommuQueueBatch` settles the
+  // batch and returns, which is enough to prove the whole hosted path — lane
+  // resolution, batch adaptation, and binding wrapping — ran.
+  const foreignBatch = (settle: () => void): EdgeQueueBatch => ({
+    batchId: "b",
+    queue: "not-a-yurucommu-queue",
+    messages: [],
+    acknowledgeAll: settle,
+    retryAll: () => {},
+  });
+
+  test("routes a Takoserver queue event through the hosted lane", async () => {
+    let settled = false;
+    await worker.queue(
+      foreignBatch(() => {
+        settled = true;
+      }),
+      hostedBindings() as never,
+    );
+    expect(settled).toBe(true);
+  });
+
+  test("refuses a Takoserver queue event when the lane is not declared", async () => {
+    const bindings = hostedBindings() as Record<string, unknown>;
+    delete bindings.YURUCOMMU_RUNTIME_LANE;
+    await expect(
+      worker.queue(
+        foreignBatch(() => {}),
+        bindings as never,
+      ),
+    ).rejects.toThrow(RuntimeLaneError);
   });
 });

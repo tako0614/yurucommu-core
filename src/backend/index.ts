@@ -5,9 +5,12 @@ import type { Env, EnvVars, Variables } from "./types.ts";
 import { extractActorFromSession } from "./lib/session-actor.ts";
 import { isBackendPath } from "./lib/backend-paths.ts";
 import {
-  wrapCloudflareBindings,
-  wrapCloudflareMessageBatch,
-} from "./runtime/cloudflare.ts";
+  resolveRuntimeLane,
+  wrapRuntimeBindings,
+  wrapRuntimeMessageBatch,
+  type TakoserverWorkerBindings,
+} from "./runtime/lane.ts";
+import type { EdgeQueueBatch } from "./runtime/edge-facades.ts";
 import {
   getMobileOidcAudience,
   getOidcClientCredentials,
@@ -992,15 +995,17 @@ export async function handleYurucommuQueueBatch(
   batch.ackAll();
 }
 
-type WorkerBindings = EnvVars & {
-  DB: D1Database;
-  MEDIA?: R2Bucket;
-  KV: KVNamespace;
+/**
+ * Bindings that are not the runtime ports, and so pass through whichever lane
+ * wrapper runs. Durable Objects live here: Takoform's Worker Version has no
+ * Durable Object binding, so on the Takoserver lane both are simply unbound and
+ * the routes that need them answer 503, exactly as on a Cloudflare deployment
+ * that did not declare them.
+ */
+type PassthroughBindings = EnvVars & {
   ASSETS?: Fetcher;
-  DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
-  DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
-  // Signaling hub Durable Object namespace (call feature). wrapCloudflareBindings
-  // spreads it through untouched (it is not DB/MEDIA/KV/ASSETS) so app code and
+  // Signaling hub Durable Object namespace (call feature). The lane wrappers
+  // spread it through untouched (it is not DB/MEDIA/KV/ASSETS) so app code and
   // the rtc routes read it as c.env.CALL_SIGNALING.
   CALL_SIGNALING?: DurableObjectNamespace;
   // Per-user realtime event stream Durable Object namespace. Same pass-through
@@ -1008,6 +1013,26 @@ type WorkerBindings = EnvVars & {
   // and clients fall back to polling.
   REALTIME_STREAM?: DurableObjectNamespace;
 };
+
+/**
+ * What this Worker may be handed.
+ *
+ * Native Cloudflare bindings, or the portable facades a Takoserver Host
+ * projects. `wrapRuntimeBindings` decides which by reading the deployment's
+ * declared `YURUCOMMU_RUNTIME_LANE` and proving it against the bindings that
+ * actually arrived; see runtime/lane.ts.
+ */
+type WorkerBindings = PassthroughBindings &
+  (
+    | {
+        DB: D1Database;
+        MEDIA?: R2Bucket;
+        KV: KVNamespace;
+        DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
+        DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
+      }
+    | TakoserverWorkerBindings
+  );
 
 function isMaterializedRuntimeEnv(
   bindings: WorkerBindings | Env,
@@ -1021,16 +1046,19 @@ export default {
     bindings: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    return app.fetch(request, wrapCloudflareBindings(bindings), ctx);
+    return app.fetch(request, wrapRuntimeBindings(bindings), ctx);
   },
 
   async queue(
-    batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
+    batch:
+      | MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>
+      | EdgeQueueBatch,
     bindings: WorkerBindings,
   ): Promise<void> {
+    const lane = resolveRuntimeLane(bindings.YURUCOMMU_RUNTIME_LANE);
     return handleYurucommuQueueBatch(
-      wrapCloudflareMessageBatch(batch),
-      wrapCloudflareBindings(bindings),
+      wrapRuntimeMessageBatch(batch, lane),
+      wrapRuntimeBindings(bindings),
     );
   },
 
@@ -1041,7 +1069,7 @@ export default {
   ): Promise<void> {
     const env = isMaterializedRuntimeEnv(bindings)
       ? bindings
-      : wrapCloudflareBindings(bindings);
+      : wrapRuntimeBindings(bindings);
     await runYurucommuRetention(env);
   },
 };
