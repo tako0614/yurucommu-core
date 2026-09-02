@@ -87,6 +87,9 @@ Takos core. See [`AGENTS.md`](AGENTS.md) for the full product boundary.
 
 ## Documentation
 
+- [Runtime lanes](docs/design/runtime-lanes.md) — how the bindings differ between
+  a direct Cloudflare deployment and a Takoserver-hosted (Takoform) one, and how
+  a deployment declares which it is
 - [Deployment guide](https://yurucommu.com/help/deployment.html)
 - [Getting started](https://yurucommu.com/help/getting-started.html)
 - [Help site](https://yurucommu.com/help/)
