@@ -27,7 +27,9 @@
  * `blob()`. The four body helpers and `bodyUsed` are a real `Response`'s, so a
  * second read REJECTS with a `TypeError` exactly as R2's do rather than
  * replaying a cached value, and reading `body` directly also marks the object
- * used.
+ * used. `blob()` answers with the bytes and no `type`; the stored content type
+ * is read from `httpMetadata` / `writeHttpMetadata()`, which is where R2 keeps
+ * it too.
  *
  * BEST EFFORT: `uploaded`. The Host's `head` and `list` carry
  * `uploadedAtMillis`, so it is a `Date` there. Its `get` and `put` do NOT —
@@ -256,14 +258,12 @@ class EdgeR2ObjectWithBody
     range?: EdgeObjectRange,
   ) {
     super(key, metadata, range);
-    // The content type rides along so `blob()` answers with a typed Blob, the
-    // way a Blob read off any other HTTP body does.
-    this.#response = new Response(
-      body as unknown as BodyInit,
-      metadata.contentType === undefined
-        ? undefined
-        : { headers: { "content-type": metadata.contentType } },
-    );
+    // Bytes only, with no content type attached: a `Response` normalises the
+    // header it is given (appending `;charset=utf-8` to a text type, for one),
+    // and that normalisation would show up on `blob().type` as a value the Host
+    // never stored. The stored content type is read where R2 puts it —
+    // `httpMetadata` and `writeHttpMetadata()`.
+    this.#response = new Response(body as unknown as BodyInit);
   }
 
   get body(): ReadableStream<Uint8Array> {

@@ -9,7 +9,8 @@ Status: **実装済み**（`src/backend/runtime/lane.ts` ほか。test は
 Shipped in: `@takosjp/yurucommu-core` / `@takosjp/yurucommu-api` **4.1.0**
 （**4.1.1** で self-host 実測の 2 件を修正: `MEDIA` の形 sniff 撤去と、portable
 Worker bundle からの `node:` static import 排除。**4.1.2** で公開 origin を request
-から確立、**4.1.3** でその規則を lane 非依存へ: 下の「`APP_URL` を var で渡せない」節）
+から確立、**4.1.3** でその規則を lane 非依存へ: 下の「`APP_URL` を var で渡せない」節。
+**4.1.4** で `edge.objects` の答えを R2 の形へ: 下の「`edge.objects`」節の parity rule）
 Owner: `yurucommu-core`
 Consumers: `yurucommu`, `yurumeet`（Worker entry の composition）
 
@@ -174,10 +175,45 @@ projection の書き換え・column 数 guard・名前つき row は `sqlite-pro
   `{encoding:"base64", data}` で届きます。
 - `retry({delaySeconds: 0})` は facade が拒否するので、0 は省略に変換されます。
 
-### `edge.objects` — R2 より狭い
+### `edge.objects` — 呼び出しも答えも R2 の形。ただし R2 より狭い
 
+`edge.objects@1.0.0` は method 名だけでなく **答えの object も R2 の形** です
+（`4.1.4` から。それ以前は method 名だけが一致していました）。
+`wrapEdgeObjectsAsBucket(env.MEDIA)` が返す bucket の `head` / `get` / `put` /
+`list` は `R2Object` / `R2ObjectBody` と同じ member を持つので、R2 向けに書いた
+app code はそのまま compile し、そのまま動きます。
+
+**parity rule** — どこまでが R2 と同じで、何が無いか。
+
+| 区分 | member |
+| --- | --- |
+| 同じ名前・同じ意味で提供 | `key` / `size` / `etag` / `httpEtag` / `httpMetadata` / `customMetadata` / `range` / `writeHttpMetadata()`、body 付きの答えでは `body` / `bodyUsed` / `arrayBuffer()` / `text()` / `json()` / `blob()` |
+| best effort | `uploaded` |
+| 提供しない | `version` / `checksums` / `storageClass` |
+
+- **body は一度だけ**読めます。4 つの helper と `bodyUsed` は本物の `Response` の
+  ものなので、2 回目の読み取りは cache された値を返さず `TypeError` で **reject**
+  します（R2 と同じ）。`body` を直接読んでも `bodyUsed` は `true` になります。
+  `blob()` は bytes だけを返し `type` は付けません。Host が保存した content type は
+  R2 と同じ場所、つまり `httpMetadata` と `writeHttpMetadata()` から読みます。
+- **`uploaded` は best effort**です。Host の `head` と `list` は
+  `uploadedAtMillis` を運ぶので `Date` になります。`get` と `put` は運びません
+  ——managed と self-host の両 wrapper が答えを組み立てる時点で落としています
+  ——ので、そこでは捏造せず `undefined` です。型は 4 つとも
+  `Date | undefined` で揃えてあります。
+- **`version` / `checksums` / `storageClass` は導出元が wire にありません。**
+  `customMetadata` は member としては存在し、常に `undefined` です。ADR 0005 が
+  Interface に custom metadata を与えていないので、「member が無い」ではなく
+  「値が無い」が正しい答えだからです。
+- **`etag` は Host の値そのまま**で opaque です。self-host wrapper は生の hex
+  digest（R2 の `etag` 表記）、managed wrapper は R2 の quote 付き `httpEtag` を
+  そのまま流します。conditional request が echo し返す値なので書き換えません。
+  `httpEtag` は派生値で、quote が無ければ付けた **常に header 安全な表記**です。
 - custom metadata はありません。core の provider-neutral な `ObjectStore` も
-  `contentType` しか運ばないので、両者はここで一致しています。
+  `contentType` しか運ばないので、両者はここで一致しています。`ObjectStore`
+  （`wrapEdgeObjects` / `env.MEDIA`）は今も故意に R2 より狭い port で、R2 の member
+  が欲しい code は `wrapEdgeObjectsAsBucket` を取ります。中身の adapter は同じなので、
+  media path がその parity code を実証します。
 - streaming `put` には `contentLength` が必要です。ADR 0005 が「Host は宣言された
   byte 数を streaming 中に enforce し、size を知るために body を buffer しない」と
   定めているためです。`ObjectStoreBody` のうち `Blob`（media upload の `File`）・
@@ -188,8 +224,11 @@ projection の書き換え・column 数 guard・名前つき row は `sqlite-pro
   ありません。
 - range 指定なしの `get` に Host が `partial` な body を返したら、truncate された bytes
   を完全な object として配ってしまうので、adapter は body を捨てて拒否します。
-- enumeration（`list`）と `head` は core の `ObjectStore` に無いので adapter にもあり
-  ません。Host は両方 projection しますが、port が使いません。
+- enumeration（`list`）と `head` は core の `ObjectStore` port にはありません。
+  R2 形の bucket (`wrapEdgeObjectsAsBucket`) には両方あります。`list` の
+  common prefix は facade が `prefixes`、R2 が `delimitedPrefixes` と呼ぶので、
+  bucket は R2 の名前で返します。`list` の entry は content type を運びません
+  （Host の projection が copy しません）。
 
 ## `APP_URL` を var で渡せない — 公開 origin は request が確立する
 

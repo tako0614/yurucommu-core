@@ -11,6 +11,7 @@ import {
   wrapRuntimeMessageBatch,
   wrapPortableBindings,
 } from "../../runtime/lane.ts";
+import { wrapEdgeObjectsAsBucket } from "../../runtime/edge-objects.ts";
 import worker from "../../public.ts";
 import {
   encodeEdgeBytes,
@@ -132,6 +133,51 @@ describe("binding identification", () => {
     expect(isNativeR2Bucket(nativeR2())).toBe(true);
     expect(isNativeR2Bucket(edgeObjects())).toBe(true);
     expect(isEdgeObjectsBinding(edgeObjects())).toBe(true);
+  });
+
+  test("the ambiguity now reaches the ANSWERS, not only the call names", async () => {
+    // The calls always matched; the results did not. Takoserver's `get` hands
+    // back a plain `{etag, size, contentType?, body, partial}` record, so
+    // `await (await env.MEDIA.get(k)).text()` — legal R2 — threw on the
+    // portable lane. `wrapEdgeObjectsAsBucket` closes that: the members an app
+    // reads off an `R2ObjectBody` are all there, and the Interface's promise
+    // that R2-shaped code ports over unchanged holds for the answers too.
+    const bucket = wrapEdgeObjectsAsBucket({
+      ...edgeObjects(),
+      get: async (key: string, _options: unknown) => ({
+        etag: `${key}-etag`,
+        size: 5,
+        contentType: "text/plain",
+        body: new Response("bytes" as unknown as BodyInit).body!,
+        partial: false,
+      }),
+    } as never);
+    const object = (await bucket.get("k"))!;
+    for (const member of [
+      "key",
+      "size",
+      "etag",
+      "httpEtag",
+      "uploaded",
+      "httpMetadata",
+      "customMetadata",
+      "bodyUsed",
+      "body",
+    ]) {
+      expect(member in object).toBe(true);
+    }
+    for (const method of [
+      "text",
+      "json",
+      "arrayBuffer",
+      "blob",
+      "writeHttpMetadata",
+    ]) {
+      expect(
+        typeof (object as unknown as Record<string, unknown>)[method],
+      ).toBe("function");
+    }
+    expect(await object.text()).toBe("bytes");
   });
 
   test("the KV and queue bindings CANNOT be told apart, which is why the lane is declared", () => {
