@@ -4,11 +4,13 @@ import { eq, sql } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import {
-  EdgeSqlColumnMismatchError,
   EdgeSqlShapeError,
   createEdgeSqlDatabase,
-  rewriteProjection,
 } from "../../runtime/edge-sql.ts";
+import {
+  ProxyColumnMismatchError,
+  rewriteProjection,
+} from "../../runtime/sqlite-proxy-rows.ts";
 import {
   decodeEdgeBytes,
   encodeEdgeBytes,
@@ -382,7 +384,7 @@ describe("edge.sql fail-closed guards", () => {
       emptyFacade({ rows: [{ __c0: "a", __c1: "b" }], rowsWritten: 0 }),
     );
     const error = await refusal(async () => await db.select().from(authors));
-    expect(error).toBeInstanceOf(EdgeSqlColumnMismatchError);
+    expect(error).toBeInstanceOf(ProxyColumnMismatchError);
     expect(error.message).toContain("returned 2 columns");
   });
 

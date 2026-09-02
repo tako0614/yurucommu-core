@@ -92,11 +92,18 @@ select "inbox"."actor_ap_id", ..., "activities"."actor_ap_id", ... from "inbox" 
 SQLite はどちらの result column にも `actor_ap_id` という名前を付けるので、record は
 片方だけを残し、以降の field が 1 つずつずれます。**error ではなく静かな誤読**です。
 
-`edge-sql.ts` は送信前に projection list を書き換え、alias を持たない項目それぞれに
-一意で非数値な名前（`__c0`, `__c1`, ...）を与えます。Drizzle は result column 名を
-見ないので、この rename は Drizzle からは不可視です。さらに **guard** が付きます:
-返ってきた row の key 数が送った projection 項目数と一致しなければ、ずれた row を
-返す代わりに `EdgeSqlColumnMismatchError` を投げます。
+`sqlite-proxy-rows.ts` は送信前に projection list を書き換え、alias を持たない項目
+それぞれに一意で非数値な名前（`__c0`, `__c1`, ...）を与えます。Drizzle は result
+column 名を見ないので、この rename は Drizzle からは不可視です。さらに **guard** が
+付きます: 返ってきた row の column 数が送った projection 項目数と一致しなければ、
+ずれた row を返す代わりに `ProxyColumnMismatchError` を投げます。
+
+``db.get(sql`...`)`` のような compile 済み field を持たない raw statement は、driver の
+row がそのまま呼び出し側に渡ります。D1 ではそれは record なので、call site は
+`row.matched` のように **名前で** 読みます（block / mute の gate がそうしています）。
+`sqlite-proxy` が渡すのは素の配列なので、この shared module は column 名を配列に
+非列挙 property として付け、位置と名前の両方の読み方が成立するようにします。名前が
+無いままだと `undefined` が「block されていない」と読まれます。
 
 - `db.batch([...])` は facade の `transaction()`（all-or-none、1 往復）になります。
 - `begin` / `commit` / `savepoint` はこの request path にありません。`db.batch` を
@@ -105,6 +112,19 @@ SQLite はどちらの result column にも `actor_ap_id` という名前を付�
   boolean は 0/1、`Uint8Array` / `ArrayBuffer` は base64 blob になります。
 - `select *` は rename できないため書き換えず、column 数の guard も効きません。
   join を伴う `select *` を raw SQL で書かないでください。
+
+### managed relational — 同じ row shape を共有する
+
+Takosumi の managed RelationalDatabase lane（`managed-relational.ts`）は、transport は
+`{columns, rows}` の位置つきですが、Drizzle との接続は同じ `sqlite-proxy` です。
+projection の書き換え・column 数 guard・名前つき row は `sqlite-proxy-rows.ts` を
+`edge.sql` lane と共有します。この lane だけの追加制約は次の 2 つです。
+
+- runtime contract は **trim 済みの statement しか受け取りません**。Drizzle は raw の
+  `sql` template を trim しないので、lane が送信前に trim します。
+- 結果が 0 行の `get` は空配列ではなく `undefined` を返さなければなりません。Drizzle の
+  `mapGetResult` は falsy な row でだけ short-circuit するので、`[]` は「全 field が
+  undefined の row」に化けます。
 
 ### `edge.kv` — 期限は相対 TTL ひとつだけ
 
