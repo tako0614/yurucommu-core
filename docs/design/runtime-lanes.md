@@ -65,8 +65,17 @@ export default {
 };
 ```
 
+core の published Worker default export (`@takosjp/yurucommu-core/server` の
+`default`) は既に lane-aware です。自前の entry を持たない product は、そのまま
+re-export すれば両 lane で動きます。
+
 `wrapCloudflareBindings` / `wrapCloudflareMessageBatch` はこれまで通り残ります。
 native binding だけを渡すと分かっている entry はそちらを直接呼んでも構いません。
+
+Durable Object binding (`CALL_SIGNALING` / `REALTIME_STREAM`) はどちらの lane でも
+wrapper を素通りします。ただし Takoform の Worker Version form には DO binding が
+無いため、`takoform-v1` では両方とも未 bind になり、call / realtime route は 503 を
+返してクライアントは polling に落ちます。
 
 ## lane ごとの差分（app が知っておくべきもの）
 

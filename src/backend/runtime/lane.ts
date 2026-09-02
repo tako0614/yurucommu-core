@@ -229,9 +229,10 @@ export function wrapTakoserverBindings<T extends TakoserverWorkerBindings>(
  * lane against the decisive bindings, and then wraps.
  */
 export function wrapRuntimeBindings<
-  T extends
-    | (TakoserverWorkerBindings & Record<string, unknown>)
-    | (CloudflareWorkerBindings & Record<string, unknown>),
+  // Deliberately structural. Which of the two binding sets this actually is,
+  // is the runtime question this function answers; a static union here would
+  // only force every caller to assert the answer before asking it.
+  T extends { DB: unknown; KV: unknown },
 >(bindings: T): WrappedRuntime<T> {
   const lane = resolveRuntimeLane(
     (bindings as Record<string, unknown>)[RUNTIME_LANE_VAR],
