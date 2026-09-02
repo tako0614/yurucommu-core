@@ -8,8 +8,8 @@ Status: **実装済み**（`src/backend/runtime/lane.ts` ほか。test は
 `src/backend/__tests__/runtime/`）
 Shipped in: `@takosjp/yurucommu-core` / `@takosjp/yurucommu-api` **4.1.0**
 （**4.1.1** で self-host 実測の 2 件を修正: `MEDIA` の形 sniff 撤去と、portable
-Worker bundle からの `node:` static import 排除。**4.1.2** で portable lane の
-公開 origin を request から確立: 下の「`APP_URL` を var で渡せない」節）
+Worker bundle からの `node:` static import 排除。**4.1.2** で公開 origin を request
+から確立、**4.1.3** でその規則を lane 非依存へ: 下の「`APP_URL` を var で渡せない」節）
 Owner: `yurucommu-core`
 Consumers: `yurucommu`, `yurumeet`（Worker entry の composition）
 
@@ -196,6 +196,7 @@ projection の書き換え・column 数 guard・名前つき row は `sqlite-pro
 Status: **実装済み**（`src/backend/runtime/public-origin.ts`。test は
 `src/backend/__tests__/runtime/public-origin.test.ts`）
 Shipped in: `@takosjp/yurucommu-core` / `@takosjp/yurucommu-api` **4.1.2**
+（**4.1.3** で lane 依存を撤去。この節の規則は **両 lane に等しく適用されます**）
 
 この app が federation で名乗る id は全部 absolute です。actor id、activity /
 object id、`inbox` / `outbox` / `followers`、OIDC の `redirect_uri`、notification の
