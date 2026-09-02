@@ -1,6 +1,6 @@
 {
   "name": "@takosjp/yurucommu-api",
-  "version": "4.1.0",
+  "version": "4.1.1",
   "description": "Typed client SDK and public API contract for yurucommu-server clients.",
   "license": "AGPL-3.0-only",
   "type": "module",

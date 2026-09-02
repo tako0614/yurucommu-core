@@ -7,6 +7,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 Status: **実装済み**（`src/backend/runtime/lane.ts` ほか。test は
 `src/backend/__tests__/runtime/`）
 Shipped in: `@takosjp/yurucommu-core` / `@takosjp/yurucommu-api` **4.1.0**
+（**4.1.1** で self-host 実測の 2 件を修正: `MEDIA` の形 sniff 撤去と、portable
+Worker bundle からの `node:` static import 排除）
 Owner: `yurucommu-core`
 Consumers: `yurucommu`, `yurumeet`（Worker entry の composition）
 
