@@ -154,6 +154,9 @@ describe("bucket-scoped S3 Fetcher object store", () => {
       key: "hello.txt",
       contentType: "text/plain",
       etag: '"abc"',
+      // The port promises an entity-tag a header may carry on every backend;
+      // S3 already quotes, so here the derivation changes nothing.
+      httpEtag: '"abc"',
       byteLength: 5,
     });
     expect(pulls).toBeGreaterThanOrEqual(primedPulls);

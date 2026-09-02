@@ -10,7 +10,8 @@ Shipped in: `@takosjp/yurucommu-core` / `@takosjp/yurucommu-api` **4.1.0**
 （**4.1.1** で self-host 実測の 2 件を修正: `MEDIA` の形 sniff 撤去と、portable
 Worker bundle からの `node:` static import 排除。**4.1.2** で公開 origin を request
 から確立、**4.1.3** でその規則を lane 非依存へ: 下の「`APP_URL` を var で渡せない」節。
-**4.1.4** で `edge.objects` の答えを R2 の形へ: 下の「`edge.objects`」節の parity rule）
+**4.1.4** で `edge.objects` の答えを R2 の形へ、**4.1.5** で object の `ETag` を
+entity-tag の表記へ: 下の「`edge.objects`」節の parity rule と ETag の規則）
 Owner: `yurucommu-core`
 Consumers: `yurucommu`, `yurumeet`（Worker entry の composition）
 
@@ -187,11 +188,11 @@ app code はそのまま compile し、そのまま動きます。
 
 | 区分 | member |
 | --- | --- |
-| 同じ名前・同じ意味で提供 | `key` / `size` / `etag` / `httpEtag` / `httpMetadata` / `customMetadata` / `range` / `writeHttpMetadata()`、body 付きの答えでは `body` / `bodyUsed` / `arrayBuffer()` / `text()` / `json()` / `blob()` |
+| 同じ名前・同じ意味で提供 | `key` / `size` / `etag` / `httpEtag` / `httpMetadata` / `customMetadata` / `range` / `writeHttpMetadata()`、body 付きの答えでは `body` / `bodyUsed` / `arrayBuffer()` / `bytes()` / `text()` / `json()` / `blob()` |
 | best effort | `uploaded` |
 | 提供しない | `version` / `checksums` / `storageClass` |
 
-- **body は一度だけ**読めます。4 つの helper と `bodyUsed` は本物の `Response` の
+- **body は一度だけ**読めます。5 つの helper と `bodyUsed` は本物の `Response` の
   ものなので、2 回目の読み取りは cache された値を返さず `TypeError` で **reject**
   します（R2 と同じ）。`body` を直接読んでも `bodyUsed` は `true` になります。
   `blob()` は bytes だけを返し `type` は付けません。Host が保存した content type は
@@ -207,8 +208,22 @@ app code はそのまま compile し、そのまま動きます。
   「値が無い」が正しい答えだからです。
 - **`etag` は Host の値そのまま**で opaque です。self-host wrapper は生の hex
   digest（R2 の `etag` 表記）、managed wrapper は R2 の quote 付き `httpEtag` を
-  そのまま流します。conditional request が echo し返す値なので書き換えません。
-  `httpEtag` は派生値で、quote が無ければ付けた **常に header 安全な表記**です。
+  そのまま流します。Host にとっての object の identity なので書き換えません
+  （R2 も自分の `etag` を書き換えません）。`httpEtag` は派生値で、quote が
+  無ければ付けた **常に header 安全な表記**です。
+- **`ETag` header に載せるのは `httpEtag` だけ**です（`4.1.5` から）。RFC 9110
+  §8.8.3 の entity-tag は opaque-tag が必ず quote 付きなので、生の hex digest は
+  field value として不正で、どの cache も match できません。`GET /media/:id` は
+  4.1.4 まで `etag` をそのまま出していたため、portable lane の media は事実上
+  cache 不能でした。provider-neutral な `ObjectStore` の答えも同じ理由で `etag`
+  と `httpEtag` の両方を運びます——`etag` は比較・保存用、`httpEtag` は送出用です。
+- **conditional request は weak 比較**です（RFC 9110 §13.1.2）。`If-None-Match` は
+  list を取り、`*` は「representation が存在すれば match」、`W/"x"` と `"x"` は
+  同じ tag として扱われます。判定は `src/backend/lib/conditional-request.ts` の
+  `ifNoneMatchIsFresh` 一箇所で、比較対象は **送出した `httpEtag`** です。
+  media route はこの判定を authorization gate の **後**で行います。`*` はどんな
+  representation にも match するので、先に 304 を返すと private object の存在が
+  漏れるからです。
 - custom metadata はありません。core の provider-neutral な `ObjectStore` も
   `contentType` しか運ばないので、両者はここで一致しています。`ObjectStore`
   （`wrapEdgeObjects` / `env.MEDIA`）は今も故意に R2 より狭い port で、R2 の member

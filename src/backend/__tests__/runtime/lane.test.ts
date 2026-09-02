@@ -170,6 +170,7 @@ describe("binding identification", () => {
       "text",
       "json",
       "arrayBuffer",
+      "bytes",
       "blob",
       "writeHttpMetadata",
     ]) {

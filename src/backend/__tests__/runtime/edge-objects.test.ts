@@ -180,9 +180,30 @@ describe("edge.objects storage adapter", () => {
     expect(object).not.toBeNull();
     expect(object!.key).toBe("uploads/a.png");
     expect(object!.etag).toBe('"uploads/a.png-etag"');
+    expect(object!.httpEtag).toBe('"uploads/a.png-etag"');
     expect(object!.contentType).toBe("image/png");
     expect(object!.byteLength).toBe(bytes.byteLength);
     expect(await textOf(object)).toBe("image-bytes");
+  });
+
+  test("carries the header-safe etag beside the Host's verbatim one", async () => {
+    // The self-host wrapper sends a BARE hex digest. `etag` keeps it, because
+    // it is the Host's own identity for those bytes; `httpEtag` is the quoted
+    // entity-tag a response may actually emit (RFC 9110 §8.8.3). Serving the
+    // bare one is defect O-8.
+    const facade = createFakeEdgeObjects();
+    const media = wrapEdgeObjects(facade);
+    await media.put("uploads/a.png", "v");
+    const verbatim = facade.get;
+    facade.get = async function (key, options) {
+      const found = await verbatim.call(facade, key, options);
+      return found === null ? null : { ...found, etag: "ebf4f635" };
+    } as EdgeObjectsBinding["get"];
+
+    const object = (await media.get("uploads/a.png"))!;
+    expect(object.etag).toBe("ebf4f635");
+    expect(object.httpEtag).toBe('"ebf4f635"');
+    await object.body?.cancel();
   });
 
   test("declares a string body's UTF-8 length rather than its character count", async () => {
@@ -293,6 +314,7 @@ interface R2ReadParity<TStream, THeaders, TBlob> {
   readonly body: TStream;
   readonly bodyUsed: boolean;
   arrayBuffer(): Promise<ArrayBuffer>;
+  bytes(): Promise<Uint8Array>;
   text(): Promise<string>;
   json<T>(): Promise<T>;
   blob(): Promise<TBlob>;
@@ -350,6 +372,11 @@ describe("edge.objects as an R2-shaped bucket", () => {
     expect(new TextDecoder().decode(buffer)).toBe(JSON.stringify(payload));
     const blob = await (await bucket.get("uploads/a.json"))!.blob();
     expect(await blob.text()).toBe(JSON.stringify(payload));
+    // `bytes()` is declared on `R2ObjectBody` in the workers-types this repo
+    // installs, so parity owes it too.
+    const bytes = await (await bucket.get("uploads/a.json"))!.bytes();
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(new TextDecoder().decode(bytes)).toBe(JSON.stringify(payload));
     // And the stream is still there for a caller that wants to pipe it.
     const streamed = await bucket.get("uploads/a.json");
     expect(await new Response(streamed!.body).text()).toBe(
@@ -411,6 +438,7 @@ describe("edge.objects as an R2-shaped bucket", () => {
     // work on one host and not the other.
     await expect(object.text()).rejects.toThrow(TypeError);
     await expect(object.arrayBuffer()).rejects.toThrow(TypeError);
+    await expect(object.bytes()).rejects.toThrow(TypeError);
 
     // Reading the stream directly marks the object used as well.
     const streamed = (await bucket.get("k"))!;

@@ -311,6 +311,7 @@ describe("managed runtime data adapters", () => {
     const object = await storage.get("images/one.png");
     expect(object?.contentType).toBe("image/png");
     expect(object?.etag).toBe('"etag"');
+    expect(object?.httpEtag).toBe('"etag"');
     expect(object?.byteLength).toBe(5);
     expect(await new Response(object?.body).text()).toBe("image");
     await storage.delete(["images/one.png"]);
