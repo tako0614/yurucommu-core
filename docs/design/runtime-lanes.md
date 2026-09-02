@@ -190,6 +190,113 @@ projection の書き換え・column 数 guard・名前つき row は `sqlite-pro
 - enumeration（`list`）と `head` は core の `ObjectStore` に無いので adapter にもあり
   ません。Host は両方 projection しますが、port が使いません。
 
+## `APP_URL` を var で渡せない — 公開 origin は request が確立する
+
+Status: **実装済み**（`src/backend/runtime/public-origin.ts`。test は
+`src/backend/__tests__/runtime/public-origin.test.ts`）。まだ publish していない
+ので、release 版に載るのは次の core / API release です。
+
+この app が federation で名乗る id は全部 absolute です。actor id、activity /
+object id、`inbox` / `outbox` / `followers`、OIDC の `redirect_uri`、notification の
+link、`.well-known` の discovery document — どれも `${APP_URL}/…` で、間違った値は
+壊れた画面ではなく、**remote が既に cache した永続的な誤答**になります。
+
+ところが `APP_URL` は plain var で、wrapper host ではそれを渡せないことがあります。
+Takoform の `WorkerEndpoint` が公開 origin を割り当てるのは、var を運ぶはずだった
+`WorkerVersion` が既に immutable になった **後** です。deployer は apply 時点でその
+値を知らず、後から注入する二度目の apply もありません。origin は存在するのに、知って
+いるのは Host だけで、その値が語られる唯一の場所は **Host がここへ routing してくる
+request** です。
+
+そこで `portable` lane では、`APP_URL` 未設定を「1 回の request を観測して pin する」
+ことで答えます。優先順位は次の通りで、上が勝ちます。
+
+1. **`APP_URL`**（設定されていれば常に authoritative）。operator が書いたそのままの値を
+   使い、この module は検証も cache も persist もしません。set した operator は既に
+   決めているのであって、以前の release が受け入れていた値をここで拒否する立場に
+   ありません。
+2. **KV に pin 済みの origin**。request 経路でも background 経路でも同じです。
+   **first writer wins**: 一度書かれた値は、その後どんな `Host` の request が来ても
+   置き換わりません。
+3. **今の request の origin**。まだ pin が無いときだけ、ここから確立します。
+4. どれも無ければ origin はありません。background work は
+   `undefined/ap/users/alice` を作る代わりに **fail closed** します。
+
+### 何を信じるか
+
+**runtime が渡してきた request URL だけ**です。`X-Forwarded-Host` も
+`X-Forwarded-Proto` も、header から読んだ `Host` も信じません（client が書けるため）。
+両方の wrapper host は hostname で routing し、Worker 自身の公開 endpoint で受けた
+request をそのまま渡します。managed Workers-for-Platforms の gateway は
+`new URL(request.url).hostname` の host route を引いて **同じ `Request` object** を
+dispatch し、self-host の workerd router は hostname を key にした table から service
+を選んで素通しします。その Worker 向けに publish されていない hostname は、この code に
+届く前に 404 です。したがって request に乗っている origin は Host が割り当てたもの
+——まさに var で渡せなかった値そのものです。
+
+`cloudflare` lane では推測しません。Cloudflare へ直 deploy した Worker は workers.dev
+でも、account が持つ全ての custom domain でも route pattern でも応答するので、同じ
+推論をすると「最初に届いた hostname」が instance の名前を永久に決めてしまいます。この
+lane はこれまで通り `APP_URL` を明示的に要求します。
+
+### https を要求する
+
+公開 fediverse origin は https で、Takoserver の `WorkerEndpoint` が割り当てる origin も
+常に https です（`canonicalWorkerEndpointOrigin`）。ここで https を要求するのは、http
+request が「delivery に署名し actor id を作る origin」を pin できないようにするため
+です。例外は loopback http（`localhost` / `127.0.0.1` / `[::1]` / `*.localhost`）だけで、
+これは routing されない名前であり、開発者が実際に serve している origin です。
+
+したがって **workerd の前で TLS を終端して平文 http を話す wrapper host は、何も確立
+しません**。`request.url` が `http://…` なので derivation は拒否し、その deployment は
+`APP_URL` を設定する必要があります。設定できます——TLS を終端した operator は hostname を
+自分で選んでいるからです。拒否が正解で、代わりに forwarded-proto header を信じるのは、
+その proxy が唯一の書き手だと証明できないまま信じることです。
+
+### どこに pin するか、その consistency
+
+pin は **KV** の `__yurucommu/runtime/canonical-origin/v1` に置きます。両 lane が必ず
+持つ store であること（`DB` も同じく必ずありますが、origin は readiness probe と、
+自分の名前を知るために transaction を開けたくない queue work が必要とします）、そして
+Yurucommu 自身の生成 Worker entry が既に同じ key へ pin していることが理由です。
+
+KV は eventually consistent で compare-and-swap がありません。したがって first writer
+wins は **read → write → read back** で実現します。read back で別の origin が返った
+isolate は race に負けたので、2 つの identity を同時に serve する代わりにその request を
+拒否します。次の request は「pin 済み」経路で勝者の値を読みます。read back が未収束
+（`null`）なら自分の書き込みとして扱います——自分で書いたからです。
+
+観測結果は isolate ごとに cache されます（全 request で KV を読まないため。first writer
+wins なので 2 回目の read は 1 回目と同じ値しか返しません）。operator が意図的に別の
+origin へ pin し直した場合、その後に起動した isolate から新しい値が見えます。即座に
+上書きしたいなら `APP_URL` を設定してください——常に勝ち、cache されません。
+
+### 経路ごとの挙動
+
+- **request**: `createYurucommuBackendApp` が最初に登録する middleware が確立します。
+  readiness probe と `.well-known` の discovery document が同じ origin を見るように、
+  route より前に置いてあります（origin を自分の traffic からしか知りえない Worker で
+  `/readyz` が「APP_URL がない」と言い続けたら、その Worker は永久に ready になりません）。
+  この middleware は **request を失敗させません**。確立できなければ `APP_URL` は未設定の
+  ままで、`/readyz` が今まで通り hard missing binding として 503 で報告します。500 に
+  すると readiness probe ごと落ちて、精密な答えが generic な答えに変わります。
+- **queue**: core の default export が `withRequiredBackgroundPublicOrigin` を通します。
+  `APP_URL` も pin も無ければ **throw** します。batch は retry され、traffic が origin を
+  確立した後に配送されます。`undefined/ap/users/…` で配って remote に cache させるよりも
+  良い失敗です。
+- **scheduled**: retention は DB / MEDIA / queue しか使わず、application URL を必要と
+  しません。ここでは origin を発明も要求もしません。
+
+`APP_URL` と request origin が食い違っても、この module は refuse しません。既存の挙動が
+そうだからです（mismatch を拒否するのは CSRF middleware の Origin / Referer check で、
+そちらは変えていません）。pin 済み origin と違う `Host` で来た request も、instance の
+名前を変えません。
+
+自前の Worker entry を持つ product は
+`@takosjp/yurucommu-core/server` から `establishRequestPublicOrigin` /
+`withRequiredBackgroundPublicOrigin` / `canonicalPublicOrigin` /
+`CANONICAL_ORIGIN_KV_KEY` を import して同じ規則を使えます。
+
 ## portable Worker は compatibility flag を要求しない
 
 wrapper host が生成する workerd config の `compatibilityFlags` は
@@ -241,3 +348,8 @@ binding が欠けるのは backend が出せないからではなく、**Version
 - `MEDIA` 未 bind → 既存の "Object storage unavailable" (503)
 
 という、これまでと同じ挙動になります。
+
+`KV` は例外で、`portable` lane の hard requirement です。session と rate limit に加えて
+観測済み公開 origin の pin もここに置くので（前節）、`KV` 未 bind かつ `APP_URL` 未設定の
+deployment は origin を確立できず、`/readyz` が `APP_URL` を missing として 503 を返し
+続けます。
