@@ -14,12 +14,12 @@
  *    and the body arrives as `{encoding:"base64", data}`. `retry` also refuses
  *    `delaySeconds: 0`, which Cloudflare accepts as "no delay".
  *
- * AVAILABILITY: the managed Cloudflare backend projects queue bindings; the
- * self-host backend projects only `edge.kv` and `edge.sql` today (see
- * takoserver `selfhost-worker-wrapper.ts` `projectEnv`). A self-hosted Worker
- * therefore has no queue binding at all, and the core's existing behaviour for
- * an unbound `DELIVERY_QUEUE` — synchronous fallback delivery, reported by the
- * readiness surface — is what applies there.
+ * AVAILABILITY: both wrapper backends project queue bindings (see takoserver
+ * `selfhost-worker-wrapper.ts` `projectEnv`, whose data-binding kinds are
+ * `edge.kv`, `edge.objects`, `edge.queue` and `edge.sql`). What leaves
+ * `DELIVERY_QUEUE` unbound is a Version that declared no queue, and the core's
+ * existing behaviour for that — synchronous fallback delivery, reported by the
+ * readiness surface — is what applies then.
  */
 
 import {

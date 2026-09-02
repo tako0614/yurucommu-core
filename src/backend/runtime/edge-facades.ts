@@ -9,7 +9,7 @@
  * The managed Cloudflare backend and the self-host backend project the SAME
  * facade: same methods, same option keys, same error names. Takoserver's
  * ADR 0005 states this explicitly for object storage, and its self-host wrapper
- * repeats it for KV and SQL.
+ * repeats it for all four.
  *
  * This module is a TYPE MIRROR of that contract plus the structural probes the
  * lane selector uses. It deliberately contains no behaviour: the adapters that
@@ -21,7 +21,8 @@
  *     — `projectEnv`, `createKvAdapter`, `createSqlAdapter`,
  *       `createQueueAdapter`, `createEdgeObjectsR2Adapter`
  *   takoserver `src/providers/selfhost-worker-wrapper.ts`
- *     — `projectEnv`, `createKvAdapter`, `createSqlAdapter`
+ *     — `projectEnv`, `createKvAdapter`, `createSqlAdapter`,
+ *       `createQueueAdapter`, `createObjectsAdapter`
  *
  * Every method rejects with an `Error` whose `name` is the portable error code
  * (`invalid_key`, `invalid_value`, `value_too_large`, `metadata_too_large`,

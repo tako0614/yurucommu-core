@@ -174,14 +174,19 @@ projection の書き換え・column 数 guard・名前つき row は `sqlite-pro
 - enumeration（`list`）と `head` は core の `ObjectStore` に無いので adapter にもあり
   ません。Host は両方 projection しますが、port が使いません。
 
-## self-host で無いもの
+## binding が無いとき
 
-Takoserver の self-host backend が projection するのは `edge.kv` と `edge.sql` **だけ**
-です（`selfhost-worker-wrapper.ts` の `projectEnv`）。したがって self-host された Worker
-には queue binding も object binding も存在せず、
+Takoserver の self-host backend も managed Cloudflare backend も、`edge.kv` /
+`edge.objects` / `edge.queue` / `edge.sql` の 4 つを projection します
+（`selfhost-worker-wrapper.ts` の `projectEnv`、および
+`selfhost-version-bindings.ts` の data binding kinds）。self-host backend は自前の
+object store を realize して managed 側と同じ facade を出すので、`portable` lane の
+Worker はどちらの host でも `env.MEDIA` を受け取ります。
+
+binding が欠けるのは backend が出せないからではなく、**Version がその binding を宣言
+していない**ときです。その場合は、
 
 - `DELIVERY_QUEUE` / `DELIVERY_DLQ` 未 bind → 既存の同期 fallback delivery と readiness 報告
 - `MEDIA` 未 bind → 既存の "Object storage unavailable" (503)
 
-という、これまでと同じ挙動になります。managed Cloudflare backend では 4 つとも
-projection されます。
+という、これまでと同じ挙動になります。

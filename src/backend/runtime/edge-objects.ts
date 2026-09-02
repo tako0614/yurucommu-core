@@ -21,10 +21,14 @@
  *  - NO ENUMERATION OR HEAD. The port does not carry them, so neither does the
  *    adapter, even though the Host projects both.
  *
- * AVAILABILITY: `edge.objects` is projected by the managed Cloudflare backend
- * (`createEdgeObjectsR2Adapter`). The self-host backend projects only
- * `edge.kv` and `edge.sql`, so a self-hosted Worker has no object binding and
- * the core's existing "object storage unavailable" behaviour applies.
+ * AVAILABILITY: BOTH wrapper backends project `edge.objects`. The managed
+ * Cloudflare backend does it over provider-private R2
+ * (`createEdgeObjectsR2Adapter`); the self-host backend realizes its own object
+ * store for a Version's `bucketBindings` and projects the same facade, byte for
+ * byte. A Worker on the `portable` lane therefore receives `env.MEDIA` on
+ * either host. What still leaves `MEDIA` unbound is a Version that declared no
+ * bucket at all, and the core's existing "object storage unavailable" (503)
+ * behaviour is what applies then.
  */
 
 import type {
