@@ -53,6 +53,21 @@ export {
   wrapRuntimeBindings,
   wrapRuntimeMessageBatch,
 } from "./runtime/lane.ts";
+// The public origin: `APP_URL` when the deployment could carry one, and the
+// origin one request established when only the Host knew it. A product that
+// composes its own Worker entry uses these for the handlers the core default
+// export does not own.
+export {
+  CANONICAL_ORIGIN_KV_KEY,
+  PublicOriginError,
+  canonicalPublicOrigin,
+  configuredAppUrl,
+  establishRequestPublicOrigin,
+  peekObservedPublicOrigin,
+  requireBackgroundPublicOrigin,
+  resetObservedPublicOrigin,
+  withRequiredBackgroundPublicOrigin,
+} from "./runtime/public-origin.ts";
 export {
   EDGE_KV_MAX_EXPIRATION_TTL_SECONDS,
   EDGE_KV_MIN_EXPIRATION_TTL_SECONDS,
