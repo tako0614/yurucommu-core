@@ -236,22 +236,24 @@ function hasMethods(value: unknown, names: readonly string[]): boolean {
 /**
  * Structural probes.
  *
- * Only SOME bindings can be told apart by shape, and the difference matters:
+ * Only ONE binding can be told apart by shape, and the difference matters:
  *
  *   decisive   `DB`     — `execute`/`query`/`transaction` (facade) against
  *                         `prepare`/`batch` (D1). Disjoint method sets.
- *   decisive   `MEDIA`  — R2 carries the multipart helpers the facade omits.
  *   decisive   a queue *batch* — `acknowledgeAll` (facade) against `ackAll`
  *                         (Cloudflare `MessageBatch`).
  *   AMBIGUOUS  `KV`     — `edge.kv` and `KVNamespace` expose the same five
  *                         method names.
  *   AMBIGUOUS  a queue *producer* — both are `send`/`sendBatch`.
+ *   AMBIGUOUS  `MEDIA`  — `edge.objects@1.0.0` is R2's method set by design,
+ *                         multipart helpers included. See below.
  *
  * That is why the lane is a DECLARED variable rather than something sniffed:
- * two of the five bindings cannot be identified at all. The declaration is then
- * cross-checked against the decisive bindings, so a Worker whose var and whose
- * bindings disagree refuses to start instead of calling `kv.get(key, {type})`
- * on a facade that would silently treat the options object as nothing.
+ * three of the five bindings cannot be identified at all. The declaration is
+ * then cross-checked against the decisive bindings, so a Worker whose var and
+ * whose bindings disagree refuses to start instead of calling
+ * `kv.get(key, {type})` on a facade that would silently treat the options
+ * object as nothing.
  */
 export function isEdgeSqlBinding(value: unknown): value is EdgeSqlBinding {
   return (
@@ -275,24 +277,38 @@ export function isEdgeQueueBatch(value: unknown): value is EdgeQueueBatch {
   );
 }
 
+/**
+ * A bucket-shaped binding with `edge.objects@1.0.0`'s call signatures.
+ *
+ * NOT DECISIVE, and never a lane test. The facade is R2's method set on
+ * purpose — `head`, `get`, `put`, `delete`, `list`, and the four multipart
+ * calls — so that an app written against R2 ports over unchanged. A real
+ * `R2Bucket` therefore answers `true` here too. Use it to check that SOMETHING
+ * bucket-shaped arrived, never to decide which host projected it: that is what
+ * `YURUCOMMU_RUNTIME_LANE` is for.
+ *
+ * The arity check is the facade's own contract rather than a discriminator:
+ * the Host counts `arguments.length`, so `get` takes its options slot even when
+ * that slot is `undefined`.
+ */
 export function isEdgeObjectsBinding(
   value: unknown,
 ): value is EdgeObjectsBinding {
   return (
     hasMethods(value, ["head", "get", "put", "delete", "list"]) &&
-    // R2 exposes multipart helpers on the binding itself; the facade does not
-    // give a bucket-shaped object those names.
-    typeof (value as Record<string, unknown>).createMultipartUpload !==
-      "function" &&
-    // Arity is part of the facade's contract and is asserted rather than
-    // assumed: the Host checks `arguments.length`, so `get` and `list` take
-    // their options slot even when it is `undefined`. Anything bucket-shaped
-    // whose `get` takes one argument is some other adapter, not this facade.
     (value as { get: (...args: unknown[]) => unknown }).get.length === 2
   );
 }
 
-/** Cloudflare's `R2Bucket`. */
+/**
+ * Cloudflare's `R2Bucket` — and, unavoidably, the `edge.objects` facade.
+ *
+ * A method-name test cannot separate the two, because Takoserver's facade
+ * carries `createMultipartUpload` as well (`selfhost-worker-wrapper.ts`
+ * `createObjectsAdapter`). 4.1.0 used this function to refuse the portable
+ * lane and so refused every self-hosted deployment. Keep it for describing a
+ * binding; do not let it decide a lane.
+ */
 export function isNativeR2Bucket(value: unknown): boolean {
   return hasMethods(value, [
     "head",

@@ -55,12 +55,19 @@ const nativeKv = () => ({
   list: async () => ({ keys: [], list_complete: true }),
 });
 
+// The REAL `edge.objects@1.0.0` facade, not a reduced one: Takoserver's
+// `createObjectsAdapter` projects the multipart calls as well, which is exactly
+// why a bucket binding tells you nothing about the lane.
 const edgeObjects = () => ({
   head: async () => null,
   get: async (_key: string, _options: unknown) => null,
   put: async () => ({ etag: "e", size: 0 }),
   delete: async () => {},
   list: async () => ({ objects: [], prefixes: [], truncated: false }),
+  createMultipartUpload: async () => ({ uploadId: "u" }),
+  uploadPart: async () => ({ partNumber: 1, etag: "e" }),
+  completeMultipartUpload: async () => ({ etag: "e", size: 0 }),
+  abortMultipartUpload: async () => {},
 });
 
 const nativeR2 = () => ({
@@ -117,11 +124,14 @@ describe("binding identification", () => {
     expect(isNativeD1Database(edgeSql())).toBe(false);
   });
 
-  test("an R2 bucket is decisive, and the facade is not mistaken for one", () => {
+  test("the bucket binding is AMBIGUOUS: the facade is R2's method set on purpose", () => {
+    // Both probes answer `true` for both objects. That is not a defect in the
+    // probes — `edge.objects@1.0.0` is deliberately method-for-method a bucket
+    // so an app written against R2 ports over unchanged. 4.1.0 read the
+    // identity as a discriminator and refused every self-hosted deployment.
     expect(isNativeR2Bucket(nativeR2())).toBe(true);
-    expect(isNativeR2Bucket(edgeObjects())).toBe(false);
+    expect(isNativeR2Bucket(edgeObjects())).toBe(true);
     expect(isEdgeObjectsBinding(edgeObjects())).toBe(true);
-    expect(isEdgeObjectsBinding(nativeR2())).toBe(false);
   });
 
   test("the KV and queue bindings CANNOT be told apart, which is why the lane is declared", () => {
@@ -157,12 +167,33 @@ describe("lane and bindings must agree", () => {
     expect(() =>
       assertRuntimeLaneBindings("portable", { DB: nativeD1() }),
     ).toThrow(/native D1Database/);
-    expect(() =>
-      assertRuntimeLaneBindings("portable", {
-        DB: edgeSql(),
-        MEDIA: nativeR2(),
-      }),
-    ).toThrow(/native R2Bucket/);
+  });
+
+  test("accepts a bucket binding on the portable lane whatever shape it has", () => {
+    // The self-host facade carries the multipart calls, so a shape test would
+    // reject it as "a native R2Bucket" — the boot failure DEFECT 5 recorded.
+    // The declared lane decides MEDIA; nothing about the object does.
+    for (const MEDIA of [edgeObjects(), nativeR2(), undefined]) {
+      expect(() =>
+        assertRuntimeLaneBindings("portable", { DB: edgeSql(), MEDIA }),
+      ).not.toThrow();
+    }
+  });
+
+  test("wraps a facade bucket as edge.objects once the lane says portable", () => {
+    const env = wrapPortableBindings({
+      DB: edgeSql(),
+      KV: edgeKv(),
+      MEDIA: edgeObjects(),
+    } as never) as Record<string, unknown>;
+    // The `ObjectStore` port, not the binding passing through: the port has no
+    // `head` and no multipart calls, so their absence proves the adapter ran.
+    const media = env.MEDIA as Record<string, unknown>;
+    expect(typeof media.get).toBe("function");
+    expect(typeof media.put).toBe("function");
+    expect(typeof media.delete).toBe("function");
+    expect(media.head).toBeUndefined();
+    expect(media.createMultipartUpload).toBeUndefined();
   });
 
   test("refuses a facade that arrived without its lane declared", () => {

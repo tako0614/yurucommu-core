@@ -28,8 +28,18 @@
  * So the lane comes from `YURUCOMMU_RUNTIME_LANE`, which a self-host or managed
  * Workers-for-Platforms deployment sets to `portable` and every raw-binding
  * deployment leaves unset (or `cloudflare`). The declaration is then
- * cross-checked against the bindings that ARE decisive — `DB` always, `MEDIA`
- * when it is bound. A disagreement refuses to start.
+ * cross-checked against the ONE binding that is decisive — `DB`. A
+ * disagreement refuses to start.
+ *
+ * `MEDIA` is NOT decisive and must never be cross-checked. Takoserver's
+ * `edge.objects@1.0.0` facade is method-for-method a bucket: `head`, `get`,
+ * `put`, `delete`, `list`, `createMultipartUpload`, `uploadPart`,
+ * `completeMultipartUpload`, `abortMultipartUpload` — the same names, the same
+ * option keys, deliberately, so that an app written against R2 ports over
+ * unchanged (ADR 0005/0007). 4.1.0 read that identity backwards and refused the
+ * portable lane whenever `MEDIA` looked R2-shaped, which is to say always: a
+ * self-hosted Yurucommu Worker could not boot on the lane its own README
+ * documents. The declaration decides `MEDIA`.
  */
 
 import type {
@@ -47,7 +57,6 @@ import {
   isEdgeQueueBatch,
   isEdgeSqlBinding,
   isNativeD1Database,
-  isNativeR2Bucket,
   type EdgeKvBinding,
   type EdgeObjectsBinding,
   type EdgeQueueBatch,
@@ -114,23 +123,35 @@ export function resolveRuntimeLane(declared: unknown): RuntimeLane {
 
 interface LaneBindings {
   readonly DB?: unknown;
+  /**
+   * Accepted so a caller can pass the whole `env`, and deliberately not read:
+   * the bucket binding carries no evidence about the lane. See
+   * {@link assertRuntimeLaneBindings}.
+   */
   readonly MEDIA?: unknown;
 }
 
 /**
- * Prove the declared lane against the bindings that can actually be identified.
+ * Prove the declared lane against the ONE binding that can be identified.
  *
- * `DB` is always decisive: `execute`/`query`/`transaction` and
- * `prepare`/`batch` are disjoint. `MEDIA` is decisive only in one direction —
- * an `R2Bucket` is recognisable by its multipart helpers, whereas a plain
- * five-method object could be the facade or an adapter a host repository
- * supplied — so only the direction that can be proven is checked.
+ * `DB` is decisive in both directions: `execute`/`query`/`transaction` and
+ * `prepare`/`batch` are disjoint method sets, so a Worker that was handed the
+ * wrong one would fail at its first query anyway and is better stopped here
+ * with a message that names the variable to fix.
+ *
+ * `MEDIA` is checked against NOTHING. The portable `edge.objects@1.0.0` facade
+ * is intentionally indistinguishable from an `R2Bucket` — that identity is the
+ * point of the Interface — so a shape test on it can only produce false
+ * refusals. On `portable` the bucket is wrapped as the facade, on `cloudflare`
+ * as native R2, and the declaration is the whole of the evidence. Getting it
+ * wrong is loud and immediate (the first `MEDIA` call throws), not the silent
+ * misread that `KV`'s ambiguity would cause.
  */
 export function assertRuntimeLaneBindings(
   lane: RuntimeLane,
   bindings: LaneBindings,
 ): void {
-  const { DB, MEDIA } = bindings;
+  const { DB } = bindings;
   if (lane === "portable") {
     if (isNativeD1Database(DB)) {
       throw new RuntimeLaneError(
@@ -146,13 +167,6 @@ export function assertRuntimeLaneBindings(
         `${RUNTIME_LANE_VAR}="portable" requires env.DB to be the ` +
           `edge.sql@1.0.0 facade (execute/query/transaction); it exposes ` +
           `neither that nor D1's prepare/batch.`,
-      );
-    }
-    if (MEDIA !== undefined && isNativeR2Bucket(MEDIA)) {
-      throw new RuntimeLaneError(
-        `${RUNTIME_LANE_VAR}="portable" declares the portable-facade lane, ` +
-          `but env.MEDIA is a native R2Bucket. A portable bucket binding ` +
-          `arrives as the edge.objects@1.0.0 facade.`,
       );
     }
     return;
@@ -287,5 +301,9 @@ export function wrapRuntimeMessageBatch<T>(
   return wrapCloudflareMessageBatch(batch as MessageBatch<T>);
 }
 
-/** Re-exported so a Worker entry can probe MEDIA without importing internals. */
+/**
+ * Re-exported so a Worker entry can assert that SOMETHING bucket-shaped
+ * arrived without importing internals. It does not identify the lane — a
+ * native `R2Bucket` satisfies it too — so never branch on it.
+ */
 export { isEdgeObjectsBinding };

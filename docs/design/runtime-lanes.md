@@ -44,10 +44,24 @@ binding の 5 つのうち **2 つは形で区別できません**。`edge.kv` �
 ——旧称 `takoform-v1` もいまは「知らない値」であり、まだそれを宣言している deployment は
 黙って別の binding 形で動かされるのではなく、起動に失敗します。
 
+突き合わせに使える binding は **`DB` だけ**です。
+
 - `DB` は両方向に decisive — `execute`/`query`/`transaction` と `prepare`/`batch` は
-  互いに素です。
-- `MEDIA` は片方向に decisive — `R2Bucket` は multipart helper で見分けられます。
-- 宣言と binding が食い違えば `RuntimeLaneError` で起動を拒否します。
+  互いに素です。宣言と `DB` が食い違えば `RuntimeLaneError` で起動を拒否します。
+- **`MEDIA` は decisive ではありません。** `edge.objects@1.0.0` は `head` / `get` /
+  `put` / `delete` / `list` に加えて multipart 4 種まで `R2Bucket` と同じ method 名を
+  持ちます。これは事故ではなく Interface の目的で、R2 向けに書いた app がそのまま
+  動くための同一性です（Takoserver ADR 0005 / 0007、`selfhost-worker-wrapper.ts` の
+  `createObjectsAdapter`）。したがって `MEDIA` は **どちらの lane でも宣言に従って**
+  wrap します。`portable` なら `edge.objects` facade として、`cloudflare` なら native
+  R2 として wrap し、object の形からは何も推論しません。
+- `isNativeR2Bucket` / `isEdgeObjectsBinding` は「bucket 形の何かが来たか」を述べる
+  ための probe であって、lane の判別には使えません（両方の object に対して両方とも
+  true になります）。
+
+4.1.0 はここを逆に読み、`MEDIA` が R2 形なら `portable` を拒否していました。facade は
+常に R2 形なので、self-host の Yurucommu Worker は自分の README が指定する lane で
+起動できませんでした。4.1.1 でこの照合を削除しています。
 
 設定するのは wrapper host に置くときだけです。self-host と managed
 Workers-for-Platforms の deployment は
