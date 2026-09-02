@@ -203,7 +203,7 @@ describe("wrapRuntimeBindings", () => {
     >;
     expect(env.DB_INSTANCE).toBeDefined();
     expect(typeof (env.KV as { get: unknown }).get).toBe("function");
-    expect(typeof (env.MEDIA as { head: unknown }).head).toBe("function");
+    expect(typeof (env.MEDIA as { get: unknown }).get).toBe("function");
     expect(typeof (env.DELIVERY_QUEUE as { send: unknown }).send).toBe(
       "function",
     );

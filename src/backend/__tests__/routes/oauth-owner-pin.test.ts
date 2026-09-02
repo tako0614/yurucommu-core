@@ -20,7 +20,10 @@ import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actors } from "../../../db/index.ts";
 import type { Env } from "../../types.ts";
-import { createActorFromOAuth } from "../../routes/auth-helpers.ts";
+import {
+  createActorFromOAuth,
+  type VerifiedTakosumiWorkspaceGrant,
+} from "../../routes/auth-helpers.ts";
 
 const APP_URL = "https://yuru.test";
 const MIGRATIONS = [
@@ -55,6 +58,14 @@ const userInfo = (id: string) => ({
   username: "operator",
 });
 
+const takosumiGrant = (
+  role: VerifiedTakosumiWorkspaceGrant["role"],
+): VerifiedTakosumiWorkspaceGrant => ({
+  workspaceId: "ws_yurucommu",
+  capsuleId: "cap_yurucommu",
+  role,
+});
+
 test("no owner pin and no bootstrap opt-in: first OAuth login is refused", async () => {
   const db = await freshDb();
   const actor = await createActorFromOAuth(
@@ -76,6 +87,47 @@ test("ALLOW_UNPINNED_OWNER_CLAIM permits one explicit bootstrap login", async ()
     "sub-bootstrap",
   );
   expect(actor?.role).toBe("owner");
+});
+
+test("a verified Takosumi Workspace owner claim replaces a static owner-sub pin", async () => {
+  const db = await freshDb();
+  const actor = await createActorFromOAuth(
+    db,
+    envWith({}),
+    userInfo("issuer-owner"),
+    "takos:issuer-owner",
+    takosumiGrant("owner"),
+  );
+  expect(actor?.role).toBe("owner");
+});
+
+test.each(["admin", "member", "viewer"] as const)(
+  "a verified Takosumi Workspace %s claim cannot take the app owner slot",
+  async (role) => {
+    const db = await freshDb();
+    const actor = await createActorFromOAuth(
+      db,
+      envWith({}),
+      userInfo(`issuer-${role}`),
+      `takos:issuer-${role}`,
+      takosumiGrant(role),
+    );
+    expect(actor).toBeNull();
+    expect(await db.select().from(actors).all()).toHaveLength(0);
+  },
+);
+
+test("a Takosumi-shaped claim cannot authorize another OAuth provider", async () => {
+  const db = await freshDb();
+  const actor = await createActorFromOAuth(
+    db,
+    envWith({}),
+    userInfo("google-owner"),
+    "google:google-owner",
+    takosumiGrant("owner"),
+  );
+  expect(actor).toBeNull();
+  expect(await db.select().from(actors).all()).toHaveLength(0);
 });
 
 test("OIDC_OWNER_SUB set: matching first login becomes owner", async () => {

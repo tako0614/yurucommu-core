@@ -24,7 +24,7 @@ import {
   storyVotes,
 } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
-import type { IObjectStorage } from "../runtime/types.ts";
+import type { ObjectStore } from "../runtime/types.ts";
 import { chunkForInClause, D1_IN_CHUNK } from "./chunk.ts";
 import { normalizeDomain } from "./blocklist.ts";
 import { isSameActivityPubActor } from "./activitypub-actor-identity.ts";
@@ -112,7 +112,7 @@ function activityPubUrlHostMatchesDomain(
 async function purgeObjects(
   db: Database,
   apIds: string[],
-  media?: IObjectStorage,
+  media?: ObjectStore,
 ): Promise<void> {
   if (apIds.length === 0) return;
   const parentRows = await db
@@ -544,7 +544,7 @@ async function purgeActorInteractionEdges(
 async function purgeMatchingObjects(
   db: Database,
   where: SQL,
-  media?: IObjectStorage,
+  media?: ObjectStore,
   onPageDeleted?: (count: number) => void,
 ): Promise<void> {
   let cursor: string | undefined;
@@ -604,7 +604,7 @@ async function purgeMatchingActivities(
 async function purgeActorObjects(
   db: Database,
   blockedApId: string,
-  media?: IObjectStorage,
+  media?: ObjectStore,
   onPageDeleted?: (count: number) => void,
 ): Promise<void> {
   let cursor: string | undefined;
@@ -666,7 +666,7 @@ async function purgeActorActivities(
 export async function purgeActorContent(
   db: Database,
   blockedApId: string,
-  media?: IObjectStorage,
+  media?: ObjectStore,
 ): Promise<BlocklistContentPurgeResult> {
   let deletedObjects = 0;
   let deletedActivities = 0;
@@ -704,7 +704,7 @@ export async function purgeActorContent(
 export async function purgeDomainContent(
   db: Database,
   domainOrUrl: string,
-  media?: IObjectStorage,
+  media?: ObjectStore,
 ): Promise<BlocklistContentPurgeResult> {
   const domain = normalizeDomain(domainOrUrl);
   if (!domain) {

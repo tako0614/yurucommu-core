@@ -230,7 +230,7 @@ appsApiRoutes.post(
       }
       const r2Key = `${appPrefix}${normalizedPath}`;
       await media.put(r2Key, contentBytes, {
-        httpMetadata: { contentType },
+        contentType,
       });
 
       results.push({ path: normalizedPath, status: "uploaded" });
@@ -276,14 +276,13 @@ appsServeRoutes.get("/:clientId/:appName/*", async (c) => {
 
   const object = await media.get(r2Key);
   if (object) {
-    const contentType =
-      object.httpMetadata?.contentType ?? inferContentType(filePath);
+    const contentType = object.contentType ?? inferContentType(filePath);
     const headers = createHostedHeaders(
       contentType,
       filePath.includes("/assets/")
         ? "public, max-age=31536000, immutable"
         : "public, max-age=3600",
-      object.httpEtag,
+      object.etag,
     );
     return new Response(object.body, { headers });
   }
@@ -296,7 +295,7 @@ appsServeRoutes.get("/:clientId/:appName/*", async (c) => {
       const headers = createHostedHeaders(
         "text/html; charset=utf-8",
         "no-cache",
-        indexObject.httpEtag,
+        indexObject.etag,
       );
       return new Response(indexObject.body, { headers });
     }

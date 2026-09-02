@@ -10,7 +10,10 @@ import {
   getMobileOidcAudience,
   getProvider,
 } from "../lib/oauth-providers.ts";
-import { verifyOidcIdToken } from "../lib/oidc-id-token.ts";
+import {
+  readVerifiedTakosumiWorkspaceGrant,
+  verifyOidcIdToken,
+} from "../lib/oidc-id-token.ts";
 import {
   deleteOAuthState,
   generateCodeChallenge,
@@ -314,6 +317,7 @@ auth.post("/mobile/oidc", async (c) => {
         email: claims.email,
         username: claims.preferred_username,
       },
+      readVerifiedTakosumiWorkspaceGrant(claims),
     );
     if (!actorData) return c.json({ error: "actor_creation_failed" }, 403);
     const sessionId = await rotateSession(
@@ -462,6 +466,8 @@ auth.get("/callback/:provider", async (c) => {
   // a provider the id_token MUST be present and valid — a token response that
   // simply omits it must NOT fall through to unverified userinfo (that would skip
   // the aud + nonce binding the rest of this flow enforces). Fail closed.
+  let verifiedTakosumiGrant:
+    ReturnType<typeof readVerifiedTakosumiWorkspaceGrant> | undefined;
   if (provider.issuer && provider.jwksUrl) {
     if (!tokens.id_token) {
       log.error("OIDC provider returned no id_token", {
@@ -478,6 +484,7 @@ auth.get("/callback/:provider", async (c) => {
         jwksUrl: provider.jwksUrl,
         expectedNonce: storedState.nonce,
       });
+      verifiedTakosumiGrant = readVerifiedTakosumiWorkspaceGrant(claims);
       userInfo = {
         ...userInfo,
         id: claims.sub || userInfo.id,
@@ -500,6 +507,7 @@ auth.get("/callback/:provider", async (c) => {
     c.env,
     providerId,
     userInfo,
+    providerId === "takos" ? verifiedTakosumiGrant : undefined,
   );
   if (!actorData) return c.redirect("/?error=actor_creation_failed");
 

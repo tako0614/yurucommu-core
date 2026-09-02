@@ -8,7 +8,7 @@ import {
   objects,
   storyVotes,
 } from "../../../db/index.ts";
-import type { IObjectStorage } from "../../runtime/types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import {
   formatUsername,
   objectApId,
@@ -314,7 +314,7 @@ export function buildAuthor(
 
 export async function cleanupExpiredStories(
   db: Database,
-  media?: IObjectStorage,
+  media?: ObjectStore,
 ): Promise<number> {
   const now = new Date().toISOString();
 

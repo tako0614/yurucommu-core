@@ -158,13 +158,20 @@ projection の書き換え・column 数 guard・名前つき row は `sqlite-pro
 
 ### `edge.objects` — R2 より狭い
 
-- `customMetadata` はありません。落とすのではなく拒否します（core は使っていません）。
+- custom metadata はありません。core の provider-neutral な `ObjectStore` も
+  `contentType` しか運ばないので、両者はここで一致しています。
 - streaming `put` には `contentLength` が必要です。ADR 0005 が「Host は宣言された
   byte 数を streaming 中に enforce し、size を知るために body を buffer しない」と
-  定めているためです。`IObjectStorage.put` に optional な `contentLength` を足したので、
-  size が既に手元にある呼び出し（upload の `File.size`）は渡してください。無い場合は
-  Worker 側で buffer します。
-- `delete` は 1 key ずつ。配列形は逐次呼び出しになり、atomic ではありません。
+  定めているためです。`ObjectStoreBody` のうち `Blob`（media upload の `File`）・
+  `ArrayBuffer`・string は adapter が size を読み取れるので、bytes は buffer されず
+  宣言付きで stream します。size を知りようがない裸の `ReadableStream` だけが
+  Worker 側で buffer されます。
+- `delete` は 1 key ずつ。配列形は逐次呼び出し（重複 key は 1 回）になり、atomic では
+  ありません。
+- range 指定なしの `get` に Host が `partial` な body を返したら、truncate された bytes
+  を完全な object として配ってしまうので、adapter は body を捨てて拒否します。
+- enumeration（`list`）と `head` は core の `ObjectStore` に無いので adapter にもあり
+  ません。Host は両方 projection しますが、port が使いません。
 
 ## self-host で無いもの
 

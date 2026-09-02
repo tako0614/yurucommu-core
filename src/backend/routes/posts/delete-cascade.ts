@@ -21,7 +21,7 @@
 
 import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { D1Statement, Database } from "../../../db/index.ts";
-import type { IObjectStorage } from "../../runtime/types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import {
   activities,
   actors,
@@ -80,7 +80,7 @@ async function deleteAttachedMediaUploadsForObject(
   db: Database,
   obj: CascadeObject,
   removedObjectApIds: ReadonlySet<string>,
-  media?: IObjectStorage,
+  media?: ObjectStore,
 ): Promise<{
   mediaKeys: string[];
   mediaUploadIds: string[];
@@ -191,7 +191,7 @@ async function deleteAttachedMediaUploadsForObject(
  * system's already-accepted media failure mode.
  */
 export async function purgeMediaBlobs(
-  media: IObjectStorage | undefined,
+  media: ObjectStore | undefined,
   keys: string[],
 ): Promise<void> {
   if (!media || keys.length === 0) return;
@@ -220,7 +220,7 @@ export async function reapReplacedMediaUrl(
   db: Database,
   oldUrl: string | null | undefined,
   uploaderApId: string,
-  media?: IObjectStorage,
+  media?: ObjectStore,
 ): Promise<void> {
   try {
     if (!oldUrl || !oldUrl.startsWith("/media/")) return;
@@ -303,7 +303,7 @@ export async function reapReplacedMediaUrl(
 export async function deleteObjectCascade(
   db: Database,
   objectApId: string,
-  media?: IObjectStorage,
+  media?: ObjectStore,
 ): Promise<string[]> {
   return await deleteObjectsCascade(db, [objectApId], media);
 }
@@ -316,7 +316,7 @@ export async function deleteObjectCascade(
 export async function prepareObjectDeleteCascade(
   db: Database,
   objectApId: string,
-  media?: IObjectStorage,
+  media?: ObjectStore,
 ): Promise<{
   mediaKeys: string[];
   statements: readonly [D1Statement, ...D1Statement[]];
@@ -392,7 +392,7 @@ export async function prepareObjectDeleteCascade(
 export async function deleteObjectsCascade(
   db: Database,
   objectApIds: string[],
-  media?: IObjectStorage,
+  media?: ObjectStore,
 ): Promise<string[]> {
   const uniqueApIds = [...new Set(objectApIds)];
   if (uniqueApIds.length === 0) return [];

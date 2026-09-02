@@ -283,10 +283,10 @@ export function isEdgeObjectsBinding(
     // give a bucket-shaped object those names.
     typeof (value as Record<string, unknown>).createMultipartUpload !==
       "function" &&
-    // An already-adapted `IObjectStorage` has the same five names. The facade
-    // is told apart by arity, which is part of its contract: the Host checks
-    // `arguments.length`, so `get` and `list` take their options slot even when
-    // it is `undefined`, while the port's `get(key)` takes one argument.
+    // Arity is part of the facade's contract and is asserted rather than
+    // assumed: the Host checks `arguments.length`, so `get` and `list` take
+    // their options slot even when it is `undefined`. Anything bucket-shaped
+    // whose `get` takes one argument is some other adapter, not this facade.
     (value as { get: (...args: unknown[]) => unknown }).get.length === 2
   );
 }

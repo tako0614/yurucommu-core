@@ -1,22 +1,25 @@
 /**
- * `edge.objects@1.0.0` → {@link IObjectStorage}.
+ * `edge.objects@1.0.0` → {@link ObjectStore}.
  *
  * The facade is deliberately narrower than R2, and the narrow spots are the
  * interesting ones:
  *
- *  - NO `customMetadata`. Only `contentType` survives a round trip. Nothing in
- *    this repo writes custom metadata, so rather than dropping it silently a
- *    caller that starts is refused.
- *  - FIXED ARITIES. The Host counts `arguments.length`, so `get`, `put`, and
- *    `list` are always called with their full argument list even when the
- *    options are absent.
+ *  - NO CUSTOM METADATA. Only `contentType` survives a round trip, which is
+ *    also all the provider-neutral {@link ObjectStorePutOptions} carries.
+ *  - FIXED ARITIES. The Host counts `arguments.length`, so `get` and `put` are
+ *    always called with their full argument list even when the options are
+ *    absent.
  *  - A STREAMING `put` NEEDS `contentLength`. ADR 0005 is explicit that a Host
  *    enforces the declared count while streaming and never buffers a body to
- *    discover its size. `IObjectStorage.put` therefore carries an optional
- *    `contentLength`; a stream that arrives without one is buffered HERE, in
- *    the Worker, which is the honest cost of not knowing the size.
+ *    discover its size. Every body shape but a bare `ReadableStream` already
+ *    knows its length — a `Blob` (the shape media uploads hand over), an
+ *    `ArrayBuffer`, a string — so the length is declared and the bytes stream
+ *    through. A stream that arrives without a knowable length is buffered
+ *    HERE, in the Worker, which is the honest cost of not knowing the size.
  *  - `delete` TAKES ONE KEY. The port's array form becomes a sequence of calls,
  *    which is not atomic — the same as R2's, which also has no transaction.
+ *  - NO ENUMERATION OR HEAD. The port does not carry them, so neither does the
+ *    adapter, even though the Host projects both.
  *
  * AVAILABILITY: `edge.objects` is projected by the managed Cloudflare backend
  * (`createEdgeObjectsR2Adapter`). The self-host backend projects only
@@ -25,15 +28,15 @@
  */
 
 import type {
-  IObjectStorage,
-  ListObjectsResult,
-  ObjectMetadata,
-  StorageObject,
+  ObjectStore,
+  ObjectStoreBody,
+  ObjectStoreObject,
+  ObjectStorePutOptions,
 } from "./types.ts";
-import type { EdgeObjectMetadata, EdgeObjectsBinding } from "./edge-facades.ts";
+import type { EdgeObjectsBinding } from "./edge-facades.ts";
 import { readStream } from "./shared.ts";
 
-/** A request the facade cannot express. */
+/** A request or response the facade cannot express. */
 export class EdgeObjectsShapeError extends TypeError {
   constructor(message: string) {
     super(message);
@@ -41,125 +44,77 @@ export class EdgeObjectsShapeError extends TypeError {
   }
 }
 
-function metadataOf(value: EdgeObjectMetadata): ObjectMetadata {
-  return {
-    contentType: value.contentType,
-    contentLength: value.size,
-    etag: value.etag,
-    httpMetadata: value.contentType
-      ? { contentType: value.contentType }
-      : undefined,
-  };
+/**
+ * The byte length of a body the Host can be told up front, or `undefined` for
+ * a bare stream whose size only the producer knows.
+ */
+function knownBodyLength(value: ObjectStoreBody): number | undefined {
+  if (value instanceof Blob) return value.size;
+  if (value instanceof ArrayBuffer) return value.byteLength;
+  if (typeof value === "string") {
+    return new TextEncoder().encode(value).byteLength;
+  }
+  return undefined;
 }
 
-export class EdgeObjectStorage implements IObjectStorage {
+export class EdgeObjectStorage implements ObjectStore {
   constructor(private readonly bucket: EdgeObjectsBinding) {}
 
   async put(
     key: string,
-    value: ReadableStream | ArrayBuffer | string,
-    options?: {
-      httpMetadata?: ObjectMetadata["httpMetadata"];
-      customMetadata?: Record<string, string>;
-      contentLength?: number;
-    },
+    value: ObjectStoreBody,
+    options?: ObjectStorePutOptions,
   ): Promise<void> {
-    if (
-      options?.customMetadata !== undefined &&
-      Object.keys(options.customMetadata).length > 0
-    ) {
-      throw new EdgeObjectsShapeError(
-        "edge.objects: customMetadata has no portable equivalent; carry the " +
-          "attribute in the database row that owns the key instead",
-      );
-    }
-    const contentType = options?.httpMetadata?.contentType;
-    let body: string | ArrayBuffer | Uint8Array | ReadableStream = value;
-    let contentLength = options?.contentLength;
-    if (
-      typeof value !== "string" &&
-      !(value instanceof ArrayBuffer) &&
-      contentLength === undefined
-    ) {
-      // No declared length and a stream: the size has to come from somewhere,
+    const contentType = options?.contentType;
+    let contentLength = knownBodyLength(value);
+    // The facade's body slot has no `Blob`. A Blob's stream carries the same
+    // bytes and its size is already known, so it goes over as a declared-length
+    // stream rather than being buffered.
+    let body: string | ArrayBuffer | Uint8Array | ReadableStream =
+      value instanceof Blob ? value.stream() : value;
+    if (contentLength === undefined) {
+      // No knowable length and a stream: the size has to come from somewhere,
       // and the Host will not discover it. Buffering is the only remaining
       // option, so it happens where the memory cost is visible.
-      body = await readStream(value as ReadableStream<Uint8Array>);
-      contentLength = (body as Uint8Array).byteLength;
+      const buffered = await readStream(body as ReadableStream<Uint8Array>);
+      body = buffered;
+      contentLength = buffered.byteLength;
     }
     await this.bucket.put(key, body, {
-      ...(contentLength === undefined ? {} : { contentLength }),
+      contentLength,
       ...(contentType === undefined ? {} : { contentType }),
     });
   }
 
-  async get(key: string): Promise<StorageObject | null> {
+  async get(key: string): Promise<ObjectStoreObject | null> {
     const found = await this.bucket.get(key, undefined);
     if (!found) return null;
-    const body = found.body;
-    // The facade hands out exactly one stream. `arrayBuffer`/`text`/`json` are
-    // served from it, so a caller may use the body OR the helpers, never both —
-    // which is also true of R2.
-    const buffered = async () => await new Response(body).arrayBuffer();
+    if (found.partial) {
+      // No range was asked for, so a partial body would be a truncated object
+      // served as if it were whole. Refuse rather than hand the caller bytes
+      // that do not add up to the object.
+      await found.body.cancel().catch(() => undefined);
+      throw new EdgeObjectsShapeError(
+        "edge.objects: the Host returned a partial body for an unranged get",
+      );
+    }
     return {
       key,
-      body,
-      bodyUsed: false,
-      httpEtag: found.etag,
-      arrayBuffer: buffered,
-      text: async () => new TextDecoder().decode(await buffered()),
-      json: async <T>() =>
-        JSON.parse(new TextDecoder().decode(await buffered())) as T,
-      httpMetadata: found.contentType
-        ? { contentType: found.contentType }
-        : undefined,
-      customMetadata: undefined,
-    };
-  }
-
-  async delete(key: string | string[]): Promise<void> {
-    const keys = Array.isArray(key) ? key : [key];
-    for (const one of keys) await this.bucket.delete(one);
-  }
-
-  async list(options?: {
-    prefix?: string;
-    limit?: number;
-    cursor?: string;
-    delimiter?: string;
-  }): Promise<ListObjectsResult> {
-    const page = await this.bucket.list({
-      ...(options?.prefix === undefined ? {} : { prefix: options.prefix }),
-      ...(options?.delimiter === undefined
+      body: found.body as ReadableStream<Uint8Array>,
+      ...(found.contentType === undefined
         ? {}
-        : { delimiter: options.delimiter }),
-      ...(options?.cursor === undefined ? {} : { cursor: options.cursor }),
-      ...(options?.limit === undefined ? {} : { limit: options.limit }),
-    });
-    return {
-      objects: page.objects.map((object) => ({
-        key: object.key,
-        size: object.size,
-        // The Host omits the upload instant when the provider did not record
-        // one; the port's `Date` is not optional, so it reads as the epoch.
-        uploaded: new Date(object.uploadedAtMillis ?? 0),
-        etag: object.etag,
-        httpMetadata: object.contentType
-          ? { contentType: object.contentType }
-          : undefined,
-      })),
-      truncated: page.truncated,
-      cursor: page.truncated ? page.cursor : undefined,
-      delimitedPrefixes: [...page.prefixes],
+        : { contentType: found.contentType }),
+      etag: found.etag,
+      byteLength: found.size,
     };
   }
 
-  async head(key: string): Promise<ObjectMetadata | null> {
-    const found = await this.bucket.head(key);
-    return found ? metadataOf(found) : null;
+  async delete(key: string | readonly string[]): Promise<void> {
+    const keys = typeof key === "string" ? [key] : [...new Set(key)];
+    for (const one of keys) await this.bucket.delete(one);
   }
 }
 
-export function wrapEdgeObjects(bucket: EdgeObjectsBinding): IObjectStorage {
+export function wrapEdgeObjects(bucket: EdgeObjectsBinding): ObjectStore {
   return new EdgeObjectStorage(bucket);
 }

@@ -4,7 +4,7 @@ import {
   createManagedRuntimeKeyValueStore,
   createManagedRuntimeObjectStorage,
   type IKeyValueStore,
-  type IObjectStorage,
+  type ObjectStore,
   type ManagedRuntimeDataAdapterOptions,
 } from "../public.ts";
 import {
@@ -18,8 +18,22 @@ test("server public surface exports the managed data adapters and their contract
   ) => IKeyValueStore = createManagedRuntimeKeyValueStore;
   const objectStorageFactory: (
     options: ManagedRuntimeDataAdapterOptions,
-  ) => IObjectStorage = createManagedRuntimeObjectStorage;
+  ) => ObjectStore = createManagedRuntimeObjectStorage;
 
   expect(keyValueFactory).toBe(createManagedRuntimeKeyValueStoreDirect);
   expect(objectStorageFactory).toBe(createManagedRuntimeObjectStorageDirect);
+});
+
+test("server public object-store exports do not carry the removed vendor shape", async () => {
+  const publicSource = await Bun.file(
+    new URL("../public.ts", import.meta.url),
+  ).text();
+  const typesSource = await Bun.file(
+    new URL("../runtime/types.ts", import.meta.url),
+  ).text();
+  for (const source of [publicSource, typesSource]) {
+    expect(source).not.toMatch(
+      /\bR2\b|IObjectStorage|ObjectMetadata|StorageObject|ListObjectsResult/u,
+    );
+  }
 });

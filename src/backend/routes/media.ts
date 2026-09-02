@@ -234,11 +234,12 @@ media.post("/upload", async (c) => {
     // transcode pipeline, and buffering a 40MB video would pressure the Worker
     // memory budget.
     if (isVideo) {
-      await media.put(r2Key, file.stream(), {
-        httpMetadata: { contentType },
-        // Declared so a portable object-storage binding can enforce the length
-        // while streaming instead of buffering the whole video to discover it.
-        contentLength: file.size,
+      // The Blob is handed over whole rather than as a bare stream: an
+      // ObjectStore adapter reads `File.size` from it, so the portable
+      // `edge.objects` lane can declare the length while streaming instead of
+      // buffering the whole video in the Worker to discover it.
+      await media.put(r2Key, file, {
+        contentType,
       });
     } else {
       const original = new Uint8Array(await file.arrayBuffer());
@@ -250,7 +251,7 @@ media.post("/upload", async (c) => {
         cleaned.byteOffset + cleaned.byteLength,
       ) as ArrayBuffer;
       await media.put(r2Key, cleanedBuffer, {
-        httpMetadata: { contentType },
+        contentType,
       });
     }
 
@@ -582,13 +583,12 @@ async function serveMediaByR2Key(c: MediaContext, r2Key: string) {
     const object = await media.get(r2Key);
     if (!object) return c.notFound();
 
-    const contentType =
-      object.httpMetadata?.contentType || "application/octet-stream";
+    const contentType = object.contentType || "application/octet-stream";
     const cacheScope = authResult.isPublic ? "public" : "private";
     const maxAge = contentType.startsWith("video/")
       ? CACHE_MAX_AGE_VIDEO
       : CACHE_MAX_AGE_IMAGE;
-    const etag = object.httpEtag;
+    const etag = object.etag;
 
     if (!object.body) {
       return c.body(null, 200, {

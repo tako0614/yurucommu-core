@@ -280,38 +280,21 @@ describe("managed runtime data adapters", () => {
     expect(JSON.stringify(requests)).not.toContain("cloudflare");
   });
 
-  test("ObjectBucket preserves content metadata and exposes the runtime storage contract", async () => {
+  test("ObjectBucket preserves flat content metadata and exposes the runtime storage contract", async () => {
     const requests: Request[] = [];
     const storage = createManagedRuntimeObjectStorage({
       materialization: materialization(),
       gateway: {
         async fetch(request) {
           requests.push(request.clone());
-          const url = new URL(request.url);
           if (request.method === "PUT" || request.method === "DELETE") {
             return Response.json({ ok: true });
           }
-          if (url.pathname.endsWith("/objects")) {
-            return Response.json({
-              objects: [
-                {
-                  key: "images/one.png",
-                  size: 5,
-                  uploaded: "2026-07-29T00:00:00.000Z",
-                  etag: "etag",
-                },
-              ],
-              truncated: false,
-            });
-          }
-          return new Response(request.method === "HEAD" ? null : "image", {
+          return new Response("image", {
             headers: {
               "content-type": "image/png",
               "content-length": "5",
               etag: '"etag"',
-              "x-takosumi-object-custom-metadata": encodeURIComponent(
-                JSON.stringify({ owner: "capsule" }),
-              ),
             },
           });
         },
@@ -321,37 +304,52 @@ describe("managed runtime data adapters", () => {
     });
 
     await storage.put("images/one.png", "image", {
-      httpMetadata: { contentType: "image/png" },
-      customMetadata: { owner: "capsule" },
+      contentType: "image/png",
     });
     expect(requests[0]!.headers.get("content-type")).toBe("image/png");
-    expect(
-      JSON.parse(
-        decodeURIComponent(
-          requests[0]!.headers.get("x-takosumi-object-custom-metadata")!,
-        ),
-      ),
-    ).toEqual({ owner: "capsule" });
 
     const object = await storage.get("images/one.png");
-    expect(object?.httpMetadata?.contentType).toBe("image/png");
-    expect(object?.customMetadata).toEqual({ owner: "capsule" });
-    expect(await object?.text()).toBe("image");
-    expect(await storage.head("images/one.png")).toMatchObject({
-      contentLength: 5,
-      customMetadata: { owner: "capsule" },
-    });
-    expect(await storage.list({ prefix: "images/" })).toMatchObject({
-      objects: [
-        {
-          key: "images/one.png",
-          size: 5,
-          uploaded: new Date("2026-07-29T00:00:00.000Z"),
-        },
-      ],
-      truncated: false,
-    });
-    await storage.delete("images/one.png");
+    expect(object?.contentType).toBe("image/png");
+    expect(object?.etag).toBe('"etag"');
+    expect(object?.byteLength).toBe(5);
+    expect(await new Response(object?.body).text()).toBe("image");
+    await storage.delete(["images/one.png"]);
     expect(requests.at(-1)!.method).toBe("DELETE");
+  });
+
+  test("ObjectBucket forwards Blob bytes and metadata without length mismatches", async () => {
+    let captured: Request | undefined;
+    const bytes = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]);
+    const body = new Blob([bytes], { type: "video/webm" });
+    const storage = createManagedRuntimeObjectStorage({
+      materialization: materialization(),
+      gateway: {
+        async fetch(request) {
+          captured = request;
+          return Response.json({ ok: true });
+        },
+      },
+      alias: "media",
+      idempotencyKey: () => "yurucommu.object:blob",
+    });
+
+    await storage.put("videos/clip.webm", body, {
+      contentType: body.type,
+    });
+
+    expect(captured).toBeDefined();
+    expect(captured!.headers.get("content-type")).toBe("video/webm");
+    // Fetch's standard Blob Request framing is runtime-owned. This adapter
+    // must not synthesize a competing length header; when a runtime supplies
+    // one it must describe the Blob exactly.
+    const declaredLength = captured!.headers.get("content-length");
+    expect(
+      declaredLength === null || declaredLength === String(body.size),
+    ).toBe(true);
+    expect(captured!.body).toBeInstanceOf(ReadableStream);
+    // The adapter passes the Blob directly and must not consume the body before
+    // handing it to the host gateway.
+    expect(captured!.bodyUsed).toBe(false);
+    expect(new Uint8Array(await captured!.arrayBuffer())).toEqual(bytes);
   });
 });

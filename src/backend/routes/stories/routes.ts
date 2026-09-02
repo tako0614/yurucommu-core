@@ -18,7 +18,7 @@ import {
   purgeMediaBlobs,
 } from "../posts/delete-cascade.ts";
 import type { Env, Variables } from "../../types.ts";
-import type { IObjectStorage } from "../../runtime/types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import {
   activityApId,
   actorApId,
@@ -61,10 +61,7 @@ const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 // at most one fallback pass runs at a time per isolate.
 let expiredStoryCleanupInFlight = false;
 
-function maybeCleanupExpiredStories(
-  db: Database,
-  media?: IObjectStorage,
-): void {
+function maybeCleanupExpiredStories(db: Database, media?: ObjectStore): void {
   if (expiredStoryCleanupInFlight) return;
   if (Math.random() >= 0.01) return; // ~1% of feed requests per isolate
 

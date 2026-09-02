@@ -11,16 +11,15 @@ import type {
   MessageBatch,
   Queue,
   R2Bucket,
-  R2Object,
 } from "@cloudflare/workers-types";
 import { getDb } from "../../db/index.ts";
 import type {
   IKeyValueStore,
-  IObjectStorage,
+  ObjectStore,
+  ObjectStoreBody,
+  ObjectStoreObject,
+  ObjectStorePutOptions,
   IStaticAssets,
-  ListObjectsResult,
-  ObjectMetadata,
-  StorageObject,
 } from "./types.ts";
 import type {
   IQueueBatch,
@@ -33,76 +32,39 @@ import type {
 /**
  * Cloudflare R2 Storage Adapter
  */
-class CloudflareStorage implements IObjectStorage {
+class CloudflareStorage implements ObjectStore {
   constructor(private bucket: R2Bucket) {}
 
   async put(
     key: string,
-    value: ReadableStream | ArrayBuffer | string,
-    options?: {
-      httpMetadata?: ObjectMetadata["httpMetadata"];
-      customMetadata?: Record<string, string>;
-    },
+    value: ObjectStoreBody,
+    options?: ObjectStorePutOptions,
   ): Promise<void> {
     await this.bucket.put(key, value as Parameters<R2Bucket["put"]>[1], {
-      httpMetadata: options?.httpMetadata,
-      customMetadata: options?.customMetadata,
+      httpMetadata:
+        options?.contentType === undefined
+          ? undefined
+          : { contentType: options.contentType },
     });
   }
 
-  async get(key: string): Promise<StorageObject | null> {
+  async get(key: string): Promise<ObjectStoreObject | null> {
     const obj = await this.bucket.get(key);
     if (!obj) return null;
 
     return {
       key,
       body: obj.body as unknown as ReadableStream,
-      bodyUsed: obj.bodyUsed,
-      httpEtag: obj.httpEtag,
-      arrayBuffer: () => obj.arrayBuffer(),
-      text: () => obj.text(),
-      json: <T>() => obj.json<T>(),
-      httpMetadata: obj.httpMetadata,
-      customMetadata: obj.customMetadata,
-    };
-  }
-
-  async delete(key: string | string[]): Promise<void> {
-    await this.bucket.delete(key);
-  }
-
-  async list(options?: {
-    prefix?: string;
-    limit?: number;
-    cursor?: string;
-    delimiter?: string;
-  }): Promise<ListObjectsResult> {
-    const result = await this.bucket.list(options);
-    return {
-      objects: result.objects.map((obj: R2Object) => ({
-        key: obj.key,
-        size: obj.size,
-        uploaded: obj.uploaded,
-        etag: obj.etag,
-        httpMetadata: obj.httpMetadata,
-      })),
-      truncated: result.truncated,
-      cursor: result.truncated ? result.cursor : undefined,
-      delimitedPrefixes: result.delimitedPrefixes,
-    };
-  }
-
-  async head(key: string): Promise<ObjectMetadata | null> {
-    const obj = await this.bucket.head(key);
-    if (!obj) return null;
-
-    return {
       contentType: obj.httpMetadata?.contentType,
-      contentLength: obj.size,
-      etag: obj.etag,
-      httpMetadata: obj.httpMetadata,
-      customMetadata: obj.customMetadata,
+      etag: obj.httpEtag,
+      byteLength: obj.size,
     };
+  }
+
+  async delete(key: string | readonly string[]): Promise<void> {
+    await this.bucket.delete(
+      typeof key === "string" ? key : ([...key] as string[]),
+    );
   }
 }
 
@@ -241,7 +203,7 @@ export function wrapCloudflareBindings<
   "DB" | "MEDIA" | "KV" | "ASSETS" | "DELIVERY_QUEUE" | "DELIVERY_DLQ"
 > & {
   DB_INSTANCE: ReturnType<typeof getDb>;
-  MEDIA?: IObjectStorage;
+  MEDIA?: ObjectStore;
   KV: IKeyValueStore;
   ASSETS?: IStaticAssets;
   DELIVERY_QUEUE?: IQueueProducer<unknown>;

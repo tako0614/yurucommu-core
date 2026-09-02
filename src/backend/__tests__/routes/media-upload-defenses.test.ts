@@ -8,6 +8,7 @@ import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { mediaUploads } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import mediaRoutes from "../../routes/media.ts";
 
 /**
@@ -229,4 +230,43 @@ test("accepts a valid PNG and records it (200)", async () => {
   const rows = await db.select().from(mediaUploads).all();
   expect(rows.length).toBe(1);
   expect(rows[0]?.contentType).toBe("image/png");
+});
+
+test("passes the original video File to object storage", async () => {
+  const db = await freshDb();
+  const puts: Array<{
+    value: unknown;
+    options: Parameters<ObjectStore["put"]>[2];
+  }> = [];
+  const media: ObjectStore = {
+    async put(_key, value, options) {
+      puts.push({ value, options });
+    },
+    async get() {
+      return null;
+    },
+    async delete() {},
+  };
+  const file = new File(
+    [new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x01])],
+    "clip.webm",
+    { type: "video/webm" },
+  );
+  const form = new FormData();
+  form.set("file", file);
+  const res = await appWith(db, fakeActor()).fetch(
+    new Request(`${APP_URL}/media/upload`, { method: "POST", body: form }),
+    { APP_URL, DB_INSTANCE: db, MEDIA: media } as unknown as Env,
+  );
+
+  expect(res.status).toBe(200);
+  expect(puts).toHaveLength(1);
+  expect(puts[0]?.value).toBeInstanceOf(File);
+  expect((puts[0]?.value as File).name).toBe(file.name);
+  expect((puts[0]?.value as File).type).toBe(file.type);
+  expect((puts[0]?.value as File).size).toBe(file.size);
+  expect(await (puts[0]?.value as File).arrayBuffer()).toEqual(
+    await file.arrayBuffer(),
+  );
+  expect(puts[0]?.options?.contentType).toBe("video/webm");
 });

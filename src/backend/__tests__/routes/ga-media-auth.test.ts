@@ -103,14 +103,15 @@ function fakeActor(apId: string, username: string): Actor {
   } as unknown as Actor;
 }
 
-// Minimal in-memory R2 stub: only put/get are exercised by serveMediaByR2Key.
-function memoryR2() {
+// Minimal in-memory object-store stub: only put/get are exercised by
+// serveMediaByR2Key.
+function memoryObjectStore() {
   const store = new Map<string, { body: ArrayBuffer; contentType: string }>();
   return {
     async put(
       key: string,
       value: ArrayBuffer | Uint8Array,
-      opts?: { httpMetadata?: { contentType?: string } },
+      opts?: { contentType?: string },
     ) {
       const buf =
         value instanceof Uint8Array
@@ -121,8 +122,7 @@ function memoryR2() {
           : value;
       store.set(key, {
         body: buf as ArrayBuffer,
-        contentType:
-          opts?.httpMetadata?.contentType || "application/octet-stream",
+        contentType: opts?.contentType || "application/octet-stream",
       });
     },
     async get(key: string) {
@@ -130,8 +130,9 @@ function memoryR2() {
       if (!entry) return null;
       return {
         body: new Blob([entry.body]).stream(),
-        httpMetadata: { contentType: entry.contentType },
-        httpEtag: `"etag-${key}"`,
+        contentType: entry.contentType,
+        etag: `"etag-${key}"`,
+        byteLength: entry.body.byteLength,
       };
     },
   };
@@ -141,7 +142,7 @@ function envFor(db: Database): Env {
   return {
     APP_URL,
     DB_INSTANCE: db,
-    MEDIA: memoryR2(),
+    MEDIA: memoryObjectStore(),
   } as unknown as Env;
 }
 

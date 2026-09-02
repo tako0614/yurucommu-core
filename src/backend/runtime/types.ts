@@ -58,92 +58,50 @@ export interface IDatabase {
 }
 
 /**
- * Object storage metadata
+ * Bodies accepted by the provider-neutral object store seam.
+ *
+ * A body is handed to an adapter exactly once. Adapters must not eagerly
+ * consume or clone streams; callers that need replayability own that concern.
  */
-export interface ObjectMetadata {
+export type ObjectStoreBody =
+  Blob | ReadableStream<Uint8Array> | ArrayBuffer | string;
+
+/** Options for writing one object. */
+export interface ObjectStorePutOptions {
   contentType?: string;
-  contentLength?: number;
-  etag?: string;
-  httpMetadata?: {
-    contentType?: string;
-    cacheControl?: string;
-    contentDisposition?: string;
-    contentEncoding?: string;
-    contentLanguage?: string;
-  };
-  customMetadata?: Record<string, string>;
 }
 
 /**
- * Storage object interface
+ * One object returned by an ObjectStore read.
+ *
+ * The body remains lazy and is consumed through the returned stream. Metadata
+ * is deliberately flat so callers do not depend on a vendor SDK's shape.
  */
-export interface StorageObject {
+export interface ObjectStoreObject {
   key: string;
-  body: ReadableStream | null;
-  bodyUsed: boolean;
-  /**
-   * HTTP `ETag` value to send to clients. Optional because not every
-   * backend (e.g. the in-memory test stub) tracks an etag.
-   */
-  httpEtag?: string;
-  arrayBuffer(): Promise<ArrayBuffer>;
-  text(): Promise<string>;
-  json<T = unknown>(): Promise<T>;
-  httpMetadata?: ObjectMetadata["httpMetadata"];
-  customMetadata?: Record<string, string>;
+  body: ReadableStream<Uint8Array> | null;
+  contentType?: string;
+  etag?: string;
+  byteLength?: number;
 }
 
 /**
- * List objects result
+ * Provider-neutral object storage seam.
+ *
+ * Implementations expose only the operations used by production code. Object
+ * enumeration and separate metadata probes are intentionally not part of the
+ * contract; batch deletion is represented by passing an array of keys.
  */
-export interface ListObjectsResult {
-  objects: Array<{
-    key: string;
-    size: number;
-    uploaded: Date;
-    etag?: string;
-    httpMetadata?: ObjectMetadata["httpMetadata"];
-  }>;
-  truncated: boolean;
-  cursor?: string;
-  delimitedPrefixes?: string[];
-}
-
-/**
- * Object storage interface - abstracts R2Bucket
- */
-export interface IObjectStorage {
+export interface ObjectStore {
   put(
     key: string,
-    value: ReadableStream | ArrayBuffer | string,
-    options?: {
-      httpMetadata?: ObjectMetadata["httpMetadata"];
-      customMetadata?: Record<string, string>;
-      /**
-       * Byte length of `value`, when the caller already knows it.
-       *
-       * R2 discovers the size while streaming and ignores this. The portable
-       * `edge.objects` facade does not: ADR 0005 fixes that a Host enforces a
-       * declared length rather than buffering a body to find one, so a
-       * ReadableStream without this has to be buffered in the Worker. Pass it
-       * wherever the size is already in hand (an upload's `File.size`).
-       */
-      contentLength?: number;
-    },
+    value: ObjectStoreBody,
+    options?: ObjectStorePutOptions,
   ): Promise<void>;
 
-  get(key: string): Promise<StorageObject | null>;
+  get(key: string): Promise<ObjectStoreObject | null>;
 
-  delete(key: string | string[]): Promise<void>;
-
-  list(options?: {
-    prefix?: string;
-    limit?: number;
-    cursor?: string;
-    delimiter?: string;
-  }): Promise<ListObjectsResult>;
-
-  head(key: string): Promise<ObjectMetadata | null>;
+  delete(key: string | readonly string[]): Promise<void>;
 }
 
 /**
@@ -192,7 +150,7 @@ export interface IStaticAssets {
  */
 export interface RuntimeEnv {
   db: IDatabase;
-  storage?: IObjectStorage;
+  storage?: ObjectStore;
   kv?: IKeyValueStore;
   assets?: IStaticAssets;
 

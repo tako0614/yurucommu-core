@@ -62,7 +62,7 @@ import {
   wrapCloudflareBindings,
   wrapCloudflareMessageBatch,
 } from "./cloudflare.ts";
-import type { IKeyValueStore, IObjectStorage, IStaticAssets } from "./types.ts";
+import type { IKeyValueStore, IStaticAssets, ObjectStore } from "./types.ts";
 import type { IQueueBatch, IQueueProducer } from "./queue.ts";
 
 /** The variable that names the lane. Set it in the deployment's plain vars. */
@@ -199,7 +199,7 @@ type WrappedRuntime<T> = Omit<
   "DB" | "MEDIA" | "KV" | "ASSETS" | "DELIVERY_QUEUE" | "DELIVERY_DLQ"
 > & {
   DB_INSTANCE: Database;
-  MEDIA?: IObjectStorage;
+  MEDIA?: ObjectStore;
   KV: IKeyValueStore;
   ASSETS?: IStaticAssets;
   DELIVERY_QUEUE?: IQueueProducer<unknown>;

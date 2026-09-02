@@ -47,7 +47,7 @@ import {
 } from "../../db/index.ts";
 import type { Database } from "../../db/index.ts";
 import type { Env } from "../types.ts";
-import type { IObjectStorage } from "../runtime/types.ts";
+import type { ObjectStore } from "../runtime/types.ts";
 import { activityApId, generateId } from "../federation-helpers.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
 import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
@@ -80,7 +80,7 @@ interface BatchableDb {
  */
 export async function purgeActorMediaUploads(
   db: Database,
-  media: IObjectStorage | undefined,
+  media: ObjectStore | undefined,
   apId: string,
 ): Promise<void> {
   const uploads = await db

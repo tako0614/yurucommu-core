@@ -98,11 +98,16 @@ export {
 } from "./runtime/edge-objects.ts";
 export type {
   IKeyValueStore,
-  IObjectStorage,
-  ListObjectsResult,
-  ObjectMetadata,
-  StorageObject,
+  ObjectStore,
+  ObjectStoreBody,
+  ObjectStoreObject,
+  ObjectStorePutOptions,
 } from "./runtime/types.ts";
+export {
+  createS3FetchObjectStore,
+  S3FetchObjectStoreError,
+  type S3ObjectFetcher,
+} from "./runtime/s3-fetch.ts";
 export type {
   IQueueBatch,
   IQueueMessage,

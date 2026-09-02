@@ -39,7 +39,7 @@ import {
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
-import type { IObjectStorage } from "../../runtime/types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import type { IQueueProducer } from "../../runtime/queue.ts";
 import type {
   DeliveryDlqMessageV1,
@@ -122,7 +122,7 @@ async function insertPost(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function ctxFor(
   db: Database,
-  media?: IObjectStorage,
+  media?: ObjectStore,
   queueBindings?: {
     DELIVERY_QUEUE: IQueueProducer<DeliveryQueueMessageV1>;
     DELIVERY_DLQ: IQueueProducer<DeliveryDlqMessageV1>;
@@ -159,7 +159,7 @@ function recordingQueue<T>(): {
 }
 
 function recordingStorage(): {
-  storage: IObjectStorage;
+  storage: ObjectStore;
   deleted: string[];
 } {
   const deleted: string[] = [];
@@ -171,13 +171,7 @@ function recordingStorage(): {
     async delete(key: string | string[]) {
       deleted.push(...(Array.isArray(key) ? key : [key]));
     },
-    async list() {
-      return { objects: [], truncated: false } as never;
-    },
-    async head() {
-      return null;
-    },
-  } as unknown as IObjectStorage;
+  } as unknown as ObjectStore;
   return { storage, deleted };
 }
 

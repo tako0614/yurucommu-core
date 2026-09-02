@@ -23,7 +23,73 @@ export type OidcIdTokenClaims = {
   email?: string;
   email_verified?: boolean;
   preferred_username?: string;
+  takosumi?: unknown;
 };
+
+export type VerifiedTakosumiWorkspaceGrant = {
+  workspaceId: string;
+  capsuleId: string;
+  role: "owner" | "admin" | "member" | "viewer";
+};
+
+/**
+ * Read the exact Workspace authority Takosumi Accounts placed in a verified
+ * ID token. Call this only after `verifyOidcIdToken`: this parser validates the
+ * claim shape, while the signature/issuer/audience checks establish who said
+ * it. Unknown or partial shapes grant nothing.
+ */
+export function readVerifiedTakosumiWorkspaceGrant(
+  claims: OidcIdTokenClaims,
+): VerifiedTakosumiWorkspaceGrant | undefined {
+  const value = claims.takosumi;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    !sameStrings(Object.keys(record).sort(), [
+      "capsule_id",
+      "role",
+      "workspace_id",
+    ]) ||
+    !boundedIdentifier(record.workspace_id) ||
+    !boundedIdentifier(record.capsule_id) ||
+    !isTakosumiWorkspaceRole(record.role)
+  ) {
+    return undefined;
+  }
+  return {
+    workspaceId: record.workspace_id,
+    capsuleId: record.capsule_id,
+    role: record.role,
+  };
+}
+
+function boundedIdentifier(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 512 &&
+    value.trim() === value &&
+    !/\s/u.test(value)
+  );
+}
+
+function isTakosumiWorkspaceRole(
+  value: unknown,
+): value is VerifiedTakosumiWorkspaceGrant["role"] {
+  return (
+    typeof value === "string" &&
+    ["owner", "admin", "member", "viewer"].includes(value)
+  );
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]) {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
 
 type Jwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
 

@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
  * `deleteObjectCascade` / `cleanupExpiredStories` delete the object-attached
  * `media_uploads` DB rows, but historically left the backing R2 objects behind
  * forever (there is no orphaned-key GC). They now best-effort delete the blobs
- * by `r2_key` through the threaded `MEDIA` (IObjectStorage) binding, mirroring
+ * by `r2_key` through the threaded `MEDIA` (ObjectStore) binding, mirroring
  * the account-delete teardown in `routes/actors.ts`.
  *
  * These tests assert the reaped uploads' `r2_key`s are requested for deletion on
@@ -29,7 +29,7 @@ import {
   storyViews,
   storyVotes,
 } from "../../../db/index.ts";
-import type { IObjectStorage } from "../../runtime/types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import {
   deleteObjectCascade,
   purgeMediaBlobs,
@@ -118,11 +118,11 @@ async function seedWithMedia(
 }
 
 /**
- * Minimal IObjectStorage stub that only records the keys passed to `delete`.
+ * Minimal ObjectStore stub that only records the keys passed to `delete`.
  * `delete` accepts `string | string[]`; collect both shapes flat.
  */
 function recordingStorage(opts?: { throwOnDelete?: boolean }): {
-  storage: IObjectStorage;
+  storage: ObjectStore;
   deleted: string[];
 } {
   const deleted: string[] = [];
@@ -135,13 +135,7 @@ function recordingStorage(opts?: { throwOnDelete?: boolean }): {
       if (opts?.throwOnDelete) throw new Error("R2 unavailable");
       for (const k of Array.isArray(key) ? key : [key]) deleted.push(k);
     },
-    async list() {
-      return { objects: [], truncated: false } as never;
-    },
-    async head() {
-      return null;
-    },
-  } as unknown as IObjectStorage;
+  } as unknown as ObjectStore;
   return { storage, deleted };
 }
 

@@ -29,7 +29,7 @@ import {
   storyShares,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
-import type { IObjectStorage } from "../../runtime/types.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import { MAX_RELATIONS_PER_ACTOR } from "../../routes/actors-helpers.ts";
 import actorsRoute from "../../routes/actors.ts";
 
@@ -103,7 +103,7 @@ function ownerActor(apId: string): Actor {
   };
 }
 
-function envFor(db: Database, media?: IObjectStorage): Env {
+function envFor(db: Database, media?: ObjectStore): Env {
   const q = {
     send: () => Promise.resolve(),
     sendBatch: () => Promise.resolve(),
@@ -118,7 +118,7 @@ function envFor(db: Database, media?: IObjectStorage): Env {
 }
 
 function failureInjectingStorage(): {
-  storage: IObjectStorage;
+  storage: ObjectStore;
   setFailing: (failing: boolean) => void;
   deleted: string[];
 } {
@@ -133,13 +133,7 @@ function failureInjectingStorage(): {
       if (failing) throw new Error("simulated R2 outage");
       deleted.push(...(Array.isArray(key) ? key : [key]));
     },
-    async list() {
-      return { objects: [], truncated: false } as never;
-    },
-    async head() {
-      return null;
-    },
-  } as unknown as IObjectStorage;
+  } as unknown as ObjectStore;
   return { storage, setFailing: (value) => (failing = value), deleted };
 }
 

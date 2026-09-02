@@ -14,8 +14,10 @@ interface StoredObject {
 
 /**
  * A stand-in that keeps the facade's fixed arities and its narrow option set:
- * `contentType` and `contentLength` only, no `customMetadata`, one key per
- * `delete`, and a `list` page of `{objects, prefixes, truncated, cursor?}`.
+ * `contentType` and `contentLength` only, one key per `delete`, and a `list`
+ * page of `{objects, prefixes, truncated, cursor?}`. `head` and `list` stay on
+ * the fake because the Host projects them, even though the provider-neutral
+ * ObjectStore the adapter implements no longer carries either.
  */
 function createFakeEdgeObjects(): EdgeObjectsBinding & {
   readonly store: Map<string, StoredObject>;
@@ -123,46 +125,57 @@ function createFakeEdgeObjects(): EdgeObjectsBinding & {
 }
 
 describe("edge.objects storage adapter", () => {
+  const textOf = async (object: { body: ReadableStream | null } | null) =>
+    await new Response(object!.body).text();
+
   test("stores bytes with a content type and reads them back", async () => {
     const facade = createFakeEdgeObjects();
     const media = wrapEdgeObjects(facade);
 
     const bytes = new TextEncoder().encode("image-bytes");
     await media.put("uploads/a.png", bytes.buffer as ArrayBuffer, {
-      httpMetadata: { contentType: "image/png" },
+      contentType: "image/png",
     });
-    expect(facade.puts.at(-1)!.options).toEqual({ contentType: "image/png" });
+    expect(facade.puts.at(-1)!.options).toEqual({
+      contentLength: bytes.byteLength,
+      contentType: "image/png",
+    });
 
     const object = await media.get("uploads/a.png");
     expect(object).not.toBeNull();
-    expect(object!.httpEtag).toBe('"uploads/a.png-etag"');
-    expect(object!.httpMetadata?.contentType).toBe("image/png");
-    expect(await object!.text()).toBe("image-bytes");
+    expect(object!.key).toBe("uploads/a.png");
+    expect(object!.etag).toBe('"uploads/a.png-etag"');
+    expect(object!.contentType).toBe("image/png");
+    expect(object!.byteLength).toBe(bytes.byteLength);
+    expect(await textOf(object)).toBe("image-bytes");
   });
 
-  test("forwards a declared contentLength so a stream is not buffered", async () => {
+  test("declares a string body's UTF-8 length rather than its character count", async () => {
+    const facade = createFakeEdgeObjects();
+    const media = wrapEdgeObjects(facade);
+    await media.put("k", "日本語");
+    expect(facade.puts.at(-1)!.options).toEqual({ contentLength: 9 });
+  });
+
+  test("streams a Blob under its known size instead of buffering it", async () => {
+    // This is the media upload path: a video arrives as a `File`, which is a
+    // Blob, so its length is known without reading a byte of it.
     const facade = createFakeEdgeObjects();
     const media = wrapEdgeObjects(facade);
     const payload = new TextEncoder().encode("video-bytes");
+    const file = new Blob([payload as unknown as BlobPart], {
+      type: "video/mp4",
+    });
 
-    await media.put(
-      "uploads/a.mp4",
-      new Response(payload as unknown as BodyInit).body!,
-      {
-        httpMetadata: { contentType: "video/mp4" },
-        contentLength: payload.byteLength,
-      },
-    );
+    await media.put("uploads/a.mp4", file, { contentType: "video/mp4" });
     expect(facade.puts.at(-1)).toMatchObject({
       streamed: true,
       options: { contentLength: payload.byteLength, contentType: "video/mp4" },
     });
-    expect(await (await media.get("uploads/a.mp4"))!.text()).toBe(
-      "video-bytes",
-    );
+    expect(await textOf(await media.get("uploads/a.mp4"))).toBe("video-bytes");
   });
 
-  test("buffers a stream that arrives with no declared length", async () => {
+  test("buffers a stream that arrives with no knowable length", async () => {
     // The Host will not discover the size, so the adapter has to, and it must
     // then declare it rather than passing the stream on undeclared.
     const facade = createFakeEdgeObjects();
@@ -174,62 +187,49 @@ describe("edge.objects storage adapter", () => {
     );
     expect(facade.puts.at(-1)!.options).toEqual({ contentLength: 9 });
     expect(facade.puts.at(-1)!.streamed).toBe(true);
-    expect(await (await media.get("uploads/b.mp4"))!.text()).toBe("no-length");
+    expect(await textOf(await media.get("uploads/b.mp4"))).toBe("no-length");
   });
 
-  test("refuses customMetadata instead of dropping it", async () => {
-    const media = wrapEdgeObjects(createFakeEdgeObjects());
-    await expect(
-      media.put("k", "v", { customMetadata: { owner: "a1" } }),
-    ).rejects.toThrow(EdgeObjectsShapeError);
-    // An empty record is not a request to store anything.
-    await expect(media.put("k", "v", { customMetadata: {} })).resolves.toBe(
-      undefined,
-    );
-  });
-
-  test("answers a missing key with null on get and head", async () => {
-    const media = wrapEdgeObjects(createFakeEdgeObjects());
-    expect(await media.get("absent")).toBeNull();
-    expect(await media.head("absent")).toBeNull();
-  });
-
-  test("reports head metadata in the port's shape", async () => {
+  test("refuses a partial body for a get that asked for no range", async () => {
+    // A truncated body served as a whole object would be a silent corruption,
+    // so the adapter refuses it and drops the bytes.
     const facade = createFakeEdgeObjects();
     const media = wrapEdgeObjects(facade);
-    await media.put("k", "12345", {
-      httpMetadata: { contentType: "text/plain" },
-    });
-    expect(await media.head("k")).toEqual({
-      contentType: "text/plain",
-      contentLength: 5,
-      etag: '"k-etag"',
-      httpMetadata: { contentType: "text/plain" },
-    });
+    await media.put("k", "12345");
+    const whole = facade.get;
+    let cancelled = false;
+    facade.get = async function (key, options) {
+      const found = await whole.call(facade, key, options);
+      if (!found) return null;
+      return {
+        ...found,
+        partial: true,
+        // Left open on purpose: `cancel` only reaches an unfinished stream,
+        // and the point of the test is that the bytes are dropped.
+        body: new ReadableStream({
+          cancel: () => {
+            cancelled = true;
+          },
+        }),
+      };
+    } as EdgeObjectsBinding["get"];
+
+    await expect(media.get("k")).rejects.toThrow(EdgeObjectsShapeError);
+    expect(cancelled).toBe(true);
+  });
+
+  test("answers a missing key with null", async () => {
+    const media = wrapEdgeObjects(createFakeEdgeObjects());
+    expect(await media.get("absent")).toBeNull();
   });
 
   test("deletes each key of an array, since the facade takes one at a time", async () => {
     const facade = createFakeEdgeObjects();
     const media = wrapEdgeObjects(facade);
     for (const key of ["a", "b", "c"]) await media.put(key, key);
-    await media.delete(["a", "c"]);
+    await media.delete(["a", "c", "a"]);
+    // Deduplicated: a repeated key is one call, not two.
     expect(facade.deletes).toEqual(["a", "c"]);
     expect([...facade.store.keys()]).toEqual(["b"]);
-  });
-
-  test("lists with prefix and limit and reports truncation", async () => {
-    const facade = createFakeEdgeObjects();
-    const media = wrapEdgeObjects(facade);
-    for (const key of ["u/1", "u/2", "u/3", "other"]) await media.put(key, key);
-
-    const page = await media.list({ prefix: "u/", limit: 2 });
-    expect(page.objects.map((object) => object.key)).toEqual(["u/1", "u/2"]);
-    expect(page.truncated).toBe(true);
-    expect(page.cursor).toBe("2");
-    expect(page.objects[0]!.uploaded).toEqual(new Date(1_700_000_000_000));
-
-    const rest = await media.list({ prefix: "u/" });
-    expect(rest.truncated).toBe(false);
-    expect(rest.cursor).toBeUndefined();
   });
 });

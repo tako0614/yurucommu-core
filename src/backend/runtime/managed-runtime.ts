@@ -4,12 +4,10 @@ import {
   managedRuntimeGatewayFailure,
   managedRuntimeKeyValueListRequest,
   managedRuntimeKeyValueRequest,
-  managedRuntimeObjectListRequest,
   managedRuntimeObjectRequest,
   managedRuntimeQueueBatchSendGatewayRequest,
   managedRuntimeQueueSendGatewayRequest,
   parseManagedRuntimeKeyValueListResponse,
-  parseManagedRuntimeObjectListResponse,
   parseManagedRuntimeConnectionMaterialization,
   parseManagedRuntimeQueueSendResponse,
   type ManagedRuntimeConnectionMaterialization,
@@ -17,10 +15,10 @@ import {
 
 import type {
   IKeyValueStore,
-  IObjectStorage,
-  ListObjectsResult,
-  ObjectMetadata,
-  StorageObject,
+  ObjectStore,
+  ObjectStoreBody,
+  ObjectStoreObject,
+  ObjectStorePutOptions,
 } from "./types.ts";
 import type {
   IQueueProducer,
@@ -88,7 +86,7 @@ export function createManagedRuntimeKeyValueStore(
 
 export function createManagedRuntimeObjectStorage(
   options: ManagedRuntimeDataAdapterOptions,
-): IObjectStorage {
+): ObjectStore {
   const materialization = parseManagedRuntimeConnectionMaterialization(
     options.materialization,
   );
@@ -326,7 +324,7 @@ class ManagedRuntimeKeyValueStore implements IKeyValueStore {
   }
 }
 
-class ManagedRuntimeObjectStorage implements IObjectStorage {
+class ManagedRuntimeObjectStorage implements ObjectStore {
   constructor(private readonly options: ManagedRuntimeDataClientOptions) {
     assertResponseLimit(options.maxMetadataResponseBytes);
     assertResponseLimit(options.maxValueResponseBytes);
@@ -334,23 +332,17 @@ class ManagedRuntimeObjectStorage implements IObjectStorage {
 
   async put(
     key: string,
-    value: ReadableStream | ArrayBuffer | string,
-    options?: {
-      httpMetadata?: ObjectMetadata["httpMetadata"];
-      customMetadata?: Record<string, string>;
-    },
+    value: ObjectStoreBody,
+    options?: ObjectStorePutOptions,
   ): Promise<void> {
     const request = managedRuntimeObjectRequest(this.options.authority, {
       method: "PUT",
       key,
       idempotencyKey: this.options.idempotencyKey(),
       value: value as BodyInit,
-      ...(options?.httpMetadata === undefined
+      ...(options?.contentType === undefined
         ? {}
-        : { httpMetadata: options.httpMetadata }),
-      ...(options?.customMetadata === undefined
-        ? {}
-        : { customMetadata: options.customMetadata }),
+        : { httpMetadata: { contentType: options.contentType } }),
     });
     await expectOkResponse(
       await this.options.gateway.fetch(request),
@@ -358,7 +350,7 @@ class ManagedRuntimeObjectStorage implements IObjectStorage {
     );
   }
 
-  async get(key: string): Promise<StorageObject | null> {
+  async get(key: string): Promise<ObjectStoreObject | null> {
     const request = managedRuntimeObjectRequest(this.options.authority, {
       method: "GET",
       key,
@@ -371,11 +363,11 @@ class ManagedRuntimeObjectStorage implements IObjectStorage {
     }
     return new ManagedRuntimeStorageObject(
       key,
-      await checkedResponse(raw, this.options.maxValueResponseBytes),
+      await checkedStreamingResponse(raw, this.options.maxValueResponseBytes),
     );
   }
 
-  async delete(key: string | string[]): Promise<void> {
+  async delete(key: string | readonly string[]): Promise<void> {
     for (const entry of Array.isArray(key) ? key : [key]) {
       const request = managedRuntimeObjectRequest(this.options.authority, {
         method: "DELETE",
@@ -388,149 +380,135 @@ class ManagedRuntimeObjectStorage implements IObjectStorage {
       );
     }
   }
-
-  async list(options?: {
-    prefix?: string;
-    limit?: number;
-    cursor?: string;
-    delimiter?: string;
-  }): Promise<ListObjectsResult> {
-    const request = managedRuntimeObjectListRequest(this.options.authority, {
-      idempotencyKey: this.options.idempotencyKey(),
-      ...options,
-    });
-    const response = await checkedResponse(
-      await this.options.gateway.fetch(request),
-      this.options.maxMetadataResponseBytes,
-    );
-    const parsed = parseManagedRuntimeObjectListResponse(await response.json());
-    return {
-      objects: parsed.objects.map((entry) => ({
-        key: entry.key,
-        size: entry.size,
-        uploaded: new Date(entry.uploaded),
-        ...(entry.etag === undefined ? {} : { etag: entry.etag }),
-      })),
-      truncated: parsed.truncated,
-      ...(parsed.cursor === undefined ? {} : { cursor: parsed.cursor }),
-      ...(parsed.delimitedPrefixes === undefined
-        ? {}
-        : { delimitedPrefixes: [...parsed.delimitedPrefixes] }),
-    };
-  }
-
-  async head(key: string): Promise<ObjectMetadata | null> {
-    const request = managedRuntimeObjectRequest(this.options.authority, {
-      method: "HEAD",
-      key,
-      idempotencyKey: this.options.idempotencyKey(),
-    });
-    const raw = await this.options.gateway.fetch(request);
-    if (raw.status === 404) {
-      await raw.body?.cancel().catch(() => undefined);
-      return null;
-    }
-    const response = await checkedResponse(
-      raw,
-      this.options.maxMetadataResponseBytes,
-    );
-    return objectMetadata(response.headers);
-  }
 }
 
-class ManagedRuntimeStorageObject implements StorageObject {
+class ManagedRuntimeStorageObject implements ObjectStoreObject {
   constructor(
     readonly key: string,
     private readonly response: Response,
   ) {}
 
-  get body(): ReadableStream | null {
+  get body(): ReadableStream<Uint8Array> | null {
     return this.response.body;
   }
 
-  get bodyUsed(): boolean {
-    return this.response.bodyUsed;
+  get contentType(): string | undefined {
+    const value = this.response.headers.get("content-type");
+    return value === null || value.length === 0 ? undefined : value;
   }
 
-  get httpEtag(): string | undefined {
+  get etag(): string | undefined {
     return this.response.headers.get("etag") ?? undefined;
   }
 
-  get httpMetadata(): ObjectMetadata["httpMetadata"] {
-    return objectMetadata(this.response.headers).httpMetadata;
-  }
-
-  get customMetadata(): Record<string, string> | undefined {
-    return objectMetadata(this.response.headers).customMetadata;
-  }
-
-  arrayBuffer(): Promise<ArrayBuffer> {
-    return this.response.arrayBuffer();
-  }
-
-  text(): Promise<string> {
-    return this.response.text();
-  }
-
-  async json<T = unknown>(): Promise<T> {
-    return (await this.response.json()) as T;
+  get byteLength(): number | undefined {
+    return parseContentLength(this.response.headers.get("content-length"));
   }
 }
 
-function objectMetadata(headers: Headers): ObjectMetadata {
-  const contentLength = headers.get("content-length");
-  const custom = headers.get("x-takosumi-object-custom-metadata");
-  let customMetadata: Record<string, string> | undefined;
-  if (custom !== null) {
-    try {
-      const decoded = JSON.parse(decodeURIComponent(custom)) as unknown;
-      if (
-        decoded === null ||
-        typeof decoded !== "object" ||
-        Array.isArray(decoded) ||
-        Object.values(decoded).some((value) => typeof value !== "string")
-      ) {
-        throw new Error("invalid");
-      }
-      customMetadata = decoded as Record<string, string>;
-    } catch {
-      throw new ManagedRuntimeGatewayError(
-        "managed_runtime_object_metadata_invalid",
-        502,
-        false,
-      );
-    }
+function parseContentLength(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  if (!/^\d+$/u.test(value)) {
+    throw new ManagedRuntimeGatewayError(
+      "managed_runtime_object_content_length_invalid",
+      502,
+      false,
+    );
   }
-  const httpMetadata = {
-    ...(headers.get("content-type")
-      ? { contentType: headers.get("content-type")! }
-      : {}),
-    ...(headers.get("cache-control")
-      ? { cacheControl: headers.get("cache-control")! }
-      : {}),
-    ...(headers.get("content-disposition")
-      ? { contentDisposition: headers.get("content-disposition")! }
-      : {}),
-    ...(headers.get("content-encoding")
-      ? { contentEncoding: headers.get("content-encoding")! }
-      : {}),
-    ...(headers.get("content-language")
-      ? { contentLanguage: headers.get("content-language")! }
-      : {}),
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new ManagedRuntimeGatewayError(
+      "managed_runtime_object_content_length_invalid",
+      502,
+      false,
+    );
+  }
+  return parsed;
+}
+
+/**
+ * Validate a successful object response without consuming its body. The
+ * returned stream enforces the configured byte ceiling as it is read.
+ */
+async function checkedStreamingResponse(
+  response: Response,
+  maxBytes: number,
+): Promise<Response> {
+  const declaredLength = parseContentLength(
+    response.headers.get("content-length"),
+  );
+  if (declaredLength !== undefined && declaredLength > maxBytes) {
+    await response.body?.cancel("managed_runtime_response_too_large");
+    throw new ManagedRuntimeGatewayError(
+      "managed_runtime_response_too_large",
+      502,
+      false,
+    );
+  }
+  if (!response.ok) {
+    const failure = await managedRuntimeGatewayFailure(response);
+    throw new ManagedRuntimeGatewayError(
+      failure?.code ?? "managed_runtime_request_failed",
+      failure?.status ?? response.status,
+      failure?.retryable ?? false,
+    );
+  }
+  if (!response.body) return response;
+  return new Response(boundedReadableStream(response.body, maxBytes), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+function boundedReadableStream(
+  stream: ReadableStream<Uint8Array>,
+  maxBytes: number,
+): ReadableStream<Uint8Array> {
+  const reader = stream.getReader();
+  let size = 0;
+  let finished = false;
+  const finish = async (): Promise<void> => {
+    if (finished) return;
+    finished = true;
+    reader.releaseLock();
   };
-  return {
-    ...(headers.get("content-type")
-      ? { contentType: headers.get("content-type")! }
-      : {}),
-    ...(contentLength !== null &&
-    /^\d+$/u.test(contentLength) &&
-    Number.isSafeInteger(Number(contentLength))
-      ? { contentLength: Number(contentLength) }
-      : {}),
-    ...(headers.get("etag") ? { etag: headers.get("etag")! } : {}),
-    ...(Object.keys(httpMetadata).length === 0 ? {} : { httpMetadata }),
-    ...(customMetadata === undefined ? {} : { customMetadata }),
-  };
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        try {
+          const result = await reader.read();
+          if (result.done) {
+            controller.close();
+            await finish();
+            return;
+          }
+          size += result.value.byteLength;
+          if (size > maxBytes) {
+            await reader.cancel("managed_runtime_response_too_large");
+            controller.error(
+              new ManagedRuntimeGatewayError(
+                "managed_runtime_response_too_large",
+                502,
+                false,
+              ),
+            );
+            await finish();
+            return;
+          }
+          controller.enqueue(result.value);
+        } catch (error) {
+          controller.error(error);
+          await finish();
+        }
+      },
+      async cancel(reason) {
+        await reader.cancel(reason).catch(() => undefined);
+        await finish();
+      },
+    },
+    { highWaterMark: 0 },
+  );
 }
 
 async function checkedResponse(

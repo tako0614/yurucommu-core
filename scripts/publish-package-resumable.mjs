@@ -65,6 +65,20 @@ export function packageReleaseDecision(localIntegrity, publishedIntegrity) {
   );
 }
 
+/**
+ * An npm publish has crossed the mutation boundary once the command returns
+ * success (and may have crossed it even when the CLI reports an error).  Keep
+ * that fact attached to failures so the owning deploy entrypoint can report
+ * INDETERMINATE rather than claiming the registry was untouched.
+ */
+export class PublishMutationError extends Error {
+  constructor(message, cause) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "PublishMutationError";
+    this.targetTouched = true;
+  }
+}
+
 export async function publishedPackageIntegrity(packageName, version) {
   const response = await fetch(
     `https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`,
@@ -145,10 +159,15 @@ export async function preparePackageCandidate(
   };
 }
 
-export async function publishPreparedPackage(candidate) {
+export async function publishPreparedPackage(candidate, dependencies = {}) {
+  const readIntegrity =
+    dependencies.publishedPackageIntegrity ?? publishedPackageIntegrity;
+  const runCommand = dependencies.runCommand ?? run;
+  const verifyIntegrity =
+    dependencies.verifyPublishedIntegrity ?? verifyPublishedIntegrity;
   // Re-read immediately before the mutation. A concurrent publisher may have
   // created this version since preparation; only exact bytes are resumable.
-  const currentIntegrity = await publishedPackageIntegrity(
+  const currentIntegrity = await readIntegrity(
     candidate.packageName,
     candidate.version,
   );
@@ -160,7 +179,7 @@ export async function publishPreparedPackage(candidate) {
     return { action: "skipped", integrity: candidate.integrity };
   }
 
-  const publishResult = run(
+  const publishResult = runCommand(
     "npm",
     [
       "publish",
@@ -172,28 +191,40 @@ export async function publishPreparedPackage(candidate) {
     { cwd: candidate.packageRoot, capture: true, allowFailure: true },
   );
   if (publishResult.status !== 0) {
-    const racedIntegrity = await publishedPackageIntegrity(
+    const racedIntegrity = await readIntegrity(
       candidate.packageName,
       candidate.version,
     );
     if (racedIntegrity === candidate.integrity) {
       return { action: "concurrent-exact", integrity: candidate.integrity };
     }
-    throw new Error(
+    throw new PublishMutationError(
       `npm publish failed for ${candidate.packageName}@${candidate.version}.\n${publishResult.stderr || publishResult.stdout}`,
     );
   }
 
-  await verifyPublishedIntegrity(
-    candidate.packageName,
-    candidate.version,
-    candidate.integrity,
-  );
+  try {
+    await verifyIntegrity(
+      candidate.packageName,
+      candidate.version,
+      candidate.integrity,
+    );
+  } catch (error) {
+    throw new PublishMutationError(
+      `npm publish completed for ${candidate.packageName}@${candidate.version}, but registry integrity readback failed: ${error instanceof Error ? error.message : String(error)}`,
+      error,
+    );
+  }
   return { action: "published", integrity: candidate.integrity };
 }
 
 export async function main(argv = process.argv.slice(2), env = process.env) {
   const checkOnly = argv.includes("--check-only");
+  if (!checkOnly) {
+    throw new Error(
+      "standalone publisher is check-only; use `bun run deploy -- yurucommu-package-family` for publication",
+    );
+  }
   const positional = argv.filter((argument) => argument !== "--check-only");
   if (positional.length > 1) {
     throw new Error(
@@ -217,15 +248,8 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       );
       return 0;
     }
-    if (checkOnly) {
-      console.log(
-        `${candidate.packageName}@${candidate.version} is unpublished and ready for the resumable publish step.`,
-      );
-      return 0;
-    }
-    const result = await publishPreparedPackage(candidate);
     console.log(
-      `${result.action === "published" ? "Published" : "Verified"} ${candidate.packageName}@${candidate.version} (${candidate.integrity}).`,
+      `${candidate.packageName}@${candidate.version} is unpublished and ready for the resumable publish step.`,
     );
     return 0;
   } finally {
@@ -235,7 +259,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
 
 if (import.meta.main) {
   try {
-    process.exitCode = await main();
+    const argv = process.argv.slice(2);
+    // Publication is an owning-deploy concern.  This helper remains useful as
+    // a read-only candidate/integrity checker, but invoking it directly must
+    // never mutate the registry (or accidentally bypass deploy's clean-tag
+    // and package-family gates).
+    process.exitCode = await main(argv);
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
