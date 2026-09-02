@@ -16,6 +16,14 @@ import type {
 export interface EnvVars {
   APP_URL: string;
 
+  // Which runtime the Worker was published onto, and therefore what shape its
+  // bindings arrive in. Unset (or "cloudflare") = native Cloudflare bindings;
+  // "takoform-v1" = the portable edge.sql / edge.kv / edge.objects / edge.queue
+  // facades a Takoserver-hosted Worker Version receives. The value is checked
+  // against the bindings and a disagreement refuses to start — see
+  // runtime/lane.ts and docs/design/runtime-lanes.md.
+  YURUCOMMU_RUNTIME_LANE?: string;
+
   // Takos-specific endpoints are opt-in (fail-close by default).
   ENABLE_TAKOS_TOOLS?: string;
 

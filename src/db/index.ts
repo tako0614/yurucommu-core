@@ -18,12 +18,13 @@ import { drizzle as drizzleD1, type DrizzleD1Database } from "drizzle-orm/d1";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import type { ResultSet } from "@libsql/client";
+import type { SqliteRemoteResult } from "drizzle-orm/sqlite-proxy";
 import { isNull } from "drizzle-orm";
 import * as schema from "./schema.ts";
 
 export type Database = BaseSQLiteDatabase<
   "async",
-  D1Result | ResultSet,
+  D1Result | ResultSet | SqliteRemoteResult,
   typeof schema
 >;
 

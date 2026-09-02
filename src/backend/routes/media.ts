@@ -236,6 +236,9 @@ media.post("/upload", async (c) => {
     if (isVideo) {
       await media.put(r2Key, file.stream(), {
         httpMetadata: { contentType },
+        // Declared so a portable object-storage binding can enforce the length
+        // while streaming instead of buffering the whole video to discover it.
+        contentLength: file.size,
       });
     } else {
       const original = new Uint8Array(await file.arrayBuffer());

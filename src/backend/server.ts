@@ -89,6 +89,11 @@ type LocalRuntimeEnvKey = Exclude<keyof EnvVars, "APP_URL">;
 // setting without an explicit local-runtime decision, instead of silently
 // dropping authority/security configuration such as OIDC_OWNER_SUB.
 const ENV_PASSTHROUGH_KEY_SET: Record<LocalRuntimeEnvKey, true> = {
+  // Carried so a shared env file reads the same everywhere, but nothing here
+  // consults it: this server builds the runtime ports directly from its own
+  // compat classes rather than wrapping a Worker's bindings, so it is neither
+  // the `cloudflare` nor the `takoform-v1` lane. See runtime/lane.ts.
+  YURUCOMMU_RUNTIME_LANE: true,
   ENABLE_TAKOS_TOOLS: true,
   AUTH_PASSWORD_HASH: true,
   GOOGLE_CLIENT_ID: true,

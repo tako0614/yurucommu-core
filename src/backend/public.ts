@@ -36,6 +36,60 @@ export {
   createManagedRelationalDatabase,
   type ManagedRelationalDatabaseOptions,
 } from "./runtime/managed-relational.ts";
+// Takoserver-hosted lane: the portable binding facades a Worker Version
+// published through Takoform receives, and the lane selector that proves a
+// deployment's declared lane against the bindings that actually arrived.
+export {
+  DEFAULT_RUNTIME_LANE,
+  RUNTIME_LANE_VAR,
+  RUNTIME_LANES,
+  RuntimeLaneError,
+  assertRuntimeLaneBindings,
+  resolveRuntimeLane,
+  type CloudflareWorkerBindings,
+  type RuntimeLane,
+  type TakoserverWorkerBindings,
+  wrapRuntimeBindings,
+  wrapRuntimeMessageBatch,
+  wrapTakoserverBindings,
+} from "./runtime/lane.ts";
+export {
+  EDGE_KV_MAX_EXPIRATION_TTL_SECONDS,
+  EDGE_KV_MIN_EXPIRATION_TTL_SECONDS,
+  isEdgeObjectsBinding,
+  isEdgeQueueBatch,
+  isEdgeSqlBinding,
+  isNativeD1Database,
+  isNativeR2Bucket,
+  type EdgeKvBinding,
+  type EdgeObjectsBinding,
+  type EdgeQueueBatch,
+  type EdgeQueueBinding,
+  type EdgeSqlBinding,
+  type EdgeSqlResult,
+  type EdgeSqlValue,
+} from "./runtime/edge-facades.ts";
+export {
+  EdgeKeyValueOptionError,
+  EdgeKeyValueStore,
+  wrapEdgeKv,
+} from "./runtime/edge-kv.ts";
+export {
+  EdgeSqlColumnMismatchError,
+  EdgeSqlShapeError,
+  createEdgeSqlDatabase,
+  rewriteProjection,
+} from "./runtime/edge-sql.ts";
+export {
+  EdgeQueueShapeError,
+  wrapEdgeMessageBatch,
+  wrapEdgeQueue,
+} from "./runtime/edge-queue.ts";
+export {
+  EdgeObjectStorage,
+  EdgeObjectsShapeError,
+  wrapEdgeObjects,
+} from "./runtime/edge-objects.ts";
 export type {
   IKeyValueStore,
   IObjectStorage,

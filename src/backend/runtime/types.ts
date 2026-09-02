@@ -119,6 +119,16 @@ export interface IObjectStorage {
     options?: {
       httpMetadata?: ObjectMetadata["httpMetadata"];
       customMetadata?: Record<string, string>;
+      /**
+       * Byte length of `value`, when the caller already knows it.
+       *
+       * R2 discovers the size while streaming and ignores this. The portable
+       * `edge.objects` facade does not: ADR 0005 fixes that a Host enforces a
+       * declared length rather than buffering a body to find one, so a
+       * ReadableStream without this has to be buffered in the Worker. Pass it
+       * wherever the size is already in hand (an upload's `File.size`).
+       */
+      contentLength?: number;
     },
   ): Promise<void>;
 
