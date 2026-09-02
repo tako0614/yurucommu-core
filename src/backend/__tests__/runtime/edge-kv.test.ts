@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   EdgeKeyValueOptionError,
+  EdgeKeyValueValueError,
   resolveEdgeKvExpirationTtl,
   wrapEdgeKv,
 } from "../../runtime/edge-kv.ts";
@@ -163,11 +164,15 @@ describe("edge.kv store adapter", () => {
     expect(await kv.get("absent", { type: "arrayBuffer" })).toBeNull();
   });
 
-  test("reads a non-JSON value as null rather than throwing, like KV does", async () => {
+  test("distinguishes an unparseable entry from a missing one", async () => {
     const facade = createFakeEdgeKv();
     const kv = wrapEdgeKv(facade);
     await kv.put("poisoned", "not json");
-    expect(await kv.get("poisoned", { type: "json" })).toBeNull();
+    // Reporting this as `null` would be indistinguishable from "no such key".
+    await expect(kv.get("poisoned", { type: "json" })).rejects.toThrow(
+      EdgeKeyValueValueError,
+    );
+    expect(await kv.get("absent", { type: "json" })).toBeNull();
   });
 
   test("writes an ArrayBuffer and a stream body", async () => {
