@@ -76,11 +76,16 @@ export {
   wrapEdgeKv,
 } from "./runtime/edge-kv.ts";
 export {
-  EdgeSqlColumnMismatchError,
   EdgeSqlShapeError,
   createEdgeSqlDatabase,
-  rewriteProjection,
 } from "./runtime/edge-sql.ts";
+export {
+  ProxyColumnMismatchError,
+  positionalRow,
+  rewriteProjection,
+  type ProjectedStatement,
+  type RewrittenStatement,
+} from "./runtime/sqlite-proxy-rows.ts";
 export {
   EdgeQueueShapeError,
   wrapEdgeMessageBatch,

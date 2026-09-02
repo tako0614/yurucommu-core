@@ -63,8 +63,8 @@ export interface EdgeSqlStatement {
 /**
  * One statement's result. `rows` are RECORDS keyed by result-column name, not
  * positional arrays — the single most consequential difference from D1, and the
- * reason `edge-sql.ts` has to rewrite the projection list before it can hand
- * anything to Drizzle.
+ * reason the lane has to rewrite the projection list (`sqlite-proxy-rows.ts`)
+ * before it can hand anything to Drizzle.
  */
 export interface EdgeSqlResult {
   readonly rows: readonly Readonly<Record<string, EdgeSqlValue>>[];
