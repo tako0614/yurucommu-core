@@ -1,0 +1,319 @@
+import { describe, expect, test } from "bun:test";
+import type { MessageBatch } from "@cloudflare/workers-types";
+
+import {
+  DEFAULT_RUNTIME_LANE,
+  RUNTIME_LANE_VAR,
+  RuntimeLaneError,
+  assertRuntimeLaneBindings,
+  resolveRuntimeLane,
+  wrapRuntimeBindings,
+  wrapRuntimeMessageBatch,
+  wrapTakoserverBindings,
+} from "../../runtime/lane.ts";
+import {
+  encodeEdgeBytes,
+  isEdgeObjectsBinding,
+  isEdgeSqlBinding,
+  isNativeD1Database,
+  isNativeR2Bucket,
+  type EdgeQueueBatch,
+} from "../../runtime/edge-facades.ts";
+
+// --- binding doubles -------------------------------------------------------
+// Each one carries only the method names that make it identifiable, because
+// identification is the whole subject of this file.
+
+const edgeSql = () => ({
+  execute: async () => ({ rows: [], rowsWritten: 0 }),
+  query: async () => ({ rows: [], rowsWritten: 0 }),
+  transaction: async () => [],
+});
+
+const nativeD1 = () => ({
+  prepare: () => ({}),
+  batch: async () => [],
+  exec: async () => ({}),
+  dump: async () => new ArrayBuffer(0),
+});
+
+const edgeKv = () => ({
+  get: async () => null,
+  getWithMetadata: async () => null,
+  put: async () => {},
+  delete: async () => {},
+  list: async () => ({ keys: [], listComplete: true }),
+});
+
+const nativeKv = () => ({
+  // Structurally IDENTICAL to `edgeKv` — that is the point.
+  get: async () => null,
+  getWithMetadata: async () => null,
+  put: async () => {},
+  delete: async () => {},
+  list: async () => ({ keys: [], list_complete: true }),
+});
+
+const edgeObjects = () => ({
+  head: async () => null,
+  get: async (_key: string, _options: unknown) => null,
+  put: async () => ({ etag: "e", size: 0 }),
+  delete: async () => {},
+  list: async () => ({ objects: [], prefixes: [], truncated: false }),
+});
+
+const nativeR2 = () => ({
+  head: async () => null,
+  get: async () => null,
+  put: async () => ({}),
+  delete: async () => {},
+  list: async () => ({ objects: [], truncated: false }),
+  createMultipartUpload: async () => ({}),
+  resumeMultipartUpload: () => ({}),
+});
+
+const edgeQueue = () => ({
+  send: async () => "id",
+  sendBatch: async () => ["id"],
+});
+
+const nativeQueue = () => ({ send: async () => {}, sendBatch: async () => {} });
+
+describe("runtime lane declaration", () => {
+  test("an absent declaration is the Cloudflare lane", () => {
+    expect(resolveRuntimeLane(undefined)).toBe(DEFAULT_RUNTIME_LANE);
+    expect(resolveRuntimeLane(null)).toBe("cloudflare");
+    expect(resolveRuntimeLane("")).toBe("cloudflare");
+  });
+
+  test("accepts the value the app's Takoform module already sets", () => {
+    // deploy/takoform/main.tf sets YURUCOMMU_RUNTIME_LANE = "takoform-v1".
+    expect(resolveRuntimeLane("takoform-v1")).toBe("takoform-v1");
+    expect(resolveRuntimeLane("  takoform-v1  ")).toBe("takoform-v1");
+    expect(resolveRuntimeLane("cloudflare")).toBe("cloudflare");
+  });
+
+  test("refuses a lane it has never heard of rather than defaulting", () => {
+    expect(() => resolveRuntimeLane("takoform-v2")).toThrow(RuntimeLaneError);
+    expect(() => resolveRuntimeLane("takoform-v2")).toThrow(
+      /not a runtime lane this build supports/,
+    );
+    expect(() => resolveRuntimeLane(7)).toThrow(RuntimeLaneError);
+  });
+});
+
+describe("binding identification", () => {
+  test("the database binding is decisive in both directions", () => {
+    expect(isEdgeSqlBinding(edgeSql())).toBe(true);
+    expect(isEdgeSqlBinding(nativeD1())).toBe(false);
+    expect(isNativeD1Database(nativeD1())).toBe(true);
+    expect(isNativeD1Database(edgeSql())).toBe(false);
+  });
+
+  test("an R2 bucket is decisive, and the facade is not mistaken for one", () => {
+    expect(isNativeR2Bucket(nativeR2())).toBe(true);
+    expect(isNativeR2Bucket(edgeObjects())).toBe(false);
+    expect(isEdgeObjectsBinding(edgeObjects())).toBe(true);
+    expect(isEdgeObjectsBinding(nativeR2())).toBe(false);
+  });
+
+  test("the KV and queue bindings CANNOT be told apart, which is why the lane is declared", () => {
+    const shape = (value: object) =>
+      Object.keys(value)
+        .filter((key) => typeof (value as never)[key] === "function")
+        .sort();
+    expect(shape(edgeKv())).toEqual(shape(nativeKv()));
+    expect(shape(edgeQueue())).toEqual(shape(nativeQueue()));
+  });
+});
+
+describe("lane and bindings must agree", () => {
+  test("accepts a matched Takoserver deployment", () => {
+    expect(() =>
+      assertRuntimeLaneBindings("takoform-v1", {
+        DB: edgeSql(),
+        MEDIA: edgeObjects(),
+      }),
+    ).not.toThrow();
+  });
+
+  test("accepts a matched Cloudflare deployment", () => {
+    expect(() =>
+      assertRuntimeLaneBindings("cloudflare", {
+        DB: nativeD1(),
+        MEDIA: nativeR2(),
+      }),
+    ).not.toThrow();
+  });
+
+  test("refuses the hosted lane declared over native Cloudflare bindings", () => {
+    expect(() =>
+      assertRuntimeLaneBindings("takoform-v1", { DB: nativeD1() }),
+    ).toThrow(/native D1Database/);
+    expect(() =>
+      assertRuntimeLaneBindings("takoform-v1", {
+        DB: edgeSql(),
+        MEDIA: nativeR2(),
+      }),
+    ).toThrow(/native R2Bucket/);
+  });
+
+  test("refuses a facade that arrived without its lane declared", () => {
+    expect(() =>
+      assertRuntimeLaneBindings("cloudflare", { DB: edgeSql() }),
+    ).toThrow(RuntimeLaneError);
+    expect(() =>
+      assertRuntimeLaneBindings("cloudflare", { DB: edgeSql() }),
+    ).toThrow(new RegExp(RUNTIME_LANE_VAR));
+  });
+
+  test("refuses a database binding that is neither", () => {
+    expect(() => assertRuntimeLaneBindings("cloudflare", { DB: {} })).toThrow(
+      /neither a D1Database nor/,
+    );
+    expect(() => assertRuntimeLaneBindings("takoform-v1", { DB: {} })).toThrow(
+      /requires env\.DB to be the/,
+    );
+  });
+});
+
+describe("wrapRuntimeBindings", () => {
+  const takoserverEnv = () => ({
+    YURUCOMMU_RUNTIME_LANE: "takoform-v1",
+    APP_URL: "https://example.test",
+    ENCRYPTION_KEY: "k",
+    DB: edgeSql(),
+    KV: edgeKv(),
+    MEDIA: edgeObjects(),
+    DELIVERY_QUEUE: edgeQueue(),
+    DELIVERY_DLQ: edgeQueue(),
+  });
+
+  test("builds every runtime port from the facades", () => {
+    const env = wrapRuntimeBindings(takoserverEnv() as never) as Record<
+      string,
+      unknown
+    >;
+    expect(env.DB_INSTANCE).toBeDefined();
+    expect(typeof (env.KV as { get: unknown }).get).toBe("function");
+    expect(typeof (env.MEDIA as { head: unknown }).head).toBe("function");
+    expect(typeof (env.DELIVERY_QUEUE as { send: unknown }).send).toBe(
+      "function",
+    );
+    expect(typeof (env.DELIVERY_DLQ as { send: unknown }).send).toBe(
+      "function",
+    );
+    // Plain variables, including the lane marker itself, pass through.
+    expect(env.APP_URL).toBe("https://example.test");
+    expect(env.YURUCOMMU_RUNTIME_LANE).toBe("takoform-v1");
+    // The raw bindings do not survive into app-visible Env.
+    expect(env.DB).toBeUndefined();
+  });
+
+  test("leaves an unbound optional binding unbound", () => {
+    const bindings = takoserverEnv() as Record<string, unknown>;
+    delete bindings.MEDIA;
+    delete bindings.DELIVERY_QUEUE;
+    delete bindings.DELIVERY_DLQ;
+    const env = wrapTakoserverBindings(bindings as never) as Record<
+      string,
+      unknown
+    >;
+    expect(env.MEDIA).toBeUndefined();
+    expect(env.DELIVERY_QUEUE).toBeUndefined();
+    expect(env.DELIVERY_DLQ).toBeUndefined();
+    expect(env.KV).toBeDefined();
+  });
+
+  test("wraps native bindings when no lane is declared", () => {
+    const env = wrapRuntimeBindings({
+      APP_URL: "https://example.test",
+      DB: nativeD1(),
+      KV: nativeKv(),
+    } as never) as Record<string, unknown>;
+    expect(env.DB_INSTANCE).toBeDefined();
+    expect(env.KV).toBeDefined();
+  });
+
+  test("refuses to start when the declaration and the bindings disagree", () => {
+    expect(() =>
+      wrapRuntimeBindings({
+        YURUCOMMU_RUNTIME_LANE: "takoform-v1",
+        DB: nativeD1(),
+        KV: nativeKv(),
+      } as never),
+    ).toThrow(RuntimeLaneError);
+
+    expect(() =>
+      wrapRuntimeBindings({
+        DB: edgeSql(),
+        KV: edgeKv(),
+      } as never),
+    ).toThrow(RuntimeLaneError);
+
+    expect(() =>
+      wrapRuntimeBindings({
+        YURUCOMMU_RUNTIME_LANE: "somewhere-else",
+        DB: edgeSql(),
+        KV: edgeKv(),
+      } as never),
+    ).toThrow(/not a runtime lane this build supports/);
+  });
+});
+
+describe("wrapRuntimeMessageBatch", () => {
+  const facadeBatch = (): EdgeQueueBatch => ({
+    batchId: "b",
+    queue: "yurucommu-delivery",
+    messages: [
+      {
+        id: "m",
+        timestampMillis: 1,
+        attempts: 1,
+        body: encodeEdgeBytes(new TextEncoder().encode('{"n":1}')),
+        acknowledge: () => {},
+        retry: () => {},
+      },
+    ],
+    acknowledgeAll: () => {},
+    retryAll: () => {},
+  });
+
+  const cloudflareBatch = () =>
+    ({
+      queue: "yurucommu-delivery",
+      messages: [
+        {
+          id: "m",
+          timestamp: new Date(1),
+          body: { n: 1 },
+          attempts: 1,
+          ack: () => {},
+          retry: () => {},
+        },
+      ],
+      ackAll: () => {},
+      retryAll: () => {},
+    }) as unknown as MessageBatch<{ n: number }>;
+
+  test("adapts each lane's own batch", () => {
+    const hosted = wrapRuntimeMessageBatch<{ n: number }>(
+      facadeBatch(),
+      "takoform-v1",
+    );
+    expect(hosted.queue).toBe("yurucommu-delivery");
+    expect(hosted.messages[0]!.body).toEqual({ n: 1 });
+
+    const native = wrapRuntimeMessageBatch<{ n: number }>(cloudflareBatch());
+    expect(native.messages[0]!.body).toEqual({ n: 1 });
+  });
+
+  test("refuses a batch from the other lane", () => {
+    expect(() =>
+      wrapRuntimeMessageBatch(cloudflareBatch(), "takoform-v1"),
+    ).toThrow(RuntimeLaneError);
+    expect(() => wrapRuntimeMessageBatch(facadeBatch(), "cloudflare")).toThrow(
+      RuntimeLaneError,
+    );
+  });
+});
