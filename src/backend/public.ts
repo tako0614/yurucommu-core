@@ -72,6 +72,7 @@ export {
 export {
   EdgeKeyValueOptionError,
   EdgeKeyValueStore,
+  EdgeKeyValueValueError,
   wrapEdgeKv,
 } from "./runtime/edge-kv.ts";
 export {

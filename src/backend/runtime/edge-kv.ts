@@ -32,6 +32,14 @@ export class EdgeKeyValueOptionError extends TypeError {
   }
 }
 
+/** A stored value could not be read back in the requested shape. */
+export class EdgeKeyValueValueError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EdgeKeyValueValueError";
+  }
+}
+
 /**
  * Resolve the port's expiry pair into the single value `edge.kv` takes.
  *
@@ -127,13 +135,16 @@ export class EdgeKeyValueStore implements IKeyValueStore {
     if (type === "arrayBuffer") return value;
     const text = new TextDecoder().decode(value);
     if (type === "json") {
-      // Cloudflare KV returns null for a stored value that is not JSON; the
-      // facade has no typed read, so the same tolerance is reproduced here
-      // rather than turning a poisoned entry into a request failure.
+      // A present-but-unparseable entry is a fault, not a miss: reporting it as
+      // `null` would be indistinguishable from "no such key" and would silently
+      // reset whatever state the entry held. The other lanes in this repo
+      // (MemoryKV, the managed runtime) both raise here too.
       try {
         return JSON.parse(text) as unknown;
-      } catch {
-        return null;
+      } catch (error) {
+        throw new EdgeKeyValueValueError(
+          `edge.kv: "${key}" is present but is not JSON: ${String(error)}`,
+        );
       }
     }
     return text;
