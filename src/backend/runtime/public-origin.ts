@@ -8,15 +8,20 @@
  * are all `${APP_URL}/…`, and a wrong one is not a broken page — it is a
  * permanent, federated wrong answer that remote servers have already cached.
  *
- * `APP_URL` is a plain variable, and on a wrapper host it cannot always be one.
- * A Takoform `WorkerEndpoint` allocates the Worker's public origin AFTER the
- * `WorkerVersion` that would have carried the variable is already immutable, so
- * the deployer does not know the value at apply time and there is no second
- * apply that could inject it. The origin exists, but only the Host knows it,
- * and the only place it is ever spoken is on the requests the Host routes here.
+ * `APP_URL` is a plain variable, and on a Host-assigned endpoint it cannot
+ * always be one. A Takoform `WorkerEndpoint` allocates the Worker's public
+ * origin AFTER the `WorkerVersion` that would have carried the variable is
+ * already immutable, so the deployer does not know the value at apply time and
+ * there is no second apply that could inject it. The origin exists, but only
+ * the Host knows it, and the only place it is ever spoken is on the requests
+ * the Host routes here.
  *
- * So on the `portable` lane an unset `APP_URL` is answered by OBSERVING one
- * request and PINNING what it observed:
+ * This has nothing to do with the runtime lane. The lane names the SHAPE OF THE
+ * BINDINGS; a Takoform-hosted Worker on the production Takoserver runs on raw
+ * Cloudflare bindings — the `cloudflare` lane — and is in exactly the same
+ * position, because the Takoform module passes no `APP_URL` there either. So on
+ * EVERY lane an unset `APP_URL` is answered by OBSERVING one request and
+ * PINNING what it observed:
  *
  *   1. `APP_URL` is authoritative whenever it is set. It is used exactly as the
  *      operator wrote it and is never validated, cached, or persisted here —
@@ -32,27 +37,38 @@
  *
  * WHAT IS TRUSTED. The request URL as the runtime delivers it, and only that.
  * Not `X-Forwarded-Host`, not `X-Forwarded-Proto`, not `Host` read out of the
- * headers — nothing a client can write. Both wrapper hosts route by hostname
- * and deliver the request they received on the Worker's own public endpoint:
- * Takoserver's managed Workers-for-Platforms gateway looks up a host route for
- * `new URL(request.url).hostname` and dispatches the SAME `Request` object, and
- * the self-host workerd router picks a service from a table keyed by hostname
- * and forwards unchanged. A hostname nobody published for this Worker is a 404
- * before any of this code runs, so the origin on the request is one the Host
- * assigned — which is exactly the value that could not be delivered as a var.
+ * headers — nothing a client can write. That URL is the endpoint the request
+ * genuinely arrived on, under every host this bundle runs on. Cloudflare
+ * Workers build `request.url` from the connection the edge terminated. Both
+ * wrapper hosts route by hostname and hand over the request they received on
+ * the Worker's own public endpoint: Takoserver's managed Workers-for-Platforms
+ * gateway looks up a host route for `new URL(request.url).hostname` and
+ * dispatches the SAME `Request` object, and the self-host workerd router picks
+ * a service from a table keyed by hostname and forwards unchanged. A hostname
+ * nobody published for this Worker is a 404 before any of this code runs, so
+ * the origin on the request is one the Host assigned — which is exactly the
+ * value that could not be delivered as a var.
  *
- * WHY HTTPS. A public fediverse origin is https, and Takoserver's own
- * `WorkerEndpoint` can only ever assign an https origin. Requiring it here
- * means an http request cannot pin an origin that would then sign deliveries
- * and mint actor ids. Loopback http is the one exception, because `localhost`
- * is not routable and is the origin a developer actually serves on.
+ * WHAT THIS DOES NOT DECIDE. A Worker published straight to Cloudflare by an
+ * operator who holds several hostnames answers on all of them, and first writer
+ * wins means the first one to arrive names the instance. That operator knows
+ * their hostnames and sets `APP_URL`, which always wins and is never pinned.
+ * Inference is the answer for the deployment that CANNOT be told its origin,
+ * not a preference over being told.
  *
- * A wrapper host that terminates TLS in FRONT of workerd and speaks plain http
- * to it therefore establishes nothing: `request.url` is `http://…` and the
- * derivation refuses. That deployment must set `APP_URL`, which it can, because
- * an operator who terminates TLS chose the hostname themselves. Refusing is the
- * point — the alternative is trusting a forwarded-proto header that the same
- * proxy may or may not be the only writer of.
+ * WHY HTTPS. A public fediverse origin is https; Cloudflare terminates TLS in
+ * front of a Worker on a public hostname, and Takoserver's own `WorkerEndpoint`
+ * can only ever assign an https origin. Requiring it here means an http request
+ * cannot pin an origin that would then sign deliveries and mint actor ids.
+ * Loopback http is the one exception, because `localhost` is not routable and
+ * is the origin a developer actually serves on — `wrangler dev` included.
+ *
+ * A host that terminates TLS in FRONT of the runtime and speaks plain http to
+ * it therefore establishes nothing: `request.url` is `http://…` on a routable
+ * name and the derivation refuses. That deployment must set `APP_URL`, which it
+ * can, because an operator who terminates TLS chose the hostname themselves.
+ * Refusing is the point — the alternative is trusting a forwarded-proto header
+ * that the same proxy may or may not be the only writer of.
  */
 
 import type { Env, EnvVars } from "../types.ts";

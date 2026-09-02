@@ -202,14 +202,22 @@ object id、`inbox` / `outbox` / `followers`、OIDC の `redirect_uri`、notific
 link、`.well-known` の discovery document — どれも `${APP_URL}/…` で、間違った値は
 壊れた画面ではなく、**remote が既に cache した永続的な誤答**になります。
 
-ところが `APP_URL` は plain var で、wrapper host ではそれを渡せないことがあります。
-Takoform の `WorkerEndpoint` が公開 origin を割り当てるのは、var を運ぶはずだった
+ところが `APP_URL` は plain var で、endpoint を Host が選ぶ deployment ではそれを渡せない
+ことがあります。Takoform の `WorkerEndpoint` が公開 origin を割り当てるのは、var を運ぶはずだった
 `WorkerVersion` が既に immutable になった **後** です。deployer は apply 時点でその
 値を知らず、後から注入する二度目の apply もありません。origin は存在するのに、知って
 いるのは Host だけで、その値が語られる唯一の場所は **Host がここへ routing してくる
 request** です。
 
-そこで `portable` lane では、`APP_URL` 未設定を「1 回の request を観測して pin する」
+**これは lane の問題ではありません。** lane が名指すのは binding の形であって、
+endpoint を誰が選んだかではありません。本番 Takoserver 上の Takoform install は
+ordinary Workers なので raw な Cloudflare binding を受け取り、つまり `cloudflare`
+lane で動きますが、endpoint を Host が後から割り当てる点は portable と全く同じで、
+Takoform module は `APP_URL` を渡しません（`deploy/takoform/README.md` の
+「Endpoint and public origin」）。4.1.2 は推論を `portable` lane に限っていたので、
+まさにその install だけが永久に自分の名前を持てず ready になりませんでした。
+
+そこで **どちらの lane でも**、`APP_URL` 未設定を「1 回の request を観測して pin する」
 ことで答えます。優先順位は次の通りで、上が勝ちます。
 
 1. **`APP_URL`**（設定されていれば常に authoritative）。operator が書いたそのままの値を
@@ -227,7 +235,9 @@ request** です。
 
 **runtime が渡してきた request URL だけ**です。`X-Forwarded-Host` も
 `X-Forwarded-Proto` も、header から読んだ `Host` も信じません（client が書けるため）。
-両方の wrapper host は hostname で routing し、Worker 自身の公開 endpoint で受けた
+どの host でも、その URL は request が実際に着地した endpoint です。Cloudflare Workers の
+`request.url` は edge が終端した接続そのものから作られます。両方の wrapper host は
+hostname で routing し、Worker 自身の公開 endpoint で受けた
 request をそのまま渡します。managed Workers-for-Platforms の gateway は
 `new URL(request.url).hostname` の host route を引いて **同じ `Request` object** を
 dispatch し、self-host の workerd router は hostname を key にした table から service
@@ -235,10 +245,15 @@ dispatch し、self-host の workerd router は hostname を key にした table
 届く前に 404 です。したがって request に乗っている origin は Host が割り当てたもの
 ——まさに var で渡せなかった値そのものです。
 
-`cloudflare` lane では推測しません。Cloudflare へ直 deploy した Worker は workers.dev
-でも、account が持つ全ての custom domain でも route pattern でも応答するので、同じ
-推論をすると「最初に届いた hostname」が instance の名前を永久に決めてしまいます。この
-lane はこれまで通り `APP_URL` を明示的に要求します。
+つまり request URL を信じられる理由は **runtime の性質であって binding の形ではありません**。
+forwarded header はどの lane でも一切読みません。
+
+**この推論が決めないこと。** hostname を複数持つ operator が Cloudflare へ直 deploy した
+Worker は workers.dev でも custom domain でも route pattern でも応答するので、first
+writer wins は「最初に届いた hostname」を instance の名前にします。その operator は自分の
+hostname を知っているので `APP_URL` を設定します——常に勝ち、pin もされません。推論は
+**origin を教えられない deployment のための答え**であって、教えられることより優先される
+仕組みではありません。
 
 ### https を要求する
 
@@ -248,16 +263,23 @@ request が「delivery に署名し actor id を作る origin」を pin でき�
 です。例外は loopback http（`localhost` / `127.0.0.1` / `[::1]` / `*.localhost`）だけで、
 これは routing されない名前であり、開発者が実際に serve している origin です。
 
-したがって **workerd の前で TLS を終端して平文 http を話す wrapper host は、何も確立
-しません**。`request.url` が `http://…` なので derivation は拒否し、その deployment は
+したがって **runtime の前で TLS を終端して平文 http を話す host は、何も確立しません**。
+`request.url` が routable な名前の `http://…` なので derivation は拒否し、その deployment は
 `APP_URL` を設定する必要があります。設定できます——TLS を終端した operator は hostname を
 自分で選んでいるからです。拒否が正解で、代わりに forwarded-proto header を信じるのは、
 その proxy が唯一の書き手だと証明できないまま信じることです。
 
+**self-host はここに該当します。** workerd の前に Caddy / nginx / Cloudflare Tunnel を
+置いて平文で forward する構成では、Worker が見る origin は `http://…` であり、この module
+は何も pin しません。`/readyz` は `APP_URL` を missing として 503 を返し続けます。この
+deployment は `APP_URL` を明示してください。loopback（`localhost` / `127.0.0.1` /
+`[::1]` / `*.localhost`）は例外なので、local な self-host Worker endpoint と
+`wrangler dev` はそのまま動きます。
+
 ### どこに pin するか、その consistency
 
-pin は **KV** の `__yurucommu/runtime/canonical-origin/v1` に置きます。両 lane が必ず
-持つ store であること（`DB` も同じく必ずありますが、origin は readiness probe と、
+pin は **KV** の `__yurucommu/runtime/canonical-origin/v1` に置きます。どちらの lane でも
+必ず持つ store であること（`DB` も同じく必ずありますが、origin は readiness probe と、
 自分の名前を知るために transaction を開けたくない queue work が必要とします）、そして
 Yurucommu 自身の生成 Worker entry が既に同じ key へ pin していることが理由です。
 
@@ -350,7 +372,7 @@ binding が欠けるのは backend が出せないからではなく、**Version
 
 という、これまでと同じ挙動になります。
 
-`KV` は例外で、`portable` lane の hard requirement です。session と rate limit に加えて
-観測済み公開 origin の pin もここに置くので（前節）、`KV` 未 bind かつ `APP_URL` 未設定の
-deployment は origin を確立できず、`/readyz` が `APP_URL` を missing として 503 を返し
-続けます。
+`KV` は例外で、`APP_URL` 未設定なら **どちらの lane でも** hard requirement です。session
+と rate limit に加えて観測済み公開 origin の pin もここに置くので（前節）、`KV` 未 bind
+かつ `APP_URL` 未設定の deployment は origin を確立できず、`/readyz` が `APP_URL` を
+missing として 503 を返し続けます。

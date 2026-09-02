@@ -9,7 +9,6 @@ import {
   wrapRuntimeBindings,
   wrapRuntimeMessageBatch,
   type PortableWorkerBindings,
-  type RuntimeLane,
 } from "./runtime/lane.ts";
 import {
   configuredAppUrl,
@@ -939,20 +938,28 @@ function mountStaticFallback(app: YurucommuApp): void {
  * a readiness probe that reported `APP_URL` missing on a Worker whose origin
  * only its own traffic can reveal would never go ready.
  *
- * It runs on the `portable` lane alone. There, a wrapper host routes by
- * hostname and delivers the request it received on the Worker's public
- * endpoint, so the request URL IS the assigned origin (see
- * runtime/public-origin.ts). A Worker deployed straight to Cloudflare answers
- * on workers.dev, on every custom domain, and on every route pattern its
- * account holds, so the same inference there would let whichever hostname
- * happened to arrive first name the instance for good; that lane keeps
- * requiring an explicit `APP_URL` exactly as before.
+ * It runs on EVERY lane, because the lane names the SHAPE OF THE BINDINGS and
+ * not who chose the endpoint. A Takoform-hosted Worker on the production
+ * Takoserver receives raw Cloudflare bindings — the `cloudflare` lane — and its
+ * origin is still allocated by a `WorkerEndpoint` after the `WorkerVersion`
+ * that would have carried `APP_URL` was sealed, and the Takoform module passes
+ * no `APP_URL` either. Gating the inference on the lane left exactly that
+ * install unable to ever name itself, and so never ready.
+ *
+ * What makes the request URL trustworthy is a property of the runtime rather
+ * than of the binding shape: the origin on the request is the origin the
+ * request actually arrived on, and no forwarded header is ever consulted (see
+ * runtime/public-origin.ts). The remaining risk on a Worker deployed straight
+ * to Cloudflare — it also answers on workers.dev and on every custom domain and
+ * route pattern its account holds, so the first hostname to arrive would name
+ * the instance for good — is answered the same way it always was: an operator
+ * who owns more than one of those hostnames sets `APP_URL`, which always wins.
  *
  * It never fails a request. When no origin can be established — the request is
- * plain http, KV is unbound, an operator hand-wrote the pin — `APP_URL` simply
- * stays unset, which `/readyz` already reports as a hard missing binding.
- * Turning that into a 500 would take the readiness probe down with it and
- * replace a precise answer with a generic one.
+ * plain http on a routable host, KV is unbound, an operator hand-wrote the pin
+ * — `APP_URL` simply stays unset, which `/readyz` already reports as a hard
+ * missing binding. Turning that into a 500 would take the readiness probe down
+ * with it and replace a precise answer with a generic one.
  */
 function publicOriginMiddleware() {
   let warned = false;
@@ -961,16 +968,6 @@ function publicOriginMiddleware() {
     next: Next,
   ) => {
     if (configuredAppUrl(c.env) !== null) return next();
-    // An unrecognised lane declaration is refused at the binding boundary by
-    // wrapRuntimeBindings. Reaching here with one means the app was composed
-    // directly, and the safe reading of "not a lane I know" is "do not infer".
-    let lane: RuntimeLane;
-    try {
-      lane = resolveRuntimeLane(c.env.YURUCOMMU_RUNTIME_LANE);
-    } catch {
-      return next();
-    }
-    if (lane !== "portable") return next();
     try {
       const origin = await establishRequestPublicOrigin(c.env, c.req.raw);
       c.env = { ...c.env, APP_URL: origin };

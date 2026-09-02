@@ -22,11 +22,13 @@ import {
  * The origin a Takoform-hosted Worker cannot be told.
  *
  * `WorkerEndpoint` allocates the public origin AFTER the immutable
- * `WorkerVersion` that would have carried `APP_URL` as a plain var, so on the
- * portable lane the value exists only on the requests the Host routes here.
- * These tests pin the whole rule: what may become an origin, who wins when two
- * sources disagree, that the first observation is the last one, and that work
- * without a request refuses instead of minting `undefined/ap/users/…`.
+ * `WorkerVersion` that would have carried `APP_URL` as a plain var, so the
+ * value exists only on the requests the Host routes here — on EVERY lane, since
+ * the lane names the binding shape and a Takoform install on the production
+ * Takoserver gets raw Cloudflare bindings. These tests pin the whole rule: what
+ * may become an origin, who wins when two sources disagree, that the first
+ * observation is the last one, that the lane does not enter into it, and that
+ * work without a request refuses instead of minting `undefined/ap/users/…`.
  */
 
 const HOST_ASSIGNED = "https://yurucommu-a1b2c3.workers.example";
@@ -374,23 +376,119 @@ describe("the app served on a Host-assigned origin", () => {
   });
 });
 
-describe("the cloudflare lane", () => {
-  test("does not infer an origin from a request", async () => {
+describe("the rule does not depend on the lane", () => {
+  function cloudflareEnv(extra: Record<string, unknown> = {}) {
+    // No YURUCOMMU_RUNTIME_LANE: unset IS the cloudflare lane, and the bindings
+    // are the raw Cloudflare ones a Takoform install on the production
+    // Takoserver actually receives.
+    return { DB_INSTANCE: {}, ...extra } as unknown as Env;
+  }
+
+  test("the cloudflare lane establishes from an https request", async () => {
     const kv = new MockKV();
     const app = createYurucommuBackendApp();
 
-    const res = await app.fetch(new Request(`${HOST_ASSIGNED}/readyz`), {
-      KV: kv,
-      DB_INSTANCE: {},
-    } as unknown as Env);
+    // A Takoform-hosted Worker on the production Takoserver runs on ordinary
+    // Workers, so its bindings are raw — but its endpoint is still allocated by
+    // a `WorkerEndpoint` after the `WorkerVersion` was sealed, and the Takoform
+    // module passes no `APP_URL`. Gating on the lane left this install unable
+    // to ever name itself.
+    const res = await app.fetch(
+      new Request(`${HOST_ASSIGNED}/.well-known/nodeinfo`),
+      cloudflareEnv({ KV: kv }),
+    );
+    const body = (await res.json()) as { links: Array<{ href: string }> };
+
+    expect(res.status).toEqual(200);
+    expect(body.links.map((l) => l.href)).toEqual([
+      `${HOST_ASSIGNED}/nodeinfo/2.0`,
+      `${HOST_ASSIGNED}/nodeinfo/2.1`,
+    ]);
+    expect(kv.store.get(CANONICAL_ORIGIN_KV_KEY)).toEqual(HOST_ASSIGNED);
+  });
+
+  test("readiness goes ready without APP_URL on the cloudflare lane", async () => {
+    const kv = new MockKV();
+    const app = createYurucommuBackendApp();
+
+    const res = await app.fetch(
+      new Request(`${HOST_ASSIGNED}/readyz`),
+      cloudflareEnv({
+        KV: kv,
+        ENCRYPTION_KEY: "0".repeat(64),
+        AUTH_PASSWORD_HASH: "pbkdf2$1$salt$hash",
+      }),
+    );
     const body = (await res.json()) as { missingBindings: string[] };
 
-    // A Worker deployed straight to Cloudflare answers on workers.dev, on every
-    // custom domain, and on every route its account holds. Whichever hostname
-    // arrived first must not get to name the instance.
+    expect(res.status).toEqual(200);
+    expect(body.missingBindings).not.toContain("APP_URL");
+  });
+
+  test("plain http on a routable host still establishes nothing", async () => {
+    const kv = new MockKV();
+    const app = createYurucommuBackendApp();
+
+    // The one refusal the cloudflare lane keeps: a request that did not arrive
+    // over TLS on a routable name says nothing trustworthy about the origin
+    // this instance signs federation deliveries as.
+    const res = await app.fetch(
+      new Request("http://tls-terminated.example/readyz"),
+      cloudflareEnv({ KV: kv }),
+    );
+    const body = (await res.json()) as { missingBindings: string[] };
+
     expect(res.status).toEqual(503);
     expect(body.missingBindings).toContain("APP_URL");
     expect(kv.store.has(CANONICAL_ORIGIN_KV_KEY)).toBe(false);
+  });
+
+  test("loopback http establishes, so `wrangler dev` still works", async () => {
+    const kv = new MockKV();
+    const app = createYurucommuBackendApp();
+
+    const res = await app.fetch(
+      new Request("http://localhost:8787/.well-known/nodeinfo"),
+      cloudflareEnv({ KV: kv }),
+    );
+    const body = (await res.json()) as { links: Array<{ href: string }> };
+
+    expect(res.status).toEqual(200);
+    expect(body.links[0].href).toEqual("http://localhost:8787/nodeinfo/2.0");
+    expect(kv.store.get(CANONICAL_ORIGIN_KV_KEY)).toEqual(
+      "http://localhost:8787",
+    );
+  });
+
+  test("an unreadable lane declaration does not change the rule", async () => {
+    const kv = new MockKV();
+    const app = createYurucommuBackendApp();
+
+    // The middleware no longer consults the lane at all, so a declaration this
+    // app cannot parse cannot silently turn the origin rule off either.
+    const res = await app.fetch(
+      new Request(`${HOST_ASSIGNED}/.well-known/nodeinfo`),
+      cloudflareEnv({ KV: kv, YURUCOMMU_RUNTIME_LANE: "takoform-v1" }),
+    );
+    const body = (await res.json()) as { links: Array<{ href: string }> };
+
+    expect(body.links[0].href).toEqual(`${HOST_ASSIGNED}/nodeinfo/2.0`);
+    expect(kv.store.get(CANONICAL_ORIGIN_KV_KEY)).toEqual(HOST_ASSIGNED);
+  });
+
+  test("KV unbound and APP_URL unset is reported, not thrown", async () => {
+    const app = createYurucommuBackendApp();
+
+    // The pin has nowhere to live, so nothing is established — and the probe
+    // still answers precisely rather than 500ing on the way past.
+    const res = await app.fetch(
+      new Request(`${HOST_ASSIGNED}/readyz`),
+      cloudflareEnv(),
+    );
+    const body = (await res.json()) as { missingBindings: string[] };
+
+    expect(res.status).toEqual(503);
+    expect(body.missingBindings).toContain("APP_URL");
   });
 
   test("still serves an explicitly configured APP_URL", async () => {
@@ -399,11 +497,7 @@ describe("the cloudflare lane", () => {
 
     const res = await app.fetch(
       new Request("https://whatever.example/.well-known/nodeinfo"),
-      {
-        KV: kv,
-        DB_INSTANCE: {},
-        APP_URL: OPERATOR_SET,
-      } as unknown as Env,
+      cloudflareEnv({ KV: kv, APP_URL: OPERATOR_SET }),
     );
     const body = (await res.json()) as { links: Array<{ href: string }> };
 
