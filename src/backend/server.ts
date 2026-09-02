@@ -92,7 +92,7 @@ const ENV_PASSTHROUGH_KEY_SET: Record<LocalRuntimeEnvKey, true> = {
   // Carried so a shared env file reads the same everywhere, but nothing here
   // consults it: this server builds the runtime ports directly from its own
   // compat classes rather than wrapping a Worker's bindings, so it is neither
-  // the `cloudflare` nor the `takoform-v1` lane. See runtime/lane.ts.
+  // the `cloudflare` nor the `portable` lane. See runtime/lane.ts.
   YURUCOMMU_RUNTIME_LANE: true,
   ENABLE_TAKOS_TOOLS: true,
   AUTH_PASSWORD_HASH: true,

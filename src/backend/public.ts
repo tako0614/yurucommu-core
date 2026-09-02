@@ -36,9 +36,9 @@ export {
   createManagedRelationalDatabase,
   type ManagedRelationalDatabaseOptions,
 } from "./runtime/managed-relational.ts";
-// Takoserver-hosted lane: the portable binding facades a Worker Version
-// published through Takoform receives, and the lane selector that proves a
-// deployment's declared lane against the bindings that actually arrived.
+// The portable lane: the binding facades a wrapper host projects, and the lane
+// selector that proves a deployment's declared lane against the bindings that
+// actually arrived.
 export {
   DEFAULT_RUNTIME_LANE,
   RUNTIME_LANE_VAR,
@@ -47,11 +47,11 @@ export {
   assertRuntimeLaneBindings,
   resolveRuntimeLane,
   type CloudflareWorkerBindings,
+  type PortableWorkerBindings,
   type RuntimeLane,
-  type TakoserverWorkerBindings,
+  wrapPortableBindings,
   wrapRuntimeBindings,
   wrapRuntimeMessageBatch,
-  wrapTakoserverBindings,
 } from "./runtime/lane.ts";
 export {
   EDGE_KV_MAX_EXPIRATION_TTL_SECONDS,

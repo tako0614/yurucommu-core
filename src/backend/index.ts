@@ -8,7 +8,7 @@ import {
   resolveRuntimeLane,
   wrapRuntimeBindings,
   wrapRuntimeMessageBatch,
-  type TakoserverWorkerBindings,
+  type PortableWorkerBindings,
 } from "./runtime/lane.ts";
 import type { EdgeQueueBatch } from "./runtime/edge-facades.ts";
 import {
@@ -997,10 +997,10 @@ export async function handleYurucommuQueueBatch(
 
 /**
  * Bindings that are not the runtime ports, and so pass through whichever lane
- * wrapper runs. Durable Objects live here: Takoform's Worker Version has no
- * Durable Object binding, so on the Takoserver lane both are simply unbound and
- * the routes that need them answer 503, exactly as on a Cloudflare deployment
- * that did not declare them.
+ * wrapper runs. Durable Objects live here: Takoform's Worker Version form has
+ * no Durable Object binding, so on the portable lane both are simply unbound
+ * and the routes that need them answer 503, exactly as on a Cloudflare
+ * deployment that did not declare them.
  */
 type PassthroughBindings = EnvVars & {
   ASSETS?: Fetcher;
@@ -1017,10 +1017,10 @@ type PassthroughBindings = EnvVars & {
 /**
  * What this Worker may be handed.
  *
- * Native Cloudflare bindings, or the portable facades a Takoserver Host
- * projects. `wrapRuntimeBindings` decides which by reading the deployment's
- * declared `YURUCOMMU_RUNTIME_LANE` and proving it against the bindings that
- * actually arrived; see runtime/lane.ts.
+ * Raw Cloudflare bindings, or the portable facades a wrapper host projects.
+ * `wrapRuntimeBindings` decides which by reading the deployment's declared
+ * `YURUCOMMU_RUNTIME_LANE` and proving it against the bindings that actually
+ * arrived; see runtime/lane.ts.
  */
 type WorkerBindings = PassthroughBindings &
   (
@@ -1031,7 +1031,7 @@ type WorkerBindings = PassthroughBindings &
         DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
         DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
       }
-    | TakoserverWorkerBindings
+    | PortableWorkerBindings
   );
 
 function isMaterializedRuntimeEnv(
