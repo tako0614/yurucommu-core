@@ -9,7 +9,7 @@ import {
   resolveRuntimeLane,
   wrapRuntimeBindings,
   wrapRuntimeMessageBatch,
-  wrapTakoserverBindings,
+  wrapPortableBindings,
 } from "../../runtime/lane.ts";
 import worker from "../../public.ts";
 import {
@@ -87,18 +87,24 @@ describe("runtime lane declaration", () => {
     expect(resolveRuntimeLane("")).toBe("cloudflare");
   });
 
-  test("accepts the value the app's Takoform module already sets", () => {
-    // deploy/takoform/main.tf sets YURUCOMMU_RUNTIME_LANE = "takoform-v1".
-    expect(resolveRuntimeLane("takoform-v1")).toBe("takoform-v1");
-    expect(resolveRuntimeLane("  takoform-v1  ")).toBe("takoform-v1");
+  test("accepts the value a wrapper-host deployment sets", () => {
+    // A self-host or managed Workers-for-Platforms deployment sets
+    // YURUCOMMU_RUNTIME_LANE = "portable".
+    expect(resolveRuntimeLane("portable")).toBe("portable");
+    expect(resolveRuntimeLane("  portable  ")).toBe("portable");
     expect(resolveRuntimeLane("cloudflare")).toBe("cloudflare");
   });
 
   test("refuses a lane it has never heard of rather than defaulting", () => {
-    expect(() => resolveRuntimeLane("takoform-v2")).toThrow(RuntimeLaneError);
-    expect(() => resolveRuntimeLane("takoform-v2")).toThrow(
-      /not a runtime lane this build supports/,
-    );
+    // The lane names the binding shape, so the retired IaC-flavoured spelling
+    // is not an alias for it: a deployment still declaring it must be fixed,
+    // not silently served with a guessed binding shape.
+    for (const declared of ["takoform-v1", "takoform-v2"]) {
+      expect(() => resolveRuntimeLane(declared)).toThrow(RuntimeLaneError);
+      expect(() => resolveRuntimeLane(declared)).toThrow(
+        /not a runtime lane this build supports/,
+      );
+    }
     expect(() => resolveRuntimeLane(7)).toThrow(RuntimeLaneError);
   });
 });
@@ -129,9 +135,9 @@ describe("binding identification", () => {
 });
 
 describe("lane and bindings must agree", () => {
-  test("accepts a matched Takoserver deployment", () => {
+  test("accepts a matched portable-facade deployment", () => {
     expect(() =>
-      assertRuntimeLaneBindings("takoform-v1", {
+      assertRuntimeLaneBindings("portable", {
         DB: edgeSql(),
         MEDIA: edgeObjects(),
       }),
@@ -147,12 +153,12 @@ describe("lane and bindings must agree", () => {
     ).not.toThrow();
   });
 
-  test("refuses the hosted lane declared over native Cloudflare bindings", () => {
+  test("refuses the portable lane declared over raw Cloudflare bindings", () => {
     expect(() =>
-      assertRuntimeLaneBindings("takoform-v1", { DB: nativeD1() }),
+      assertRuntimeLaneBindings("portable", { DB: nativeD1() }),
     ).toThrow(/native D1Database/);
     expect(() =>
-      assertRuntimeLaneBindings("takoform-v1", {
+      assertRuntimeLaneBindings("portable", {
         DB: edgeSql(),
         MEDIA: nativeR2(),
       }),
@@ -172,15 +178,15 @@ describe("lane and bindings must agree", () => {
     expect(() => assertRuntimeLaneBindings("cloudflare", { DB: {} })).toThrow(
       /neither a D1Database nor/,
     );
-    expect(() => assertRuntimeLaneBindings("takoform-v1", { DB: {} })).toThrow(
+    expect(() => assertRuntimeLaneBindings("portable", { DB: {} })).toThrow(
       /requires env\.DB to be the/,
     );
   });
 });
 
 describe("wrapRuntimeBindings", () => {
-  const takoserverEnv = () => ({
-    YURUCOMMU_RUNTIME_LANE: "takoform-v1",
+  const portableEnv = () => ({
+    YURUCOMMU_RUNTIME_LANE: "portable",
     APP_URL: "https://example.test",
     ENCRYPTION_KEY: "k",
     DB: edgeSql(),
@@ -191,7 +197,7 @@ describe("wrapRuntimeBindings", () => {
   });
 
   test("builds every runtime port from the facades", () => {
-    const env = wrapRuntimeBindings(takoserverEnv() as never) as Record<
+    const env = wrapRuntimeBindings(portableEnv() as never) as Record<
       string,
       unknown
     >;
@@ -206,17 +212,17 @@ describe("wrapRuntimeBindings", () => {
     );
     // Plain variables, including the lane marker itself, pass through.
     expect(env.APP_URL).toBe("https://example.test");
-    expect(env.YURUCOMMU_RUNTIME_LANE).toBe("takoform-v1");
+    expect(env.YURUCOMMU_RUNTIME_LANE).toBe("portable");
     // The raw bindings do not survive into app-visible Env.
     expect(env.DB).toBeUndefined();
   });
 
   test("leaves an unbound optional binding unbound", () => {
-    const bindings = takoserverEnv() as Record<string, unknown>;
+    const bindings = portableEnv() as Record<string, unknown>;
     delete bindings.MEDIA;
     delete bindings.DELIVERY_QUEUE;
     delete bindings.DELIVERY_DLQ;
-    const env = wrapTakoserverBindings(bindings as never) as Record<
+    const env = wrapPortableBindings(bindings as never) as Record<
       string,
       unknown
     >;
@@ -239,7 +245,7 @@ describe("wrapRuntimeBindings", () => {
   test("refuses to start when the declaration and the bindings disagree", () => {
     expect(() =>
       wrapRuntimeBindings({
-        YURUCOMMU_RUNTIME_LANE: "takoform-v1",
+        YURUCOMMU_RUNTIME_LANE: "portable",
         DB: nativeD1(),
         KV: nativeKv(),
       } as never),
@@ -298,12 +304,12 @@ describe("wrapRuntimeMessageBatch", () => {
     }) as unknown as MessageBatch<{ n: number }>;
 
   test("adapts each lane's own batch", () => {
-    const hosted = wrapRuntimeMessageBatch<{ n: number }>(
+    const portable = wrapRuntimeMessageBatch<{ n: number }>(
       facadeBatch(),
-      "takoform-v1",
+      "portable",
     );
-    expect(hosted.queue).toBe("yurucommu-delivery");
-    expect(hosted.messages[0]!.body).toEqual({ n: 1 });
+    expect(portable.queue).toBe("yurucommu-delivery");
+    expect(portable.messages[0]!.body).toEqual({ n: 1 });
 
     const native = wrapRuntimeMessageBatch<{ n: number }>(cloudflareBatch());
     expect(native.messages[0]!.body).toEqual({ n: 1 });
@@ -311,7 +317,7 @@ describe("wrapRuntimeMessageBatch", () => {
 
   test("refuses a batch from the other lane", () => {
     expect(() =>
-      wrapRuntimeMessageBatch(cloudflareBatch(), "takoform-v1"),
+      wrapRuntimeMessageBatch(cloudflareBatch(), "portable"),
     ).toThrow(RuntimeLaneError);
     expect(() => wrapRuntimeMessageBatch(facadeBatch(), "cloudflare")).toThrow(
       RuntimeLaneError,
@@ -320,15 +326,15 @@ describe("wrapRuntimeMessageBatch", () => {
 });
 
 describe("the published Worker export", () => {
-  const hostedBindings = () => ({
-    YURUCOMMU_RUNTIME_LANE: "takoform-v1",
+  const portableBindings = () => ({
+    YURUCOMMU_RUNTIME_LANE: "portable",
     APP_URL: "https://example.test",
     DB: edgeSql(),
     KV: edgeKv(),
   });
 
   // A queue name the app does not own: `handleYurucommuQueueBatch` settles the
-  // batch and returns, which is enough to prove the whole hosted path — lane
+  // batch and returns, which is enough to prove the whole portable path — lane
   // resolution, batch adaptation, and binding wrapping — ran.
   const foreignBatch = (settle: () => void): EdgeQueueBatch => ({
     batchId: "b",
@@ -338,19 +344,19 @@ describe("the published Worker export", () => {
     retryAll: () => {},
   });
 
-  test("routes a Takoserver queue event through the hosted lane", async () => {
+  test("routes a portable queue event through the portable lane", async () => {
     let settled = false;
     await worker.queue(
       foreignBatch(() => {
         settled = true;
       }),
-      hostedBindings() as never,
+      portableBindings() as never,
     );
     expect(settled).toBe(true);
   });
 
-  test("refuses a Takoserver queue event when the lane is not declared", async () => {
-    const bindings = hostedBindings() as Record<string, unknown>;
+  test("refuses a portable queue event when the lane is not declared", async () => {
+    const bindings = portableBindings() as Record<string, unknown>;
     delete bindings.YURUCOMMU_RUNTIME_LANE;
     await expect(
       worker.queue(

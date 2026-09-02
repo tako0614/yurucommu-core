@@ -3,14 +3,20 @@
  *
  * The same bundle runs on two backends that look identical from inside:
  *
- *   `cloudflare`   — published straight to Cloudflare Workers. `env.DB` is a
- *                    `D1Database`, `env.KV` a `KVNamespace`, `env.MEDIA` an
- *                    `R2Bucket`, `env.DELIVERY_QUEUE` a `Queue`.
- *   `takoform-v1`  — published through Takoform onto a Takoserver Host, managed
- *                    Cloudflare backend or self-host. The Host's generated
- *                    entrypoint replaces `env` before the module sees it, and
- *                    each binding is the portable facade its Interface names:
- *                    `edge.sql`, `edge.kv`, `edge.objects`, `edge.queue`.
+ *   `cloudflare`  — RAW Cloudflare bindings. `env.DB` is a `D1Database`,
+ *                   `env.KV` a `KVNamespace`, `env.MEDIA` an `R2Bucket`,
+ *                   `env.DELIVERY_QUEUE` a `Queue`. This is a Worker deployed
+ *                   straight to Cloudflare, and equally an ordinary-Workers
+ *                   Takoserver backend, which projects those same raw bindings.
+ *   `portable`    — the PORTABLE FACADES. A wrapper host — a self-hosted
+ *                   Takoserver, or a managed Workers-for-Platforms backend —
+ *                   replaces `env` before the module sees it, and each binding
+ *                   is the facade its Interface names: `edge.sql`, `edge.kv`,
+ *                   `edge.objects`, `edge.queue`.
+ *
+ * THE LANE NAMES THE BINDING SHAPE, not the tool that published the Worker. A
+ * deployment authored in Takoform lands on either one depending on the host it
+ * targets, so the lane cannot be inferred from the IaC that produced it.
  *
  * THE LANE IS DECLARED, NOT SNIFFED. Two of the bindings cannot be told apart
  * by shape at all — `edge.kv` and `KVNamespace` expose the same five method
@@ -19,10 +25,11 @@
  * argument and returns bytes, and the failure would surface much later as a
  * corrupt session or a rate-limit that never trips.
  *
- * So the lane comes from `YURUCOMMU_RUNTIME_LANE`, which the app's Takoform
- * module already sets (`deploy/takoform/main.tf`, `worker_plain_values`), and
- * the declaration is then cross-checked against the bindings that ARE decisive
- * — `DB` always, `MEDIA` when it is bound. A disagreement refuses to start.
+ * So the lane comes from `YURUCOMMU_RUNTIME_LANE`, which a self-host or managed
+ * Workers-for-Platforms deployment sets to `portable` and every raw-binding
+ * deployment leaves unset (or `cloudflare`). The declaration is then
+ * cross-checked against the bindings that ARE decisive — `DB` always, `MEDIA`
+ * when it is bound. A disagreement refuses to start.
  */
 
 import type {
@@ -62,7 +69,7 @@ import type { IQueueBatch, IQueueProducer } from "./queue.ts";
 export const RUNTIME_LANE_VAR = "YURUCOMMU_RUNTIME_LANE";
 
 /** Every lane this build knows how to run on. */
-export const RUNTIME_LANES = ["cloudflare", "takoform-v1"] as const;
+export const RUNTIME_LANES = ["cloudflare", "portable"] as const;
 
 export type RuntimeLane = (typeof RUNTIME_LANES)[number];
 
@@ -124,28 +131,28 @@ export function assertRuntimeLaneBindings(
   bindings: LaneBindings,
 ): void {
   const { DB, MEDIA } = bindings;
-  if (lane === "takoform-v1") {
+  if (lane === "portable") {
     if (isNativeD1Database(DB)) {
       throw new RuntimeLaneError(
-        `${RUNTIME_LANE_VAR}="takoform-v1" declares the Takoserver-hosted ` +
-          `lane, but env.DB is a native D1Database (prepare/batch). A Takoform ` +
-          `sqlite binding arrives as the edge.sql facade. Either the variable ` +
-          `is set on a direct Cloudflare deployment, or the Worker Version ` +
-          `declared a binding it did not receive.`,
+        `${RUNTIME_LANE_VAR}="portable" declares the portable-facade lane, ` +
+          `but env.DB is a native D1Database (prepare/batch). A host that ` +
+          `projects raw Cloudflare bindings — including an ordinary-Workers ` +
+          `Takoserver backend — is the cloudflare lane; leave the variable ` +
+          `unset there.`,
       );
     }
     if (!isEdgeSqlBinding(DB)) {
       throw new RuntimeLaneError(
-        `${RUNTIME_LANE_VAR}="takoform-v1" requires env.DB to be the ` +
+        `${RUNTIME_LANE_VAR}="portable" requires env.DB to be the ` +
           `edge.sql@1.0.0 facade (execute/query/transaction); it exposes ` +
           `neither that nor D1's prepare/batch.`,
       );
     }
     if (MEDIA !== undefined && isNativeR2Bucket(MEDIA)) {
       throw new RuntimeLaneError(
-        `${RUNTIME_LANE_VAR}="takoform-v1" declares the Takoserver-hosted ` +
-          `lane, but env.MEDIA is a native R2Bucket. A Takoform bucket ` +
-          `binding arrives as the edge.objects@1.0.0 facade.`,
+        `${RUNTIME_LANE_VAR}="portable" declares the portable-facade lane, ` +
+          `but env.MEDIA is a native R2Bucket. A portable bucket binding ` +
+          `arrives as the edge.objects@1.0.0 facade.`,
       );
     }
     return;
@@ -153,10 +160,10 @@ export function assertRuntimeLaneBindings(
   if (isEdgeSqlBinding(DB)) {
     throw new RuntimeLaneError(
       `env.DB is the edge.sql@1.0.0 facade (execute/query/transaction), but ` +
-        `${RUNTIME_LANE_VAR} does not declare the takoform-v1 lane. A ` +
-        `Takoserver-hosted Worker must declare it; without that this build ` +
-        `would hand the facade to drizzle-orm/d1 and every query would fail ` +
-        `at the first prepare().`,
+        `${RUNTIME_LANE_VAR} does not declare the portable lane. A Worker on a ` +
+        `wrapper host must declare it; without that this build would hand the ` +
+        `facade to drizzle-orm/d1 and every query would fail at the first ` +
+        `prepare().`,
     );
   }
   if (!isNativeD1Database(DB)) {
@@ -167,8 +174,8 @@ export function assertRuntimeLaneBindings(
   }
 }
 
-/** Bindings a Takoserver-hosted Worker Version receives. */
-export interface TakoserverWorkerBindings {
+/** Bindings a Worker receives from a host that projects portable facades. */
+export interface PortableWorkerBindings {
   DB: EdgeSqlBinding;
   KV: EdgeKvBinding;
   MEDIA?: EdgeObjectsBinding;
@@ -200,12 +207,12 @@ type WrappedRuntime<T> = Omit<
 };
 
 /**
- * Wrap Takoserver's portable facades into the runtime ports the app speaks.
+ * Wrap the portable facades into the runtime ports the app speaks.
  *
  * `ASSETS` passes through: a Takoform `external_services` entry is projected as
  * a `{fetch}` adapter, which is already the port's whole surface.
  */
-export function wrapTakoserverBindings<T extends TakoserverWorkerBindings>(
+export function wrapPortableBindings<T extends PortableWorkerBindings>(
   bindings: T,
 ): WrappedRuntime<T> {
   const { DB, MEDIA, KV, ASSETS, DELIVERY_QUEUE, DELIVERY_DLQ, ...rest } =
@@ -238,9 +245,9 @@ export function wrapRuntimeBindings<
     (bindings as Record<string, unknown>)[RUNTIME_LANE_VAR],
   );
   assertRuntimeLaneBindings(lane, bindings as LaneBindings);
-  return lane === "takoform-v1"
-    ? (wrapTakoserverBindings(
-        bindings as unknown as TakoserverWorkerBindings,
+  return lane === "portable"
+    ? (wrapPortableBindings(
+        bindings as unknown as PortableWorkerBindings,
       ) as unknown as WrappedRuntime<T>)
     : (wrapCloudflareBindings(
         bindings as unknown as CloudflareWorkerBindings & {
@@ -262,19 +269,19 @@ export function wrapRuntimeMessageBatch<T>(
   lane: RuntimeLane = DEFAULT_RUNTIME_LANE,
 ): IQueueBatch<T> {
   const isFacade = isEdgeQueueBatch(batch);
-  if (lane === "takoform-v1") {
+  if (lane === "portable") {
     if (!isFacade) {
       throw new RuntimeLaneError(
-        `${RUNTIME_LANE_VAR}="takoform-v1" declares the Takoserver-hosted ` +
-          `lane, but the queue event is a Cloudflare MessageBatch (ackAll).`,
+        `${RUNTIME_LANE_VAR}="portable" declares the portable-facade lane, ` +
+          `but the queue event is a Cloudflare MessageBatch (ackAll).`,
       );
     }
     return wrapEdgeMessageBatch<T>(batch);
   }
   if (isFacade) {
     throw new RuntimeLaneError(
-      `The queue event is a Takoserver batch (acknowledgeAll), but ` +
-        `${RUNTIME_LANE_VAR} does not declare the takoform-v1 lane.`,
+      `The queue event is a portable-facade batch (acknowledgeAll), but ` +
+        `${RUNTIME_LANE_VAR} does not declare the portable lane.`,
     );
   }
   return wrapCloudflareMessageBatch(batch as MessageBatch<T>);

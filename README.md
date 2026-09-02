@@ -86,8 +86,8 @@ Yurucommu は ActivityPub 連合・コンテンツ配送・ユーザー identity
 
 ## ドキュメント
 
-- [Runtime lanes](docs/design/runtime-lanes.md) — Cloudflare 直 deploy と
-  Takoserver-hosted (Takoform) で binding の形が変わる点と、その宣言方法
+- [Runtime lanes](docs/design/runtime-lanes.md) — raw Cloudflare binding と
+  portable facade で binding の形が変わる点と、その宣言方法
 - [Deployment guide](https://yurucommu.com/help/deployment.html)
 - [Getting started](https://yurucommu.com/help/getting-started.html)
 - [Help site](https://yurucommu.com/help/)

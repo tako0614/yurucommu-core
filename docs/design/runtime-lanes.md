@@ -2,7 +2,7 @@
 SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 
-# Runtime lanes — 同じ bundle を Cloudflare と Takoserver の両方で動かす
+# Runtime lanes — 同じ bundle を raw binding と portable facade の両方で動かす
 
 Status: **実装済み**（`src/backend/runtime/lane.ts` ほか。test は
 `src/backend/__tests__/runtime/`）
@@ -11,16 +11,23 @@ Consumers: `yurucommu`, `yurumeet`（Worker entry の composition）
 
 同一の Worker bundle が、内側からは見分けのつかない 2 つの backend で動きます。
 
-| lane | 出どころ | `env.DB` | `env.KV` | `env.MEDIA` | `env.DELIVERY_QUEUE` |
+| lane | binding を projection する host | `env.DB` | `env.KV` | `env.MEDIA` | `env.DELIVERY_QUEUE` |
 | --- | --- | --- | --- | --- | --- |
-| `cloudflare` | Cloudflare Workers へ直接 deploy | `D1Database` | `KVNamespace` | `R2Bucket` | `Queue` |
-| `takoform-v1` | Takoform 経由で Takoserver Host へ publish | `edge.sql@1.0.0` | `edge.kv@1.0.0` | `edge.objects@1.0.0` | `edge.queue@1.0.0` |
+| `cloudflare` | Cloudflare Workers へ直接 deploy、および ordinary Workers の Takoserver backend | `D1Database` | `KVNamespace` | `R2Bucket` | `Queue` |
+| `portable` | wrapper host（self-host、managed Workers-for-Platforms） | `edge.sql@1.0.0` | `edge.kv@1.0.0` | `edge.objects@1.0.0` | `edge.queue@1.0.0` |
 
-`takoform-v1` では Host が生成した entrypoint が module より先に `env` を差し替え、
-各 binding は Worker Version が宣言した Interface の **portable facade** になります。
-managed Cloudflare backend と self-host backend は同じ facade を projection します
+**lane が名指すのは binding の形であって、Worker を publish した道具ではありません。**
+本番の Takoserver backend は ordinary Workers なので `kv_namespace` / `d1` /
+`r2_bucket` / `queue` / `service` を **そのまま** projection します。これは
+`cloudflare` lane です。facade が現れるのは wrapper host、つまり self-host と managed
+Workers-for-Platforms だけで、そこでは host が生成した entrypoint が module より先に
+`env` を差し替え、各 binding は Worker Version が宣言した Interface の
+**portable facade** になります。両 wrapper は同じ facade を projection します
 （同じ method、同じ option 名、同じ error 名）。Takoserver ADR 0005 が object storage
 について明言し、self-host wrapper が KV と SQL について同じことを繰り返しています。
+
+Takoform で書いた deployment はどちらの host にも着地しうるので、lane を IaC の語彙で
+呼ぶことはできません。
 
 ## lane は宣言する。推測しない
 
@@ -31,16 +38,21 @@ binding の 5 つのうち **2 つは形で区別できません**。`edge.kv` �
 として現れます。
 
 そこで lane は plain var `YURUCOMMU_RUNTIME_LANE` で宣言し、**識別できる binding で
-突き合わせます**。未設定は `cloudflare`（Takoform を経由していない Worker はそれです）。
-知らない値は default に落とさず起動を拒否します。
+突き合わせます**。値は `cloudflare` と `portable` の 2 つだけで、未設定は
+`cloudflare` です。知らない値は default に落とさず起動を拒否します。alias はありません
+——旧称 `takoform-v1` もいまは「知らない値」であり、まだそれを宣言している deployment は
+黙って別の binding 形で動かされるのではなく、起動に失敗します。
 
 - `DB` は両方向に decisive — `execute`/`query`/`transaction` と `prepare`/`batch` は
   互いに素です。
 - `MEDIA` は片方向に decisive — `R2Bucket` は multipart helper で見分けられます。
 - 宣言と binding が食い違えば `RuntimeLaneError` で起動を拒否します。
 
-app 側の `deploy/takoform/main.tf` は既に
-`worker_plain_values = { YURUCOMMU_RUNTIME_LANE = "takoform-v1" }` を設定しています。
+設定するのは wrapper host に置くときだけです。self-host と managed
+Workers-for-Platforms の deployment は
+`worker_plain_values = { YURUCOMMU_RUNTIME_LANE = "portable" }` を設定し、ordinary
+Workers の Takoserver backend と Cloudflare 直 deploy は未設定のまま（または
+`cloudflare`）にします。
 
 ## Worker entry からの使い方
 
@@ -74,7 +86,7 @@ native binding だけを渡すと分かっている entry はそちらを直接�
 
 Durable Object binding (`CALL_SIGNALING` / `REALTIME_STREAM`) はどちらの lane でも
 wrapper を素通りします。ただし Takoform の Worker Version form には DO binding が
-無いため、`takoform-v1` では両方とも未 bind になり、call / realtime route は 503 を
+無いため、`portable` では両方とも未 bind になり、call / realtime route は 503 を
 返してクライアントは polling に落ちます。
 
 ## lane ごとの差分（app が知っておくべきもの）
