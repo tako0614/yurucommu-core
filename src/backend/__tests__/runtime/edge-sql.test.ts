@@ -107,12 +107,12 @@ function createFakeEdgeSql(store: BunSqlite): EdgeSqlBinding & {
       }
       return result;
     },
-    transaction: async (input) => {
+    transaction: async (input) => ({
       // All-or-none, exactly like the Host: one throw discards the whole set.
-      return store.transaction(() =>
+      results: store.transaction(() =>
         input.map((entry) => run(entry.sql, entry.params)),
-      )();
-    },
+      )(),
+    }),
   };
 }
 
@@ -328,6 +328,33 @@ describe("edge.sql drizzle round trip", () => {
     expect(facade.statements).toHaveLength(3); // 2 inserts + the select
   });
 
+  test("consumes the released envelope for a four-statement batch", async () => {
+    await db.batch([
+      db.insert(authors).values({
+        id: "a1",
+        name: "Ada",
+        createdAt: "2026-01-01",
+      }),
+      db.insert(authors).values({
+        id: "a2",
+        name: "Grace",
+        createdAt: "2026-01-01",
+      }),
+      db.insert(authors).values({
+        id: "a3",
+        name: "Katherine",
+        createdAt: "2026-01-01",
+      }),
+      db.insert(authors).values({
+        id: "a4",
+        name: "Margaret",
+        createdAt: "2026-01-01",
+      }),
+    ]);
+
+    expect(await db.select().from(authors)).toHaveLength(4);
+  });
+
   test("batch rolls the whole set back when one statement fails", async () => {
     await db
       .insert(authors)
@@ -359,7 +386,7 @@ describe("edge.sql fail-closed guards", () => {
   const emptyFacade = (result: EdgeSqlResult): EdgeSqlBinding => ({
     execute: async () => result,
     query: async () => result,
-    transaction: async () => [result],
+    transaction: async () => ({ results: [result] }),
   });
 
   /**
@@ -415,5 +442,69 @@ describe("edge.sql fail-closed guards", () => {
     );
     expect(error).toBeInstanceOf(EdgeSqlShapeError);
     expect(error.message).toContain("exceed the facade limit of 100");
+  });
+
+  test("refuses an empty transaction before calling the Host", async () => {
+    const result = { rows: [], rowsWritten: 0 } satisfies EdgeSqlResult;
+    let transactionCalls = 0;
+    const db = createEdgeSqlDatabase({
+      ...emptyFacade(result),
+      transaction: async () => {
+        transactionCalls += 1;
+        return { results: [] };
+      },
+    });
+
+    const error = await refusal(async () => await db.batch([] as never));
+    expect(error).toBeInstanceOf(EdgeSqlShapeError);
+    expect(error.message).toContain("requires at least one statement");
+    expect(transactionCalls).toBe(0);
+  });
+
+  test.each([
+    ["a bare result array", []],
+    ["a missing results member", {}],
+    ["a non-array results member", { results: null }],
+    ["an additional member", { results: [], unexpected: true }],
+  ])("refuses %s as a transaction envelope", async (_name, response) => {
+    const result = { rows: [], rowsWritten: 0 } satisfies EdgeSqlResult;
+    const db = createEdgeSqlDatabase({
+      ...emptyFacade(result),
+      transaction: async () => response as never,
+    });
+
+    const error = await refusal(
+      async () =>
+        await db.batch([
+          db.insert(authors).values({
+            id: "a1",
+            name: "Ada",
+            createdAt: "2026-01-01",
+          }),
+        ]),
+    );
+    expect(error).toBeInstanceOf(ProxyColumnMismatchError);
+    expect(error.message).toContain("malformed result envelope");
+  });
+
+  test("refuses a result count that differs from the statement count", async () => {
+    const result = { rows: [], rowsWritten: 0 } satisfies EdgeSqlResult;
+    const db = createEdgeSqlDatabase({
+      ...emptyFacade(result),
+      transaction: async () => ({ results: [] }),
+    });
+
+    const error = await refusal(
+      async () =>
+        await db.batch([
+          db.insert(authors).values({
+            id: "a1",
+            name: "Ada",
+            createdAt: "2026-01-01",
+          }),
+        ]),
+    );
+    expect(error).toBeInstanceOf(ProxyColumnMismatchError);
+    expect(error.message).toContain("returned 0 results for 1 statements");
   });
 });

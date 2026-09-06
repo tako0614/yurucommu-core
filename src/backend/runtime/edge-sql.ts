@@ -158,6 +158,11 @@ export function createEdgeSqlDatabase(binding: EdgeSqlBinding) {
     await one(prepare(sql, params), method);
 
   const batchCallback: AsyncBatchRemoteCallback = async (batch) => {
+    if (batch.length < 1) {
+      throw new EdgeSqlShapeError(
+        "edge.sql: a transaction requires at least one statement",
+      );
+    }
     if (batch.length > EDGE_SQL_MAX_STATEMENTS) {
       throw new EdgeSqlShapeError(
         `edge.sql: a batch of ${batch.length} statements exceeds the facade ` +
@@ -165,9 +170,26 @@ export function createEdgeSqlDatabase(binding: EdgeSqlBinding) {
       );
     }
     const prepared = batch.map((entry) => prepare(entry.sql, entry.params));
-    const results = await binding.transaction(
+    const transaction = await binding.transaction(
       prepared.map((entry) => ({ sql: entry.sql, params: entry.params })),
     );
+    const keys =
+      typeof transaction === "object" &&
+      transaction !== null &&
+      !Array.isArray(transaction)
+        ? Object.keys(transaction)
+        : [];
+    if (
+      keys.length !== 1 ||
+      keys[0] !== "results" ||
+      !Array.isArray(transaction?.results)
+    ) {
+      throw new ProxyColumnMismatchError(
+        `edge.sql: transaction returned a malformed result envelope for ` +
+          `${prepared.length} statements`,
+      );
+    }
+    const { results } = transaction;
     if (results.length !== prepared.length) {
       throw new ProxyColumnMismatchError(
         `edge.sql: transaction returned ${results.length} results for ` +

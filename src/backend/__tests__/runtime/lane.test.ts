@@ -29,7 +29,7 @@ import {
 const edgeSql = () => ({
   execute: async () => ({ rows: [], rowsWritten: 0 }),
   query: async () => ({ rows: [], rowsWritten: 0 }),
-  transaction: async () => [],
+  transaction: async () => ({ results: [] }),
 });
 
 const nativeD1 = () => ({

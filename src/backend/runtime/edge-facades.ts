@@ -83,7 +83,7 @@ export interface EdgeSqlBinding {
   /** All-or-none. 1..100 statements, ordered, one Host round trip. */
   transaction(
     statements: readonly EdgeSqlStatement[],
-  ): Promise<readonly EdgeSqlResult[]>;
+  ): Promise<{ readonly results: readonly EdgeSqlResult[] }>;
 }
 
 export interface EdgeKvPutOptions {
