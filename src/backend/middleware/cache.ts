@@ -319,12 +319,15 @@ async function handleCloudflareCache(
   cacheKey: string,
   config: CacheConfig,
 ): Promise<Response | void> {
-  const cache = caches.default;
   const url = new URL(c.req.url);
   const fullCacheKey = new Request(`${url.origin}/_cache${cacheKey}`);
 
+  let cache: Cache;
   let cachedResponse: Response | undefined;
   try {
+    // Some runtimes expose CacheStorage but have no backing cache configured;
+    // accessing the default getter can fail before match() is reached.
+    cache = caches.default;
     cachedResponse = await cache.match(fullCacheKey);
   } catch (error) {
     if (isDefaultCacheUnavailable(error)) {
@@ -395,7 +398,7 @@ function isDefaultCacheUnavailable(error: unknown): boolean {
       : typeof error === "string"
         ? error
         : "";
-  return /not permitted to access the default cache|default cache.*(?:not|un)available|Cache API.*not available/i.test(
+  return /not permitted to access the default cache|default cache.*(?:not|un)available|Cache API.*not available|^No Cache was configured\.?$/i.test(
     message,
   );
 }
