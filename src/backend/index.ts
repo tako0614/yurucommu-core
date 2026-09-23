@@ -991,6 +991,7 @@ export function createYurucommuBackendApp(
   options: CreateYurucommuBackendAppOptionsV1 = {},
 ): YurucommuApp {
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  const cacheNamespace = {};
   const plugins = options.plugins ?? [];
   const pluginContext: BackendPluginContextV1 = { app };
 
@@ -1006,6 +1007,10 @@ export function createYurucommuBackendApp(
   // Before the readiness probes, because they report on APP_URL and the
   // `.well-known` discovery documents publish it. Reads no body and consults no
   // route, so it does not weaken the body-cap ordering below.
+  app.use("*", (c, next) => {
+    c.set("cacheNamespace", cacheNamespace);
+    return next();
+  });
   app.use("*", publicOriginMiddleware());
   mountReadinessRoutes(app, options.discovery);
   // Body-size cap must run BEFORE any handler reads the body or executes

@@ -134,16 +134,59 @@ class LRUCache {
   }
 }
 
-const memoryCache = new LRUCache(1000);
+interface MemoryCacheState {
+  cache: LRUCache;
+  lastCleanup: number;
+}
+
+const memoryCaches = new WeakMap<object, MemoryCacheState>();
 
 const CLEANUP_INTERVAL = 5 * 60 * 1000;
-let lastCleanup = Date.now();
 
-function maybeCleanup(): void {
+function createMemoryCacheState(): MemoryCacheState {
+  return { cache: new LRUCache(1000), lastCleanup: Date.now() };
+}
+
+function memoryCacheStateFor(namespace: object): MemoryCacheState {
+  const existing = memoryCaches.get(namespace);
+  if (existing) return existing;
+  const state = createMemoryCacheState();
+  memoryCaches.set(namespace, state);
+  return state;
+}
+
+function isObjectNamespace(value: unknown): value is object {
+  return (
+    (typeof value === "object" && value !== null) || typeof value === "function"
+  );
+}
+
+function resolveMemoryCacheState(
+  c: HonoContext,
+  fallback: MemoryCacheState,
+): MemoryCacheState {
+  const appNamespace = c.get("cacheNamespace");
+  if (isObjectNamespace(appNamespace)) {
+    return memoryCacheStateFor(appNamespace);
+  }
+
+  const database = c.env?.DB_INSTANCE;
+  if (isObjectNamespace(database)) {
+    return memoryCacheStateFor(database);
+  }
+
+  // Standalone `withCache` middleware without a materialized app or database
+  // keeps a bounded state owned by this middleware instance. This preserves
+  // ordinary local middleware HIT behavior without introducing a process-wide
+  // authority-less cache namespace.
+  return fallback;
+}
+
+function maybeCleanup(state: MemoryCacheState): void {
   const now = Date.now();
-  if (now - lastCleanup >= CLEANUP_INTERVAL) {
-    lastCleanup = now;
-    memoryCache.cleanup();
+  if (now - state.lastCleanup >= CLEANUP_INTERVAL) {
+    state.lastCleanup = now;
+    state.cache.cleanup();
   }
 }
 
@@ -293,6 +336,7 @@ function isCloudflareWorkers(): boolean {
  * }), handler);
  */
 export function withCache(config: CacheConfig): HonoMiddleware {
+  const fallbackState = createMemoryCacheState();
   return async (c, next) => {
     if (c.req.method !== "GET") {
       await next();
@@ -307,9 +351,15 @@ export function withCache(config: CacheConfig): HonoMiddleware {
     const cacheKey = generateCacheKey(c, config);
 
     if (isCloudflareWorkers()) {
-      return handleCloudflareCache(c, next, cacheKey, config);
+      return handleCloudflareCache(c, next, cacheKey, config, fallbackState);
     }
-    return handleMemoryCache(c, next, cacheKey, config);
+    return handleMemoryCache(
+      c,
+      next,
+      cacheKey,
+      config,
+      resolveMemoryCacheState(c, fallbackState),
+    );
   };
 }
 
@@ -318,6 +368,7 @@ async function handleCloudflareCache(
   next: Next,
   cacheKey: string,
   config: CacheConfig,
+  fallbackState: MemoryCacheState,
 ): Promise<Response | void> {
   const url = new URL(c.req.url);
   const fullCacheKey = new Request(`${url.origin}/_cache${cacheKey}`);
@@ -336,7 +387,13 @@ async function handleCloudflareCache(
         cacheKey,
         error,
       });
-      return handleMemoryCache(c, next, cacheKey, config);
+      return handleMemoryCache(
+        c,
+        next,
+        cacheKey,
+        config,
+        resolveMemoryCacheState(c, fallbackState),
+      );
     }
     throw error;
   }
@@ -408,10 +465,11 @@ async function handleMemoryCache(
   next: Next,
   cacheKey: string,
   config: CacheConfig,
+  state: MemoryCacheState,
 ): Promise<Response | void> {
-  maybeCleanup();
+  maybeCleanup(state);
 
-  const cached = memoryCache.get(cacheKey);
+  const cached = state.cache.get(cacheKey);
 
   if (cached) {
     if (isConditionalHit(c, cached.etag, cached.lastModified)) {
@@ -444,7 +502,7 @@ async function handleMemoryCache(
     headersObj[key] = value;
   });
 
-  memoryCache.set(cacheKey, {
+  state.cache.set(cacheKey, {
     body: responseBody,
     headers: headersObj,
     status: 200,

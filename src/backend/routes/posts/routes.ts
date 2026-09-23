@@ -37,7 +37,7 @@ import {
 } from "./queries.ts";
 import {
   prepareObjectDeleteCascade,
-  purgeMediaBlobs,
+  purgeMediaBlobDeletionJobs,
 } from "./delete-cascade.ts";
 import {
   checkCommunityPostPermission,
@@ -696,7 +696,7 @@ posts.delete("/:id", async (c) => {
 
   // Irreversible R2 purge LAST — only now that the objects row is gone. A
   // failure here degrades to a leaked blob, not a live post with a deleted blob.
-  await purgeMediaBlobs(c.env.MEDIA, cascade.mediaKeys);
+  await purgeMediaBlobDeletionJobs(db, c.env.MEDIA, cascade.mediaKeys);
   await preparedFederation.complete();
 
   return c.json({ success: true });

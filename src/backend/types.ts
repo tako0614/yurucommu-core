@@ -172,6 +172,8 @@ export type Env = {
 export type Variables = {
   actor: Actor | null;
   db: Database;
+  /** Internal app-instance identity used to isolate in-memory cache fallback. */
+  cacheNamespace?: object;
   oauthToken?: { sub: string; scope: string; client_id: string };
 };
 

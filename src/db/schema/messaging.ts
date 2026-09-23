@@ -1,7 +1,7 @@
 /**
  * Messaging/DM tables: activities, inbox, deliveryQueue,
  * deliveryEndpointRecipients, deliveryCircuit, notificationArchived, dmTyping,
- * dmReadStatus, dmArchivedConversations, mediaUploads
+ * dmReadStatus, dmArchivedConversations, mediaUploads, mediaBlobDeletionJobs
  */
 
 import {
@@ -345,5 +345,26 @@ export const mediaUploads = sqliteTable(
   (t) => [
     index("media_uploads_uploader_idx").on(t.uploaderApId),
     index("media_uploads_r2_key_idx").on(t.r2Key),
+  ],
+);
+
+// Durable intent for object-attached media deletion. This row is created in
+// the same atomic batch as the canonical object delete and is removed only
+// after the ObjectStore acknowledges deletion. It intentionally carries no
+// provider/native fields: r2_key is the product-owned media identity.
+export const mediaBlobDeletionJobs = sqliteTable(
+  "media_blob_deletion_jobs",
+  {
+    r2Key: text("r2_key").primaryKey(),
+    uploaderApId: text("uploader_ap_id").notNull(),
+    createdAt: text("created_at").notNull().$defaultFn(nowIsoUtc),
+    nextAttemptAt: text("next_attempt_at").notNull().$defaultFn(nowIsoUtc),
+  },
+  (t) => [
+    index("media_blob_deletion_jobs_due_idx").on(
+      t.nextAttemptAt,
+      t.createdAt,
+      t.r2Key,
+    ),
   ],
 );

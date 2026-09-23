@@ -19,7 +19,7 @@
  * the remote `handleDelete` inbox path so neither can orphan rows.
  */
 
-import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { D1Statement, Database } from "../../../db/index.ts";
 import type { ObjectStore } from "../../runtime/types.ts";
 import {
@@ -29,7 +29,9 @@ import {
   bookmarks,
   communities,
   D1_MAX_BATCH_STATEMENTS,
+  insertMany,
   likes,
+  mediaBlobDeletionJobs,
   mediaUploads,
   objectRecipients,
   objects,
@@ -45,6 +47,159 @@ type CascadeObject = {
   apId: string;
   attributedTo: string;
   attachmentsJson: string;
+};
+
+type MediaBlobDeletionJob = {
+  r2Key: string;
+  uploaderApId: string;
+};
+
+function mediaUrlForKey(r2Key: string): string {
+  return r2Key.startsWith("uploads/")
+    ? `/media/${r2Key.slice("uploads/".length)}`
+    : r2Key;
+}
+
+/**
+ * Re-check queued keys immediately before physical deletion. A profile or
+ * community may have reattached a previously failed key after the original
+ * post batch; retaining that job is safer than deleting a blob still visible
+ * from a live resource. Object references stay owner-scoped, matching
+ * reapReplacedMediaUrl: foreign-owner objects do not become authority for an
+ * upload they do not own. No unattached-upload scan is used.
+ */
+async function findReferencedMediaKeys(
+  db: Database,
+  jobs: readonly MediaBlobDeletionJob[],
+): Promise<Set<string>> {
+  const referenced = new Set<string>();
+  const seen = new Set<string>();
+  for (const { r2Key, uploaderApId } of jobs) {
+    if (seen.has(r2Key)) continue;
+    seen.add(r2Key);
+    const mediaUrl = mediaUrlForKey(r2Key);
+
+    // Profile PUTs may retain a valid media URL even when the upload row is
+    // absent or owned by a different row. The job's uploader identity is not
+    // used to narrow these product-level references.
+    const actorReference = await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(or(eq(actors.iconUrl, mediaUrl), eq(actors.headerUrl, mediaUrl)))
+      .limit(1)
+      .get();
+    if (actorReference) {
+      referenced.add(r2Key);
+      continue;
+    }
+
+    const communityReference = await db
+      .select({ apId: communities.apId })
+      .from(communities)
+      .where(
+        and(eq(communities.iconUrl, mediaUrl), isNull(communities.deletedAt)),
+      )
+      .limit(1)
+      .get();
+    if (communityReference) {
+      referenced.add(r2Key);
+      continue;
+    }
+
+    // Object media ownership is intentionally uploader-scoped. This is the
+    // same predicate used by reapReplacedMediaUrl and avoids a full global
+    // attachments scan for every queued key.
+    const objectReference = await db
+      .select({ apId: objects.apId })
+      .from(objects)
+      .where(
+        and(
+          eq(objects.attributedTo, uploaderApId),
+          or(
+            sql`instr(${objects.attachmentsJson}, ${r2Key}) > 0`,
+            sql`instr(${objects.attachmentsJson}, ${mediaUrl}) > 0`,
+          ),
+        ),
+      )
+      .limit(1)
+      .get();
+    if (objectReference) referenced.add(r2Key);
+  }
+  return referenced;
+}
+
+async function loadMediaBlobDeletionJobs(
+  db: Database,
+  keys: readonly string[],
+): Promise<MediaBlobDeletionJob[]> {
+  const jobs: MediaBlobDeletionJob[] = [];
+  for (const chunk of chunkForInClause([...new Set(keys)])) {
+    jobs.push(
+      ...(await db
+        .select({
+          r2Key: mediaBlobDeletionJobs.r2Key,
+          uploaderApId: mediaBlobDeletionJobs.uploaderApId,
+        })
+        .from(mediaBlobDeletionJobs)
+        .where(inArray(mediaBlobDeletionJobs.r2Key, chunk))),
+    );
+  }
+  return jobs;
+}
+
+async function runMediaJobStatements(
+  db: Database,
+  statements: readonly D1Statement[],
+): Promise<void> {
+  for (
+    let offset = 0;
+    offset < statements.length;
+    offset += D1_MAX_BATCH_STATEMENTS
+  ) {
+    const page = statements.slice(offset, offset + D1_MAX_BATCH_STATEMENTS);
+    if (page.length > 0) {
+      await runBatch(db, page as [D1Statement, ...D1Statement[]]);
+    }
+  }
+}
+
+async function deleteMediaBlobDeletionJobRows(
+  db: Database,
+  keys: readonly string[],
+): Promise<void> {
+  const statements = chunkForInClause([...new Set(keys)]).map(
+    (chunk) =>
+      db
+        .delete(mediaBlobDeletionJobs)
+        .where(inArray(mediaBlobDeletionJobs.r2Key, chunk)) as D1Statement,
+  );
+  await runMediaJobStatements(db, statements);
+}
+
+async function rescheduleMediaBlobDeletionJobs(
+  db: Database,
+  keys: readonly string[],
+  nextAttemptAt: string,
+): Promise<void> {
+  // The UPDATE has one additional bound value for `next_attempt_at`; leave
+  // that column accounted for under the shared 90-parameter safety budget.
+  const statements = chunkForInClause([...new Set(keys)], D1_IN_CHUNK - 1).map(
+    (chunk) =>
+      db
+        .update(mediaBlobDeletionJobs)
+        .set({ nextAttemptAt })
+        .where(inArray(mediaBlobDeletionJobs.r2Key, chunk)) as D1Statement,
+  );
+  await runMediaJobStatements(db, statements);
+}
+
+type DeleteAttachedMediaOptions = {
+  /**
+   * The prepared canonical post-delete path has not committed the object
+   * mutation yet, but still needs reference-safe durable intent. Legacy
+   * cascades retain their historical MEDIA-gated behavior.
+   */
+  preserveSharedReferences?: boolean;
 };
 
 /**
@@ -63,31 +218,33 @@ type CascadeObject = {
  * The caller supplies a still-present object snapshot; this returns silently
  * when that snapshot has no attachments.
  *
- * When a `media` object-store binding is provided, the backing R2 blobs for the
- * reaped uploads are best-effort deleted by `r2_key` (mirroring the
- * account-delete teardown in `routes/actors.ts`). R2 errors never fail the DB
- * delete; without this the blobs leak forever (there is no orphaned-key GC).
+ * Legacy callers with a `media` object-store binding return the eligible keys
+ * for their existing trailing best-effort purge. The canonical prepared post
+ * delete additionally persists those keys as durable jobs in its own atomic
+ * object-delete batch; provider failures then remain replayable.
  *
  * A blob is only purged when its `r2_key` is no longer referenced by any OTHER
  * still-present object of the same author (an `r2_key`/media URL can be embedded
  * in more than one object's `attachments_json` even though the `media_uploads`
  * row is unique). Deleting the blob while another object still shows it would
  * data-loss the shared media, so the R2 delete is gated on the reference count
- * dropping to zero. The DB-row delete is unconditional (the reaped rows belong
- * to this object's reap set regardless).
+ * dropping to zero. The `media_uploads` row is kept with the blob while another
+ * object still references that key; it is removed only for the eligible set.
  */
 async function deleteAttachedMediaUploadsForObject(
   db: Database,
   obj: CascadeObject,
   removedObjectApIds: ReadonlySet<string>,
   media?: ObjectStore,
+  options?: DeleteAttachedMediaOptions,
 ): Promise<{
   mediaKeys: string[];
   mediaUploadIds: string[];
+  mediaDeletionJobs: MediaBlobDeletionJob[];
 }> {
   // No attachment payload: nothing to reap.
   if (!obj.attachmentsJson || obj.attachmentsJson === "[]") {
-    return { mediaKeys: [], mediaUploadIds: [] };
+    return { mediaKeys: [], mediaUploadIds: [], mediaDeletionJobs: [] };
   }
 
   const attachmentsJson = obj.attachmentsJson;
@@ -98,15 +255,14 @@ async function deleteAttachedMediaUploadsForObject(
   // matched only `r2_key`. A stored attachment carrying only the `/media/` URL
   // (any client that omits `r2_key`) therefore slipped the reap and leaked its
   // blob forever. Match BOTH forms here so the GC is symmetric with the auth path.
-  const mediaUrlForKey = (r2Key: string): string =>
-    r2Key.startsWith("uploads/")
-      ? `/media/${r2Key.slice("uploads/".length)}`
-      : r2Key;
-
   // Indexed scan over the author's own uploads, then substring-match the upload
   // identity (r2_key OR /media URL) against the object's attachment payload.
   const candidates = await db
-    .select({ id: mediaUploads.id, r2Key: mediaUploads.r2Key })
+    .select({
+      id: mediaUploads.id,
+      r2Key: mediaUploads.r2Key,
+      uploaderApId: mediaUploads.uploaderApId,
+    })
     .from(mediaUploads)
     .where(eq(mediaUploads.uploaderApId, obj.attributedTo));
 
@@ -117,8 +273,11 @@ async function deleteAttachedMediaUploadsForObject(
   );
 
   if (orphaned.length === 0) {
-    return { mediaKeys: [], mediaUploadIds: [] };
+    return { mediaKeys: [], mediaUploadIds: [], mediaDeletionJobs: [] };
   }
+
+  const preserveSharedReferences =
+    options?.preserveSharedReferences ?? Boolean(media);
 
   // Before any R2 purge, find which keys are still referenced by an object of
   // the same author OUTSIDE the complete set being removed. This matters for a
@@ -126,7 +285,7 @@ async function deleteAttachedMediaUploadsForObject(
   // object" would make each target keep the other target's key, then leak the
   // row and blob after both objects disappear.
   const stillReferencedKeys = new Set<string>();
-  if (media) {
+  if (preserveSharedReferences) {
     // Page only matching AP-IDs and stop at the first survivor. A NOT IN list
     // cannot safely carry an unbounded removal set through D1's 100-parameter
     // ceiling; keyset pages keep every query constant-sized without loading a
@@ -165,10 +324,16 @@ async function deleteAttachedMediaUploadsForObject(
   // AND blob) so that, when that final referencer is later deleted, this same
   // candidates scan still finds the row and can GC the now-orphaned blob —
   // otherwise the shared blob would leak permanently once its DB row vanished.
-  // Without a `media` binding there is no R2 to GC, so all rows are removed.
-  const idsToDelete = media
+  // The prepared canonical path preserves shared rows even when MEDIA is
+  // absent: a missing binding is not permission to lose durable deletion
+  // intent or remove a blob still referenced by another object. Legacy
+  // cascades retain their historical behavior when no binding is supplied.
+  const idsToDelete = preserveSharedReferences
     ? orphaned.filter((m) => !stillReferencedKeys.has(m.r2Key)).map((m) => m.id)
     : orphaned.map((m) => m.id);
+  const eligible = preserveSharedReferences
+    ? orphaned.filter((m) => !stillReferencedKeys.has(m.r2Key))
+    : [];
   // Return the keys whose reference count has now dropped to zero. The caller
   // purges them via purgeMediaBlobs AFTER it deletes the objects row, so the
   // IRREVERSIBLE R2 delete is the trailing step: if the objects-row delete fails
@@ -177,10 +342,14 @@ async function deleteAttachedMediaUploadsForObject(
   // Keys still embedded in another present object's `attachments_json` are kept
   // (blob + media_uploads row) so shared media isn't lost.
   return {
-    mediaKeys: media
+    mediaKeys: preserveSharedReferences
       ? orphaned.map((m) => m.r2Key).filter((k) => !stillReferencedKeys.has(k))
       : [],
     mediaUploadIds: idsToDelete,
+    mediaDeletionJobs: eligible.map((m) => ({
+      r2Key: m.r2Key,
+      uploaderApId: m.uploaderApId,
+    })),
   };
 }
 
@@ -200,6 +369,89 @@ export async function purgeMediaBlobs(
   } catch {
     // Swallow: storage purge is best-effort and must not fail the delete flow.
   }
+}
+
+/**
+ * Complete a canonical deletion job after its owning object batch commits.
+ * Physical deletion remains trailing and job rows are removed only after the
+ * ObjectStore acknowledges the whole key set. A missing binding, provider
+ * failure, partial failure, or process loss leaves the durable rows for the
+ * scheduled drain.
+ */
+export async function purgeMediaBlobDeletionJobs(
+  db: Database,
+  media: ObjectStore | undefined,
+  keys: readonly string[],
+): Promise<void> {
+  if (!media || keys.length === 0) return;
+  try {
+    const jobs = await loadMediaBlobDeletionJobs(db, keys);
+    if (jobs.length === 0) return;
+    const referencedKeys = await findReferencedMediaKeys(db, jobs);
+    const deletableKeys = jobs
+      .map((job) => job.r2Key)
+      .filter((key) => !referencedKeys.has(key));
+    if (deletableKeys.length === 0) return;
+    await media.delete(deletableKeys);
+    await deleteMediaBlobDeletionJobRows(db, deletableKeys);
+  } catch {
+    // Keep every job on either storage or DB failure. The retention drain will
+    // replay the idempotent delete instead of acknowledging lost intent.
+  }
+}
+
+const MEDIA_BLOB_DELETION_DRAIN_LIMIT = 50;
+const MEDIA_BLOB_DELETION_RETRY_DELAY_MS = 60_000;
+
+/**
+ * Drain at most one bounded page of durable media deletion jobs. This is the
+ * final retention step so a missing MEDIA binding or storage failure rejects
+ * only this step while all earlier retention work remains committed.
+ */
+export async function drainMediaBlobDeletionJobs(
+  db: Database,
+  media: ObjectStore | undefined,
+): Promise<number> {
+  const jobs = await db
+    .select({
+      r2Key: mediaBlobDeletionJobs.r2Key,
+      uploaderApId: mediaBlobDeletionJobs.uploaderApId,
+    })
+    .from(mediaBlobDeletionJobs)
+    .where(lte(mediaBlobDeletionJobs.nextAttemptAt, new Date().toISOString()))
+    .orderBy(
+      asc(mediaBlobDeletionJobs.nextAttemptAt),
+      asc(mediaBlobDeletionJobs.createdAt),
+      asc(mediaBlobDeletionJobs.r2Key),
+    )
+    .limit(MEDIA_BLOB_DELETION_DRAIN_LIMIT);
+
+  if (jobs.length === 0) return 0;
+  const keys = jobs.map((job) => job.r2Key);
+  // Move the selected page out of the due set before the external call. This
+  // prevents a poison key or a lost acknowledgement from monopolizing the
+  // oldest 50 rows and lets newer due work progress on the next pass. A failed
+  // DB update fails closed before any storage mutation.
+  const nextAttemptAt = new Date(
+    Date.now() + MEDIA_BLOB_DELETION_RETRY_DELAY_MS,
+  ).toISOString();
+  await rescheduleMediaBlobDeletionJobs(db, keys, nextAttemptAt);
+  if (!media) {
+    throw new Error(
+      "media blob deletion retention requires MEDIA for pending jobs",
+    );
+  }
+
+  const referencedKeys = await findReferencedMediaKeys(db, jobs);
+  const deletableKeys = keys.filter((key) => !referencedKeys.has(key));
+  if (deletableKeys.length === 0) return 0;
+  await media.delete(deletableKeys);
+  // The selected page is bounded at 50, below the existing D1-safe
+  // 90-parameter budget. A failed delete keeps all jobs because this statement
+  // is reached only after ObjectStore success; their next attempt is already
+  // delayed by the update above.
+  await deleteMediaBlobDeletionJobRows(db, deletableKeys);
+  return deletableKeys.length;
 }
 
 /**
@@ -241,39 +493,13 @@ export async function reapReplacedMediaUrl(
       .get();
     if (!owned) return;
 
-    // Still an actor avatar/header somewhere (e.g. set as both icon and header)?
-    const actorRef = await db
-      .select({ apId: actors.apId })
-      .from(actors)
-      .where(or(eq(actors.iconUrl, oldUrl), eq(actors.headerUrl, oldUrl)))
-      .get();
-    if (actorRef) return;
-
-    // Still a (non-deleted) community icon?
-    const communityRef = await db
-      .select({ apId: communities.apId })
-      .from(communities)
-      .where(
-        and(eq(communities.iconUrl, oldUrl), isNull(communities.deletedAt)),
-      )
-      .get();
-    if (communityRef) return;
-
-    // Still embedded in one of the uploader's objects' attachments (URL or key)?
-    const objectRef = await db
-      .select({ apId: objects.apId })
-      .from(objects)
-      .where(
-        and(
-          eq(objects.attributedTo, uploaderApId),
-          or(
-            sql`instr(${objects.attachmentsJson}, ${oldUrl}) > 0`,
-            sql`instr(${objects.attachmentsJson}, ${r2Key}) > 0`,
-          ),
-        ),
-      )
-      .get();
-    if (objectRef) return;
+    // Reuse the same reference predicate as durable deletion jobs. This keeps
+    // actor icon/header, live community icon, and uploader-owned object
+    // references aligned across replacement and retry windows.
+    const referenced = await findReferencedMediaKeys(db, [
+      { r2Key, uploaderApId },
+    ]);
+    if (referenced.has(r2Key)) return;
 
     // Unreferenced: drop the DB row, then best-effort purge the blob.
     await db.delete(mediaUploads).where(eq(mediaUploads.id, owned.id));
@@ -311,7 +537,10 @@ export async function deleteObjectCascade(
 /**
  * Prepare one local object's complete child/projection cleanup without writing
  * it. Local delete owners compose this with counters, the outbound Delete,
- * durable fanout intent, and final object removal in one D1 batch.
+ * durable fanout intent, final object removal, and exact media deletion jobs in
+ * one D1 batch. This is the only object-cascade path that enqueues these jobs.
+ * The legacy deleteObjectCascade/deleteObjectsCascade helpers intentionally do
+ * not: they commit metadata before their callers delete object rows.
  */
 export async function prepareObjectDeleteCascade(
   db: Database,
@@ -337,8 +566,9 @@ export async function prepareObjectDeleteCascade(
         obj,
         new Set([objectApId]),
         media,
+        { preserveSharedReferences: true },
       )
-    : { mediaKeys: [], mediaUploadIds: [] };
+    : { mediaKeys: [], mediaUploadIds: [], mediaDeletionJobs: [] };
 
   const mediaDeleteStatements = chunkForInClause(mediaPlan.mediaUploadIds).map(
     (ids) =>
@@ -346,11 +576,26 @@ export async function prepareObjectDeleteCascade(
         .delete(mediaUploads)
         .where(inArray(mediaUploads.id, ids)) as D1Statement,
   );
+  const mediaDeletionJobCreatedAt = new Date().toISOString();
+  const mediaDeletionJobStatements = insertMany(
+    db,
+    mediaBlobDeletionJobs,
+    mediaPlan.mediaDeletionJobs.map(({ r2Key, uploaderApId }) => {
+      return {
+        r2Key,
+        uploaderApId,
+        createdAt: mediaDeletionJobCreatedAt,
+        nextAttemptAt: mediaDeletionJobCreatedAt,
+      };
+    }),
+    { conflict: "ignore" },
+  );
 
   return {
     mediaKeys: [...new Set(mediaPlan.mediaKeys)],
     statements: [
       ...mediaDeleteStatements,
+      ...mediaDeletionJobStatements,
       db.delete(likes).where(eq(likes.objectApId, objectApId)) as D1Statement,
       db
         .delete(announces)
@@ -381,7 +626,9 @@ export async function prepareObjectDeleteCascade(
 /**
  * Reap every child row for a set of objects without deleting the object rows.
  * This is the set-shaped counterpart to {@link deleteObjectCascade}; callers
- * still own the final object delete and trailing {@link purgeMediaBlobs}.
+ * still own the final object delete and trailing {@link purgeMediaBlobs}. It
+ * intentionally does not enqueue durable media jobs because its callers may
+ * commit the object mutation separately.
  *
  * The old bulk callers invoked the singular helper once per object. On D1 that
  * meant one attachment read plus eight serial delete round-trips per post: five

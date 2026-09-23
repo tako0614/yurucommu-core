@@ -8,7 +8,7 @@ import worker, {
   runYurucommuRetention,
   YurucommuRetentionError,
 } from "../public.ts";
-import { deliveryFanouts } from "../../db/index.ts";
+import { deliveryFanouts, mediaBlobDeletionJobs } from "../../db/index.ts";
 import { persistDeliveryFanoutJob } from "../lib/delivery/fanout-outbox.ts";
 import type { DeliveryQueueMessageV1 } from "../lib/delivery/types.ts";
 import type { IQueueProducer } from "../runtime/queue.ts";
@@ -28,6 +28,7 @@ test("one bounded retention pass reuses the canonical empty-ledger cleanup paths
     enqueuedDeliveryEndpointJobs: 0,
     enqueuedDeliveryResolutionJobs: 0,
     enqueuedNotificationPushJobs: 0,
+    drainedMediaBlobDeletionJobs: 0,
   });
 });
 
@@ -93,6 +94,26 @@ test("retention reports and rethrows the exact failing step", async () => {
       step: "expired_stories",
     });
     expect((error as YurucommuRetentionError).cause).toBeInstanceOf(TypeError);
+  }
+});
+
+test("media deletion failure is reported as the final retention step", async () => {
+  const { db } = await createTestDb();
+  await db.insert(mediaBlobDeletionJobs).values({
+    r2Key: "uploads/retention-failure.jpg",
+    uploaderApId: "https://yuru.test/ap/users/retention-owner",
+  });
+
+  try {
+    await runYurucommuRetention({ DB_INSTANCE: db } as Env);
+    throw new Error("expected media deletion retention to reject");
+  } catch (error) {
+    expect(error).toBeInstanceOf(YurucommuRetentionError);
+    expect(error).toMatchObject({
+      name: "YurucommuRetentionError",
+      step: "media_blob_deletion",
+    });
+    expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
   }
 });
 

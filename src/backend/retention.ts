@@ -6,6 +6,7 @@ import { enqueuePendingDeliveryResolutionJobs } from "./lib/delivery/resolution-
 import { reapDrainedTombstones } from "./routes/actors.ts";
 import { cleanupExpiredStories } from "./routes/stories/query-helpers.ts";
 import { reapRemoteActorFetchFailures } from "./lib/activitypub-actor-cache.ts";
+import { drainMediaBlobDeletionJobs } from "./routes/posts/delete-cascade.ts";
 
 export type YurucommuRetentionStep =
   | "expired_stories"
@@ -14,7 +15,8 @@ export type YurucommuRetentionStep =
   | "delivery_fanout"
   | "delivery_endpoint"
   | "delivery_resolution"
-  | "notification_push";
+  | "notification_push"
+  | "media_blob_deletion";
 
 export interface YurucommuRetentionResult {
   readonly expiredStories: number;
@@ -24,6 +26,7 @@ export interface YurucommuRetentionResult {
   readonly enqueuedDeliveryEndpointJobs: number;
   readonly enqueuedDeliveryResolutionJobs: number;
   readonly enqueuedNotificationPushJobs: number;
+  readonly drainedMediaBlobDeletionJobs: number;
 }
 
 /**
@@ -53,6 +56,9 @@ export class YurucommuRetentionError extends Error {
  *   RPC or owning worker was lost.
  * - Notification push performs bounded pusher/job retention, stale-job
  *   recovery, and enqueues due durable outbox rows when a queue is available.
+ * - Media blob deletion drains at most 50 product-owned keys after all prior
+ *   steps. Storage success is required before its durable jobs are removed;
+ *   missing MEDIA or a provider failure rejects this final step for retry.
  *
  * Steps are awaited sequentially because D1 is the shared authority. Any
  * failure rejects with its exact step; callers must retry the cron invocation
@@ -91,6 +97,10 @@ export async function runYurucommuRetention(
     "notification_push",
     () => enqueuePendingNotificationPushJobs(env),
   );
+  const drainedMediaBlobDeletionJobs = await retentionStep(
+    "media_blob_deletion",
+    () => drainMediaBlobDeletionJobs(env.DB_INSTANCE, env.MEDIA),
+  );
 
   return {
     expiredStories,
@@ -100,6 +110,7 @@ export async function runYurucommuRetention(
     enqueuedDeliveryEndpointJobs,
     enqueuedDeliveryResolutionJobs,
     enqueuedNotificationPushJobs,
+    drainedMediaBlobDeletionJobs,
   };
 }
 

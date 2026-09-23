@@ -21,7 +21,7 @@ import {
 } from "../../lib/post-visibility.ts";
 import {
   prepareObjectDeleteCascade,
-  purgeMediaBlobs,
+  purgeMediaBlobDeletionJobs,
 } from "../posts/delete-cascade.ts";
 import {
   MAX_POST_CONTENT_LENGTH,
@@ -265,7 +265,7 @@ export async function handleDeletePost(
 
   // The irreversible external delete is last: failure leaks a blob instead of
   // leaving a live post whose media has already been destroyed.
-  await purgeMediaBlobs(c.env.MEDIA, cascade.mediaKeys);
+  await purgeMediaBlobDeletionJobs(db, c.env.MEDIA, cascade.mediaKeys);
   await preparedFederation.complete();
 
   return c.json(ok({ deleted: true }));
