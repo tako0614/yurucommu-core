@@ -140,7 +140,7 @@ row がそのまま呼び出し側に渡ります。D1 ではそれは record �
 - `db.batch([...])` は facade の `transaction()`（all-or-none、1 往復）になります。
 - `begin` / `commit` / `savepoint` はこの request path にありません。`db.batch` を
   使ってください（`managed-relational.ts` と同じ制約です）。
-- bound parameter は `null | number | string | {encoding:"base64", data}` のみ。
+- bound parameter は `null | number | string | {encoding:"base64", data}` のみです。
   boolean は 0/1、`Uint8Array` / `ArrayBuffer` は base64 blob になります。
 - `select *` は rename できないため書き換えず、column 数の guard も効きません。
   join を伴う `select *` を raw SQL で書かないでください。
