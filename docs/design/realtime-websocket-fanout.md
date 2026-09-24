@@ -10,7 +10,7 @@ Consumers: `yurucommu`, `yurumeet`（クライアント配線 + deploy 配線）
 
 > **実装時の確定事項（設計との差分・具体化）**
 >
-> - チケットは KV ではなく**ユーザー自身の stream DO の storage** に保存（強整合・one-time consume を DO 内でアトミックに実施）。socket URL は `?actor=<apId>&ticket=<one-time>`（actor は「どの DO がチケットを検証するか」の選択にのみ使われ、偽装は検証失敗になる）。同一オリジンの session cookie がある場合はチケット不要の session 経路も許可。
+> - チケットは KV ではなく**ユーザー自身の stream DO の storage** に保存（強整合・使い切りを DO 内でアトミックに実施）。socket URL は `?actor=<apId>&ticket=<one-time>`（actor は「どの DO がチケットを検証するか」の選択にのみ使われ、偽装は検証失敗になる）。同一オリジンの session cookie がある場合はチケット不要の session 経路も許可。
 > - イベント id は DO storage の per-user 単調 seq。ring buffer は 200 件、`hello{lastEventId}` で差分 replay、超過時 `resync`。
 > - heartbeat は client→`ping`/server→`pong`（25s間隔、60s 無応答で再接続）。alarm 不使用。
 > - community chat は inbox 行を作らないため sweep に乗らず、**送信 route から local member（cap 200）へ直接 emit**。
@@ -141,15 +141,15 @@ WebSocket / SSE は現状**一切存在しない**（意図的にポーリング
 | ローカル通知（like/reply/follow/story 等） | `index.ts:571-611` の post-response `waitUntil`（既に push job flush してる所） | 受信者 DO へ `notification.new` + `unread` |
 | フェデレーション受信 / community fanout | `delivery/queue.ts:526-533` の consumer 末尾 flush 点 | 受信者 DO へ `notification.new` + `unread` |
 
-- 送信者 DO にも `talk.message` を emit → 送信者の他タブ/端末が同期。既存の楽観的更新（yurumeet の `pending`/`failed` バブル）と id dedupe マージで冪等。
+- 送信者 DO にも `talk.message` を emit → 送信者の他タブ/端末が同期。既存の楽観的更新（yurumeet の `pending`/`failed` バブル）と id dedupe マージで何度実行しても結果が同じ。
 - emit は **best-effort**（失敗は warn、リクエスト本体は成功させる）。takos `notifications/service.ts:674-686` と同じ扱い。
 - **DB トリガーからは DO を呼べない**ため、トリガーが書いた inbox/push_jobs を読む既存 flush 点2つに emit を寄せるのが唯一正しい形（全 inbox 生成経路を一点で拾う）。
 
 ### 5.3 認証（短命チケット方式・確定）
 
-1. 認証済みエンドポイント `POST /api/realtime/ticket`（`extractActorFromSession` を通過するミドルウェア配下）で、**使い捨て・短命（例 30s）の WS チケット**を発行。チケットは actorApId に紐づけて KV（or DO storage）に保存、one-time consume。
+1. 認証済みエンドポイント `POST /api/realtime/ticket`（`extractActorFromSession` を通過するミドルウェア配下）で、**使い捨て・短命（例 30s）の WS チケット**を発行。チケットは actorApId に紐づけて KV（or DO storage）に保存し、使い切りとする。
 2. クライアントは `wss://<origin>/api/realtime/socket?ticket=<t>` で接続。
-3. upgrade route（`/api/rtc/socket` がテンプレ）で worker がチケットを検証・consume → `actorApId` を確定 → `REALTIME_STREAM.idFromName(actorApId)` の DO stub に `X-Realtime-Actor: <actorApId>` を付けて `/ws` 転送。**DO binding が信頼境界**（CallDO の `X-Call-Actor` / `NotifierBase.isAuthorizedHttp` と同思想）。
+3. upgrade route（`/api/rtc/socket` がテンプレ）で worker がチケットを検証・使い切り → `actorApId` を確定 → `REALTIME_STREAM.idFromName(actorApId)` の DO stub に `X-Realtime-Actor: <actorApId>` を付けて `/ws` 転送。**DO binding が信頼境界**（CallDO の `X-Call-Actor` / `NotifierBase.isAuthorizedHttp` と同思想）。
 4. 生 session id を URL に載せない（ログ漏洩回避）。cross-origin（yurumeet の別 serverOrigin）でも cookie 依存にならず確実。
 
 ### 5.4 worker binding 型
@@ -222,11 +222,11 @@ WebSocket / SSE は現状**一切存在しない**（意図的にポーリング
 |---|---|
 | cross-origin cookie（yurumeet 別 serverOrigin） | 短命チケット方式で cookie 非依存（§5.3） |
 | 既存 self-host が DO 未デプロイ | capability 検知 + フォールバックポーラーで無停止（§6.3） |
-| メッセージ順序 / 重複 | 既存 id dedupe マージ（`appendFresh` / `mergeMessagesById`）で冪等。WS も poll も同じ経路 |
+| メッセージ順序 / 重複 | 既存 id dedupe マージ（`appendFresh` / `mergeMessagesById`）で何度実行しても結果が同じ。WS も poll も同じ経路 |
 | 切断中の取りこぼし | ring-buffer replay（warm）／ buffer 外は `resync`→初回フェッチ（cold） |
 | DO migration tag 競合 | direct/tf 両経路で同一 class・同一 storage 種別・単調 tag |
 | emit 失敗でリクエスト巻き添え | emit は best-effort（warn 握り潰し）、REST 本体は成功させる |
-| チケット漏洩 | one-time consume + 短命（~30s）+ actorApId 紐づけ |
+| チケット漏洩 | 使い切り + 短命（~30s）+ actorApId 紐づけ |
 
 ---
 

@@ -284,7 +284,7 @@ Takoform module は `APP_URL` を渡しません（`deploy/takoform/README.md` �
    置き換わりません。
 3. **今の request の origin**。まだ pin が無いときだけ、ここから確立します。
 4. どれも無ければ origin はありません。background work は
-   `undefined/ap/users/alice` を作る代わりに **fail closed** します。
+   `undefined/ap/users/alice` を作る代わりに **安全側に停止**します。
 
 ### 何を信じるか
 
