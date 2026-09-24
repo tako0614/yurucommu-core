@@ -14,6 +14,10 @@ import {
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
+export const PUBLICATION_WAIT_BUDGET_MS = 20 * 60 * 1_000;
+export const PUBLICATION_POLL_INTERVAL_MS = 30 * 1_000;
+export const PUBLICATION_READ_TIMEOUT_MS = 15 * 1_000;
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
@@ -79,47 +83,104 @@ export class PublishMutationError extends Error {
   }
 }
 
-export async function publishedPackageIntegrity(packageName, version) {
-  const response = await fetch(
-    `https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`,
-    { headers: { accept: "application/json" } },
+export async function publishedPackageIntegrity(
+  packageName,
+  version,
+  options = {},
+) {
+  const { timeoutMs = PUBLICATION_READ_TIMEOUT_MS, fetchImpl = fetch } =
+    options;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(
+      `https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`,
+      {
+        headers: { accept: "application/json" },
+        signal: controller.signal,
+      },
+    );
+    if (response.status === 404) return undefined;
+    if (!response.ok) {
+      throw new Error(
+        `Could not read npm release metadata for ${packageName}@${version}: HTTP ${response.status}`,
+      );
+    }
+    const metadata = await response.json();
+    if (typeof metadata?.dist?.integrity !== "string") {
+      throw new Error(
+        `npm metadata for ${packageName}@${version} has no dist.integrity.`,
+      );
+    }
+    return metadata.dist.integrity;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(
+        `Timed out reading npm release metadata for ${packageName}@${version} after ${timeoutMs}ms.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function publicationDeadlineError(packageName, version, budgetMs, checks) {
+  return new Error(
+    `npm did not expose ${packageName}@${version} with the uploaded integrity within ${Math.ceil(budgetMs / 1_000)}s after ${checks} checks.`,
   );
-  if (response.status === 404) return undefined;
-  if (!response.ok) {
-    throw new Error(
-      `Could not read npm release metadata for ${packageName}@${version}: HTTP ${response.status}`,
-    );
-  }
-  const metadata = await response.json();
-  if (typeof metadata?.dist?.integrity !== "string") {
-    throw new Error(
-      `npm metadata for ${packageName}@${version} has no dist.integrity.`,
-    );
-  }
-  return metadata.dist.integrity;
+}
+
+function defaultPublicationProgress(message) {
+  console.log(message);
 }
 
 export async function verifyPublishedIntegrity(
   packageName,
   version,
   localIntegrity,
-  attempts = 5,
+  options = {},
 ) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (attempt > 0) {
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
+  const {
+    maxWaitMs = PUBLICATION_WAIT_BUDGET_MS,
+    pollIntervalMs = PUBLICATION_POLL_INTERVAL_MS,
+    readTimeoutMs = PUBLICATION_READ_TIMEOUT_MS,
+    now = Date.now,
+    sleep = (delayMs) =>
+      new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs)),
+    readIntegrity = (name, releaseVersion, readOptions) =>
+      publishedPackageIntegrity(name, releaseVersion, readOptions),
+    onProgress = defaultPublicationProgress,
+  } = options;
+  const deadline = now() + maxWaitMs;
+  let checks = 0;
+
+  while (now() < deadline) {
+    checks += 1;
+    const remainingMs = deadline - now();
+    const publishedIntegrity = await readIntegrity(packageName, version, {
+      timeoutMs: Math.max(1, Math.min(readTimeoutMs, remainingMs)),
+    });
+    if (publishedIntegrity !== undefined) {
+      if (now() > deadline) {
+        throw publicationDeadlineError(packageName, version, maxWaitMs, checks);
+      }
+      // A mismatch is terminal. The npm version is immutable and polling
+      // cannot make a wrong tarball become the local tarball.
+      packageReleaseDecision(localIntegrity, publishedIntegrity);
+      return;
     }
-    const publishedIntegrity = await publishedPackageIntegrity(
-      packageName,
-      version,
+
+    const waitMs = Math.min(pollIntervalMs, deadline - now());
+    if (waitMs <= 0) break;
+    onProgress(
+      `waiting for npm publication ${packageName}@${version} (check ${checks}; next check in ${Math.ceil(waitMs / 1_000)}s)`,
     );
-    if (publishedIntegrity === undefined) continue;
-    packageReleaseDecision(localIntegrity, publishedIntegrity);
-    return;
+    await sleep(waitMs);
   }
-  throw new Error(
-    `npm did not expose ${packageName}@${version} with the uploaded integrity after ${attempts} checks.`,
-  );
+
+  throw publicationDeadlineError(packageName, version, maxWaitMs, checks);
 }
 
 export async function preparePackageCandidate(
