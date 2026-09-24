@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Realtime WebSocket fanout — yurucommu / yurumeet トークとアプリ内ポーリング全廃 設計
 
-Status: **実装完了・E2E 検証済み**（2026-07-16、core/api 3.4.0 として公開済み）
+Status: **設計済み・プロダクト統合待ち**（`yurucommu` / `yurumeet` の worker・client 配線と E2E 検証は未完了。クライアントは現在もポーリングを使用。`@takosjp/yurucommu-api` 4.1.8）
 Owner: `yurucommu-core`（DO / hub / emit / WS client 本体）
 Consumers: `yurucommu`, `yurumeet`（クライアント配線 + deploy 配線）
 
