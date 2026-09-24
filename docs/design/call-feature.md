@@ -41,7 +41,7 @@ MatrixRTC (MSC4143/4195) の「signaling=federation / media=差し替え可能�
 
 ### なぜ signaling を ActivityPub inbox に相乗りさせないか（重要な制約）
 
-core の `lib/activitypub-validators.ts` の `parseActivity`/`parseActivityObjectFields` は **非 whitelist field を全 strip**（`sdp`/`candidate` が消える）、`claimActivityForDispatch` は strip 後を永続化する。そのため signaling を inbox pipeline に流すと SDP/ICE が破壊され、かつ ephemeral frame が `activities` ledger を汚す。
+core の `lib/activitypub-validators.ts` の `parseActivity`/`parseActivityObjectFields` は **非 whitelist field を全 strip**（`sdp`/`candidate` が消える）、`claimActivityForDispatch` は strip 後を永続化する。そのため signaling を inbox pipeline に流すと SDP/ICE が破壊され、かつ ephemeral frame が `activities` テーブルを汚す。
 → **専用の署名付き endpoint `POST /ap/rtc/signal`** が inbox pipeline を完全バイパスし、HTTP Signature 認証だけ再利用して Signaling DO に直行する。
 
 ---
@@ -184,7 +184,7 @@ env は `EnvVars`（`types.ts`）に追加済み。secret（`_TURN_SECRET`/`_SFU
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | 2 self-host instance 間の NAT 越え                    | coturn を必須の env-config provider として短命 REST cred を発行、half-trickle ICE。TURN が通話成否の最大要因（default、optional ではない） |
 | DO はスタック初の stateful primitive・Cloudflare-only | `ISignalingHub` seam + `LocalSignalingHub`（bun in-process）で非 CF self-host も担保。media は WHIP/TURN で完全ベンダー中立                |
-| signaling が AP ledger に漏れる/破壊される            | 専用 `/ap/rtc/signal` が activity pipeline を完全バイパス。SDP/ICE は `activities`/`objects` に触れず `call_sessions` のみ                 |
+| signaling が `activities`/`objects` に漏れる/破壊される            | 専用 `/ap/rtc/signal` が activity pipeline を完全バイパス。SDP/ICE は `activities`/`objects` に触れず `call_sessions` のみ                 |
 | replay / abuse                                        | HTTP Signature（keyId-owner===from）+ 双方向 block-list + invite rate-limit + `callId` nonce + 短 TTL                                      |
 | callee offline / tab closed                           | Signaling DO が主経路。push-gateway で端末 wake（現状 gateway 未設定で dormant、operator 設定時のみ）。SDP は push で運ばない              |
 | cross-origin（yurumeet 別 serverOrigin）の cookie     | bearer/cookie対応の認証済みfetchでone-time ticketを発行し、Call DOが検証して使い切る                                                          |
