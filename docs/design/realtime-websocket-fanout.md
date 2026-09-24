@@ -168,7 +168,7 @@ WebSocket / SSE は現状**一切存在しない**（意図的にポーリング
 
 | イベント | yurumeet | yurucommu |
 |---|---|---|
-| `talk.message` | `chat-context` `setMessages(appendFresh(...))`（4s 削除） | `DMChatPanel` `setMessages(mergeMessagesById(...))`（4s 削除） |
+| `talk.message` | `chat-context` `setMessages`（`reconcileFetchedWindow` で id dedupe マージ、4s 削除） | `DMChatPanel` `setMessages(mergeMessagesById(...))`（4s 削除） |
 | `talk.typing` | `setIsTyping` | `DMChatPanel` `setIsTyping` |
 | `talk.read` | `setPartnerLastReadAt`/`setReadStates` | `DMChatPanel` の read state |
 | `talk.contacts_changed` | `refetchContacts()`（20s 削除） | `DMPage` `loadContacts()` |
@@ -222,7 +222,7 @@ WebSocket / SSE は現状**一切存在しない**（意図的にポーリング
 |---|---|
 | cross-origin cookie（yurumeet 別 serverOrigin） | 短命チケット方式で cookie 非依存（§5.3） |
 | 既存 self-host が DO 未デプロイ | capability 検知 + フォールバックポーラーで無停止（§6.3） |
-| メッセージ順序 / 重複 | 既存 id dedupe マージ（`appendFresh` / `mergeMessagesById`）で何度実行しても結果が同じ。WS も poll も同じ経路 |
+| メッセージ順序 / 重複 | 既存 id dedupe マージ（`reconcileFetchedWindow` / `mergeMessagesById`）で何度実行しても結果が同じ。WS も poll も同じ経路 |
 | 切断中の取りこぼし | ring-buffer replay（warm）／ buffer 外は `resync`→初回フェッチ（cold） |
 | DO migration tag 競合 | direct/tf 両経路で同一 class・同一 storage 種別・単調 tag |
 | emit 失敗でリクエスト巻き添え | emit は best-effort（warn 握り潰し）、REST 本体は成功させる |

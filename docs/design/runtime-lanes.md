@@ -313,7 +313,7 @@ hostname を知っているので `APP_URL` を設定します——常に勝ち
 ### https を要求する
 
 公開 fediverse origin は https で、Takoserver の `WorkerEndpoint` が割り当てる origin も
-常に https です（`canonicalWorkerEndpointOrigin`）。ここで https を要求するのは、http
+常に https です（`worker-endpoint-origin-reservations` の `canonicalPublicOrigin`）。ここで https を要求するのは、http
 request が「delivery に署名し actor id を作る origin」を pin できないようにするため
 です。例外は loopback http（`localhost` / `127.0.0.1` / `[::1]` / `*.localhost`）だけで、
 これは routing されない名前であり、開発者が実際に serve している origin です。
