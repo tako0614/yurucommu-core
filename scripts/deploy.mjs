@@ -28,9 +28,10 @@ const CONTRACT = {
       triggers: ["published-identity"],
       requiresScripts: ["check", "check:packed-consumer"],
       requiresTools: ["git", "bun", "npm"],
+      requiresEnv: ["YURUCOMMU_KEEP_PACKED_CONSUMER"],
       obligations: {
         provenance:
-          "refuses a dirty worktree, requires one v<version> tag on the exact source commit, runs the complete owner gate, packs core and API exactly once, records both npm sha512 integrities, and installs those exact tarballs into a throwaway consumer before publication",
+          "refuses a dirty worktree, requires one v<version> tag on the exact source commit, runs the complete owner gate, packs core and API exactly once, records both npm sha512 integrities, and installs those exact tarballs into a throwaway consumer before publication, retaining that consumer for inspection only when YURUCOMMU_KEEP_PACKED_CONSUMER=1",
         "post-conditions":
           "reads both package versions back from the npm registry, requires their published integrity to match the prepared tarballs, then installs the exact version of both packages from npm into a fresh consumer and imports their public runtime surfaces",
         reversal:
