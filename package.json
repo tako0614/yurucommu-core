@@ -1,6 +1,7 @@
 {
   "name": "@takosjp/yurucommu-core",
   "version": "4.1.8",
+  "description": "Shared ActivityPub, API, DB, and runtime engine library for the yurucommu product family.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "workspaces": [
