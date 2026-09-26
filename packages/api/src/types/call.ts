@@ -181,6 +181,20 @@ export interface CallSessionSummary {
 // Runtime validation (used by the backend ingest to reject malformed frames)
 // ---------------------------------------------------------------------------
 
+/** App-owned limits, independent of the WebSocket runtime's transport ceiling. */
+export const MAX_RTC_CLIENT_FRAME_BYTES = 1024 * 1024;
+export const MAX_RTC_SDP_BYTES = 100_000;
+
+const utf8Encoder = new TextEncoder();
+
+function fitsUtf8Bytes(value: string, maxBytes: number): boolean {
+  // Avoid allocating an encoded copy when the UTF-16 length already exceeds
+  // the byte budget. UTF-8 is never shorter than the JS string length.
+  return (
+    value.length <= maxBytes && utf8Encoder.encode(value).byteLength <= maxBytes
+  );
+}
+
 const SIGNAL_TYPES: readonly RtcSignalType[] = [
   "offer",
   "answer",
@@ -201,6 +215,114 @@ function isCallMediaKind(value: unknown): value is CallMediaKind {
     typeof value.audio === "boolean" &&
     typeof value.video === "boolean"
   );
+}
+
+function isCallIceCandidate(value: unknown): value is CallIceCandidate {
+  if (!isPlainObject(value) || typeof value.candidate !== "string")
+    return false;
+  for (const field of ["sdpMid", "usernameFragment"] as const) {
+    if (
+      value[field] !== undefined &&
+      value[field] !== null &&
+      typeof value[field] !== "string"
+    )
+      return false;
+  }
+  const index = value.sdpMLineIndex;
+  // RTCIceCandidateInit.sdpMLineIndex is a nullable unsigned short.
+  return (
+    index === undefined ||
+    index === null ||
+    (typeof index === "number" &&
+      Number.isInteger(index) &&
+      index >= 0 &&
+      index <= 65535)
+  );
+}
+
+/**
+ * Decode a browser message before any hub creation, storage, or relay work.
+ * Binary, unknown, malformed and oversized frames are silently ignored by both
+ * transports. Unknown extension fields are discarded, not forwarded.
+ */
+export function parseClientToHubFrame(
+  message: unknown,
+): ClientToHubFrame | null {
+  if (
+    typeof message !== "string" ||
+    !fitsUtf8Bytes(message, MAX_RTC_CLIENT_FRAME_BYTES)
+  )
+    return null;
+  let input: unknown;
+  try {
+    input = JSON.parse(message);
+  } catch {
+    return null;
+  }
+  if (!isPlainObject(input)) return null;
+  const { t, callId } = input;
+  if (t === "hello" || t === "ping") return { t };
+  if (typeof callId !== "string" || callId.length === 0 || callId.length > 200)
+    return null;
+  switch (t) {
+    case "invite":
+      if (
+        typeof input.to !== "string" ||
+        input.to.length === 0 ||
+        !isCallMediaKind(input.media)
+      )
+        return null;
+      return {
+        t,
+        callId,
+        to: input.to,
+        media: { audio: input.media.audio, video: input.media.video },
+      };
+    case "offer":
+    case "answer":
+      if (
+        typeof input.sdp !== "string" ||
+        !fitsUtf8Bytes(input.sdp, MAX_RTC_SDP_BYTES)
+      )
+        return null;
+      return { t, callId, sdp: input.sdp };
+    case "candidates":
+      if (
+        !Array.isArray(input.candidates) ||
+        !input.candidates.every(isCallIceCandidate)
+      )
+        return null;
+      return {
+        t,
+        callId,
+        candidates: input.candidates.map((candidate) => ({
+          candidate: candidate.candidate,
+          ...(candidate.sdpMid !== undefined
+            ? { sdpMid: candidate.sdpMid }
+            : {}),
+          ...(candidate.sdpMLineIndex !== undefined
+            ? { sdpMLineIndex: candidate.sdpMLineIndex }
+            : {}),
+          ...(candidate.usernameFragment !== undefined
+            ? { usernameFragment: candidate.usernameFragment }
+            : {}),
+        })),
+      };
+    case "accept":
+    case "resume":
+      return { t, callId };
+    case "reject":
+    case "hangup":
+      if (input.reason !== undefined && typeof input.reason !== "string")
+        return null;
+      return {
+        t,
+        callId,
+        ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      };
+    default:
+      return null;
+  }
 }
 
 function parseCandidates(value: unknown): CallIceCandidate[] | undefined {
@@ -268,7 +390,7 @@ export function parseRtcSignalEnvelope(
   }
   const sdp = typeof input.sdp === "string" ? input.sdp : undefined;
   // Guard against absurd SDP blobs abusing the endpoint as a relay.
-  if (sdp !== undefined && sdp.length > 100_000) return null;
+  if (sdp !== undefined && !fitsUtf8Bytes(sdp, MAX_RTC_SDP_BYTES)) return null;
   return {
     v: RTC_SIGNAL_ENVELOPE_VERSION,
     callId,

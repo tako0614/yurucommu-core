@@ -27,7 +27,13 @@ import type {
   RealtimeEvent,
   RealtimeServerFrame,
 } from "../../../packages/api/src/types/realtime.ts";
-import { parseRealtimeClientFrame } from "../../../packages/api/src/types/realtime.ts";
+import {
+  isRealtimeEventInput,
+  isRealtimeJsonWithinLimit,
+  MAX_REALTIME_CONTROL_BYTES,
+  MAX_REALTIME_EVENT_BYTES,
+  parseRealtimeClientFrame,
+} from "../../../packages/api/src/types/realtime.ts";
 
 // --- Minimal Cloudflare DO + Hibernatable WebSocket surface ----------------
 // (typed file-locally, matching call-signaling-do.ts, so this file does not
@@ -65,6 +71,48 @@ import { consumeOneTimeTicket, mintOneTimeTicket } from "./one-time-ticket.ts";
 function eventKey(seq: number): string {
   // Fixed-width key so storage.list({prefix}) returns events in seq order.
   return `${EVENT_PREFIX}${String(seq).padStart(12, "0")}`;
+}
+
+/** Read at most the event budget; Content-Length is only an early-reject hint. */
+async function readEventBody(request: Request): Promise<string | Response> {
+  const length = request.headers.get("Content-Length");
+  if (length !== null && Number(length) > MAX_REALTIME_EVENT_BYTES) {
+    void request.body?.cancel().catch(() => {});
+    return new Response("event too large", { status: 413 });
+  }
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  let bytes = new Uint8Array(4096);
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const nextSize = size + value.byteLength;
+      if (nextSize > MAX_REALTIME_EVENT_BYTES) {
+        void reader.cancel().catch(() => {});
+        return new Response("event too large", { status: 413 });
+      }
+      // Bound retained memory independently of chunk count or backing-buffer size.
+      if (nextSize > bytes.byteLength) {
+        const grown = new Uint8Array(
+          Math.min(
+            MAX_REALTIME_EVENT_BYTES,
+            Math.max(nextSize, bytes.byteLength * 2),
+          ),
+        );
+        grown.set(bytes.subarray(0, size));
+        bytes = grown;
+      }
+      bytes.set(value, size);
+      size = nextSize;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(
+    bytes.subarray(0, size),
+  );
 }
 
 export class RealtimeStreamDO {
@@ -144,25 +192,22 @@ export class RealtimeStreamDO {
     if (request.method !== "POST") {
       return new Response("method not allowed", { status: 405 });
     }
-    let body: { type?: unknown; data?: unknown };
+    let body: unknown;
     try {
-      body = (await request.json()) as { type?: unknown; data?: unknown };
+      const raw = await readEventBody(request);
+      if (raw instanceof Response) return raw;
+      body = JSON.parse(raw);
     } catch {
       return new Response("bad json", { status: 400 });
     }
-    if (typeof body.type !== "string" || !body.type) {
+    if (!isRealtimeEventInput(body)) {
       return new Response("bad event", { status: 400 });
     }
-    const data =
-      body.data && typeof body.data === "object"
-        ? (body.data as Record<string, unknown>)
-        : {};
-
     const seq = (await this.currentSeq()) + 1;
     const event: RealtimeEvent = {
       id: seq,
-      type: body.type as RealtimeEvent["type"],
-      data,
+      type: body.type,
+      data: body.data,
     };
     await this.state.storage.put(eventKey(seq), event);
     await this.state.storage.put(SEQ_KEY, seq);
@@ -194,6 +239,7 @@ export class RealtimeStreamDO {
     message: string | ArrayBuffer,
   ): Promise<void> {
     if (typeof message !== "string") return;
+    if (!isRealtimeJsonWithinLimit(message, MAX_REALTIME_CONTROL_BYTES)) return;
     let parsed: unknown;
     try {
       parsed = JSON.parse(message);

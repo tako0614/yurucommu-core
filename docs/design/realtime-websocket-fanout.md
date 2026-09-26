@@ -104,6 +104,41 @@ WebSocket / SSE は現状**一切存在しない**（意図的にポーリング
 | 再接続 | `hello {lastEventId}` を受けて buffer 差分を replay。buffer 外なら `{type:"resync"}` を返し、クライアントが初回フェッチで全同期 |
 | heartbeat / 掃除 | `alarm()` で ping / stale 接続 close（`NotifierBase` と同型） |
 
+### 実装済みの入力上限（2026-09-26）
+
+上限は provider quota ではなく、共有 API contract
+`packages/api/src/types/realtime.ts` が所有する UTF-8 wire byte policy。
+認証・audience・DO binding の trust boundary は変更しない。
+
+- `POST /_emit`: JSON body 全体（`{type,data}` と追加 field / whitespace を含む）は
+  **1 MiB (1,048,576 bytes)** まで。Content-Length は早期拒否の hint にのみ使用し、
+  欠落・過小申告でも body stream の実 byte 数を数える。保持 buffer も上限内で伸長し、
+  超過時は読み取りを止めて cancel、JSON parse 前に 413 を返す。
+  malformed JSON / UTF-8、未知の `type`、非 object / 配列の envelope または `data`、
+  `data` の欠落は 400。`data: {}` への暗黙置換はしない。
+  いずれも seq 読み取り・採番、storage 書き込み、fanout より前に拒否する。
+- `CloudflareRealtimeHub.emit`: 同じ既知イベント種類・record `data` と、serialize 後の
+  UTF-8 1 MiB 上限を DO 呼び出し前に検証する。不正入力は reject し、既存の
+  `emitRealtimeBestEffort` が delivery failure と同様に扱う。DO 未配線時の Null hub は
+  no-op のまま。この revision に NativeRealtimeHub は存在しない。
+- browser → DO control frame: **1 KiB (1,024 bytes)** までを JSON parse 前に確認する。
+  oversized / malformed / binary frame は無視し、応答・replay・storage access はしない。
+  `hello.lastEventId` は省略可能。指定する場合は非負 safe integer のみで、負数・小数・
+  unsafe integer・別型を丸めたり省略扱いにしない。`hello` / `ping` / `pong` は従来どおり。
+
+上限の根拠: 最大の通常 producer は DM / community の `talk.message`。
+`routes/dm/query-helpers.ts` と `routes/communities/messages.ts` の本文上限は 5,000 UTF-16
+code units、`lib/attachments.ts` の attachment metadata は 8 件・JSON 16 Ki code units。
+本文・添付・sender / conversation metadata を含められるよう、event envelope の上限は
+通常 REST body の既存 1 MiB budget（`middleware/body-limit.ts`）に揃える。
+他の producer は typing / read の actor・日時、通知の空 object、未読 counters。
+control は event data を運ばず短い discriminator と optional cursor のみなので 1 KiB とする。
+event ごとの新しい schema は設けず、意味上の検証は既存 REST producer が所有する。
+
+回帰検証は `src/backend/__tests__/realtime-stream.test.ts`。実際の DO `fetch` / WS handler と
+hub `emit` を通し、UTF-8 境界ちょうど・1 byte 超過、stream 分割・cancel、Content-Length
+欠落 / 偽装、不正入力時の無副作用、既存全イベント種類の受理を確認する。
+
 ### イベント封筒とタイプ
 
 封筒: `{ id: number, type: string, data: object }`。

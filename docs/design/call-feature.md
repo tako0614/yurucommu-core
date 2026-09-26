@@ -74,6 +74,22 @@ core の `lib/activitypub-validators.ts` の `parseActivity`/`parseActivityObjec
 - **REST 契約**: `StartCallRequest`/`StartCallResponse`、`IceServersResponse`、`CallSessionSummary`。
 - **状態**: `CallState`（idle→ringing→connecting→connected→ended、+ rejected/missed/failed/cancelled）、`isTerminalCallState()`。
 
+Browser → hub は `parseClientToHubFrame()` を DO と native hub で共有する。
+JSON decode 前に UTF-8 **1 MiB** の app-owned frame 上限を検査し、全 variant の
+必須 field / 型を検証してから hub の生成・復元、media 発行、保存、relay、alarm へ進む。
+binary / unknown type / malformed / oversized は副作用なしで無視する。
+`callId` は s2s と同じ 1–200 文字、reason は string をそのまま許す
+（frame 全体の byte 上限には含める）。
+ICE の空 candidate、空配列、optional field の absent / null を許し、
+`sdpMLineIndex` は DOM の unsigned short と同じ整数 0–65535 とする。
+未知の extension field は受信 frame の byte 上限に含め、検証後には除去する。
+
+SDP は browser frame / s2s envelope とも **100,000 UTF-8 bytes** 以下とする
+（従来の s2s 上限の文字数判定を byte 判定へ修正）。frame 全体は通常 HTTP body の
+上限と同じ 1 MiB とし、SDP の JSON エスケープによる膨張も収める。
+これは message 単位の受信境界であり、rate limit や通話数の上限ではない。
+s2s の署名・recipient・freshness 判定、および既存の optional field 正規化は変更しない。
+
 ---
 
 ## 5. Signaling（core）

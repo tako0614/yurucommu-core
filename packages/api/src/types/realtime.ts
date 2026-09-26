@@ -21,6 +21,40 @@ export type RealtimeEventType =
   | "notification.new"
   | "unread";
 
+/** App-owned ingress limits, measured on the UTF-8 JSON wire representation. */
+export const MAX_REALTIME_EVENT_BYTES = 1024 * 1024;
+export const MAX_REALTIME_CONTROL_BYTES = 1024;
+
+export function isRealtimeEventInput(
+  raw: unknown,
+): raw is { type: RealtimeEventType; data: Record<string, unknown> } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const { type, data } = raw as { type?: unknown; data?: unknown };
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  switch (type) {
+    case "talk.message":
+    case "talk.typing":
+    case "talk.read":
+    case "talk.contacts_changed":
+    case "notification.new":
+    case "unread":
+      return true;
+    default:
+      return false;
+  }
+}
+
+export function isRealtimeJsonWithinLimit(
+  json: string,
+  maxBytes: number,
+): boolean {
+  // Avoid allocating another huge buffer for obviously oversized strings.
+  return (
+    json.length <= maxBytes &&
+    new TextEncoder().encode(json).byteLength <= maxBytes
+  );
+}
+
 export interface RealtimeEvent {
   /** Per-user monotonic sequence number (assigned by the stream DO). */
   id: number;
@@ -89,17 +123,18 @@ export type RealtimeServerFrame =
 export function parseRealtimeClientFrame(
   raw: unknown,
 ): RealtimeClientFrame | null {
-  if (!raw || typeof raw !== "object") return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const frame = raw as { t?: unknown; lastEventId?: unknown };
   if (frame.t === "ping" || frame.t === "pong") return { t: frame.t };
   if (frame.t === "hello") {
-    const lastEventId =
-      typeof frame.lastEventId === "number" &&
-      Number.isFinite(frame.lastEventId) &&
-      frame.lastEventId >= 0
-        ? Math.floor(frame.lastEventId)
-        : undefined;
-    return { t: "hello", lastEventId };
+    if (
+      "lastEventId" in frame &&
+      (typeof frame.lastEventId !== "number" ||
+        !Number.isSafeInteger(frame.lastEventId) ||
+        frame.lastEventId < 0)
+    )
+      return null;
+    return { t: "hello", lastEventId: frame.lastEventId as number | undefined };
   }
   return null;
 }
