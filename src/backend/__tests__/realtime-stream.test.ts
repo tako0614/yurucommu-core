@@ -10,8 +10,18 @@ import { getRealtimeHub } from "../runtime/realtime-hub.ts";
 import {
   MAX_REALTIME_CONTROL_BYTES,
   MAX_REALTIME_EVENT_BYTES,
+  parseRealtimeClientFrame,
   parseRealtimeServerFrame,
 } from "../../../packages/api/src/types/realtime.ts";
+
+test("client frame parser preserves an explicitly undefined optional cursor", () => {
+  const hello = { t: "hello", lastEventId: undefined } as const;
+  expect(parseRealtimeClientFrame(hello)).toEqual(hello);
+  expect(parseRealtimeClientFrame({ t: "hello" })).toEqual(hello);
+  for (const lastEventId of [null, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "1"]) {
+    expect(parseRealtimeClientFrame({ t: "hello", lastEventId })).toBeNull();
+  }
+});
 
 // --- Fake DO state (KV storage + hibernatable socket registry) --------------
 

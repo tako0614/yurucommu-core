@@ -128,7 +128,7 @@ export function parseRealtimeClientFrame(
   if (frame.t === "ping" || frame.t === "pong") return { t: frame.t };
   if (frame.t === "hello") {
     if (
-      "lastEventId" in frame &&
+      frame.lastEventId !== undefined &&
       (typeof frame.lastEventId !== "number" ||
         !Number.isSafeInteger(frame.lastEventId) ||
         frame.lastEventId < 0)
