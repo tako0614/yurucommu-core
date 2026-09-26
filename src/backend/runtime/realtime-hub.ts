@@ -15,6 +15,11 @@ import type { Env } from "../types.ts";
 import { notificationPushJobs } from "../../db/index.ts";
 import { computeUnreadSnapshot } from "../lib/unread-counts.ts";
 import { logger } from "../lib/logger.ts";
+import {
+  isRealtimeEventInput,
+  isRealtimeJsonWithinLimit,
+  MAX_REALTIME_EVENT_BYTES,
+} from "../../../packages/api/src/types/realtime.ts";
 
 const log = logger.child({ component: "realtime.hub" });
 
@@ -79,10 +84,17 @@ class CloudflareRealtimeHub implements IRealtimeHub {
     type: string,
     data: Record<string, unknown>,
   ): Promise<void> {
+    if (!isRealtimeEventInput({ type, data })) {
+      throw new TypeError("Invalid realtime event");
+    }
+    const body = JSON.stringify({ type, data });
+    if (!isRealtimeJsonWithinLimit(body, MAX_REALTIME_EVENT_BYTES)) {
+      throw new RangeError("Realtime event too large");
+    }
     await this.stub(actorApId).fetch("https://realtime-do/_emit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, data }),
+      body,
     });
   }
 }

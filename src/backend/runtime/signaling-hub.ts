@@ -11,9 +11,9 @@
 
 import type { Env } from "../types.ts";
 import type { RtcSignalEnvelopeV1 } from "../../../packages/api/src/types/call.ts";
-import type {
-  ClientToHubFrame,
-  HubToClientFrame,
+import {
+  parseClientToHubFrame,
+  type HubToClientFrame,
 } from "../../../packages/api/src/types/call.ts";
 import { CallHub, type HubConnection } from "./call-hub-core.ts";
 import { createCallHubPort } from "./call-hub-port.ts";
@@ -154,14 +154,8 @@ class LocalSignalingHub implements ISignalingHub {
     socket: LocalSocket,
     raw: string,
   ): Promise<void> {
-    let frame: ClientToHubFrame;
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed.t !== "string") return;
-      frame = parsed as ClientToHubFrame;
-    } catch {
-      return;
-    }
+    const frame = parseClientToHubFrame(raw);
+    if (!frame) return;
     await this.getOrCreate(actorApId).hub.handleClientFrame(
       this.wrap(socket),
       frame,

@@ -18,12 +18,12 @@ import type { EnvVars } from "../types.ts";
 import { CallHub, type CallRecord } from "./call-hub-core.ts";
 import { createCallHubPort } from "./call-hub-port.ts";
 import type {
-  ClientToHubFrame,
   HubToClientFrame,
   RtcSignalEnvelopeV1,
 } from "../../../packages/api/src/types/call.ts";
 import {
   isTerminalCallState,
+  parseClientToHubFrame,
   parseRtcSignalEnvelope,
 } from "../../../packages/api/src/types/call.ts";
 import { consumeOneTimeTicket, mintOneTimeTicket } from "./one-time-ticket.ts";
@@ -157,15 +157,8 @@ export class CallSignalingDurableObject {
     ws: DoWebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
-    if (typeof message !== "string") return;
-    let frame: ClientToHubFrame;
-    try {
-      const parsed = JSON.parse(message);
-      if (!parsed || typeof parsed.t !== "string") return;
-      frame = parsed as ClientToHubFrame;
-    } catch {
-      return;
-    }
+    const frame = parseClientToHubFrame(message);
+    if (!frame) return;
     const hub = await this.ensureHub();
     if (!hub) {
       this.send(ws, { t: "error", code: "no_session" });
