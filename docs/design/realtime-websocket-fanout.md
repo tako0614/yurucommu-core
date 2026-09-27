@@ -8,6 +8,54 @@ Status: **設計済み・プロダクト統合待ち**（`yurucommu` / `yurumeet
 Owner: `yurucommu-core`（DO / hub / emit / WS client 本体）
 Consumers: `yurucommu`, `yurumeet`（クライアント配線 + deploy 配線）
 
+## 2026-09-27: shared engine / Actor source candidate
+
+`realtime-stream.ts` owns event validation, ticket authentication, monotonic
+ordering, 200-event replay/resync and best-effort fanout. Its internal ports are
+an application repository (`currentSeq`, `appendEvent`, `eventAt`, `mintTicket`,
+`consumeTicket`) and socket transport (`accept`, `list`, async-capable
+`send`/`close`). The CF adapter retains the existing `seq`, `evt:` and `ticket:`
+storage format and native upgrade carrier. It does not migrate existing data.
+
+`RealtimeStreamActor` in `realtime-stream-actor.ts` is a **source-only,
+unpublished candidate**, against the selected `takoform-forms` Actor execution
+contract at `43b31a73`. It uses private Actor SQL, not a shared SQL binding,
+Cloudflare storage facade or Host-specific branch. Head, event payload and ring
+pruning commit in one transaction. Event JSON is split into bounded,
+surrogate-safe SQL rows: the portable SQL TEXT ceiling is 1,000,000 UTF-8 bytes,
+below the unchanged 1 MiB realtime envelope budget. Replay joins only the parts
+of one event; it does not materialize the complete ring in one SQL response.
+The existing one-time-ticket algorithm is
+reused through its narrow ticket-storage port, backed by a separate private SQL
+table: hashes only, 60-second expiry, maximum eight outstanding tickets and
+durable consume before upgrade acceptance. Host whole-event serialization is a
+required contract, including across instance eviction; the application does not
+add its own in-memory lock or depend on instance cache survival.
+
+The constructor starts no async work; idempotent `start` initializes the private
+schema. `fetch`, `alarm`, `socketMessage` and `socketClose` are prototype methods.
+Realtime schedules no alarm. Broker socket IDs remain opaque. Realtime needs no
+per-socket metadata and deliberately does not decode or overwrite attachments;
+event head, history and ticket authorization never live in attachments or heap.
+Every send/close is awaited, and one failed connection does not suppress other
+peers. The outer product worker still owns session, Origin and audience checks;
+trusted internal headers are not a new browser authentication mechanism.
+
+Focused tests exercise the CF adapter plus Actor callbacks against real local
+SQLite while reconstructing the Actor on every event. They cover replay bounds,
+atomic rollback, single-use/expiry/cap/actor isolation of tickets, async send and
+close failure, opaque attachment preservation and existing UTF-8 input bounds.
+The adapter returns the exact `sockets.accept` Response. Actual Hono header
+middleware reconstructs it with `new Response(response.body, response)`; a local
+ordinary-Response test exercises that path but cannot prove the Host's hidden
+101 reservation/alias authority. Forward Host tests own that proof. Product
+class binding, packaged consumer integration and live handshake E2E remain
+unqualified here. No public export, package version, consumer pin, binding,
+deployment, published contract identity or existing CF data is changed.
+
+The remaining sections preserve the original CF rollout design and historical
+observations; the Actor candidate does not claim those rollout results.
+
 > **実装時の確定事項（設計との差分・具体化）**
 >
 > - チケットは KV ではなく**ユーザー自身の stream DO の storage** に保存（強整合・使い切りを DO 内でアトミックに実施）。socket URL は `?actor=<apId>&ticket=<one-time>`（actor は「どの DO がチケットを検証するか」の選択にのみ使われ、偽装は検証失敗になる）。同一オリジンの session cookie がある場合はチケット不要の session 経路も許可。
