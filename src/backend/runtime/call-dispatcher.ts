@@ -14,14 +14,19 @@ const MAX_LIVE_JOB_BYTES = 16 * 1024 * 1024;
 // Admission byte-copy accounting, not a hard JavaScript heap measurement.
 const LIVE_BYTES_PER_WIRE_BYTE = 4;
 
-interface CallDispatcherDependencies {
+interface CallDispatcherDependencies<Invocation = undefined> {
   /** Performs exactly one peer POST. This owns signing and transport policy. */
-  send(job: CallRelayJob, signal: AbortSignal): Promise<void>;
+  send(
+    job: CallRelayJob,
+    signal: AbortSignal,
+    invocation: Invocation | undefined,
+  ): Promise<void>;
   /** Reports a compact result to the source actor; never receives the job. */
   report(
     result: CallRelayResult,
     localActorApId: string,
     signal: AbortSignal,
+    invocation: Invocation | undefined,
   ): Promise<void>;
   now?(): number;
 }
@@ -38,7 +43,9 @@ type ReadBodyResult =
  * In-process, non-durable dispatcher for the unpublished application handoff.
  * The Worker that owns this service is responsible for keeping it private.
  */
-export function createCallDispatcher(deps: CallDispatcherDependencies) {
+export function createCallDispatcher<Invocation = undefined>(
+  deps: CallDispatcherDependencies<Invocation>,
+) {
   let activeJobs = 0;
   let activeBytes = 0;
   const now = deps.now ?? Date.now;
@@ -120,6 +127,7 @@ export function createCallDispatcher(deps: CallDispatcherDependencies) {
 
   async function sendOnce(
     job: CallRelayJob,
+    invocation: Invocation | undefined,
   ): Promise<{ result: CallRelayResult; localActorApId: string }> {
     const effect = job.effect;
     const localActorApId = job.envelope.from;
@@ -133,7 +141,7 @@ export function createCallDispatcher(deps: CallDispatcherDependencies) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), remaining);
     try {
-      await deps.send(job, controller.signal);
+      await deps.send(job, controller.signal, invocation);
       if (!controller.signal.aborted && now() < effect.deadline)
         result.outcome = "peer_ack";
     } catch {
@@ -147,12 +155,13 @@ export function createCallDispatcher(deps: CallDispatcherDependencies) {
   async function deliver(
     payload: CallRelayJob | null,
     reservation: number,
+    invocation: Invocation | undefined,
   ): Promise<void> {
     if (!payload) return;
     let result: CallRelayResult;
     let localActorApId: string;
     try {
-      ({ result, localActorApId } = await sendOnce(payload));
+      ({ result, localActorApId } = await sendOnce(payload, invocation));
     } catch {
       result = callRelayResult(payload.effect, "failed");
       localActorApId = payload.envelope.from;
@@ -169,7 +178,7 @@ export function createCallDispatcher(deps: CallDispatcherDependencies) {
       CALL_RELAY_CALLBACK_TIMEOUT_MS,
     );
     try {
-      await deps.report(result, localActorApId, controller.signal);
+      await deps.report(result, localActorApId, controller.signal, invocation);
     } catch {
       // Callback is best effort, single attempt, and never retries on ambiguity.
     } finally {
@@ -181,6 +190,7 @@ export function createCallDispatcher(deps: CallDispatcherDependencies) {
   async function handle(
     request: Request,
     context: WorkerContext,
+    invocation: Invocation | undefined,
   ): Promise<Response> {
     if (request.method !== "POST")
       return new Response("method not allowed", { status: 405 });
@@ -217,7 +227,7 @@ export function createCallDispatcher(deps: CallDispatcherDependencies) {
 
       const url = new URL(request.url);
       if (url.pathname === "/_send") {
-        const sent = await sendOnce(job);
+        const sent = await sendOnce(job, invocation);
         job = null;
         return Response.json(sent.result);
       }
@@ -241,7 +251,7 @@ export function createCallDispatcher(deps: CallDispatcherDependencies) {
           activeJobs -= 1;
           return;
         }
-        return deliver(payload, holder.reservation);
+        return deliver(payload, holder.reservation, invocation);
       });
       context.waitUntil(producer);
       slotTransferred = true;
@@ -265,11 +275,15 @@ export function createCallDispatcher(deps: CallDispatcherDependencies) {
   }
 
   return {
-    async fetch(request: Request, context: WorkerContext): Promise<Response> {
+    async fetch(
+      request: Request,
+      context: WorkerContext,
+      invocation?: Invocation,
+    ): Promise<Response> {
       const pathname = new URL(request.url).pathname;
       if (pathname !== "/_dispatch" && pathname !== "/_send")
         return new Response("not found", { status: 404 });
-      return handle(request, context);
+      return handle(request, context, invocation);
     },
   };
 }

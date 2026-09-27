@@ -151,6 +151,7 @@ export { RealtimeStreamActor } from "./runtime/realtime-stream-actor.ts";
 // private dispatcher construction and the already-authenticated ingress flow.
 export { CallSignalingActor } from "./runtime/call-signaling-actor.ts";
 export { createCallDispatcherForCalls } from "./runtime/call-dispatcher-bindings.ts";
+export { createCallDispatcherForCallsByInvocation } from "./runtime/call-dispatcher-bindings.ts";
 export { deliverCallSignalThroughActor } from "./runtime/call-signaling-worker.ts";
 export type { Env, EnvVars } from "./types.ts";
 export type {
