@@ -1,6 +1,14 @@
 #!/usr/bin/env bun
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -47,6 +55,9 @@ try {
   const coreTarballArg = valueAfter("--core-tarball");
   const apiTarballArg = valueAfter("--api-tarball");
   const registryVersion = valueAfter("--registry-version");
+  const offline =
+    argv.includes("--offline") ||
+    process.env.YURUCOMMU_PACKED_CONSUMER_OFFLINE === "1";
   if (Boolean(coreTarballArg) !== Boolean(apiTarballArg)) {
     throw new Error(
       "--core-tarball and --api-tarball must be provided together.",
@@ -57,13 +68,24 @@ try {
       "--registry-version cannot be combined with tarball arguments.",
     );
   }
+  if (offline && registryVersion) {
+    throw new Error(
+      "--offline requires local package tarballs, not a registry version.",
+    );
+  }
 
-  const coreSpec = registryVersion
-    ? registryVersion
-    : `file:${resolve(coreTarballArg ?? pack(repoRoot, tempRoot))}`;
-  const apiSpec = registryVersion
-    ? registryVersion
-    : `file:${resolve(apiTarballArg ?? pack(apiRoot, tempRoot))}`;
+  const coreTarball = coreTarballArg
+    ? resolve(coreTarballArg)
+    : registryVersion
+      ? undefined
+      : pack(repoRoot, tempRoot);
+  const apiTarball = apiTarballArg
+    ? resolve(apiTarballArg)
+    : registryVersion
+      ? undefined
+      : pack(apiRoot, tempRoot);
+  const coreSpec = registryVersion ?? `file:${coreTarball}`;
+  const apiSpec = registryVersion ?? `file:${apiTarball}`;
   const consumerRoot = join(tempRoot, "consumer");
   await mkdir(consumerRoot);
   await writeFile(
@@ -86,6 +108,7 @@ try {
     join(consumerRoot, "verify.mjs"),
     `import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { writeFile } from "node:fs/promises";
 import {
   CallClient,
   clearBrowserNotificationPush,
@@ -98,6 +121,7 @@ import {
 import {
   createManagedRuntimeKeyValueStore,
   createManagedRuntimeObjectStorage,
+  RealtimeStreamActor,
   runYurucommuRetention,
 } from "@takosjp/yurucommu-core/server";
 import yurucommuCoreWorker from "@takosjp/yurucommu-core/server";
@@ -115,6 +139,7 @@ for (const [name, value] of Object.entries({
   createManagedRuntimeKeyValueStore,
   createManagedRuntimeObjectStorage,
   runYurucommuRetention,
+  RealtimeStreamActor,
   disableBrowserNotificationPush,
   enableBrowserNotificationPush,
   fetchNotificationPusherPublicConfig,
@@ -126,14 +151,88 @@ for (const [name, value] of Object.entries({
 if (typeof yurucommuCoreWorker.scheduled !== "function") {
   throw new Error("core default export has no scheduled retention handler");
 }
+
+const workerEntry = join(import.meta.dir, "worker-entry.ts");
+await writeFile(
+  workerEntry,
+  'export { RealtimeStreamActor } from "@takosjp/yurucommu-core/server";\\n',
+);
+const builtWorker = await Bun.build({
+  entrypoints: [workerEntry],
+  target: "browser",
+  format: "esm",
+  conditions: ["workerd", "worker"],
+  external: ["node:*", "cloudflare:*"],
+});
+if (!builtWorker.success || builtWorker.outputs.length !== 1) {
+  throw new Error("packed RealtimeStreamActor consumer did not bundle");
+}
+const workerBundle = await builtWorker.outputs[0].text();
+if (!workerBundle.includes("RealtimeStreamActor")) {
+  throw new Error("packed Worker bundle omitted RealtimeStreamActor");
+}
+for (const match of workerBundle.matchAll(
+  /["']((?:node|cloudflare):[^"']+)["']/g,
+)) {
+  const before = workerBundle.slice(Math.max(0, match.index - 16), match.index);
+  const lazyImport = /\\bimport\\s*\\(\\s*$/.test(before);
+  if (!lazyImport || match[1] !== "node:dns/promises") {
+    throw new Error(
+      "packed Worker bundle has non-portable import " + match[1],
+    );
+  }
+}
 console.log("packed core/API consumer verified");
 `,
   );
 
-  run("bun", ["install", "--ignore-scripts"], { cwd: consumerRoot });
-  run("bun", ["install", "--frozen-lockfile", "--ignore-scripts"], {
-    cwd: consumerRoot,
-  });
+  if (offline) {
+    const installedModules = join(consumerRoot, "node_modules");
+    const sharedModules = resolve(repoRoot, "node_modules");
+    await mkdir(join(installedModules, "@takosjp"), { recursive: true });
+    for (const entry of await readdir(sharedModules, { withFileTypes: true })) {
+      if (entry.name === ".bin" || entry.name === "@takosjp") continue;
+      await symlink(
+        join(sharedModules, entry.name),
+        join(installedModules, entry.name),
+        entry.isDirectory() ? "dir" : "file",
+      );
+    }
+    const sharedTakosjp = join(sharedModules, "@takosjp");
+    for (const entry of await readdir(sharedTakosjp, { withFileTypes: true })) {
+      if (entry.name === "yurucommu-core" || entry.name === "yurucommu-api")
+        continue;
+      await symlink(
+        join(sharedTakosjp, entry.name),
+        join(installedModules, "@takosjp", entry.name),
+        entry.isDirectory() ? "dir" : "file",
+      );
+    }
+    for (const [name, tarball] of [
+      ["yurucommu-core", coreTarball],
+      ["yurucommu-api", apiTarball],
+    ]) {
+      if (!tarball) throw new Error(`Missing packed tarball for ${name}.`);
+      const extractRoot = join(tempRoot, `packed-${name}`);
+      await mkdir(extractRoot);
+      run("tar", ["-xzf", tarball, "-C", extractRoot]);
+      await symlink(
+        installedModules,
+        join(extractRoot, "package", "node_modules"),
+        "dir",
+      );
+      await symlink(
+        join(extractRoot, "package"),
+        join(installedModules, "@takosjp", name),
+        "dir",
+      );
+    }
+  } else {
+    run("bun", ["install", "--ignore-scripts"], { cwd: consumerRoot });
+    run("bun", ["install", "--frozen-lockfile", "--ignore-scripts"], {
+      cwd: consumerRoot,
+    });
+  }
   run("bun", ["verify.mjs"], { cwd: consumerRoot });
 
   const corePackageJson = JSON.parse(

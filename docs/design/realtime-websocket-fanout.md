@@ -48,10 +48,13 @@ close failure, opaque attachment preservation and existing UTF-8 input bounds.
 The adapter returns the exact `sockets.accept` Response. Actual Hono header
 middleware reconstructs it with `new Response(response.body, response)`; a local
 ordinary-Response test exercises that path but cannot prove the Host's hidden
-101 reservation/alias authority. Forward Host tests own that proof. Product
-class binding, packaged consumer integration and live handshake E2E remain
-unqualified here. No public export, package version, consumer pin, binding,
-deployment, published contract identity or existing CF data is changed.
+101 reservation/alias authority. Forward Host tests own that proof. The
+unpublished `RealtimeStreamActor` source candidate is exported by the core
+package entry and checked through a local packed consumer, but product class
+binding and live handshake E2E remain unqualified here. The consumer bundle
+does not qualify the Forward Host's reserved/aliased 101 response behavior.
+No package version, consumer pin, binding, deployment, published contract
+identity or existing CF data is changed.
 
 The remaining sections preserve the original CF rollout design and historical
 observations; the Actor candidate does not claim those rollout results.
