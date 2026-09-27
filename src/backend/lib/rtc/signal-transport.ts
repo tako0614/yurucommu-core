@@ -33,6 +33,21 @@ export interface CallSigner {
   privateKeyPem: string;
 }
 
+export interface CallSignalBudget {
+  signal?: AbortSignal;
+  deadline?: number;
+}
+
+function checkBudget(budget: CallSignalBudget): void {
+  if (budget.signal?.aborted)
+    throw budget.signal.reason ?? new Error("RTC signal aborted");
+  if (
+    budget.deadline !== undefined &&
+    (!Number.isSafeInteger(budget.deadline) || Date.now() >= budget.deadline)
+  )
+    throw new Error("RTC signal deadline exceeded");
+}
+
 /** Derive a peer's signaling endpoint from a cached actor row. */
 function endpointFromActorRow(row: {
   inbox: string;
@@ -89,9 +104,12 @@ export async function sendCallSignal(
   signer: CallSigner,
   envelope: RtcSignalEnvelopeV1,
   peerSignalEndpoint?: string,
+  budget: CallSignalBudget = {},
 ): Promise<void> {
+  checkBudget(budget);
   const endpoint =
     peerSignalEndpoint ?? (await resolvePeerSignalEndpoint(db, envelope.to));
+  checkBudget(budget);
   if (!endpoint) {
     throw new Error(`no signaling endpoint for ${envelope.to}`);
   }
@@ -104,6 +122,7 @@ export async function sendCallSignal(
     endpoint,
     body,
   );
+  checkBudget(budget);
   const res = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: {
@@ -113,7 +132,11 @@ export async function sendCallSignal(
     },
     body,
     timeout: SIGNAL_TIMEOUT_MS,
+    signal: budget.signal,
+    deadline: budget.deadline,
   });
+  await res.body?.cancel();
+  checkBudget(budget);
   if (!res.ok) {
     log.warn("Signaling POST rejected", {
       callId: envelope.callId,

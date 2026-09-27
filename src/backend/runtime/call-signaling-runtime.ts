@@ -11,6 +11,13 @@ import {
   mintOneTimeTicket,
   type OneTimeTicketStorage,
 } from "./one-time-ticket.ts";
+import { CallRelayJournal } from "./call-relay-journal.ts";
+import {
+  callIngressDigest,
+  parseCallRelayResult,
+  type CallRelayJob,
+  type CallService,
+} from "./call-relay.ts";
 
 export interface CallSocket {
   send(data: string): void | Promise<void>;
@@ -61,6 +68,10 @@ export class CallSignalingRuntime {
     private readonly storage: OneTimeTicketStorage,
     private readonly transport: CallSignalingTransport,
     private readonly createPort: CallPortFactory,
+    private readonly relay?: {
+      journal: CallRelayJournal;
+      dispatcher: CallService;
+    },
   ) {}
   private turn<T>(work: () => Promise<T>): Promise<T> {
     const result = this.tail.then(work);
@@ -70,6 +81,68 @@ export class CallSignalingRuntime {
   fetch(request: Request): Promise<Response> {
     return this.turn(async () => {
       const path = new URL(request.url).pathname;
+      if (path === "/_relay-result" || path === "/_continue") {
+        if (!this.relay || request.method !== "POST")
+          return new Response("not found", { status: 404 });
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return new Response("bad json", { status: 400 });
+        }
+        const continuation = path === "/_continue";
+        const input = body as { result?: unknown; envelope?: unknown } | null;
+        const result = parseCallRelayResult(
+          continuation ? input?.result : body,
+        );
+        if (!result) return new Response("bad result", { status: 400 });
+        const effect = await this.relay.journal.lookup(result);
+        if (!effect)
+          return new Response(null, { status: continuation ? 409 : 204 });
+        // Glare belongs to the outer request, never the asynchronous callback.
+        if ((effect.continuation === "glare") !== continuation)
+          return new Response("wrong continuation", { status: 409 });
+        const envelope = continuation
+          ? parseRtcSignalEnvelope(input?.envelope)
+          : null;
+        if (
+          continuation &&
+          (!envelope ||
+            (await callIngressDigest(envelope)) !== effect.ingressDigest ||
+            envelope.to !== (await this.storage.get<string>("actor")))
+        )
+          return new Response("wrong ingress", { status: 409 });
+        let matched = false;
+        const prepared: { jobs: CallRelayJob[]; ingressDigest?: string } = {
+          jobs: [],
+          ingressDigest: effect.ingressDigest,
+        };
+        await this.withHub(
+          async (hub, effects) => {
+            const call = hub
+              ?.activeCalls()
+              .find((candidate) => candidate.callId === effect.callId);
+            if (!hub || call?.generation !== effect.generation) return;
+            matched = true;
+            hub.completeDeferredRelay(
+              effect.callId,
+              effect.generation,
+              effect.continuation,
+              result.outcome === "peer_ack",
+            );
+            await effects.drain();
+            if (envelope) await hub.handleInboundSignal(envelope);
+          },
+          false,
+          prepared,
+        );
+        await this.relay.journal.remove(effect);
+        if (continuation && !matched)
+          return new Response("obsolete continuation", { status: 409 });
+        return prepared.jobs.length
+          ? Response.json({ job: prepared.jobs[0] }, { status: 202 })
+          : new Response(null, { status: 204 });
+      }
       if (path === "/_ticket") {
         if (request.method !== "POST")
           return new Response("method not allowed", { status: 405 });
@@ -113,10 +186,22 @@ export class CallSignalingRuntime {
         if (!envelope) return new Response("bad envelope", { status: 400 });
         if (!(await this.bindActor(envelope.to)))
           return new Response("wrong actor", { status: 409 });
-        await this.withHub(async (hub) => {
-          await hub?.handleInboundSignal(envelope);
-        });
-        return new Response(null, { status: 204 });
+        const prepared: { jobs: CallRelayJob[]; ingressDigest?: string } = {
+          jobs: [],
+          ...(this.relay
+            ? { ingressDigest: await callIngressDigest(envelope) }
+            : {}),
+        };
+        await this.withHub(
+          async (hub) => {
+            await hub?.handleInboundSignal(envelope);
+          },
+          false,
+          prepared,
+        );
+        return prepared.jobs.length
+          ? Response.json({ job: prepared.jobs[0] }, { status: 202 })
+          : new Response(null, { status: 204 });
       }
       return new Response("not found", { status: 404 });
     });
@@ -161,6 +246,7 @@ export class CallSignalingRuntime {
   private async withHub(
     work: (hub: CallHub | null, effects: CallEffects) => Promise<void>,
     alarm = false,
+    prepared?: { jobs: CallRelayJob[]; ingressDigest?: string },
   ): Promise<void> {
     const effects = new CallEffects();
     const actor = await this.storage.get<string>("actor");
@@ -176,6 +262,41 @@ export class CallSignalingRuntime {
       });
       hub = new CallHub({
         ...base,
+        ...(this.relay
+          ? {
+              newCallGeneration: () => crypto.randomUUID(),
+              deferToPeer: async (
+                relay: import("./call-hub-core.ts").DeferredCallRelay,
+              ) => {
+                await effects.drain();
+                const job = await this.relay!.journal.prepare(
+                  relay,
+                  prepared?.ingressDigest,
+                );
+                if (prepared) {
+                  prepared.jobs.push(job);
+                  return;
+                }
+                try {
+                  const response = await this.relay!.dispatcher.fetch(
+                    new Request("https://call-dispatcher/_dispatch", {
+                      method: "POST",
+                      body: JSON.stringify(job),
+                    }),
+                  );
+                  // Acceptance is not a peer result; only the correlated callback
+                  // can execute a deferred continuation or report actual failure.
+                  if (response.status !== 202)
+                    throw new Error("RTC dispatcher refused acceptance");
+                  await response.body?.cancel();
+                } catch (error) {
+                  // Admission may be ambiguous. Never retry this external action.
+                  await this.relay!.journal.remove(job.effect);
+                  throw error;
+                }
+              },
+            }
+          : {}),
         persist: (call) => {
           const snapshot = structuredClone(call);
           effects.add(async () => {
@@ -190,6 +311,19 @@ export class CallSignalingRuntime {
       hub.hydrate([
         ...(await this.storage.list<CallRecord>({ prefix: "call:" })).values(),
       ]);
+    }
+    if (this.relay && hub) {
+      for (const pending of await this.relay.journal.pending()) {
+        if (pending.deadline > Date.now()) continue;
+        hub.completeDeferredRelay(
+          pending.callId,
+          pending.generation,
+          pending.continuation,
+          false,
+        );
+        await effects.drain();
+        await this.relay.journal.remove(pending);
+      }
     }
     // Schedule before tick/drain: set-then-throw retains the Actor obligation
     // and successor. Never clear a successor on retry or impose a retry cap.

@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { CallSignalingActor } from "../../runtime/call-signaling-actor.ts";
+import { createCallDispatcher } from "../../runtime/call-dispatcher.ts";
+import { deliverCallSignalThroughActor } from "../../runtime/call-signaling-worker.ts";
+import {
+  callRelayResult,
+  type CallRelayJob,
+  type CallService,
+} from "../../runtime/call-relay.ts";
 import type {
   ActorContext,
   ActorSocket,
@@ -113,6 +120,10 @@ function harness() {
   const sharedWrites: string[] = [];
   const env = {
     APP_URL: "https://local.example",
+    CALL_DISPATCHER: {
+      fetch: async (_request: Request): Promise<Response> =>
+        Response.json({ accepted: true }, { status: 202 }),
+    },
     DB: {
       execute: async (sql: string) => {
         sharedWrites.push(sql);
@@ -471,6 +482,396 @@ test("Actor start failure performs no private writes and can be retried", async 
         )
       ).status,
     ).toBe(200);
+  } finally {
+    h.close();
+  }
+});
+
+function serializedPeer(h: ReturnType<typeof harness>) {
+  let tail: Promise<unknown> = Promise.resolve();
+  const event = <T>(
+    work: (actor: CallSignalingActor) => Promise<T>,
+  ): Promise<T> => {
+    const result = tail.then(async () => work(await h.wake()));
+    tail = result.catch(() => {});
+    return result;
+  };
+  return {
+    fetch: (request: Request) => event((actor) => actor.fetch(request, turn)),
+    message: (frame: unknown) =>
+      event((actor) =>
+        actor.socketMessage(h.socket, JSON.stringify(frame), turn),
+      ),
+  };
+}
+
+test("two real Actor adapters release socket turns before reciprocal peer ACK/callback", async () => {
+  const fixtures = [harness(), harness()];
+  const peers = fixtures.map(serializedPeer);
+  const ids = [ACTOR, PEER];
+  const tasks: Promise<unknown>[] = [];
+  const posts: string[] = [];
+  const dispatchers: CallService[] = [];
+  try {
+    for (let i = 0; i < 2; i++) {
+      const worker = createCallDispatcher({
+        send: async (job) => {
+          posts.push(job.envelope.type);
+          await deliverCallSignalThroughActor(
+            peers[1 - i]!,
+            dispatchers[1 - i]!,
+            job.envelope,
+          );
+        },
+        report: async (result) => {
+          await peers[i]!.fetch(
+            new Request("https://call/_relay-result", {
+              method: "POST",
+              body: JSON.stringify(result),
+            }),
+          );
+        },
+      });
+      const service = {
+        fetch: (request: Request) =>
+          worker.fetch(request, {
+            waitUntil: (task) => {
+              tasks.push(task);
+            },
+          }),
+      };
+      dispatchers.push(service);
+      fixtures[i]!.env.CALL_DISPATCHER = service;
+    }
+    await Promise.all(
+      peers.map((peer, i) =>
+        peer.fetch(req("/_ticket", { "X-Call-Actor": ids[i]! }, "POST")),
+      ),
+    );
+    await Promise.all(
+      peers.map((peer, i) => peer.message({ ...invite, to: ids[1 - i] })),
+    );
+    const messages = Promise.all(
+      peers.map((peer) =>
+        peer.message({
+          t: "candidates",
+          callId: "one",
+          candidates: [{ candidate: "candidate:ephemeral-only" }],
+        }),
+      ),
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        messages,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("socket admission deadlock")),
+            500,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+    await Promise.all(tasks);
+    expect(posts).toEqual(["candidate", "candidate"]);
+    for (const h of fixtures) {
+      expect(h.frames.map((raw) => JSON.parse(raw).t)).toContain("candidates");
+      expect(
+        h.frames.some((raw) => JSON.parse(raw).code === "peer_unreachable"),
+      ).toBe(false);
+      const persisted = JSON.stringify(
+        h.db.query("SELECT * FROM call_signaling_state").all(),
+      );
+      expect(persisted).not.toContain("candidate:ephemeral-only");
+      expect(
+        h.db
+          .query(
+            "SELECT count(*) AS n FROM call_signaling_state WHERE key LIKE 'relay:%'",
+          )
+          .get(),
+      ).toEqual({ n: 0 });
+    }
+  } finally {
+    fixtures.forEach((h) => h.close());
+  }
+});
+
+test("glare keeps public processing pending until outer-Worker cancellation continuation finishes", async () => {
+  const fixtures = [harness(), harness()];
+  const peers = fixtures.map(serializedPeer);
+  const ids = ["https://a.example/alice", "https://z.example/bob"];
+  const tasks: Promise<unknown>[] = [];
+  const dispatchers: CallService[] = [];
+  let release!: () => void;
+  const blockedCancel = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let aOfferProcessed = false;
+  try {
+    for (let i = 0; i < 2; i++) {
+      const worker = createCallDispatcher({
+        send: async (job) => {
+          if (job.envelope.type === "cancel") await blockedCancel;
+          await deliverCallSignalThroughActor(
+            peers[1 - i]!,
+            dispatchers[1 - i]!,
+            job.envelope,
+          );
+          if (i === 0 && job.envelope.type === "offer") aOfferProcessed = true;
+        },
+        report: async (result) => {
+          await peers[i]!.fetch(
+            new Request("https://call/_relay-result", {
+              method: "POST",
+              body: JSON.stringify(result),
+            }),
+          );
+        },
+      });
+      const service = {
+        fetch: (request: Request) =>
+          worker.fetch(request, {
+            waitUntil: (task) => {
+              tasks.push(task);
+            },
+          }),
+      };
+      dispatchers.push(service);
+      fixtures[i]!.env.CALL_DISPATCHER = service;
+    }
+    await Promise.all(
+      peers.map((peer, i) =>
+        peer.fetch(req("/_ticket", { "X-Call-Actor": ids[i]! }, "POST")),
+      ),
+    );
+    await Promise.all(
+      peers.map((peer, i) =>
+        peer.message({ ...invite, callId: `call-${i}`, to: ids[1 - i] }),
+      ),
+    );
+    await Promise.all(
+      peers.map((peer, i) =>
+        peer.message({
+          t: "offer",
+          callId: `call-${i}`,
+          sdp: `private-sdp-${i}`,
+        }),
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(aOfferProcessed).toBe(false);
+    for (const h of fixtures)
+      expect(
+        JSON.stringify(h.db.query("SELECT * FROM call_signaling_state").all()),
+      ).not.toContain("private-sdp");
+    release();
+    await Promise.all(tasks);
+    expect(aOfferProcessed).toBe(true);
+    await peers[1]!.message({ t: "resume", callId: "call-0" });
+    expect(JSON.parse(fixtures[1]!.frames.at(-1)!)).toEqual({
+      t: "call-state",
+      callId: "call-0",
+      state: "ringing",
+    });
+  } finally {
+    release();
+    await Promise.allSettled(tasks);
+    fixtures.forEach((h) => h.close());
+  }
+});
+
+test("one-use relay results cannot fail a new generation reusing the same callId", async () => {
+  const h = harness();
+  const jobs: CallRelayJob[] = [];
+  h.env.CALL_DISPATCHER.fetch = async (request) => {
+    jobs.push((await request.json()) as CallRelayJob);
+    return new Response(null, { status: 202 });
+  };
+  try {
+    let actor = await h.wake();
+    await h.mint(actor);
+    await actor.socketMessage(h.socket, JSON.stringify(invite), turn);
+    await actor.socketMessage(
+      h.socket,
+      '{"t":"offer","callId":"one","sdp":"ephemeral"}',
+      turn,
+    );
+    const old = jobs[0]!;
+    await actor.fetch(
+      new Request("https://call/_ingest", {
+        method: "POST",
+        body: JSON.stringify({
+          v: 1,
+          type: "cancel",
+          callId: "one",
+          from: PEER,
+          to: ACTOR,
+          ts: Date.now(),
+          ttlMs: 30000,
+        }),
+      }),
+      turn,
+    );
+    actor = await h.wake();
+    await actor.socketMessage(h.socket, JSON.stringify(invite), turn);
+    const count = h.frames.length;
+    const result = callRelayResult(old.effect, "failed");
+    for (let attempt = 0; attempt < 2; attempt++)
+      expect(
+        (
+          await actor.fetch(
+            new Request("https://call/_relay-result", {
+              method: "POST",
+              body: JSON.stringify(result),
+            }),
+            turn,
+          )
+        ).status,
+      ).toBe(204);
+    expect(h.frames.length).toBe(count);
+    await actor.socketMessage(h.socket, '{"t":"resume","callId":"one"}', turn);
+    expect(JSON.parse(h.frames.at(-1)!).state).toBe("ringing");
+  } finally {
+    h.close();
+  }
+});
+
+test("ambiguous dispatcher admission is never retried or durably retained", async () => {
+  const h = harness();
+  const realNow = Date.now;
+  let now = 1000;
+  Date.now = () => now;
+  let submissions = 0;
+  h.env.CALL_DISPATCHER.fetch = async () => {
+    submissions++;
+    throw new Error("ambiguous admission");
+  };
+  try {
+    const actor = await h.wake();
+    await h.mint(actor);
+    await actor.socketMessage(h.socket, JSON.stringify(invite), turn);
+    await actor.socketMessage(
+      h.socket,
+      '{"t":"offer","callId":"one","sdp":"not-durable"}',
+      turn,
+    );
+    now = 20000;
+    h.admitAlarm();
+    await (await h.wake()).alarm(turn);
+    expect(submissions).toBe(1);
+    expect(
+      JSON.stringify(h.db.query("SELECT * FROM call_signaling_state").all()),
+    ).not.toContain("not-durable");
+    expect(
+      h.frames.some((raw) => JSON.parse(raw).code === "peer_unreachable"),
+    ).toBe(true);
+  } finally {
+    Date.now = realNow;
+    h.close();
+  }
+});
+
+test("accepted but lost outcome expires after eviction and late success cannot revive it", async () => {
+  const h = harness();
+  const realNow = Date.now;
+  let now = 1000;
+  Date.now = () => now;
+  const jobs: CallRelayJob[] = [];
+  h.env.CALL_DISPATCHER.fetch = async (request) => {
+    jobs.push((await request.json()) as CallRelayJob);
+    return new Response(null, { status: 202 });
+  };
+  try {
+    const actor = await h.wake();
+    await h.mint(actor);
+    await actor.socketMessage(h.socket, JSON.stringify(invite), turn);
+    await actor.socketMessage(
+      h.socket,
+      '{"t":"offer","callId":"one","sdp":"lost-ephemeral-sdp"}',
+      turn,
+    );
+    expect(jobs).toHaveLength(1);
+    expect(
+      h.db
+        .query(
+          "SELECT count(*) AS n FROM call_signaling_state WHERE key LIKE 'relay:%'",
+        )
+        .get(),
+    ).toEqual({ n: 1 });
+    expect(
+      JSON.stringify(h.db.query("SELECT * FROM call_signaling_state").all()),
+    ).not.toContain("lost-ephemeral-sdp");
+    now = jobs[0]!.effect.deadline + 1;
+    h.admitAlarm();
+    await (await h.wake()).alarm(turn);
+    expect(jobs).toHaveLength(1);
+    expect(
+      h.db
+        .query(
+          "SELECT count(*) AS n FROM call_signaling_state WHERE key LIKE 'relay:%'",
+        )
+        .get(),
+    ).toEqual({ n: 0 });
+    expect(h.frames.some((raw) => JSON.parse(raw).state === "failed")).toBe(
+      true,
+    );
+    const frameCount = h.frames.length;
+    const late = callRelayResult(jobs[0]!.effect, "peer_ack");
+    expect(
+      (
+        await (
+          await h.wake()
+        ).fetch(
+          new Request("https://call/_relay-result", {
+            method: "POST",
+            body: JSON.stringify(late),
+          }),
+          turn,
+        )
+      ).status,
+    ).toBe(204);
+    expect(h.frames.length).toBe(frameCount);
+  } finally {
+    Date.now = realNow;
+    h.close();
+  }
+});
+
+test("dispatcher acceptance cannot complete hangup before the real one-use peer result", async () => {
+  const h = harness();
+  const jobs: CallRelayJob[] = [];
+  h.env.CALL_DISPATCHER.fetch = async (request) => {
+    jobs.push((await request.json()) as CallRelayJob);
+    return new Response(null, { status: 202 });
+  };
+  try {
+    const actor = await h.wake();
+    await h.mint(actor);
+    await actor.socketMessage(h.socket, JSON.stringify(invite), turn);
+    await actor.socketMessage(h.socket, '{"t":"hangup","callId":"one"}', turn);
+    expect(jobs).toHaveLength(1);
+    expect(h.frames.some((raw) => JSON.parse(raw).state === "cancelled")).toBe(
+      false,
+    );
+    const resumed = await h.wake();
+    await resumed.socketMessage(
+      h.socket,
+      '{"t":"resume","callId":"one"}',
+      turn,
+    );
+    expect(JSON.parse(h.frames.at(-1)!).state).toBe("ringing");
+    const request = () =>
+      new Request("https://call/_relay-result", {
+        method: "POST",
+        body: JSON.stringify(callRelayResult(jobs[0]!.effect, "peer_ack")),
+      });
+    expect((await resumed.fetch(request(), turn)).status).toBe(204);
+    expect(JSON.parse(h.frames.at(-1)!).state).toBe("cancelled");
+    const frameCount = h.frames.length;
+    expect((await (await h.wake()).fetch(request(), turn)).status).toBe(204);
+    expect(h.frames.length).toBe(frameCount);
   } finally {
     h.close();
   }

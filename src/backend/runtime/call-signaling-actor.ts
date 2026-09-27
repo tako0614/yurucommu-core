@@ -12,6 +12,8 @@ import { createEdgeSqlDatabase } from "./edge-sql.ts";
 import { createCallHubPort } from "./call-hub-port.ts";
 import { CallSignalingRuntime } from "./call-signaling-runtime.ts";
 import type { OneTimeTicketStorage } from "./one-time-ticket.ts";
+import { CallRelayJournal } from "./call-relay-journal.ts";
+import type { CallService } from "./call-relay.ts";
 
 /** Private to this Actor namespace; no shared DB or old DO data migration. */
 class CallActorStorage implements OneTimeTicketStorage {
@@ -106,6 +108,11 @@ export class CallSignalingActor {
       throw new Error("call Actor requires edge.sql DB binding");
     if (typeof this.env.APP_URL !== "string" || !this.env.APP_URL)
       throw new Error("call Actor requires APP_URL");
+    const dispatcher = this.env.CALL_DISPATCHER as CallService | undefined;
+    if (!dispatcher || typeof dispatcher.fetch !== "function")
+      throw new Error(
+        "call Actor requires private CALL_DISPATCHER service binding",
+      );
     const db = createEdgeSqlDatabase(this.env.DB);
     const env: EnvVars = { ...this.env, APP_URL: this.env.APP_URL };
     const storage = new CallActorStorage(this.context.storage);
@@ -121,6 +128,7 @@ export class CallSignalingActor {
       },
       (actor, clients) =>
         createCallHubPort({ localActorApId: actor, db, env, ...clients }),
+      { journal: new CallRelayJournal(storage), dispatcher },
     );
   }
   fetch(request: Request, _turn: ActorTurn): Promise<Response> {
