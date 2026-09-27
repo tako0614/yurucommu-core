@@ -2,11 +2,12 @@ import { expect, test } from "bun:test";
 import { CallSignalingDurableObject } from "../../runtime/call-signaling-do.ts";
 import type { CallRecord } from "../../runtime/call-hub-core.ts";
 
-test("Cloudflare message awaits durable call write before eviction and rehydrates on wake", async () => {
+test("Cloudflare reentrant transitions await ordered snapshots before eviction", async () => {
   const values = new Map<string, unknown>([
     ["actor", "https://local.example/alice"],
   ]);
   const frames: string[] = [];
+  const writtenStates: string[] = [];
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -23,7 +24,10 @@ test("Cloudflare message awaits durable call write before eviction and rehydrate
       get: async <T>(key: string) =>
         structuredClone(values.get(key)) as T | undefined,
       put: async (key: string, value: unknown) => {
-        if (key.startsWith("call:")) await gate;
+        if (key.startsWith("call:")) {
+          await gate;
+          writtenStates.push((value as CallRecord).state);
+        }
         values.set(key, structuredClone(value));
       },
       delete: async (key: string) => values.delete(key),
@@ -48,7 +52,10 @@ test("Cloudflare message awaits durable call write before eviction and rehydrate
     DB: { prepare: () => statement },
   } as unknown as ConstructorParameters<typeof CallSignalingDurableObject>[1];
   let settled = false;
-  const event = new CallSignalingDurableObject(state, env)
+  let inboundSettled = false;
+  let inbound: Promise<unknown> = Promise.resolve();
+  const object = new CallSignalingDurableObject(state, env);
+  const event = object
     .webSocketMessage(
       socket,
       JSON.stringify({
@@ -64,11 +71,32 @@ test("Cloudflare message awaits durable call write before eviction and rehydrate
   try {
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(settled).toBe(false);
+    inbound = object
+      .fetch(
+        new Request("https://call-do/_ingest", {
+          method: "POST",
+          body: JSON.stringify({
+            v: 1,
+            type: "accept",
+            callId: "one",
+            from: "https://peer.example/bob",
+            to: "https://local.example/alice",
+            ts: Date.now(),
+            ttlMs: 30000,
+          }),
+        }),
+      )
+      .then(() => {
+        inboundSettled = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(inboundSettled).toBe(false);
   } finally {
     release();
-    await event;
+    await Promise.all([event, inbound]);
   }
-  expect((values.get("call:one") as CallRecord).state).toBe("ringing");
+  expect(writtenStates).toEqual(["ringing", "connecting"]);
+  expect((values.get("call:one") as CallRecord).state).toBe("connecting");
   await new CallSignalingDurableObject(state, env).webSocketMessage(
     socket,
     '{"t":"resume","callId":"one"}',
@@ -76,6 +104,30 @@ test("Cloudflare message awaits durable call write before eviction and rehydrate
   expect(JSON.parse(frames.at(-1)!)).toEqual({
     t: "call-state",
     callId: "one",
-    state: "ringing",
+    state: "connecting",
   });
+});
+
+test("Cloudflare overlapping native events cannot consume another event's write failure", async () => {
+  const object = new CallSignalingDurableObject({} as never, {} as never);
+  // Unit-test native event/write ownership independently of peer timing.
+  const lifecycle = object as unknown as {
+    startEvent(): { firstWrite: number };
+    trackWrite(work: () => Promise<void>): void;
+    finishEvent(event: { firstWrite: number }): Promise<void>;
+    pendingWrites: Map<number, unknown>;
+  };
+  const first = lifecycle.startEvent();
+  const second = lifecycle.startEvent();
+  lifecycle.trackWrite(async () => {
+    throw new Error("durable write failed");
+  });
+  await expect(lifecycle.finishEvent(first)).rejects.toThrow(
+    "durable write failed",
+  );
+  await expect(lifecycle.finishEvent(second)).rejects.toThrow(
+    "durable write failed",
+  );
+  expect(lifecycle.pendingWrites.size).toBe(0);
+  await lifecycle.finishEvent(lifecycle.startEvent());
 });

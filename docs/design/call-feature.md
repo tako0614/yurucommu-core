@@ -107,15 +107,24 @@ s2s の署名・recipient・freshness 判定、および既存の optional field
 
 ## 5.1. Actor execution candidate（2026-09-27、未公開 adapter）
 
+**統合不可・送信 lifetime の設計待ち。** 現在の `CallSignalingActor` は peer への
+同期送信を Actor event 内で await する。双方が同時送信すると、相手の受信 event が
+相手の送信 event の終了を待つ循環になり、timeout で通話が失敗する。Host の
+whole-event serialization は変更せず、application-owned な Actor 外の送信 lifetime
+が設計・検証されるまで、この candidate を export / 配線 / deploy しない。
+下記の focused tests はこの未解決の peer concurrency を覆う成功証拠ではない。
+
 `CallSignalingActor` は `takoform-forms` の selected unpublished
 `actor-execution-contract.md`（source `43b31a73`）向けの adapter であり、
 公開 package export、product の binding/export/OpenTofu 配線、Host qualification、
 既存 DO からの state migration、利用可能な installation を意味しない。
 
 通話状態機械と wire は既存 `CallHub` / `call-hub-port` を共有する。
-`call-signaling-runtime.ts` は ticket、actor binding、rehydration、alarm、effect の
-待ち合わせを所有し、native Cloudflare adapter と Actor adapter は storage / socket
-だけを実装する。Actor constructor は引数を捕捉するだけで、idempotent `start` が
+Actor の `call-signaling-runtime.ts` は ticket、actor binding、rehydration、alarm、
+effect の待ち合わせを所有する。native Cloudflare adapter は shared cached CallHub を
+維持し、peer network await 中にも受信 event を処理する。private durable writes は
+snapshot を順番に保存し、handler 終了前に await する。排他は ticket/identity のみに
+限定し、peer network I/O は囲まない。Actor constructor は引数を捕捉するだけで、idempotent `start` が
 declared `edge.sql` DB と `APP_URL` を確認し、Actor 私有 SQL を初期化する。
 Host contract の四つの prototype handler を持ち、native DO state を模倣しない。
 
@@ -126,7 +135,7 @@ metadata のみを保持し、SDP/ICE は保存しない。既存 shared `call_s
 一回の bounded transaction で置換する。read も page 単位とし、D1/shared schema
 や migration ledger を変更しない。
 
-CallHub の同期 callback から生じる永続化・send は event 終了前に順番に await する。
+Actor candidate は CallHub の同期 callback から生じる永続化・send を event 終了前に順番に await する。
 永続化失敗後に未保存状態を socket へ通知しない。一つの socket の send 拒否は
 他の socket / 後続の永続化を妨げず、最後に event を失敗させる。send Promise の
 成功は Host queue の受付だけで、browser の受信・drain・durable delivery ack ではない。

@@ -1,11 +1,6 @@
 import { expect, test } from "bun:test";
 import { CallSignalingDurableObject } from "../../runtime/call-signaling-do.ts";
-import {
-  CallHub,
-  type CallRecord,
-  type HubPort,
-} from "../../runtime/call-hub-core.ts";
-import type { CallPortFactory } from "../../runtime/call-signaling-runtime.ts";
+import { CallHub, type CallRecord } from "../../runtime/call-hub-core.ts";
 import {
   getSignalingHub,
   type LocalSocket,
@@ -29,11 +24,9 @@ function harness(runtime: "do" | "native") {
   let storageReads = 0;
   let alarms = 0;
   let provisions = 0;
-  const port: HubPort = {
+  const hub = new CallHub({
     localActorApId: ACTOR,
-    broadcast: (frame) => {
-      frames.push(frame);
-    },
+    broadcast: (frame) => frames.push(frame),
     hasClients: () => true,
     sendToPeer: async (signal) => {
       signals.push(signal);
@@ -47,27 +40,20 @@ function harness(runtime: "do" | "native") {
     },
     now: () => 1000,
     log: () => {},
-  };
-  const hub = new CallHub(port);
-  const records = new Map<string, unknown>([["actor", ACTOR]]);
+  });
   const socket: LocalSocket = {
     send: (raw) => frames.push(JSON.parse(raw)),
     close: () => {},
   };
   const state = {
     storage: {
-      get: async <T>(key: string): Promise<T | undefined> => {
+      get: async () => {
         storageReads++;
-        return records.get(key) as T | undefined;
+        return undefined;
       },
-      put: async (key: string, value: unknown) => {
-        records.set(key, structuredClone(value));
-      },
-      delete: async (key: string) => records.delete(key),
-      list: async <T>(options?: { prefix?: string }) =>
-        new Map(
-          [...records].filter(([key]) => key.startsWith(options?.prefix ?? "")),
-        ) as Map<string, T>,
+      put: async () => {},
+      delete: async () => false,
+      list: async () => new Map(),
       getAlarm: async () => {
         alarms++;
         return null;
@@ -75,14 +61,11 @@ function harness(runtime: "do" | "native") {
       setAlarm: async () => {},
     },
     acceptWebSocket: () => {},
-    getWebSockets: () => [socket],
+    getWebSockets: () => [],
   };
   const callDo = new CallSignalingDurableObject(state, {} as never);
-  // Keep the real adapter, boundary, storage lifecycle and state machine;
-  // replace only the application's media/federation/history dependencies.
-  (
-    callDo as unknown as { runtime: { createPort: CallPortFactory } }
-  ).runtime.createPort = (_actor, clients) => ({ ...port, ...clients });
+  // Keep the real message boundary + state machine, replacing only external ports.
+  (callDo as unknown as { hub: CallHub }).hub = hub;
   const native = getSignalingHub({} as Env) as unknown as {
     users: Map<string, { hub: CallHub; sockets: Set<LocalSocket> }>;
     message(actor: string, socket: LocalSocket, raw: string): Promise<void>;
@@ -90,15 +73,7 @@ function harness(runtime: "do" | "native") {
   const actor = `${ACTOR}/${crypto.randomUUID()}`;
   native.users.set(actor, { hub, sockets: new Set([socket]) });
   return {
-    hub:
-      runtime === "do"
-        ? {
-            activeCalls: () =>
-              [...records]
-                .filter(([key]) => key.startsWith("call:"))
-                .map(([, value]) => value as CallRecord),
-          }
-        : hub,
+    hub,
     frames,
     signals,
     persisted,
@@ -107,7 +82,6 @@ function harness(runtime: "do" | "native") {
       frames.length = signals.length = persisted.length = 0;
       alarms = 0;
       provisions = 0;
-      storageReads = 0;
     },
     message: (raw: string) =>
       runtime === "do"
