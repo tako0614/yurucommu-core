@@ -20,7 +20,7 @@ afterEach(() => {
 const turn = { signal: new AbortController().signal };
 
 class Socket implements ActorSocket {
-  readonly id = "opaque:broker/id?not-an-actor";
+  readonly id = `opaque:broker/id?${crypto.randomUUID()}`;
   readonly frames: unknown[] = [];
   attachment: Uint8Array | null = new Uint8Array(8192).fill(193);
   failSend = false;
@@ -466,7 +466,7 @@ describe("RealtimeStreamActor candidate", () => {
     );
     const restored = await h.context.sockets.get(live.id);
     // IDs are broker-owned opaque strings; no parsing or identity derivation.
-    expect(restored).not.toBeNull();
+    expect(restored).toBe(live);
     await (await h.instance()).socketMessage(live, '{"t":"ping"}', turn);
     expect(live.frames.at(-1)).toEqual({ t: "pong" });
     expect(read).not.toHaveBeenCalled();
