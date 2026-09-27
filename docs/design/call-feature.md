@@ -105,6 +105,48 @@ s2s の署名・recipient・freshness 判定、および既存の optional field
 
 ---
 
+## 5.1. Actor execution candidate（2026-09-27、未公開 adapter）
+
+`CallSignalingActor` は `takoform-forms` の selected unpublished
+`actor-execution-contract.md`（source `43b31a73`）向けの adapter であり、
+公開 package export、product の binding/export/OpenTofu 配線、Host qualification、
+既存 DO からの state migration、利用可能な installation を意味しない。
+
+通話状態機械と wire は既存 `CallHub` / `call-hub-port` を共有する。
+`call-signaling-runtime.ts` は ticket、actor binding、rehydration、alarm、effect の
+待ち合わせを所有し、native Cloudflare adapter と Actor adapter は storage / socket
+だけを実装する。Actor constructor は引数を捕捉するだけで、idempotent `start` が
+declared `edge.sql` DB と `APP_URL` を確認し、Actor 私有 SQL を初期化する。
+Host contract の四つの prototype handler を持ち、native DO state を模倣しない。
+
+Actor 私有 `call_signaling_state` は actor ID、SHA-256 ticket records、active call
+metadata のみを保持し、SDP/ICE は保存しない。既存 shared `call_sessions` の history
+は既存 port を経由する。1 MiB の有効な invite の peer ID が SQL TEXT 上限を
+超える場合も保持できるよう、私有 record は Unicode を壊さない chunk に分割し、
+一回の bounded transaction で置換する。read も page 単位とし、D1/shared schema
+や migration ledger を変更しない。
+
+CallHub の同期 callback から生じる永続化・send は event 終了前に順番に await する。
+永続化失敗後に未保存状態を socket へ通知しない。一つの socket の send 拒否は
+他の socket / 後続の永続化を妨げず、最後に event を失敗させる。send Promise の
+成功は Host queue の受付だけで、browser の受信・drain・durable delivery ack ではない。
+各 event で call を再読込するため、heap は durable state として扱わない。
+
+alarm は tick / effect drain より先に必要な successor を設定し、既存 successor を
+上書き・clear しない。失敗は Host に伝播し、Actor の unsettled obligation が retry
+される。retry 時は私有 state を再読込する。native Cloudflare の retry policy と
+Actor Host の obligation semantics は別であり、この adapter は Host retry cap や
+whole-event lifetime を実装しない。ticket は accept 前に burn し、同じ namespace
+の actor binding を別 actor へ上書きしない。署名・origin・block 判定は既存 route の
+責務のままで、内部 adapter endpoint を public 認証入口として公開しない。
+
+Focused tests は eviction、ticket burn/replay、private SQL rollback、alarm retry /
+set-then-throw、非同期 send failure、frame/SDP byte bounds と CF durable write の待機を
+検証する。これらは application-level の証拠であり、branded 101 response、native
+carrier、consumer UI、2-instance federation E2E の成功を主張しない。
+
+---
+
 ## 6. Media / RtcProvider（= Cloudflare 非依存の実体）
 
 `lib/rtc/provider.ts` `RtcProvider`:
