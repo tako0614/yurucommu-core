@@ -407,8 +407,11 @@ export every handler it declares" で、原因とは別の場所を指します�
 
 lazy な `import("node:…")` は load を壊さないので、gate の
 `ALLOWED_LAZY_NODE_MODULES` に理由付きで列挙したものだけを許します。現在の唯一の項目は
-`node:dns/promises`（`lib/ssrf.ts` の host resolver seam。`globalThis.process` probe の
-内側にあり、wrapper host では評価されません）です。
+`node:dns/promises`（`lib/ssrf.ts` の host resolver seam）です。Worker は Node
+compatibility により `globalThis.process` を持つ場合もありますが、
+`node:dns.lookup` は実装されていません。`federation-fetch.ts` は先に
+`navigator.userAgent === "Cloudflare-Workers"` を判定し、Worker では既存の
+DoH 検査経路を、Bun/Node host では OS resolver 経路を使います。
 
 ## binding が無いとき
 

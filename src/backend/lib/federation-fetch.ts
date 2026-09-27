@@ -221,6 +221,14 @@ function wrapResponseWithCap(
 async function resolveConnectionResolverIPs(
   hostname: string,
 ): Promise<string[]> {
+  // Workers may expose process, but their node:dns.lookup is not implemented.
+  // Select the existing Worker DNS check before probing for a host OS resolver.
+  if (
+    (globalThis as { navigator?: { userAgent?: string } }).navigator
+      ?.userAgent === "Cloudflare-Workers"
+  ) {
+    return resolveRemoteHostnameIPs(hostname);
+  }
   const processLike = (globalThis as { process?: unknown }).process;
   if (processLike) return await nodeLookupAll(hostname);
   return resolveRemoteHostnameIPs(hostname);
