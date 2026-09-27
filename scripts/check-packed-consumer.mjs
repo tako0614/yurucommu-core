@@ -119,10 +119,13 @@ import {
   refreshBrowserNotificationPush,
 } from "@takosjp/yurucommu-api";
 import {
+  CallSignalingActor,
+  createCallDispatcherForCalls,
   createManagedRuntimeKeyValueStore,
   createManagedRuntimeObjectStorage,
   RealtimeStreamActor,
   runYurucommuRetention,
+  deliverCallSignalThroughActor,
 } from "@takosjp/yurucommu-core/server";
 import yurucommuCoreWorker from "@takosjp/yurucommu-core/server";
 import { applyMigrations } from "@takosjp/yurucommu-core/migrations";
@@ -140,6 +143,9 @@ for (const [name, value] of Object.entries({
   createManagedRuntimeObjectStorage,
   runYurucommuRetention,
   RealtimeStreamActor,
+  CallSignalingActor,
+  createCallDispatcherForCalls,
+  deliverCallSignalThroughActor,
   disableBrowserNotificationPush,
   enableBrowserNotificationPush,
   fetchNotificationPusherPublicConfig,
@@ -155,7 +161,15 @@ if (typeof yurucommuCoreWorker.scheduled !== "function") {
 const workerEntry = join(import.meta.dir, "worker-entry.ts");
 await writeFile(
   workerEntry,
-  'export { RealtimeStreamActor } from "@takosjp/yurucommu-core/server";\\n',
+  [
+    "export {",
+    "  RealtimeStreamActor,",
+    "  CallSignalingActor,",
+    "  createCallDispatcherForCalls,",
+    "  deliverCallSignalThroughActor,",
+    '} from "@takosjp/yurucommu-core/server";',
+    "",
+  ].join("\\n"),
 );
 const builtWorker = await Bun.build({
   entrypoints: [workerEntry],
@@ -165,11 +179,18 @@ const builtWorker = await Bun.build({
   external: ["node:*", "cloudflare:*"],
 });
 if (!builtWorker.success || builtWorker.outputs.length !== 1) {
-  throw new Error("packed RealtimeStreamActor consumer did not bundle");
+  throw new Error("packed Actor consumer did not bundle");
 }
 const workerBundle = await builtWorker.outputs[0].text();
-if (!workerBundle.includes("RealtimeStreamActor")) {
-  throw new Error("packed Worker bundle omitted RealtimeStreamActor");
+for (const exportedName of [
+  "RealtimeStreamActor",
+  "CallSignalingActor",
+  "createCallDispatcherForCalls",
+  "deliverCallSignalThroughActor",
+]) {
+  if (!workerBundle.includes(exportedName)) {
+    throw new Error("packed Worker bundle omitted " + exportedName);
+  }
 }
 for (const match of workerBundle.matchAll(
   /["']((?:node|cloudflare):[^"']+)["']/g,
@@ -188,7 +209,10 @@ console.log("packed core/API consumer verified");
 
   if (offline) {
     const installedModules = join(consumerRoot, "node_modules");
-    const sharedModules = resolve(repoRoot, "node_modules");
+    const sharedModules = resolve(
+      process.env.YURUCOMMU_PACKED_CONSUMER_MODULES ??
+        join(repoRoot, "node_modules"),
+    );
     await mkdir(join(installedModules, "@takosjp"), { recursive: true });
     for (const entry of await readdir(sharedModules, { withFileTypes: true })) {
       if (entry.name === ".bin" || entry.name === "@takosjp") continue;
