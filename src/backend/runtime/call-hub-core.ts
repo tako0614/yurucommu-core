@@ -182,6 +182,7 @@ export class CallHub {
         message: "Could not reach the other party's server.",
       });
       this.transition(call, "failed");
+      return false;
     }
     return true;
   }
@@ -202,6 +203,7 @@ export class CallHub {
         message: "Could not reach the other party's server.",
       });
       this.transition(call, "failed");
+      return;
     }
     if (continuation !== "none")
       this.transition(

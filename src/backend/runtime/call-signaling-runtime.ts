@@ -131,7 +131,8 @@ export class CallSignalingRuntime {
               result.outcome === "peer_ack",
             );
             await effects.drain();
-            if (envelope) await hub.handleInboundSignal(envelope);
+            if (envelope && result.outcome === "peer_ack")
+              await hub.handleInboundSignal(envelope);
           },
           false,
           prepared,

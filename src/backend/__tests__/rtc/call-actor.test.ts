@@ -876,3 +876,204 @@ test("dispatcher acceptance cannot complete hangup before the real one-use peer 
     h.close();
   }
 });
+
+test("failed deferred reject, cancel, and hangup remain failed across duplicate and late results", async () => {
+  const scenarios = [
+    { name: "reject", continuation: "rejected", state: "rejected" },
+    { name: "cancel", continuation: "cancelled", state: "cancelled" },
+    { name: "hangup", continuation: "ended", state: "ended" },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    const h = harness();
+    const jobs: CallRelayJob[] = [];
+    h.env.CALL_DISPATCHER.fetch = async (request) => {
+      jobs.push((await request.json()) as CallRelayJob);
+      return new Response(null, { status: 202 });
+    };
+    try {
+      let actor = await h.wake();
+      await h.mint(actor);
+      if (scenario.name === "reject") {
+        await actor.fetch(
+          new Request("https://call/_ingest", {
+            method: "POST",
+            body: JSON.stringify({
+              v: 1,
+              type: "offer",
+              callId: "one",
+              from: PEER,
+              to: ACTOR,
+              sdp: "ephemeral-offer",
+              ts: Date.now(),
+              ttlMs: 30000,
+            }),
+          }),
+          turn,
+        );
+      } else {
+        await actor.socketMessage(h.socket, JSON.stringify(invite), turn);
+        if (scenario.name === "hangup") {
+          const stored = h.db
+            .query(
+              "SELECT value FROM call_signaling_state WHERE key = 'call:one' AND part = 0",
+            )
+            .get() as { value: string };
+          const call = JSON.parse(stored.value) as {
+            state: string;
+            connectedAt?: number;
+          };
+          call.state = "connected";
+          call.connectedAt = Date.now();
+          h.db
+            .query(
+              "UPDATE call_signaling_state SET value = ? WHERE key = 'call:one' AND part = 0",
+            )
+            .run(JSON.stringify(call));
+          actor = await h.wake();
+        }
+      }
+
+      await actor.socketMessage(
+        h.socket,
+        scenario.name === "reject"
+          ? '{"t":"reject","callId":"one","reason":"busy"}'
+          : '{"t":"hangup","callId":"one"}',
+        turn,
+      );
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]!.effect.continuation).toBe(scenario.continuation);
+      expect(jobs[0]!.envelope.type).toBe(
+        scenario.name === "reject" ? "reject" : scenario.name,
+      );
+
+      const result = callRelayResult(jobs[0]!.effect, "failed");
+      const callback = () =>
+        new Request("https://call/_relay-result", {
+          method: "POST",
+          body: JSON.stringify(result),
+        });
+      expect((await actor.fetch(callback(), turn)).status).toBe(204);
+      const states = h.frames
+        .map(
+          (raw) =>
+            JSON.parse(raw) as { t?: string; callId?: string; state?: string },
+        )
+        .filter((frame) => frame.t === "call-state" && frame.callId === "one")
+        .map((frame) => frame.state);
+      expect(states.at(-1), scenario.name).toBe("failed");
+      expect(
+        states.filter((state) => state === scenario.state),
+        scenario.name,
+      ).toHaveLength(0);
+      expect(
+        h.frames.filter((raw) => JSON.parse(raw).code === "peer_unreachable"),
+      ).toHaveLength(1);
+
+      const frameCount = h.frames.length;
+      expect((await (await h.wake()).fetch(callback(), turn)).status).toBe(204);
+      expect(
+        (
+          await (
+            await h.wake()
+          ).fetch(
+            new Request("https://call/_relay-result", {
+              method: "POST",
+              body: JSON.stringify(
+                callRelayResult(jobs[0]!.effect, "peer_ack"),
+              ),
+            }),
+            turn,
+          )
+        ).status,
+      ).toBe(204);
+      expect(h.frames.length).toBe(frameCount);
+      expect(
+        h.db
+          .query(
+            "SELECT count(*) AS n FROM call_signaling_state WHERE key = 'call:one'",
+          )
+          .get(),
+      ).toEqual({ n: 0 });
+    } finally {
+      h.close();
+    }
+  }
+});
+
+test("failed deferred glare cancellation does not continue with the inbound offer", async () => {
+  const h = harness();
+  const peer = "https://0-peer.example/ap/users/bob";
+  h.env.CALL_DISPATCHER.fetch = async () => new Response(null, { status: 202 });
+  const envelope = {
+    v: 1,
+    type: "offer",
+    callId: "incoming",
+    from: peer,
+    to: ACTOR,
+    sdp: "ephemeral-incoming-offer",
+    ts: Date.now(),
+    ttlMs: 30000,
+  };
+  try {
+    let actor = await h.wake();
+    await h.mint(actor);
+    await actor.socketMessage(
+      h.socket,
+      JSON.stringify({ ...invite, to: peer }),
+      turn,
+    );
+    const ingress = await actor.fetch(
+      new Request("https://call/_ingest", {
+        method: "POST",
+        body: JSON.stringify(envelope),
+      }),
+      turn,
+    );
+    expect(ingress.status).toBe(202);
+    const { job } = (await ingress.json()) as { job: CallRelayJob };
+    expect(job.effect.continuation).toBe("glare");
+    const continuation = await actor.fetch(
+      new Request("https://call/_continue", {
+        method: "POST",
+        body: JSON.stringify({
+          result: callRelayResult(job.effect, "failed"),
+          envelope,
+        }),
+      }),
+      turn,
+    );
+    expect(continuation.status).toBe(204);
+    const frames = h.frames.map(
+      (raw) =>
+        JSON.parse(raw) as { t?: string; callId?: string; state?: string },
+    );
+    expect(
+      frames.some(
+        (frame) =>
+          frame.t === "call-state" &&
+          frame.callId === "one" &&
+          frame.state === "failed",
+      ),
+    ).toBe(true);
+    expect(
+      frames.some(
+        (frame) => frame.t === "ringing" && frame.callId === "incoming",
+      ),
+    ).toBe(false);
+    expect(
+      frames.some(
+        (frame) => frame.t === "offer" && frame.callId === "incoming",
+      ),
+    ).toBe(false);
+    expect(
+      h.db
+        .query(
+          "SELECT count(*) AS n FROM call_signaling_state WHERE key = 'call:incoming'",
+        )
+        .get(),
+    ).toEqual({ n: 0 });
+  } finally {
+    h.close();
+  }
+});
