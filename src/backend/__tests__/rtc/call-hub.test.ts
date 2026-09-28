@@ -217,7 +217,8 @@ test("failed native relay stays failed instead of applying terminal continuation
     else await side.hub.handleClientFrame(side.conn, { t: "hangup", callId });
 
     const terminal = side.frames.filter(
-      (frame) => frame.t === "call-state" && frame.callId === callId,
+      (frame): frame is Extract<HubToClientFrame, { t: "call-state" }> =>
+        frame.t === "call-state" && frame.callId === callId,
     );
     expect(terminal.at(-1)?.state, scenario.name).toBe("failed");
     expect(
