@@ -40,8 +40,9 @@ other dispatch refs.
 2. On the GitHub Actions **Manual npm package family release** workflow,
    select `main` and enter that exact `release_tag` and 40-character
    `expected_sha`. There is no push, tag, PR, or schedule publication trigger.
-3. The workflow checks tag-to-commit identity before executing repository
-   code, installs the pinned release toolchain without a dependency cache,
+3. The workflow checks tag-to-commit identity and that the tagged commit is an
+   ancestor of the dispatch event's immutable `main` SHA before executing
+   repository code. It installs the pinned release toolchain without a dependency cache,
    then calls the owning deploy entrypoint. That entrypoint runs the full
    owner gate, packs both packages once, tests those exact tarballs as a
    consumer, records both SHA-512 integrities, publishes absent versions,

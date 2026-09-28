@@ -108,6 +108,20 @@ describe("npm package publication authentication", () => {
     expect(workflow).toContain(
       'test "$(git rev-parse HEAD)" = "$YURUCOMMU_EXPECTED_RELEASE_SHA"',
     );
+    expect(workflow).toContain(
+      'test "$(git rev-parse --verify "$GITHUB_SHA^{commit}")" = "$GITHUB_SHA"',
+    );
+    expect(workflow).toContain(
+      'git merge-base --is-ancestor "$YURUCOMMU_EXPECTED_RELEASE_SHA" "$GITHUB_SHA"',
+    );
+    expect(workflow).not.toContain(
+      'git merge-base --is-ancestor "$YURUCOMMU_EXPECTED_RELEASE_SHA" origin/main',
+    );
+    expect(
+      workflow.indexOf(
+        'git merge-base --is-ancestor "$YURUCOMMU_EXPECTED_RELEASE_SHA" "$GITHUB_SHA"',
+      ),
+    ).toBeLessThan(workflow.indexOf("bun install --frozen-lockfile"));
     expect(workflow).not.toContain("actions/cache@");
     expect(workflow).toContain("bun run deploy -- yurucommu-package-family");
     expect(workflow).not.toMatch(/run: npm publish/u);
