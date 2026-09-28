@@ -221,6 +221,14 @@ function wrapResponseWithCap(
 async function resolveConnectionResolverIPs(
   hostname: string,
 ): Promise<string[]> {
+  // Workers may expose process, but their node:dns.lookup is not implemented.
+  // Select the existing Worker DNS check before probing for a host OS resolver.
+  if (
+    (globalThis as { navigator?: { userAgent?: string } }).navigator
+      ?.userAgent === "Cloudflare-Workers"
+  ) {
+    return resolveRemoteHostnameIPs(hostname);
+  }
   const processLike = (globalThis as { process?: unknown }).process;
   if (processLike) return await nodeLookupAll(hostname);
   return resolveRemoteHostnameIPs(hostname);
@@ -228,13 +236,30 @@ async function resolveConnectionResolverIPs(
 
 export async function fetchWithTimeout(
   url: string,
-  options: RequestInit & { timeout?: number; skipSafetyCheck?: boolean } = {},
+  options: RequestInit & {
+    timeout?: number;
+    skipSafetyCheck?: boolean;
+    deadline?: number;
+  } = {},
 ): Promise<Response> {
   const {
     timeout = DEFAULT_FETCH_TIMEOUT_MS,
     skipSafetyCheck = false,
+    deadline,
+    signal: callerSignal,
     ...fetchOptions
   } = options;
+
+  const checkAdmission = () => {
+    if (callerSignal?.aborted)
+      throw callerSignal.reason ?? new DOMException("Aborted", "AbortError");
+    if (
+      deadline !== undefined &&
+      (!Number.isSafeInteger(deadline) || Date.now() >= deadline)
+    )
+      throw new Error("Federation request deadline exceeded");
+  };
+  checkAdmission();
 
   if (!skipSafetyCheck) {
     // Validate using the resolver that `fetch` itself will use on this
@@ -256,10 +281,22 @@ export async function fetchWithTimeout(
     );
   }
 
+  // DNS/safety validation may not be cancellable. Never start a late request
+  // merely because that earlier producer eventually settled.
+  checkAdmission();
+
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const onCallerAbort = () => controller.abort(callerSignal?.reason);
+  callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    deadline === undefined
+      ? timeout
+      : Math.min(timeout, Math.max(0, deadline - Date.now())),
+  );
 
   try {
+    checkAdmission();
     const response = await fetch(url, {
       ...fetchOptions,
       signal: controller.signal,
@@ -284,6 +321,8 @@ export async function fetchWithTimeout(
     // POST delivery) simply never trigger the capped read.
     return wrapResponseWithCap(response, url, timeout);
   } catch (err) {
+    if (callerSignal?.aborted)
+      throw callerSignal.reason ?? new DOMException("Aborted", "AbortError");
     if (err instanceof Error && err.name === "AbortError") {
       throw new Error(
         `Request timed out after ${timeout / 1000} seconds: ${url}`,
@@ -292,5 +331,6 @@ export async function fetchWithTimeout(
     throw err;
   } finally {
     clearTimeout(timeoutId);
+    callerSignal?.removeEventListener("abort", onCallerAbort);
   }
 }

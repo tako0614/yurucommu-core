@@ -12,6 +12,7 @@ import type { RtcSignalEnvelopeV1 } from "../../../packages/api/src/types/call.t
 import type { CallRecord, HubConnection, HubPort } from "./call-hub-core.ts";
 import {
   type CallSigner,
+  type CallSignalBudget,
   sendCallSignal,
 } from "../lib/rtc/signal-transport.ts";
 import { createRtcProvider } from "../lib/rtc/provider.ts";
@@ -27,6 +28,7 @@ export interface CallHubPortDeps {
   broadcast(frame: Parameters<HubConnection["send"]>[0]): void;
   hasClients(): boolean;
   ring?(envelope: RtcSignalEnvelopeV1): Promise<void> | void;
+  signalBudget?: CallSignalBudget;
 }
 
 export function createCallHubPort(deps: CallHubPortDeps): HubPort {
@@ -55,7 +57,13 @@ export function createCallHubPort(deps: CallHubPortDeps): HubPort {
     log: (event, data) => log.info(event, data),
     async sendToPeer(envelope, peerSignalEndpoint) {
       const s = await loadSigner();
-      await sendCallSignal(deps.db, s, envelope, peerSignalEndpoint);
+      await sendCallSignal(
+        deps.db,
+        s,
+        envelope,
+        peerSignalEndpoint,
+        deps.signalBudget,
+      );
     },
     async provisionMedia(media) {
       const [iceServers, sfuFocus] = await Promise.all([

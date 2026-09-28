@@ -145,6 +145,14 @@ export { CallSignalingDurableObject } from "./runtime/call-signaling-do.ts";
 // Realtime stream: the per-user fanout Durable Object class each product's
 // generated worker entry must re-export so Wrangler can bind REALTIME_STREAM.
 export { RealtimeStreamDO } from "./runtime/realtime-stream-do.ts";
+// Unpublished Actor source candidate for wrapper-host binding declarations.
+export { RealtimeStreamActor } from "./runtime/realtime-stream-actor.ts";
+// Unpublished call Actor candidate and the two product composition seams:
+// private dispatcher construction and the already-authenticated ingress flow.
+export { CallSignalingActor } from "./runtime/call-signaling-actor.ts";
+export { createCallDispatcherForCalls } from "./runtime/call-dispatcher-bindings.ts";
+export { createCallDispatcherForCallsByInvocation } from "./runtime/call-dispatcher-bindings.ts";
+export { deliverCallSignalThroughActor } from "./runtime/call-signaling-worker.ts";
 export type { Env, EnvVars } from "./types.ts";
 export type {
   DeliveryDlqMessageV1,

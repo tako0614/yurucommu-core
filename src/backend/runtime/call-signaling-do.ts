@@ -63,6 +63,16 @@ const TICKET_PREFIX = "ticket:";
 export class CallSignalingDurableObject {
   private hub: CallHub | null = null;
   private actorApId: string | null = null;
+  private loadingHub: Promise<CallHub | null> | null = null;
+  private identityTail: Promise<unknown> = Promise.resolve();
+  private writeTail: Promise<void> = Promise.resolve();
+  private readonly pendingWrites = new Map<
+    number,
+    Promise<{ error?: unknown }>
+  >();
+  private nextWrite = 0;
+  private readonly activeEvents = new Set<{ firstWrite: number }>();
+  private refreshHub = false;
 
   constructor(
     private readonly state: DoState,
@@ -73,17 +83,22 @@ export class CallSignalingDurableObject {
   // HTTP entry (from the CloudflareSignalingHub adapter)
   // -------------------------------------------------------------------------
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    if (url.pathname === "/_ws") {
-      return this.handleUpgrade(request);
+    const event = this.startEvent();
+    try {
+      const url = new URL(request.url);
+      if (url.pathname === "/_ws") {
+        return await this.withIdentity(() => this.handleUpgrade(request));
+      }
+      if (url.pathname === "/_ingest") {
+        return await this.handleIngest(request);
+      }
+      if (url.pathname === "/_ticket") {
+        return await this.withIdentity(() => this.handleMintTicket(request));
+      }
+      return new Response("not found", { status: 404 });
+    } finally {
+      await this.finishEvent(event);
     }
-    if (url.pathname === "/_ingest") {
-      return this.handleIngest(request);
-    }
-    if (url.pathname === "/_ticket") {
-      return this.handleMintTicket(request);
-    }
-    return new Response("not found", { status: 404 });
   }
 
   private async handleUpgrade(request: Request): Promise<Response> {
@@ -106,7 +121,8 @@ export class CallSignalingDurableObject {
 
     const actor = request.headers.get("X-Call-Actor");
     if (!actor) return new Response("missing actor", { status: 400 });
-    await this.setActor(actor);
+    if (!(await this.setActor(actor)))
+      return new Response("wrong actor", { status: 409 });
 
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -126,7 +142,8 @@ export class CallSignalingDurableObject {
     }
     const actor = request.headers.get("X-Call-Actor");
     if (!actor) return new Response("missing actor", { status: 400 });
-    await this.setActor(actor);
+    if (!(await this.setActor(actor)))
+      return new Response("wrong actor", { status: 409 });
     const ticket = await mintOneTimeTicket(this.state.storage, {
       prefix: TICKET_PREFIX,
     });
@@ -142,7 +159,8 @@ export class CallSignalingDurableObject {
     }
     const envelope = parseRtcSignalEnvelope(body);
     if (!envelope) return new Response("bad envelope", { status: 400 });
-    await this.setActor(envelope.to);
+    if (!(await this.withIdentity(() => this.setActor(envelope.to))))
+      return new Response("wrong actor", { status: 409 });
     const hub = await this.ensureHub();
     if (!hub) return new Response("no actor", { status: 409 });
     await hub.handleInboundSignal(envelope);
@@ -159,13 +177,18 @@ export class CallSignalingDurableObject {
   ): Promise<void> {
     const frame = parseClientToHubFrame(message);
     if (!frame) return;
-    const hub = await this.ensureHub();
-    if (!hub) {
-      this.send(ws, { t: "error", code: "no_session" });
-      return;
+    const event = this.startEvent();
+    try {
+      const hub = await this.ensureHub();
+      if (!hub) {
+        this.send(ws, { t: "error", code: "no_session" });
+        return;
+      }
+      await hub.handleClientFrame(this.wrap(ws), frame);
+      await this.scheduleAlarm();
+    } finally {
+      await this.finishEvent(event);
     }
-    await hub.handleClientFrame(this.wrap(ws), frame);
-    await this.scheduleAlarm();
   }
 
   async webSocketClose(ws: DoWebSocket): Promise<void> {
@@ -181,24 +204,51 @@ export class CallSignalingDurableObject {
   }
 
   async alarm(): Promise<void> {
-    const hub = await this.ensureHub();
-    hub?.tick();
-    const active = (hub?.activeCalls().length ?? 0) > 0;
-    const connected = this.state.getWebSockets().length > 0;
-    if (active || connected) await this.scheduleAlarm(true);
+    const event = this.startEvent();
+    try {
+      const hub = await this.ensureHub();
+      hub?.tick();
+      const active = (hub?.activeCalls().length ?? 0) > 0;
+      const connected = this.state.getWebSockets().length > 0;
+      if (active || connected) await this.scheduleAlarm(true);
+    } finally {
+      await this.finishEvent(event);
+    }
   }
 
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
-  private async setActor(actor: string): Promise<void> {
-    if (this.actorApId === actor) return;
-    this.actorApId = actor;
+  /** Only credential/identity state is serialized, never peer network I/O. */
+  private withIdentity<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.identityTail.then(work);
+    this.identityTail = result.catch(() => {});
+    return result;
+  }
+
+  private async setActor(actor: string): Promise<boolean> {
+    const stored =
+      this.actorApId ?? (await this.state.storage.get<string>(ACTOR_KEY));
+    if (stored !== undefined && stored !== null) {
+      this.actorApId = stored;
+      return stored === actor;
+    }
     await this.state.storage.put(ACTOR_KEY, actor);
+    this.actorApId = actor;
+    return true;
   }
 
   private async ensureHub(): Promise<CallHub | null> {
     if (this.hub) return this.hub;
+    if (!this.loadingHub) this.loadingHub = this.loadHub();
+    try {
+      return await this.loadingHub;
+    } finally {
+      this.loadingHub = null;
+    }
+  }
+
+  private async loadHub(): Promise<CallHub | null> {
     const actor =
       this.actorApId ?? (await this.state.storage.get<string>(ACTOR_KEY));
     if (!actor) return null;
@@ -219,19 +269,77 @@ export class CallSignalingDurableObject {
     // map survives hibernation.
     const hub = new CallHub({
       ...base,
-      persist: async (call: CallRecord) => {
-        if (isTerminalCallState(call.state)) {
-          await storage.delete(`${CALL_PREFIX}${call.callId}`);
-        } else {
-          await storage.put(`${CALL_PREFIX}${call.callId}`, call);
-        }
-        await base.persist?.(call);
+      persist: (call: CallRecord) => {
+        // CallHub mutates records in place. Capture this exact transition before
+        // another reentrant event can update it, and keep writes in that order.
+        const snapshot = structuredClone(call);
+        this.trackWrite(async () => {
+          if (isTerminalCallState(snapshot.state)) {
+            await storage.delete(`${CALL_PREFIX}${snapshot.callId}`);
+          } else {
+            await storage.put(`${CALL_PREFIX}${snapshot.callId}`, snapshot);
+          }
+          await base.persist?.(snapshot);
+        });
       },
     });
     const stored = await storage.list<CallRecord>({ prefix: CALL_PREFIX });
     hub.hydrate([...stored.values()]);
     this.hub = hub;
     return hub;
+  }
+
+  private trackWrite(work: () => Promise<void>): void {
+    const write = this.writeTail.then(work);
+    // Attach a rejection handler immediately: CallHub intentionally has a
+    // synchronous persist callback. The enclosing native handler awaits it.
+    const tracked = write.then(
+      () => ({}),
+      (error) => {
+        this.refreshHub = true;
+        return { error };
+      },
+    );
+    this.pendingWrites.set(this.nextWrite++, tracked);
+    this.writeTail = tracked.then(() => {});
+  }
+
+  private async flushWrites(firstWrite: number): Promise<void> {
+    // Do not remove in-flight work before awaiting: overlapping native events
+    // must each wait for all writes already issued when that event ends.
+    const pending = [...this.pendingWrites]
+      .filter(([sequence]) => sequence >= firstWrite)
+      .map(([, write]) => write);
+    const outcomes = await Promise.all(pending);
+    const failed = outcomes.find((outcome) => "error" in outcome);
+    if (failed) throw failed.error;
+  }
+
+  private startEvent(): { firstWrite: number } {
+    const event = { firstWrite: this.nextWrite };
+    this.activeEvents.add(event);
+    return event;
+  }
+
+  private async finishEvent(event: { firstWrite: number }): Promise<void> {
+    try {
+      await this.flushWrites(event.firstWrite);
+    } finally {
+      this.activeEvents.delete(event);
+      let firstNeeded = this.nextWrite;
+      for (const active of this.activeEvents)
+        firstNeeded = Math.min(firstNeeded, active.firstWrite);
+      // Keep failures visible to every overlapping handler that may own that
+      // write, even if another handler finished and observed it first.
+      for (const sequence of this.pendingWrites.keys())
+        if (sequence < firstNeeded) this.pendingWrites.delete(sequence);
+      // Never replace a shared hub while another native event still owns a
+      // continuation after peer I/O. Once quiescent, retry from durable state.
+      if (this.activeEvents.size === 0 && this.refreshHub) {
+        this.hub = null;
+        this.refreshHub = false;
+      }
+    }
   }
 
   private wrap(ws: DoWebSocket) {

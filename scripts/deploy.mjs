@@ -14,24 +14,27 @@ import {
   preparePackageCandidate,
   publishPreparedPackage,
 } from "./publish-package-resumable.mjs";
+import { npmPublishAuthenticationMode } from "./npm-publish-auth.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const apiRoot = resolve(repo, "packages/api");
 const SURFACE = "yurucommu-package-family";
+const CORE_PACKAGE = "@takosjp/yurucommu-core";
+const API_PACKAGE = "@takosjp/yurucommu-api";
 
 const CONTRACT = {
   kind: "takos.deploy-contract@v2",
   surfaces: [
     {
       surface: SURFACE,
-      target: "npm:@takosjp/yurucommu-core+@takosjp/yurucommu-api",
+      target: `npm:${CORE_PACKAGE}+${API_PACKAGE}`,
       triggers: ["published-identity"],
       requiresScripts: ["check", "check:packed-consumer"],
-      requiresTools: ["git", "bun", "npm"],
+      requiresTools: ["git", "bun", "node", "npm"],
       requiresEnv: ["YURUCOMMU_KEEP_PACKED_CONSUMER"],
       obligations: {
         provenance:
-          "refuses a dirty worktree, requires one v<version> tag on the exact source commit, runs the complete owner gate, packs core and API exactly once, records both npm sha512 integrities, and installs those exact tarballs into a throwaway consumer before publication, retaining that consumer for inspection only when YURUCOMMU_KEEP_PACKED_CONSUMER=1",
+          "refuses a dirty worktree, requires one v<version> tag on the exact source commit, runs the complete owner gate, packs core and API exactly once, records both npm sha512 integrities, and installs those exact tarballs into a throwaway consumer before publication, retaining that consumer for inspection only when YURUCOMMU_KEEP_PACKED_CONSUMER=1; npm authentication is local whoami or the bounded manual GitHub Actions trusted-publisher context",
         "post-conditions":
           "reads both package versions back from the npm registry, requires their published integrity to match the prepared tarballs, then installs the exact version of both packages from npm into a fresh consumer and imports their public runtime surfaces",
         reversal:
@@ -114,6 +117,9 @@ const [coreManifest, apiManifest] = await Promise.all([
   readFile(resolve(repo, "package.json"), "utf8").then(JSON.parse),
   readFile(resolve(apiRoot, "package.json"), "utf8").then(JSON.parse),
 ]);
+if (coreManifest.name !== CORE_PACKAGE || apiManifest.name !== API_PACKAGE) {
+  die(`package family must be exactly ${CORE_PACKAGE} and ${API_PACKAGE}`);
+}
 if (coreManifest.version !== apiManifest.version) {
   die(
     `core ${coreManifest.version} and API ${apiManifest.version} versions differ`,
@@ -142,6 +148,11 @@ try {
     preparePackageCandidate(repo, tempRoot),
     preparePackageCandidate(apiRoot, tempRoot),
   ]);
+  if (core.packageName !== CORE_PACKAGE || api.packageName !== API_PACKAGE) {
+    throw new Error(
+      `prepared package family must be exactly ${CORE_PACKAGE} and ${API_PACKAGE}`,
+    );
+  }
   assertSafePackageFiles(core);
   assertSafePackageFiles(api);
 
@@ -179,8 +190,23 @@ try {
   ]);
 
   // Authentication is checked only after every non-mutating gate succeeds.
+  // npm whoami does not support trusted publishing.  npm itself exchanges the
+  // job-scoped GitHub OIDC identity at publish time; we never handle an npm token.
   try {
-    run("npm", ["whoami"], { capture: true });
+    const versions =
+      process.env.GITHUB_ACTIONS === undefined
+        ? undefined
+        : {
+            nodeVersion: run("node", ["--version"], { capture: true }).trim(),
+            npmVersion: run("npm", ["--version"], { capture: true }).trim(),
+            commit,
+            tag: requiredTag,
+          };
+    const mode = npmPublishAuthenticationMode(process.env, versions);
+    if (mode === "local-whoami") {
+      run("npm", ["whoami"], { capture: true });
+    }
+    process.stdout.write(`npm authentication: ${mode}\n`);
   } catch (error) {
     throw new Error(
       `npm authentication preflight failed:\n${error.stderr || error.stdout || error.message}`,

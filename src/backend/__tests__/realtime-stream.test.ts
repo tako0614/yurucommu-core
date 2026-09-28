@@ -110,6 +110,34 @@ function paddedJson(value: Record<string, unknown>, bytes: number): string {
 }
 
 describe("RealtimeStreamDO", () => {
+  test("CF adapter restores sequence and replay after reconstruction", async () => {
+    const { streamDo, state, sockets } = makeDo();
+    await emit(streamDo, "unread");
+    const restored = new RealtimeStreamDO(state);
+    const gone = new FakeSocket();
+    const live = new FakeSocket();
+    spyOn(gone, "send").mockImplementation(() => {
+      throw new Error("gone");
+    });
+    sockets.push(gone, live);
+    expect(await (await emit(restored, "unread")).json()).toEqual({
+      id: 2,
+      sockets: 2,
+    });
+    expect(live.frames).toEqual([
+      { t: "event", event: { id: 2, type: "unread", data: {} } },
+    ]);
+    live.frames.length = 0;
+    await new RealtimeStreamDO(state).webSocketMessage(
+      live,
+      '{"t":"hello","lastEventId":0}',
+    );
+    expect(live.frames).toHaveLength(3);
+    expect(live.frames.at(-1)).toEqual({ t: "hello_ok", lastEventId: 2 });
+    await restored.webSocketClose(live);
+    expect(live.closed).toBe(true);
+  });
+
   test("rejects malformed event envelopes before storage or fanout", async () => {
     for (const body of [
       "null",

@@ -105,6 +105,91 @@ s2s の署名・recipient・freshness 判定、および既存の optional field
 
 ---
 
+## 5.1. Actor execution candidate（2026-09-27、未公開 adapter）
+
+**source-only candidate・未採用。** peer への同期送信を Actor event 内で await
+すると双方向送信が whole-event serialization と循環待ちになるため、候補 adapter は
+app-owned な外部 Worker の有限な送信 lifetime と metadata-only callback に分ける。
+focused tests はこの application-level 分割を検証するが、export / consumer 配線 /
+deploy / Host qualification の代わりにはならない。
+
+`CallSignalingActor` は `takoform-forms` の selected unpublished
+`actor-execution-contract.md`（source `43b31a73`）向けの adapter であり、
+公開 package export、product の binding/export/OpenTofu 配線、Host qualification、
+既存 DO からの state migration、利用可能な installation を意味しない。
+
+通話状態機械と wire は既存 `CallHub` / `call-hub-port` を共有する。
+Actor の `call-signaling-runtime.ts` は ticket、actor binding、rehydration、alarm、
+effect の待ち合わせを所有する。native Cloudflare adapter は shared cached CallHub を
+維持し、peer network await 中にも受信 event を処理する。private durable writes は
+snapshot を順番に保存し、handler 終了前に await する。排他は ticket/identity のみに
+限定し、peer network I/O は囲まない。Actor constructor は引数を捕捉するだけで、idempotent `start` が
+declared `edge.sql` DB、`APP_URL`、private `CALL_DISPATCHER` service を確認し、Actor 私有 SQL を初期化する。
+Host contract の四つの prototype handler を持ち、native DO state を模倣しない。
+
+Actor 私有 `call_signaling_state` は actor ID、SHA-256 ticket records、active call
+metadata と有限な relay correlation metadata のみを保持し、SDP/ICE は保存しない。既存 shared `call_sessions` の history
+は既存 port を経由する。1 MiB の有効な invite の peer ID が SQL TEXT 上限を
+超える場合も保持できるよう、私有 record は Unicode を壊さない chunk に分割し、
+一回の bounded transaction で置換する。read も page 単位とし、D1/shared schema
+や migration ledger を変更しない。
+
+Actor candidate は CallHub の同期 callback から生じる永続化・send を event 終了前に順番に await する。
+永続化失敗後に未保存状態を socket へ通知しない。一つの socket の send 拒否は
+他の socket / 後続の永続化を妨げず、最後に event を失敗させる。send Promise の
+成功は Host queue の受付だけで、browser の受信・drain・durable delivery ack ではない。
+各 event で call を再読込するため、heap は durable state として扱わない。
+
+送信元 Worker C の Actor namespace N と、public route を持たない dispatcher Worker D
+を用いる。D は N への actor binding、C は D への service binding を持つ。
+candidate Forms では N が未 serving でも D version を構成できるため、N → D version /
+deploy → C version / deploy の順序で HCL の相互参照 cycle を避けられる。
+この topology の実配線は本変更に含めない。`createCallDispatcherForCalls` は既存
+DB/key lookup、WebCrypto 署名、endpoint 解決、SSRF 検査を再利用する。
+必要な WebCrypto importKey/sign と native carrier の Host qualification は別の未完了条件である。
+
+既存 `sendToPeer` は実 peer HTTP ACK まで待つ意味のまま維持する。Actor 専用の
+`deferToPeer` は別 mode で、effect ID / call generation / deadline / continuation
+を私有 SQL に保存してから D の受付を待ち、socket event を終了する。D の `202` は
+ephemeral job の受付だけで peer 成功ではない。D の `waitUntil` が一回だけ既存の
+署名 POST を行い、実結果を別 Actor event へ通知する。SDP、ICE、envelope、body、
+署名 headers は永続化・ログ出力しない。各 external action の ACK が不明でも再送せず、
+alarm は失われた結果を失敗へ期限切れにするだけで送信を実行しない。
+結果は effect ID / generation / deadline の完全一致と一回消費で適用し、callId を
+再利用した新しい通話や期限後の通話へ古い結果を反映しない。
+
+metadata は allowlist schema、一件 2,048 UTF-8 bytes、最大 64 件、最大 10 秒の期限を
+持つ。D は一 job 4 MiB、最大 8 個の実 producer、wire bytes の四倍を予約する合計
+16 MiB の byte-copy budget を持つ。これは JS object overhead を含む heap 上限の
+保証ではない。body 読み込み中も予約し、`Promise.race` の timeout で未完了 producer
+枠を解放しない。peer 処理後は可能な payload 参照を切って metadata-only callback
+へ移り、callback に独立 5 秒の abort budget を渡す。uncancellable DNS/RPC の
+強制停止は保証しないため、残る closure / producer は実 settlement まで枠を保持する。
+期限は受付、新規 POST 開始可否、結果適用の境界であり、待機 producer の強制終了ではない。
+endpoint lookup、署名、SSRF 解決の各 await 後にも確認し、期限後の新規 POST を始めない。
+
+受信 glare の cancel → incoming offer は outer Worker request が元 envelope を
+メモリだけに保持し、Actor prepare → D の実送信結果 → Actor continuation の順に
+完了させる。`deliverCallSignalThroughActor` は既存認証済み route からのみ呼ぶ候補
+helper で、public `204` は continuation 処理終了後に限る。内部の `202` を public
+処理完了 ACK に変換しない。公開 federation route 自体はまだこの helper を採用しない。
+
+alarm は tick / effect drain より先に必要な successor を設定し、既存 successor を
+上書き・clear しない。失敗は Host に伝播し、Actor の unsettled obligation が retry
+される。retry 時は私有 state を再読込する。native Cloudflare の retry policy と
+Actor Host の obligation semantics は別であり、この adapter は Host retry cap や
+whole-event lifetime を実装しない。ticket は accept 前に burn し、同じ namespace
+の actor binding を別 actor へ上書きしない。署名・origin・block 判定は既存 route の
+責務のままで、内部 adapter endpoint を public 認証入口として公開しない。
+
+Focused tests は eviction、ticket burn/replay、private SQL rollback、alarm retry /
+set-then-throw、非同期 send failure、frame/SDP byte bounds、CF durable write の待機、
+二つの実 Actor adapter の同時送信、glare の処理完了 ACK、遅延結果 / 世代再利用を
+検証する。これらは application-level の証拠であり、branded 101 response、native
+carrier、consumer UI、2-instance federation E2E の成功を主張しない。
+
+---
+
 ## 6. Media / RtcProvider（= Cloudflare 非依存の実体）
 
 `lib/rtc/provider.ts` `RtcProvider`:
@@ -196,14 +281,14 @@ env は `EnvVars`（`types.ts`）に追加済み。secret（`_TURN_SECRET`/`_SFU
 
 ## 12. リスク / 対策
 
-| リスク                                                | 対策                                                                                                                                       |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 2 self-host instance 間の NAT 越え                    | coturn を必須の env-config provider として短命 REST cred を発行、half-trickle ICE。TURN が通話成否の最大要因（default、optional ではない） |
-| DO はスタック初の stateful primitive・Cloudflare-only | `ISignalingHub` seam + `LocalSignalingHub`（bun in-process）で非 CF self-host も担保。media は WHIP/TURN で完全ベンダー中立                |
-| signaling が `activities`/`objects` に漏れる/破壊される            | 専用 `/ap/rtc/signal` が activity pipeline を完全バイパス。SDP/ICE は `activities`/`objects` に触れず `call_sessions` のみ                 |
-| replay / abuse                                        | HTTP Signature（keyId-owner===from）+ 双方向 block-list + invite rate-limit + `callId` nonce + 短 TTL                                      |
-| callee offline / tab closed                           | Signaling DO が主経路。push-gateway で端末 wake（現状 gateway 未設定で dormant、operator 設定時のみ）。SDP は push で運ばない              |
-| cross-origin（yurumeet 別 serverOrigin）の cookie     | bearer/cookie対応の認証済みfetchでone-time ticketを発行し、Call DOが検証して使い切る                                                          |
+| リスク                                                  | 対策                                                                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2 self-host instance 間の NAT 越え                      | coturn を必須の env-config provider として短命 REST cred を発行、half-trickle ICE。TURN が通話成否の最大要因（default、optional ではない） |
+| DO はスタック初の stateful primitive・Cloudflare-only   | `ISignalingHub` seam + `LocalSignalingHub`（bun in-process）で非 CF self-host も担保。media は WHIP/TURN で完全ベンダー中立                |
+| signaling が `activities`/`objects` に漏れる/破壊される | 専用 `/ap/rtc/signal` が activity pipeline を完全バイパス。SDP/ICE は `activities`/`objects` に触れず `call_sessions` のみ                 |
+| replay / abuse                                          | HTTP Signature（keyId-owner===from）+ 双方向 block-list + invite rate-limit + `callId` nonce + 短 TTL                                      |
+| callee offline / tab closed                             | Signaling DO が主経路。push-gateway で端末 wake（現状 gateway 未設定で dormant、operator 設定時のみ）。SDP は push で運ばない              |
+| cross-origin（yurumeet 別 serverOrigin）の cookie       | bearer/cookie対応の認証済みfetchでone-time ticketを発行し、Call DOが検証して使い切る                                                       |
 
 ---
 

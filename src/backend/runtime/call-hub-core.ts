@@ -33,6 +33,13 @@ import {
   isTerminalCallState,
   RTC_SIGNAL_ENVELOPE_VERSION,
 } from "../../../packages/api/src/types/call.ts";
+import type { CallRelayContinuation } from "./call-relay.ts";
+
+export interface DeferredCallRelay {
+  call: CallRecord;
+  envelope: RtcSignalEnvelopeV1;
+  continuation: CallRelayContinuation;
+}
 
 /** A live browser WebSocket, abstracted from the runtime. */
 export interface HubConnection {
@@ -52,6 +59,8 @@ export interface CallRecord {
   createdAt: number;
   updatedAt: number;
   connectedAt?: number;
+  /** Private Actor incarnation of a reusable callId, never federation wire. */
+  generation?: string;
 }
 
 /** Side-effect port the hosting runtime supplies. */
@@ -67,6 +76,9 @@ export interface HubPort {
     envelope: RtcSignalEnvelopeV1,
     peerSignalEndpoint?: string,
   ): Promise<void>;
+  /** Explicit acceptance-only lane; resolution is NEVER a peer acknowledgement. */
+  deferToPeer?(relay: DeferredCallRelay): Promise<void>;
+  newCallGeneration?(): string;
   /** ICE servers (+ optional SFU focus) for a call. */
   provisionMedia(
     media: CallMediaKind,
@@ -142,8 +154,17 @@ export class CallHub {
     call: CallRecord,
     type: RtcSignalEnvelopeV1["type"],
     extra: Partial<RtcSignalEnvelopeV1> = {},
-  ): Promise<void> {
+    continuation: CallRelayContinuation = "none",
+  ): Promise<boolean> {
     try {
+      if (this.port.deferToPeer) {
+        await this.port.deferToPeer({
+          call,
+          envelope: this.makeEnvelope(call, type, extra),
+          continuation,
+        });
+        return false;
+      }
       await this.port.sendToPeer(
         this.makeEnvelope(call, type, extra),
         call.peerSignalEndpoint,
@@ -161,7 +182,34 @@ export class CallHub {
         message: "Could not reach the other party's server.",
       });
       this.transition(call, "failed");
+      return false;
     }
+    return true;
+  }
+
+  /** Apply a correlated actual transport result; host validates one-use/expiry. */
+  completeDeferredRelay(
+    callId: string,
+    generation: string,
+    continuation: CallRelayContinuation,
+    accepted: boolean,
+  ): void {
+    const call = this.calls.get(callId);
+    if (!call || call.generation !== generation) return;
+    if (!accepted) {
+      this.port.broadcast({
+        t: "error",
+        code: "peer_unreachable",
+        message: "Could not reach the other party's server.",
+      });
+      this.transition(call, "failed");
+      return;
+    }
+    if (continuation !== "none")
+      this.transition(
+        call,
+        continuation === "glare" ? "cancelled" : continuation,
+      );
   }
 
   // -------------------------------------------------------------------------
@@ -222,6 +270,9 @@ export class CallHub {
       sfuFocus: media.sfuFocus,
       createdAt: now,
       updatedAt: now,
+      ...(this.port.newCallGeneration
+        ? { generation: this.port.newCallGeneration() }
+        : {}),
     };
     this.calls.set(call.callId, call);
     void this.port.persist?.(call);
@@ -279,8 +330,8 @@ export class CallHub {
   ): Promise<void> {
     const call = this.calls.get(frame.callId);
     if (!call) return;
-    await this.relay(call, "reject", { reason: frame.reason });
-    this.transition(call, "rejected");
+    if (await this.relay(call, "reject", { reason: frame.reason }, "rejected"))
+      this.transition(call, "rejected");
   }
 
   private async onClientHangup(
@@ -290,10 +341,17 @@ export class CallHub {
     if (!call) return;
     // A hangup before connection from the caller side is a cancel.
     const wasConnected = call.state === "connected";
-    await this.relay(call, wasConnected ? "hangup" : "cancel", {
-      reason: frame.reason,
-    });
-    this.transition(call, wasConnected ? "ended" : "cancelled");
+    if (
+      await this.relay(
+        call,
+        wasConnected ? "hangup" : "cancel",
+        {
+          reason: frame.reason,
+        },
+        wasConnected ? "ended" : "cancelled",
+      )
+    )
+      this.transition(call, wasConnected ? "ended" : "cancelled");
   }
 
   private onClientResume(
@@ -357,7 +415,15 @@ export class CallHub {
       if (outgoingToPeer) {
         const weArePolite = this.localActorApId > envelope.from;
         if (!weArePolite) return; // keep our outgoing offer; ignore theirs
-        await this.relay(outgoingToPeer, "cancel", { reason: "glare" });
+        if (
+          !(await this.relay(
+            outgoingToPeer,
+            "cancel",
+            { reason: "glare" },
+            "glare",
+          ))
+        )
+          return;
         this.transition(outgoingToPeer, "cancelled");
       }
     }
@@ -372,6 +438,9 @@ export class CallHub {
         sfuFocus: envelope.sfuFocus ?? null,
         createdAt: now,
         updatedAt: now,
+        ...(this.port.newCallGeneration
+          ? { generation: this.port.newCallGeneration() }
+          : {}),
       };
       this.calls.set(call.callId, call);
       void this.port.persist?.(call);

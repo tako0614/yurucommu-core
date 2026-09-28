@@ -191,6 +191,91 @@ test("reject: callee declines the incoming call", async () => {
   expect(b.hub.activeCalls()).toHaveLength(0);
 });
 
+test("failed native relay stays failed instead of applying terminal continuations", async () => {
+  const scenarios = [
+    { name: "reject", action: "reject" as const, state: "rejected" },
+    { name: "cancel", action: "cancel" as const, state: "cancelled" },
+    { name: "hangup", action: "hangup" as const, state: "ended" },
+  ];
+
+  for (const scenario of scenarios) {
+    const side = makeSide(A, () => 2_500_000);
+    side.setPeer(async () => {
+      throw new Error("peer server unreachable");
+    });
+    const callId = `failed-${scenario.name}`;
+    await side.hub.handleClientFrame(side.conn, {
+      t: "invite",
+      callId,
+      to: B,
+      media: { audio: true, video: false },
+    });
+    if (scenario.action === "hangup") side.hub.markConnected(callId);
+
+    if (scenario.action === "reject")
+      await side.hub.handleClientFrame(side.conn, { t: "reject", callId });
+    else await side.hub.handleClientFrame(side.conn, { t: "hangup", callId });
+
+    const terminal = side.frames.filter(
+      (frame): frame is Extract<HubToClientFrame, { t: "call-state" }> =>
+        frame.t === "call-state" && frame.callId === callId,
+    );
+    expect(terminal.at(-1)?.state, scenario.name).toBe("failed");
+    expect(
+      terminal.filter((frame) => frame.state === scenario.state),
+      scenario.name,
+    ).toHaveLength(0);
+    expect(side.frames.filter((frame) => frame.t === "error")).toHaveLength(1);
+    expect(side.hub.activeCalls().some((call) => call.callId === callId)).toBe(
+      false,
+    );
+  }
+});
+
+test("failed native glare cancellation does not accept the incoming offer", async () => {
+  const polite = makeSide(B, () => 2_750_000);
+  polite.setPeer(async () => {
+    throw new Error("peer server unreachable");
+  });
+  await polite.hub.handleClientFrame(polite.conn, {
+    t: "invite",
+    callId: "outgoing",
+    to: A,
+    media: { audio: true, video: false },
+  });
+
+  await polite.hub.handleInboundSignal({
+    v: 1,
+    callId: "incoming",
+    from: A,
+    to: B,
+    type: "offer",
+    sdp: "OFFER_A",
+    ts: 2_750_000,
+    ttlMs: 30_000,
+  });
+
+  expect(polite.hub.activeCalls()).toHaveLength(0);
+  expect(
+    polite.frames.some(
+      (frame) =>
+        frame.t === "call-state" &&
+        frame.callId === "outgoing" &&
+        frame.state === "failed",
+    ),
+  ).toBe(true);
+  expect(
+    polite.frames.some(
+      (frame) => frame.t === "ringing" && frame.callId === "incoming",
+    ),
+  ).toBe(false);
+  expect(
+    polite.frames.some(
+      (frame) => frame.t === "offer" && frame.callId === "incoming",
+    ),
+  ).toBe(false);
+});
+
 test("glare: both dial simultaneously — impolite (lower ap_id) call wins", async () => {
   let now = 3_000_000;
   const a = makeSide(A, () => now); // A < B lexicographically => A is impolite

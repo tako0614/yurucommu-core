@@ -169,3 +169,34 @@ test("Call DO refuses actor-header-only upgrades from an untrusted caller", asyn
   );
   expect(response.status).toBe(401);
 });
+
+test("Call DO serializes only ticket consumption when upgrades race", async () => {
+  const { callDo } = makeCallDo();
+  const actor = "https://server.example/ap/users/owner";
+  const minted = await callDo.fetch(
+    new Request("https://call-do/_ticket", {
+      method: "POST",
+      headers: { "X-Call-Actor": actor },
+    }),
+  );
+  const { ticket } = (await minted.json()) as { ticket: string };
+  const upgrade = () =>
+    callDo.fetch(
+      new Request("https://call-do/_ws", {
+        headers: {
+          Upgrade: "websocket",
+          "X-Call-Actor": actor,
+          "X-Call-Auth": "ticket",
+          "X-Call-Ticket": ticket,
+        },
+      }),
+    );
+  const outcomes = await Promise.allSettled([upgrade(), upgrade()]);
+  // Exactly one invocation reaches unavailable native WebSocketPair; the
+  // other sees the already-burned credential, never a second upgrade attempt.
+  expect(outcomes.filter((value) => value.status === "rejected")).toHaveLength(
+    1,
+  );
+  const accepted = outcomes.find((value) => value.status === "fulfilled");
+  expect(accepted?.status === "fulfilled" && accepted.value.status).toBe(401);
+});
