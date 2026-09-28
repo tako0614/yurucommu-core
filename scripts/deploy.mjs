@@ -19,16 +19,18 @@ import { npmPublishAuthenticationMode } from "./npm-publish-auth.mjs";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const apiRoot = resolve(repo, "packages/api");
 const SURFACE = "yurucommu-package-family";
+const CORE_PACKAGE = "@takosjp/yurucommu-core";
+const API_PACKAGE = "@takosjp/yurucommu-api";
 
 const CONTRACT = {
   kind: "takos.deploy-contract@v2",
   surfaces: [
     {
       surface: SURFACE,
-      target: "npm:@takosjp/yurucommu-core+@takosjp/yurucommu-api",
+      target: `npm:${CORE_PACKAGE}+${API_PACKAGE}`,
       triggers: ["published-identity"],
       requiresScripts: ["check", "check:packed-consumer"],
-      requiresTools: ["git", "bun", "npm"],
+      requiresTools: ["git", "bun", "node", "npm"],
       requiresEnv: ["YURUCOMMU_KEEP_PACKED_CONSUMER"],
       obligations: {
         provenance:
@@ -115,6 +117,9 @@ const [coreManifest, apiManifest] = await Promise.all([
   readFile(resolve(repo, "package.json"), "utf8").then(JSON.parse),
   readFile(resolve(apiRoot, "package.json"), "utf8").then(JSON.parse),
 ]);
+if (coreManifest.name !== CORE_PACKAGE || apiManifest.name !== API_PACKAGE) {
+  die(`package family must be exactly ${CORE_PACKAGE} and ${API_PACKAGE}`);
+}
 if (coreManifest.version !== apiManifest.version) {
   die(
     `core ${coreManifest.version} and API ${apiManifest.version} versions differ`,
@@ -143,6 +148,11 @@ try {
     preparePackageCandidate(repo, tempRoot),
     preparePackageCandidate(apiRoot, tempRoot),
   ]);
+  if (core.packageName !== CORE_PACKAGE || api.packageName !== API_PACKAGE) {
+    throw new Error(
+      `prepared package family must be exactly ${CORE_PACKAGE} and ${API_PACKAGE}`,
+    );
+  }
   assertSafePackageFiles(core);
   assertSafePackageFiles(api);
 
