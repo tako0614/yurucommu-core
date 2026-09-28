@@ -60,10 +60,10 @@ bun run build:api  # build @takosjp/yurucommu-api
 bun run pack:api   # npm pack --dry-run for the API package
 ```
 
-### 通知機能を含む 3.1.0 の release 順序
+### core → product の release 順序
 
-ブラウザ通知の public API と `0019_notification_push_delivery.sql` は core / API `3.1.0` からの契約です。
-まずこの repo で両 package を同じ `v3.1.0` tag から npm に公開し、packaged consumer gate が通ることを確認します。
+新しい API 契約 (例: ブラウザ通知の public API と `0019_notification_push_delivery.sql`、core / API `3.1.0` から)
+は、まずこの repo で両 package を同じ tag から npm に公開し、packaged consumer gate が通ることを確認します。
 その公開が registry から取得できるようになった後にだけ、`yurucommu` / `yurumeet` の dependency range と
 `bun.lock` を registry package から更新し、各 repo の `bun run check:core-release` を通してから製品版 Worker を
 release します。`file:` / `workspace:` / Git dependency で未公開 source を代用してはいけません。
