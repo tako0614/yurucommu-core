@@ -14,6 +14,7 @@ import {
   preparePackageCandidate,
   publishPreparedPackage,
 } from "./publish-package-resumable.mjs";
+import { assertPackedPackageRepository } from "./npm-provenance.mjs";
 import { npmPublishAuthenticationMode } from "./npm-publish-auth.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -30,11 +31,11 @@ const CONTRACT = {
       target: `npm:${CORE_PACKAGE}+${API_PACKAGE}`,
       triggers: ["published-identity"],
       requiresScripts: ["check", "check:packed-consumer"],
-      requiresTools: ["git", "bun", "node", "npm"],
+      requiresTools: ["git", "bun", "node", "npm", "tar"],
       requiresEnv: ["YURUCOMMU_KEEP_PACKED_CONSUMER"],
       obligations: {
         provenance:
-          "refuses a dirty worktree, requires one v<version> tag on the exact source commit, runs the complete owner gate, packs core and API exactly once, records both npm sha512 integrities, and installs those exact tarballs into a throwaway consumer before publication, retaining that consumer for inspection only when YURUCOMMU_KEEP_PACKED_CONSUMER=1; npm authentication is local whoami or the bounded manual GitHub Actions trusted-publisher context",
+          "refuses a dirty worktree, requires one v<version> tag on the exact source commit, runs the complete owner gate, packs core and API exactly once, validates repository.url from each exact packed manifest before publication, records both npm sha512 integrities, and installs those exact tarballs into a throwaway consumer before publication, retaining that consumer for inspection only when YURUCOMMU_KEEP_PACKED_CONSUMER=1; npm authentication is local whoami or the bounded manual GitHub Actions trusted-publisher context",
         "post-conditions":
           "reads both package versions back from the npm registry, requires their published integrity to match the prepared tarballs, then installs the exact version of both packages from npm into a fresh consumer and imports their public runtime surfaces",
         reversal:
@@ -155,6 +156,8 @@ try {
   }
   assertSafePackageFiles(core);
   assertSafePackageFiles(api);
+  assertPackedPackageRepository(core.tarballPath, CORE_PACKAGE);
+  assertPackedPackageRepository(api.tarballPath, API_PACKAGE);
 
   candidateRecord = {
     kind: "takos.package-candidate@v1",
