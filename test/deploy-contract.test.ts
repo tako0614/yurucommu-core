@@ -53,6 +53,8 @@ test("package-family deploy entrypoint exposes a side-effect-free contract", () 
 test("package publication has one owning deploy entrypoint", () => {
   const forbidden =
     /npm\s+publish|publishPreparedPackage|publish-package-resumable\.mjs|(?:NODE_AUTH_TOKEN|NPM_TOKEN|inputs\.publish)/u;
+  const forbiddenWriter =
+    /npm\s+publish|publishPreparedPackage|publish-package-resumable\.mjs|inputs\.publish/u;
 
   for (const workflowPath of repositoryFiles(
     join(repoRoot, ".github/workflows"),
@@ -77,6 +79,14 @@ test("package publication has one owning deploy entrypoint", () => {
     /\.(?:mjs|ts)$/u.test(name),
   )) {
     if (allowed.has(basename(filePath)) || filePath.endsWith(".test.ts")) {
+      continue;
+    }
+    if (basename(filePath) === "npm-publish-auth.mjs") {
+      // This helper names legacy token variables only to reject them; it must
+      // never become a second writer or call the standalone publisher.
+      expect(readFileSync(filePath, "utf8"), filePath).not.toMatch(
+        forbiddenWriter,
+      );
       continue;
     }
     expect(readFileSync(filePath, "utf8"), filePath).not.toMatch(forbidden);
