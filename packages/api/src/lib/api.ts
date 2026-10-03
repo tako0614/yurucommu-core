@@ -1,4 +1,5 @@
 export * from "./api/fetch.ts";
+export { InvalidApiResponseError } from "./api/response.ts";
 export * from "./api/account.ts";
 export * from "./api/auth.ts";
 export * from "./api/actors.ts";

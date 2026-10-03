@@ -1,12 +1,29 @@
+import {
+  readResponseJson,
+  requiredArray,
+  optionalBoolean,
+  optionalString,
+  requiredCount,
+  validateActor,
+  validatePost,
+} from "./response.ts";
+import type { ApiReadOptions } from "./fetch.ts";
 import type { Actor, Post } from "../../types/index.ts";
 import { normalizeActor, normalizePost } from "./normalize.ts";
 import { apiDelete, apiFetch, apiPost, apiPut, assertOk } from "./fetch.ts";
 
-export async function fetchActor(identifier: string): Promise<Actor> {
-  const res = await apiFetch(`/api/actors/${encodeURIComponent(identifier)}`);
+export async function fetchActor(
+  identifier: string,
+  options?: ApiReadOptions,
+): Promise<Actor> {
+  const res = await apiFetch(
+    `/api/actors/${encodeURIComponent(identifier)}`,
+    options,
+  );
   await assertOk(res, "Actor not found");
-  const data = (await res.json()) as { actor: Actor };
-  return normalizeActor(data.actor);
+  const data = await readResponseJson(res);
+  validateActor(data.actor);
+  return normalizeActor(data.actor as Actor);
 }
 
 export async function updateProfile(data: {
@@ -31,7 +48,7 @@ export interface ActorPostsPage {
 
 export async function fetchActorPosts(
   identifier: string,
-  options?: { limit?: number; before?: string },
+  options?: ApiReadOptions & { limit?: number; before?: string },
 ): Promise<ActorPostsPage> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
@@ -39,17 +56,14 @@ export async function fetchActorPosts(
   const query = params.toString() ? `?${params}` : "";
   const res = await apiFetch(
     `/api/actors/${encodeURIComponent(identifier)}/posts${query}`,
+    options,
   );
   await assertOk(res, "Failed to fetch actor posts");
-  const data = (await res.json()) as {
-    posts?: Post[];
-    next_cursor?: string | null;
-    has_more?: boolean;
-  };
+  const data = await readResponseJson(res);
   return {
-    posts: (data.posts || []).map(normalizePost),
-    nextCursor: data.next_cursor ?? null,
-    hasMore: data.has_more ?? false,
+    posts: requiredArray<Post>(data, "posts", validatePost).map(normalizePost),
+    nextCursor: optionalString(data, "next_cursor"),
+    hasMore: optionalBoolean(data, "has_more"),
   };
 }
 
@@ -71,49 +85,53 @@ function followListQuery(options?: {
 
 export async function fetchFollowers(
   identifier: string,
-  options?: { limit?: number; offset?: number },
+  options?: ApiReadOptions & { limit?: number; offset?: number },
 ): Promise<FollowListPage> {
   const res = await apiFetch(
     `/api/actors/${encodeURIComponent(identifier)}/followers${followListQuery(options)}`,
+    options,
   );
   await assertOk(res, "Failed to fetch followers");
-  const data = (await res.json()) as {
-    followers?: Actor[];
-    has_more?: boolean;
-    total?: number;
-  };
+  const data = await readResponseJson(res);
   return {
-    actors: (data.followers || []).map(normalizeActor),
-    hasMore: data.has_more ?? false,
-    total: data.total ?? 0,
+    actors: requiredArray<Actor>(data, "followers", validateActor).map(
+      normalizeActor,
+    ),
+    hasMore: optionalBoolean(data, "has_more"),
+    total: requiredCount(data.total, "total"),
   };
 }
 
 export async function fetchFollowing(
   identifier: string,
-  options?: { limit?: number; offset?: number },
+  options?: ApiReadOptions & { limit?: number; offset?: number },
 ): Promise<FollowListPage> {
   const res = await apiFetch(
     `/api/actors/${encodeURIComponent(identifier)}/following${followListQuery(options)}`,
+    options,
   );
   await assertOk(res, "Failed to fetch following");
-  const data = (await res.json()) as {
-    following?: Actor[];
-    has_more?: boolean;
-    total?: number;
-  };
+  const data = await readResponseJson(res);
   return {
-    actors: (data.following || []).map(normalizeActor),
-    hasMore: data.has_more ?? false,
-    total: data.total ?? 0,
+    actors: requiredArray<Actor>(data, "following", validateActor).map(
+      normalizeActor,
+    ),
+    hasMore: optionalBoolean(data, "has_more"),
+    total: requiredCount(data.total, "total"),
   };
 }
 
-export async function fetchBlockedUsers(): Promise<Actor[]> {
-  const res = await apiFetch("/api/actors/me/blocked");
+export function fetchBlockedUsers(): Promise<Actor[]>;
+export function fetchBlockedUsers(options: ApiReadOptions): Promise<Actor[]>;
+export async function fetchBlockedUsers(
+  options?: ApiReadOptions,
+): Promise<Actor[]> {
+  const res = await apiFetch("/api/actors/me/blocked", options);
   await assertOk(res, "Failed to fetch blocked users");
-  const data = (await res.json()) as { blocked?: Actor[] };
-  return (data.blocked || []).map(normalizeActor);
+  const data = await readResponseJson(res);
+  return requiredArray<Actor>(data, "blocked", validateActor).map(
+    normalizeActor,
+  );
 }
 
 export async function blockUser(apId: string): Promise<void> {
@@ -126,11 +144,15 @@ export async function unblockUser(apId: string): Promise<void> {
   await assertOk(res, "Failed to unblock user");
 }
 
-export async function fetchMutedUsers(): Promise<Actor[]> {
-  const res = await apiFetch("/api/actors/me/muted");
+export function fetchMutedUsers(): Promise<Actor[]>;
+export function fetchMutedUsers(options: ApiReadOptions): Promise<Actor[]>;
+export async function fetchMutedUsers(
+  options?: ApiReadOptions,
+): Promise<Actor[]> {
+  const res = await apiFetch("/api/actors/me/muted", options);
   await assertOk(res, "Failed to fetch muted users");
-  const data = (await res.json()) as { muted?: Actor[] };
-  return (data.muted || []).map(normalizeActor);
+  const data = await readResponseJson(res);
+  return requiredArray<Actor>(data, "muted", validateActor).map(normalizeActor);
 }
 
 export async function muteUser(apId: string): Promise<void> {

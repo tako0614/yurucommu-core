@@ -9,6 +9,7 @@ import {
   type FetchWithTimeoutInit,
 } from "../fetch-with-timeout.ts";
 import { getYurucommuApiTransport } from "../transport.ts";
+import { parseResponseJson } from "./response.ts";
 
 /**
  * Custom error class for API responses that includes the HTTP status code.
@@ -63,27 +64,9 @@ async function extractApiErrorDetails(
   res: Response,
   fallback: string,
 ): Promise<ApiErrorDetails> {
-  try {
-    const data = (await res.json()) as {
-      error?: string | { message?: string };
-      code?: unknown;
-      retry_after?: unknown;
-    };
-    const err = data.error;
-    const message = typeof err === "string" ? err : err?.message;
-    const code =
-      typeof data.code === "string" && data.code.trim().length > 0
-        ? data.code.trim().slice(0, 100)
-        : null;
-    return {
-      message: message || fallback,
-      code,
-      retryAfterSeconds: parseRetryAfterSeconds(
-        data.retry_after,
-        res.headers.get("retry-after"),
-      ),
-    };
-  } catch {
+  const malformed = Symbol("malformed JSON");
+  const value = await parseResponseJson(res, () => malformed);
+  if (value === malformed) {
     return {
       message: res.statusText || fallback,
       code: null,
@@ -93,6 +76,34 @@ async function extractApiErrorDetails(
       ),
     };
   }
+  const data = (value && typeof value === "object" ? value : {}) as {
+    error?: unknown;
+    code?: unknown;
+    retry_after?: unknown;
+  };
+  const err = data.error;
+  const nestedMessage =
+    err && typeof err === "object" && "message" in err
+      ? err.message
+      : undefined;
+  const message =
+    typeof err === "string"
+      ? err
+      : typeof nestedMessage === "string"
+        ? nestedMessage
+        : undefined;
+  const code =
+    typeof data.code === "string" && data.code.trim().length > 0
+      ? data.code.trim().slice(0, 100)
+      : null;
+  return {
+    message: message || fallback,
+    code,
+    retryAfterSeconds: parseRetryAfterSeconds(
+      data.retry_after,
+      res.headers.get("retry-after"),
+    ),
+  };
 }
 
 /**
@@ -118,6 +129,8 @@ export async function assertOk(res: Response, fallback: string): Promise<void> {
 }
 
 export interface ApiRequestInit extends FetchWithTimeoutInit {}
+
+export type ApiReadOptions = Pick<ApiRequestInit, "signal" | "timeoutMs">;
 
 export function apiFetch(
   url: string,

@@ -33,6 +33,7 @@
     "packages/api/src/lib/api/communities.ts",
     "packages/api/src/lib/api/dm.ts",
     "packages/api/src/lib/api/fetch.ts",
+    "packages/api/src/lib/api/response.ts",
     "packages/api/src/lib/api/follow.ts",
     "packages/api/src/lib/api/media.ts",
     "packages/api/src/lib/api/moderation.ts",

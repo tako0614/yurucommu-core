@@ -1,3 +1,13 @@
+import {
+  readResponseJson,
+  requiredArray,
+  optionalBoolean,
+  optionalString,
+  requiredCount,
+  validateActor,
+  validateMessage,
+} from "./response.ts";
+import type { ApiReadOptions } from "./fetch.ts";
 import type { DMMessage, MediaAttachment } from "../../types/index.ts";
 import { normalizeActor } from "./normalize.ts";
 import { apiDelete, apiFetch, apiPost, assertOk } from "./fetch.ts";
@@ -47,18 +57,28 @@ const normalizeDmRequest = (request: DMRequest): DMRequest => ({
 });
 
 // Fetch contacts (followers + communities) - no room creation needed
-export async function fetchDMContacts(): Promise<DMContactsResponse> {
-  const res = await apiFetch("/api/dm/contacts");
+export function fetchDMContacts(): Promise<DMContactsResponse>;
+export function fetchDMContacts(
+  options: ApiReadOptions,
+): Promise<DMContactsResponse>;
+export async function fetchDMContacts(
+  options?: ApiReadOptions,
+): Promise<DMContactsResponse> {
+  const res = await apiFetch("/api/dm/contacts", options);
   await assertOk(res, "Failed to load conversations");
-  const data = (await res.json()) as {
-    mutual_followers?: DMContact[];
-    communities?: DMContact[];
-    request_count?: number;
-  };
+  const data = await readResponseJson(res);
   return {
-    mutual_followers: (data.mutual_followers || []).map(normalizeActor),
-    communities: (data.communities || []).map(normalizeActor),
-    request_count: data.request_count || 0,
+    mutual_followers: requiredArray<DMContact>(
+      data,
+      "mutual_followers",
+      validateActor,
+    ).map(normalizeActor),
+    communities: requiredArray<DMContact>(
+      data,
+      "communities",
+      validateActor,
+    ).map(normalizeActor),
+    request_count: requiredCount(data.request_count, "request_count"),
   };
 }
 
@@ -72,22 +92,35 @@ export interface DMUnreadCount {
   community: number;
 }
 
-export async function fetchDMUnreadCount(): Promise<DMUnreadCount> {
-  const res = await apiFetch("/api/dm/unread/count");
-  const data = (await res.json()) as Partial<DMUnreadCount>;
+export function fetchDMUnreadCount(): Promise<DMUnreadCount>;
+export function fetchDMUnreadCount(
+  options: ApiReadOptions,
+): Promise<DMUnreadCount>;
+export async function fetchDMUnreadCount(
+  options?: ApiReadOptions,
+): Promise<DMUnreadCount> {
+  const res = await apiFetch("/api/dm/unread/count", options);
+  await assertOk(res, "Failed to load unread count");
+  const data = await readResponseJson(res);
   return {
-    total: data.total || 0,
-    dm: data.dm || 0,
-    community: data.community || 0,
+    total: requiredCount(data.total, "total"),
+    dm: requiredCount(data.dm, "dm"),
+    community: requiredCount(data.community, "community"),
   };
 }
 
 // Fetch message requests
-export async function fetchDMRequests(): Promise<DMRequest[]> {
-  const res = await apiFetch("/api/dm/requests");
+export function fetchDMRequests(): Promise<DMRequest[]>;
+export function fetchDMRequests(options: ApiReadOptions): Promise<DMRequest[]>;
+export async function fetchDMRequests(
+  options?: ApiReadOptions,
+): Promise<DMRequest[]> {
+  const res = await apiFetch("/api/dm/requests", options);
   await assertOk(res, "Failed to load message requests");
-  const data = (await res.json()) as { requests?: DMRequest[] };
-  return (data.requests || []).map(normalizeDmRequest);
+  const data = await readResponseJson(res);
+  return requiredArray<DMRequest>(data, "requests", validateMessage).map(
+    normalizeDmRequest,
+  );
 }
 
 // Reject message request (by sender AP ID, optionally block)
@@ -105,7 +138,7 @@ export async function rejectDMRequest(
 // User-based DM endpoints (no conversation creation needed)
 export async function fetchUserDMMessages(
   userApId: string,
-  options?: { limit?: number; before?: string },
+  options?: ApiReadOptions & { limit?: number; before?: string },
 ): Promise<{
   messages: DMMessage[];
   conversation_id: string | null;
@@ -123,18 +156,17 @@ export async function fetchUserDMMessages(
   const query = params.toString() ? `?${params}` : "";
   const res = await apiFetch(
     `/api/dm/user/${encodeURIComponent(userApId)}/messages${query}`,
+    options,
   );
-  const data = (await res.json()) as {
-    messages?: DMMessage[];
-    conversation_id?: string | null;
-    has_more?: boolean;
-    partner_last_read_at?: string | null;
-  };
+  await assertOk(res, "Failed to load messages");
+  const data = await readResponseJson(res);
   return {
-    messages: (data.messages || []).map(normalizeDmMessage),
-    conversation_id: data.conversation_id ?? null,
-    hasMore: data.has_more ?? false,
-    partnerLastReadAt: data.partner_last_read_at ?? null,
+    messages: requiredArray<DMMessage>(data, "messages", validateMessage).map(
+      normalizeDmMessage,
+    ),
+    conversation_id: optionalString(data, "conversation_id"),
+    hasMore: optionalBoolean(data, "has_more"),
+    partnerLastReadAt: optionalString(data, "partner_last_read_at"),
   };
 }
 
@@ -170,18 +202,17 @@ export async function sendUserDMTyping(userApId: string): Promise<void> {
 
 export async function fetchUserDMTyping(
   userApId: string,
+  options?: ApiReadOptions,
 ): Promise<{ is_typing: boolean; last_typed_at: string | null }> {
   const res = await apiFetch(
     `/api/dm/user/${encodeURIComponent(userApId)}/typing`,
+    options,
   );
   await assertOk(res, "Failed to fetch typing");
-  const data = (await res.json()) as {
-    is_typing?: boolean;
-    last_typed_at?: string | null;
-  };
+  const data = await readResponseJson(res);
   return {
-    is_typing: !!data.is_typing,
-    last_typed_at: data.last_typed_at ?? null,
+    is_typing: optionalBoolean(data, "is_typing"),
+    last_typed_at: optionalString(data, "last_typed_at"),
   };
 }
 
@@ -209,13 +240,19 @@ export async function unarchiveDMConversation(userApId: string): Promise<void> {
   await assertOk(res, "Failed to unarchive conversation");
 }
 
-export async function fetchArchivedDMConversations(): Promise<DMContact[]> {
-  const res = await apiFetch("/api/dm/archived");
+export function fetchArchivedDMConversations(): Promise<DMContact[]>;
+export function fetchArchivedDMConversations(
+  options: ApiReadOptions,
+): Promise<DMContact[]>;
+export async function fetchArchivedDMConversations(
+  options?: ApiReadOptions,
+): Promise<DMContact[]> {
+  const res = await apiFetch("/api/dm/archived", options);
   await assertOk(res, "Failed to load archived conversations");
-  const data = (await res.json()) as { archived?: Partial<DMContact>[] };
+  const data = await readResponseJson(res);
   // The archived endpoint returns actor-profile fields + conversation_id +
   // last_message_at (no preview / unread). Normalize to a one-to-one DMContact.
-  return (data.archived || []).map((c) => {
+  return requiredArray<DMContact>(data, "archived", validateActor).map((c) => {
     const a = normalizeActor(c as DMContact);
     return {
       ...a,
@@ -239,10 +276,17 @@ export async function markCommunityAsRead(
 // Resolve a single DM contact (user or community) by AP-ID. Used to render a
 // deep-linked conversation that is not present in the loaded contact list.
 // Returns null when no such actor/community is known.
-export async function fetchDMContact(apId: string): Promise<DMContact | null> {
-  const res = await apiFetch(`/api/dm/contact/${encodeURIComponent(apId)}`);
+export async function fetchDMContact(
+  apId: string,
+  options?: ApiReadOptions,
+): Promise<DMContact | null> {
+  const res = await apiFetch(
+    `/api/dm/contact/${encodeURIComponent(apId)}`,
+    options,
+  );
   if (res.status === 404) return null;
   await assertOk(res, "Failed to resolve contact");
-  const data = (await res.json()) as { contact?: DMContact };
-  return data.contact ? normalizeActor(data.contact) : null;
+  const data = await readResponseJson(res);
+  validateActor(data.contact);
+  return normalizeActor(data.contact as DMContact);
 }

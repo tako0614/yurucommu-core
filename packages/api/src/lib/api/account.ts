@@ -1,12 +1,30 @@
+import {
+  readResponseJson,
+  requiredArray,
+  responseObject,
+  requiredString,
+  validateActor,
+} from "./response.ts";
+import type { ApiReadOptions } from "./fetch.ts";
 import { apiFetch, apiPost, apiPut, assertOk } from "./fetch.ts";
 
-export async function fetchAlsoKnownAs(identifier: string): Promise<string[]> {
-  const res = await apiFetch(`/api/actors/${encodeURIComponent(identifier)}`);
-  if (!res.ok) return [];
-  const data = (await res.json()) as { also_known_as?: unknown };
-  return Array.isArray(data.also_known_as)
-    ? data.also_known_as.filter((a): a is string => typeof a === "string")
-    : [];
+export async function fetchAlsoKnownAs(
+  identifier: string,
+  options?: ApiReadOptions,
+): Promise<string[]> {
+  const res = await apiFetch(
+    `/api/actors/${encodeURIComponent(identifier)}`,
+    options,
+  );
+  await assertOk(res, "Failed to load aliases");
+  const data = await readResponseJson(res);
+  validateActor(data.actor);
+  const actor = responseObject(data.actor, "actor");
+  // Public Actor metadata is additive; older servers can omit aliases.
+  if (actor.also_known_as === undefined) return [];
+  return requiredArray<string>(actor, "also_known_as", (value) => {
+    requiredString(value, "also_known_as entry");
+  });
 }
 
 export async function setAlsoKnownAs(aliases: string[]): Promise<void> {

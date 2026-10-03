@@ -1,6 +1,13 @@
-import type { Actor } from "../../types/index.ts";
+import {
+  readResponseJson,
+  requiredArray,
+  requiredCount,
+  responseObject,
+  validateActor,
+} from "./response.ts";
+import type { ApiReadOptions } from "./fetch.ts";
 import { normalizeActor } from "./normalize.ts";
-import { apiFetch } from "./fetch.ts";
+import { apiFetch, assertOk } from "./fetch.ts";
 
 export interface RecommendedUser {
   ap_id: string;
@@ -11,11 +18,20 @@ export interface RecommendedUser {
   mutual_count: number;
 }
 
-export async function fetchRecommendedUsers(): Promise<RecommendedUser[]> {
-  const res = await apiFetch("/api/recommendations/users");
-  if (!res.ok) return [];
-  const data = (await res.json()) as { users?: RecommendedUser[] };
-  return (data.users || []).map((u) => ({
+export function fetchRecommendedUsers(): Promise<RecommendedUser[]>;
+export function fetchRecommendedUsers(
+  options: ApiReadOptions,
+): Promise<RecommendedUser[]>;
+export async function fetchRecommendedUsers(
+  options?: ApiReadOptions,
+): Promise<RecommendedUser[]> {
+  const res = await apiFetch("/api/recommendations/users", options);
+  await assertOk(res, "Failed to load recommended users");
+  const data = await readResponseJson(res);
+  return requiredArray<RecommendedUser>(data, "users", (value) => {
+    validateActor(value);
+    requiredCount(responseObject(value).mutual_count, "mutual_count");
+  }).map((u) => ({
     ...normalizeActor(u),
     mutual_count: u.mutual_count,
   }));

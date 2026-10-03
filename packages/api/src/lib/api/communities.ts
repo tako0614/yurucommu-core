@@ -1,3 +1,13 @@
+import {
+  readResponseJson,
+  requiredArray,
+  optionalBoolean,
+  responseObject,
+  requiredString,
+  validateActor,
+  validateMessage,
+} from "./response.ts";
+import type { ApiReadOptions } from "./fetch.ts";
 import type { MediaAttachment } from "../../types/index.ts";
 import { normalizeActor } from "./normalize.ts";
 import {
@@ -113,21 +123,38 @@ const normalizeCommunityMessage = (
   sender: normalizeActor(message.sender),
 });
 
-export async function fetchCommunities(): Promise<CommunityDetail[]> {
-  const res = await apiFetch("/api/communities");
-  const data = (await res.json()) as { communities?: CommunityDetail[] };
-  return data.communities || [];
+function validateCommunity(value: unknown): void {
+  validateActor(value);
+  const community = responseObject(value, "community");
+  requiredString(community.name, "community.name");
+  requiredString(community.display_name, "community.display_name");
+}
+
+export function fetchCommunities(): Promise<CommunityDetail[]>;
+export function fetchCommunities(
+  options: ApiReadOptions,
+): Promise<CommunityDetail[]>;
+export async function fetchCommunities(
+  options?: ApiReadOptions,
+): Promise<CommunityDetail[]> {
+  const res = await apiFetch("/api/communities", options);
+  await assertOk(res, "Failed to load communities");
+  const data = await readResponseJson(res);
+  return requiredArray<CommunityDetail>(data, "communities", validateCommunity);
 }
 
 export async function fetchCommunity(
   identifier: string,
+  options?: ApiReadOptions,
 ): Promise<CommunityDetail> {
   const res = await apiFetch(
     `/api/communities/${encodeURIComponent(identifier)}`,
+    options,
   );
   await assertOk(res, "Community not found");
-  const data = (await res.json()) as { community: CommunityDetail };
-  return data.community;
+  const data = await readResponseJson(res);
+  validateCommunity(data.community);
+  return data.community as CommunityDetail;
 }
 
 export async function createCommunity(data: {
@@ -173,7 +200,7 @@ export async function leaveCommunity(identifier: string): Promise<void> {
 
 export async function fetchCommunityMessages(
   identifier: string,
-  options?: { limit?: number; before?: string },
+  options?: ApiReadOptions & { limit?: number; before?: string },
 ): Promise<{
   messages: CommunityMessage[];
   hasMore: boolean;
@@ -186,17 +213,25 @@ export async function fetchCommunityMessages(
   const query = params.toString() ? `?${params}` : "";
   const res = await apiFetch(
     `/api/communities/${encodeURIComponent(identifier)}/messages${query}`,
+    options,
   );
   await assertOk(res, "Failed to fetch messages");
-  const data = (await res.json()) as {
-    messages?: CommunityMessage[];
-    has_more?: boolean;
-    read_states?: CommunityReadState[];
-  };
+  const data = await readResponseJson(res);
   return {
-    messages: (data.messages || []).map(normalizeCommunityMessage),
-    hasMore: data.has_more ?? false,
-    readStates: data.read_states ?? [],
+    messages: requiredArray<CommunityMessage>(
+      data,
+      "messages",
+      validateMessage,
+    ).map(normalizeCommunityMessage),
+    hasMore: optionalBoolean(data, "has_more"),
+    readStates:
+      data.read_states === undefined
+        ? []
+        : requiredArray<CommunityReadState>(data, "read_states", (value) => {
+            const state = responseObject(value, "read_state");
+            requiredString(state.actor_ap_id, "read_state.actor_ap_id");
+            requiredString(state.last_read_at, "read_state.last_read_at");
+          }),
   };
 }
 
@@ -219,6 +254,7 @@ export async function sendCommunityMessage(
 
 export async function fetchCommunityMembers(
   identifier: string,
+  options?: ApiReadOptions,
 ): Promise<CommunityMember[]> {
   // Request the server's max page (500) so the realistic range of communities
   // shows its full roster without a load-more affordance — the default page
@@ -227,21 +263,30 @@ export async function fetchCommunityMembers(
   // response signal when that boundary is hit.
   const res = await apiFetch(
     `/api/communities/${encodeURIComponent(identifier)}/members?limit=500`,
+    options,
   );
   await assertOk(res, "Failed to fetch members");
-  const data = (await res.json()) as { members?: CommunityMember[] };
-  return (data.members || []).map(normalizeActor);
+  const data = await readResponseJson(res);
+  return requiredArray<CommunityMember>(data, "members", validateActor).map(
+    normalizeActor,
+  );
 }
 
 export async function fetchCommunityJoinRequests(
   identifier: string,
+  options?: ApiReadOptions,
 ): Promise<CommunityJoinRequest[]> {
   const res = await apiFetch(
     `/api/communities/${encodeURIComponent(identifier)}/requests`,
+    options,
   );
   await assertOk(res, "Failed to fetch join requests");
-  const data = (await res.json()) as { requests?: CommunityJoinRequest[] };
-  return (data.requests || []).map(normalizeActor);
+  const data = await readResponseJson(res);
+  return requiredArray<CommunityJoinRequest>(
+    data,
+    "requests",
+    validateActor,
+  ).map(normalizeActor);
 }
 
 export async function acceptCommunityJoinRequest(
@@ -268,13 +313,19 @@ export async function rejectCommunityJoinRequest(
 
 export async function fetchCommunityInvites(
   identifier: string,
+  options?: ApiReadOptions,
 ): Promise<CommunityInvite[]> {
   const res = await apiFetch(
     `/api/communities/${encodeURIComponent(identifier)}/invites`,
+    options,
   );
   await assertOk(res, "Failed to fetch invites");
-  const data = (await res.json()) as { invites?: CommunityInvite[] };
-  return (data.invites || []).map((invite: CommunityInvite) => ({
+  const data = await readResponseJson(res);
+  return requiredArray<CommunityInvite>(data, "invites", (value) => {
+    const invite = responseObject(value, "invite");
+    requiredString(invite.id, "invite.id");
+    validateActor(invite.invited_by);
+  }).map((invite: CommunityInvite) => ({
     ...invite,
     invited_by: normalizeActor(invite.invited_by),
   }));

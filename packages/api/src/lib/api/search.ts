@@ -1,8 +1,19 @@
+import {
+  readResponseJson,
+  requiredArray,
+  optionalBoolean,
+  requiredCount,
+  responseObject,
+  requiredString,
+  validateActor,
+  validatePost,
+} from "./response.ts";
+import type { ApiReadOptions } from "./fetch.ts";
 import type { Actor, Post } from "../../types/index.ts";
 import { normalizeActor, normalizePost } from "./normalize.ts";
-import { apiFetch } from "./fetch.ts";
+import { apiFetch, assertOk } from "./fetch.ts";
 
-export interface SearchPageOpts {
+export interface SearchPageOpts extends ApiReadOptions {
   sort?: string;
   offset?: number;
   limit?: number;
@@ -25,31 +36,48 @@ export async function searchActors(
   query: string,
   opts?: SearchPageOpts,
 ): Promise<Paged<Actor>> {
-  const res = await apiFetch(`/api/search/actors?${pageParams(query, opts)}`);
-  const data = (await res.json()) as { actors?: Actor[]; has_more?: boolean };
+  const res = await apiFetch(
+    `/api/search/actors?${pageParams(query, opts)}`,
+    opts,
+  );
+  await assertOk(res, "Failed to search actors");
+  const data = await readResponseJson(res);
   return {
-    items: (data.actors || []).map(normalizeActor),
-    hasMore: data.has_more ?? false,
+    items: requiredArray<Actor>(data, "actors", validateActor).map(
+      normalizeActor,
+    ),
+    hasMore: optionalBoolean(data, "has_more"),
   };
 }
 
-export async function searchRemote(query: string): Promise<Actor[]> {
+export async function searchRemote(
+  query: string,
+  opts?: ApiReadOptions,
+): Promise<Actor[]> {
   const res = await apiFetch(
     `/api/search/remote?q=${encodeURIComponent(query)}`,
+    opts,
   );
-  const data = (await res.json()) as { actors?: Actor[] };
-  return (data.actors || []).map(normalizeActor);
+  await assertOk(res, "Failed to search remote actors");
+  const data = await readResponseJson(res);
+  return requiredArray<Actor>(data, "actors", validateActor).map(
+    normalizeActor,
+  );
 }
 
 export async function searchPosts(
   query: string,
   opts?: SearchPageOpts,
 ): Promise<Paged<Post>> {
-  const res = await apiFetch(`/api/search/posts?${pageParams(query, opts)}`);
-  const data = (await res.json()) as { posts?: Post[]; has_more?: boolean };
+  const res = await apiFetch(
+    `/api/search/posts?${pageParams(query, opts)}`,
+    opts,
+  );
+  await assertOk(res, "Failed to search posts");
+  const data = await readResponseJson(res);
   return {
-    items: (data.posts || []).map(normalizePost),
-    hasMore: data.has_more ?? false,
+    items: requiredArray<Post>(data, "posts", validatePost).map(normalizePost),
+    hasMore: optionalBoolean(data, "has_more"),
   };
 }
 
@@ -69,20 +97,33 @@ export async function searchHashtag(
   const qs = params.toString();
   const res = await apiFetch(
     `/api/search/hashtag/${encodeURIComponent(tag)}${qs ? `?${qs}` : ""}`,
+    opts,
   );
-  const data = (await res.json()) as { posts?: Post[]; has_more?: boolean };
+  await assertOk(res, "Failed to search posts");
+  const data = await readResponseJson(res);
   return {
-    items: (data.posts || []).map(normalizePost),
-    hasMore: data.has_more ?? false,
+    items: requiredArray<Post>(data, "posts", validatePost).map(normalizePost),
+    hasMore: optionalBoolean(data, "has_more"),
   };
 }
 
 export async function fetchTrendingHashtags(
   limit = 10,
+  opts?: ApiReadOptions,
 ): Promise<{ tag: string; count: number }[]> {
-  const res = await apiFetch(`/api/search/hashtags/trending?limit=${limit}`);
-  const data = (await res.json()) as {
-    trending?: { tag: string; count: number }[];
-  };
-  return data.trending || [];
+  const res = await apiFetch(
+    `/api/search/hashtags/trending?limit=${limit}`,
+    opts,
+  );
+  await assertOk(res, "Failed to load trending hashtags");
+  const data = await readResponseJson(res);
+  return requiredArray<{ tag: string; count: number }>(
+    data,
+    "trending",
+    (value) => {
+      const entry = responseObject(value, "trending entry");
+      requiredString(entry.tag, "trending.tag");
+      requiredCount(entry.count, "trending.count");
+    },
+  );
 }
