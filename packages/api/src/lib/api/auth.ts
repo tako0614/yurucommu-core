@@ -8,7 +8,8 @@ export async function login(
 }
 
 export async function logout(): Promise<void> {
-  await apiPost("/api/auth/logout");
+  const res = await apiPost("/api/auth/logout");
+  await assertOk(res, "Failed to log out");
 }
 
 export interface AccountInfo {
