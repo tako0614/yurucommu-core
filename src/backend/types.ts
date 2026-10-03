@@ -153,6 +153,8 @@ export interface EnvVars {
  * runtime-specific wrappers).
  */
 export type Env = {
+  /** Internal composition policy, set by createYurucommuBackendApp. */
+  singleOwner?: boolean;
   DB_INSTANCE: Database;
   MEDIA?: ObjectStore;
   KV: IKeyValueStore;
