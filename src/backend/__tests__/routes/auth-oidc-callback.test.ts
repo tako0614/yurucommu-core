@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile, readdir } from "node:fs/promises";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import { Hono } from "hono";
@@ -12,6 +12,8 @@ import type { Env, Variables } from "../../types.ts";
 import authRoutes from "../../routes/auth.ts";
 import { saveOAuthState } from "../../lib/oauth-utils.ts";
 import type { IKeyValueStore } from "../../runtime/types.ts";
+import { createErrorMiddleware } from "../../middleware/error-handler.ts";
+import { hashSessionIdForEnv } from "../../lib/crypto.ts";
 
 /**
  * End-to-end glue test for GET /api/auth/callback/:provider (the OIDC path).
@@ -107,6 +109,7 @@ function envWith(db: Database, kv: MockKV): Env {
 
 function appFor(db: Database) {
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.onError(createErrorMiddleware({ logger: () => {} }));
   app.use("*", async (c, next) => {
     c.set("db", db as unknown as never);
     c.set("actor", null);
@@ -301,3 +304,67 @@ test("fail closed: an id_token signed by a foreign key is rejected (no login)", 
   expect((await db.select().from(actors).all()).length).toBe(0);
   expect((await db.select().from(sessions).all()).length).toBe(0);
 });
+
+for (const mobile of [false, true]) {
+  test(`${mobile ? "mobile OIDC" : "OAuth callback"} reports session revocation failure instead of success or invalid token`, async () => {
+    const db = await freshDb();
+    const kv = new MockKV();
+    const environment = envWith(db, kv);
+    const state = `state-rotation-${mobile}`;
+    const nonce = `nonce-rotation-${mobile}`;
+    const { privateKey, jwks } = await makeKeyAndJwks();
+    const idToken = await signIdToken(privateKey, "k1", validClaims(nonce));
+    await saveOAuthState(kv as unknown as IKeyValueStore, state, {
+      provider: "takos",
+      codeVerifier: "verifier",
+      createdAt: Date.now(),
+      nonce,
+    });
+    const login = await withStubbedFetch(idToken, jwks, async () =>
+      appFor(db).fetch(callbackRequest(state, nonce), environment),
+    );
+    expect(login.status).toBe(302);
+    const raw = login.headers.get("set-cookie")?.match(/session=([^;]+)/)?.[1];
+    expect(raw).toBeTruthy();
+    const key = await hashSessionIdForEnv(environment, raw!);
+    const before = await db.select().from(sessions).all();
+    // The key is our own fixed-format SHA256 value, not caller-provided SQL.
+    await db.run(
+      sql.raw(`CREATE TRIGGER reject_oidc_session_delete BEFORE DELETE ON sessions
+      WHEN OLD.id = '${key}' BEGIN SELECT RAISE(ABORT, 'fixture_session_delete_refused'); END;`),
+    );
+    const nextState = `${state}-next`;
+    await saveOAuthState(kv as unknown as IKeyValueStore, nextState, {
+      provider: "takos",
+      codeVerifier: "verifier",
+      createdAt: Date.now(),
+      nonce,
+    });
+    const request = mobile
+      ? new Request(`${APP_URL}/api/auth/mobile/oidc`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: `session=${raw}`,
+          },
+          body: JSON.stringify({ id_token: idToken }),
+        })
+      : new Request(
+          `${APP_URL}/api/auth/callback/takos?code=auth-code&state=${nextState}`,
+          {
+            headers: { cookie: `session=${raw}; oauth_nonce=${nonce}` },
+          },
+        );
+    const response = await withStubbedFetch(idToken, jwks, async () =>
+      appFor(db).fetch(request, environment),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      code: "SESSION_REVOCATION_FAILED",
+    });
+    expect(response.headers.get("set-cookie") ?? "").not.toMatch(
+      /(?:^|,\s*)session=/,
+    );
+    expect(await db.select().from(sessions).all()).toEqual(before);
+  });
+}
