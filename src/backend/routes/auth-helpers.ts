@@ -9,8 +9,25 @@ import {
 import { encrypt, hashSessionIdForEnv } from "../lib/crypto.ts";
 import { getClientCredentials } from "../lib/oauth-providers.ts";
 import type { Database } from "../../db/index.ts";
-import { and, count, eq, isNotNull } from "drizzle-orm";
-import { actors, notDeleted, sessions } from "../../db/index.ts";
+import {
+  and,
+  count,
+  eq,
+  exists,
+  getTableColumns,
+  isNotNull,
+  isNull,
+  notExists,
+  sql,
+} from "drizzle-orm";
+import {
+  activities,
+  actors,
+  notDeleted,
+  nowIso,
+  runBatch,
+  sessions,
+} from "../../db/index.ts";
 import {
   isUniqueConstraintError,
   parseJsonObject,
@@ -23,7 +40,13 @@ import {
   MAX_PROFILE_URL_LENGTH,
 } from "./actors-helpers.ts";
 import { logger } from "../lib/logger.ts";
-import { SessionRevocationError } from "../lib/errors.ts";
+import {
+  OwnerClaimConflictError,
+  ActorIdentityConflictError,
+  OwnerStateConflictError,
+  SessionRevocationError,
+} from "../lib/errors.ts";
+import { activityDeleteCascadeStatements } from "../lib/activity-delete-cascade.ts";
 import type { VerifiedTakosumiWorkspaceGrant } from "../lib/oidc-id-token.ts";
 
 export type { VerifiedTakosumiWorkspaceGrant } from "../lib/oidc-id-token.ts";
@@ -170,9 +193,20 @@ export async function rotateSession(
   tokens: OAuthTokens | null,
   encryptionKey: string | undefined,
   rotationContext: string,
-  options: { setCookie?: boolean } = {},
+  options: {
+    setCookie?: boolean;
+    expectedActor?: { publicKeyPem: string; takosUserId: string | null };
+    expectedSourceActor?: {
+      apId: string;
+      publicKeyPem: string;
+      takosUserId: string | null;
+    };
+  } = {},
 ): Promise<string> {
   const db = c.get("db");
+  if (c.env.singleOwner === true && !options.expectedActor) {
+    throw new ActorIdentityConflictError();
+  }
 
   // Invalidate existing session
   const existingSessionId = getCookie(c, "session");
@@ -193,7 +227,7 @@ export async function rotateSession(
     Date.now() + SESSION_MAX_AGE_SECONDS * 1000,
   ).toISOString();
 
-  await db.insert(sessions).values({
+  const session = {
     id: sessionKey,
     memberId: memberApId,
     accessToken: sessionKey,
@@ -208,7 +242,47 @@ export async function rotateSession(
     providerTokenExpiresAt: tokens?.expires_in
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null,
-  });
+  };
+  if (c.env.singleOwner === true) {
+    const time = nowIso();
+    const row: Record<keyof typeof sessions.$inferSelect, unknown> = {
+      ...session,
+      refreshToken: null,
+      createdAt: time,
+    };
+    const values = Object.keys(getTableColumns(sessions)).map(
+      (key) => sql`${row[key as keyof typeof row]}`,
+    );
+    const unchanged = and(
+      exists(
+        db
+          .select({ apId: actors.apId })
+          .from(actors)
+          .where(actorIdentityMatches(memberApId, options.expectedActor!)),
+      ),
+      options.expectedSourceActor
+        ? exists(
+            db
+              .select({ apId: actors.apId })
+              .from(actors)
+              .where(
+                actorIdentityMatches(
+                  options.expectedSourceActor.apId,
+                  options.expectedSourceActor,
+                ),
+              ),
+          )
+        : undefined,
+    );
+    const inserted = await db
+      .insert(sessions)
+      .select(sql`select ${sql.join(values, sql`, `)} where ${unchanged}`)
+      .returning({ id: sessions.id })
+      .get();
+    if (!inserted) throw new ActorIdentityConflictError();
+  } else {
+    await db.insert(sessions).values(session);
+  }
 
   // Set cookie. The cookie carries the RAW session id (the only place it
   // exists); the DB stores only its salted hash. SameSite=Strict to reduce
@@ -299,6 +373,70 @@ export async function createActor(
     .get();
 
   if (tombstone) {
+    if (env.singleOwner === true) {
+      // Cleanup and revival form one atomic unit. A losing claim must retain
+      // both the tombstone's old signer and every queued Delete projection.
+      const guard = and(
+        opts.role === "owner" ? noLiveOwner(db) : undefined,
+        exists(
+          db
+            .select({ apId: actors.apId })
+            .from(actors)
+            .where(and(eq(actors.apId, apId), isNotNull(actors.deletedAt))),
+        ),
+      )!;
+      await runBatch(db, [
+        ...activityDeleteCascadeStatements(
+          db,
+          and(eq(activities.actorApId, apId), eq(activities.type, "Delete"))!,
+          { guard },
+        ),
+        // A stale login may have issued a session after the old deletion.
+        // Never let AP ID reuse reactivate that old incarnation's credential.
+        db.delete(sessions).where(and(eq(sessions.memberId, apId), guard)),
+        db
+          .update(actors)
+          .set({
+            type: "Person",
+            preferredUsername: opts.username,
+            name: opts.name,
+            summary: null,
+            iconUrl: opts.iconUrl ?? null,
+            headerUrl: null,
+            ...actorEndpoints(apId),
+            publicKeyPem,
+            privateKeyPem,
+            takosUserId: opts.takosUserId,
+            followerCount: 0,
+            followingCount: 0,
+            postCount: 0,
+            isPrivate: 0,
+            role: opts.role,
+            fieldsJson: "[]",
+            alsoKnownAsJson: "[]",
+            movedTo: null,
+            ownerActorApId: opts.ownerActorApId ?? null,
+            deletedAt: null,
+          })
+          .where(and(eq(actors.apId, apId), guard)),
+      ]);
+      // Match this request's fresh key, not just the deterministic handle:
+      // a competing revival may have won with the same subject and AP ID.
+      const revived = await db
+        .select()
+        .from(actors)
+        .where(
+          and(
+            eq(actors.apId, apId),
+            eq(actors.publicKeyPem, publicKeyPem),
+            eq(actors.takosUserId, opts.takosUserId),
+            notDeleted(actors),
+          ),
+        )
+        .get();
+      if (!revived) throw new OwnerClaimConflictError();
+      return revived;
+    }
     // The tombstone preserved the OLD signing key so any still-queued
     // Delete(actor) delivery jobs could sign with it at send time. Reviving the
     // row below rotates to a FRESH key + identity, which would make those
@@ -338,6 +476,48 @@ export async function createActor(
       .get();
   }
 
+  if (env.singleOwner === true && opts.role === "owner") {
+    // Drizzle INSERT SELECT requires every column in schema order, including
+    // defaults. One statement checks and writes under SQLite/D1 serialization;
+    // no isolate lock, transaction round-trip, schema constraint or data repair.
+    const time = nowIso();
+    const row: Record<keyof typeof actors.$inferSelect, unknown> = {
+      apId,
+      type: "Person",
+      preferredUsername: opts.username,
+      name: opts.name,
+      summary: null,
+      iconUrl: opts.iconUrl ?? null,
+      headerUrl: null,
+      ...actorEndpoints(apId),
+      publicKeyPem,
+      privateKeyPem,
+      takosUserId: opts.takosUserId,
+      followerCount: 0,
+      followingCount: 0,
+      postCount: 0,
+      isPrivate: 0,
+      role: opts.role,
+      fieldsJson: "[]",
+      alsoKnownAsJson: "[]",
+      movedTo: null,
+      createdAt: time,
+      updatedAt: time,
+      deletedAt: null,
+      ownerActorApId: opts.ownerActorApId ?? null,
+    };
+    const values = Object.keys(getTableColumns(actors)).map(
+      (key) => sql`${row[key as keyof typeof row]}`,
+    );
+    const claimed = await db
+      .insert(actors)
+      .select(sql`select ${sql.join(values, sql`, `)} where ${noLiveOwner(db)}`)
+      .returning()
+      .get();
+    if (!claimed) throw new OwnerClaimConflictError();
+    return claimed;
+  }
+
   return await db
     .insert(actors)
     .values({
@@ -355,6 +535,91 @@ export async function createActor(
     })
     .returning()
     .get();
+}
+
+function noLiveOwner(db: Database) {
+  return notExists(
+    db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(and(eq(actors.role, "owner"), notDeleted(actors))),
+  );
+}
+
+function actorIdentityMatches(
+  apId: string,
+  expected: { publicKeyPem: string; takosUserId: string | null },
+) {
+  return and(
+    eq(actors.apId, apId),
+    eq(actors.publicKeyPem, expected.publicKeyPem),
+    expected.takosUserId === null
+      ? isNull(actors.takosUserId)
+      : eq(actors.takosUserId, expected.takosUserId),
+    notDeleted(actors),
+  );
+}
+
+/** Drizzle wraps the driver's constraint in a query error with a cause. */
+function isActorUniqueConflict(error: unknown): boolean {
+  let cause = error;
+  for (let depth = 0; depth < 5; depth++) {
+    if (isUniqueConstraintError(cause)) return true;
+    if (typeof cause !== "object" || cause === null || !("cause" in cause))
+      return false;
+    cause = cause.cause;
+  }
+  return false;
+}
+
+/** A verified instance password resolves one owner, never an arbitrary legacy row. */
+export async function getPasswordOwner(db: Database, env: Env) {
+  if (env.singleOwner !== true) {
+    return (
+      (await db
+        .select()
+        .from(actors)
+        .where(and(eq(actors.role, "owner"), notDeleted(actors)))
+        .get()) ??
+      (await createActor(db, env, {
+        username: "tako",
+        name: "tako",
+        takosUserId: "password:owner",
+        role: "owner",
+      }))
+    );
+  }
+  const readOwner = async () => {
+    const rows = await db
+      .select()
+      .from(actors)
+      .where(and(eq(actors.role, "owner"), notDeleted(actors)))
+      .limit(env.singleOwner === true ? 2 : 1)
+      .all();
+    if (env.singleOwner === true && rows.length > 1)
+      throw new OwnerStateConflictError();
+    return rows[0];
+  };
+  const existing = await readOwner();
+  if (existing) return existing;
+  try {
+    const username = await resolveUniqueUsername(db, env.APP_URL, "tako");
+    return await createActor(db, env, {
+      username,
+      name: "tako",
+      takosUserId: "password:owner",
+      role: "owner",
+    });
+  } catch (error) {
+    if (
+      !(error instanceof OwnerClaimConflictError) &&
+      !isActorUniqueConflict(error)
+    )
+      throw error;
+    const winner = await readOwner();
+    if (!winner) throw error;
+    return winner;
+  }
 }
 
 export async function createActorFromOAuth(
@@ -375,7 +640,15 @@ export async function createActorFromOAuth(
     userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, "") ||
     "user";
   const username = await resolveUniqueUsername(db, env.APP_URL, baseUsername);
-  const result = await db.select({ count: count() }).from(actors).get();
+  const result = await db
+    .select({ count: count() })
+    .from(actors)
+    .where(
+      env.singleOwner === true
+        ? and(eq(actors.role, "owner"), notDeleted(actors))
+        : undefined,
+    )
+    .get();
   const actorCount = result?.count ?? 0;
 
   // Owner-slot protection. yurucommu is single-tenant: the FIRST actor becomes
@@ -599,15 +872,28 @@ export async function findOrCreateOAuthActor(
       // takosUserId fired because the other request already created the actor.
       // Re-resolve the winner's row instead of 500ing the loser (idempotent
       // get-or-create). Re-throw anything that isn't the unique conflict.
-      if (!isUniqueConstraintError(e)) throw e;
+      if (!(e instanceof OwnerClaimConflictError) && !isActorUniqueConflict(e))
+        throw e;
       actorData = await db
         .select()
         .from(actors)
-        .where(eq(actors.takosUserId, providerUserId))
+        .where(and(eq(actors.takosUserId, providerUserId), notDeleted(actors)))
         .get();
     }
   } else {
     const { name, iconUrl } = sanitizeOAuthProfile(userInfo);
+    if (env.singleOwner === true) {
+      actorData = await db
+        .update(actors)
+        .set({
+          name,
+          ...(iconUrl ? { iconUrl } : {}),
+        })
+        .where(actorIdentityMatches(actorData.apId, actorData))
+        .returning()
+        .get();
+      return actorData;
+    }
     await db
       .update(actors)
       .set({
