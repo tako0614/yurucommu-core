@@ -62,9 +62,10 @@ new identity becomes live. The signing key is an existing incarnation marker;
 no session-generation column or durable human-identity reservation is added.
 Password bootstrap resolves a free handle when an existing member uses `tako`.
 
-Concurrent account teardown remains a separate pre-existing conformance gap:
-its long destructive cascade/finalizer uses AP IDs without a durable incarnation
-lease. A delayed second delete may affect a revived actor. This claim/issuance
-fix does not qualify simultaneous deletion and restoration or resolve all
-in-flight authenticated mutations. Operator restore/update and issuer evidence
-remain independent GA dependencies.
+The claim/issuance fix alone did not qualify simultaneous teardown and revival
+or in-flight authenticated mutations. The subsequent
+[durable account-deletion contract](durable-account-deletion.md) reserves exact
+incarnations, fences cascade/admission writes and retains retry authority.
+Its unknown external-upload outcome and in-flight federated Delete limits are
+explicit; operator restore/update and issuer evidence remain independent GA
+dependencies.

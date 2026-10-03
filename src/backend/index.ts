@@ -3,6 +3,7 @@ import { MOBILE_PUSH_REGISTRATION_PATH } from "./lib/mobile-contract.ts";
 import { NOTIFICATION_PUSHER_REGISTRATION_PATH } from "./lib/notification-pusher-contract.ts";
 import type { Env, EnvVars, Variables } from "./types.ts";
 import { extractActorFromSession } from "./lib/session-actor.ts";
+import { admitSessionRequest } from "./lib/account-deletion-admission.ts";
 import { isBackendPath } from "./lib/backend-paths.ts";
 import {
   resolveRuntimeLane,
@@ -622,6 +623,7 @@ function applyGlobalMiddleware(
   });
 
   app.use("*", async (c, next) => {
+    const baseEnv = c.env;
     c.set("db", c.env.DB_INSTANCE);
     await next();
 
@@ -638,9 +640,9 @@ function applyGlobalMiddleware(
       if (recoveryDue) lastOutboxRecoverySweep = now;
       const sweep = (async () => {
         try {
-          await enqueuePendingDeliveryFanoutJobs(c.env);
-          await enqueuePendingDeliveryEndpointJobs(c.env);
-          await enqueuePendingDeliveryResolutionJobs(c.env);
+          await enqueuePendingDeliveryFanoutJobs(baseEnv);
+          await enqueuePendingDeliveryEndpointJobs(baseEnv);
+          await enqueuePendingDeliveryResolutionJobs(baseEnv);
         } catch (error) {
           log.error("Failed to enqueue durable federation outbox", {
             event: "delivery.outbox.enqueue_failed",
@@ -648,7 +650,7 @@ function applyGlobalMiddleware(
           });
         }
         try {
-          await enqueuePendingNotificationPushJobs(c.env);
+          await enqueuePendingNotificationPushJobs(baseEnv);
         } catch (error) {
           log.error("Failed to enqueue notification push outbox", {
             event: "notification.push.enqueue_failed",
@@ -657,7 +659,7 @@ function applyGlobalMiddleware(
         }
         // Same choke point feeds the realtime stream: the push-jobs the inbox
         // trigger wrote tell us exactly which users gained a notification.
-        await sweepRealtimeNotifications(c.env);
+        await sweepRealtimeNotifications(baseEnv);
       })();
       // Prefer to run the sweep AFTER the response is sent (waitUntil) so its
       // 2-4 D1 round-trips never add latency to the request. `executionCtx`
@@ -679,7 +681,7 @@ function applyGlobalMiddleware(
 
   app.use("/api/*", async (c, next) => {
     await extractActorFromSession(c);
-    await next();
+    await admitSessionRequest(c, next);
   });
 
   // The bare /media/* serve path (the URL stored in every attachment + actor
@@ -692,14 +694,14 @@ function applyGlobalMiddleware(
   // and public media still returns a public/cacheable response.
   app.use("/media/*", async (c, next) => {
     await extractActorFromSession(c);
-    await next();
+    await admitSessionRequest(c, next);
   });
 
   // Takos tools endpoints may be called from the browser (same-origin) and rely on
   // the same session cookie auth as the rest of the API.
   app.use("/.takos/tools/*", async (c, next) => {
     await extractActorFromSession(c);
-    await next();
+    await admitSessionRequest(c, next);
   });
 
   app.use("/api/*", csrfProtection());

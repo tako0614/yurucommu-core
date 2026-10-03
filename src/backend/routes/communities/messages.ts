@@ -1,5 +1,14 @@
 import { Hono } from "hono";
-import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  isNull,
+  ne,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import {
   activities,
   communities,
@@ -336,50 +345,46 @@ messagesRouter.post(
     // Community talk deliberately has no social-inbox row, so its durable push
     // jobs must commit with the message itself. Resolve only members that own a
     // Yurume pusher at event time; delivery re-checks membership before egress.
-    const pushRecipients = await db
-      .selectDistinct({ actorApId: notificationPushers.actorApId })
-      .from(notificationPushers)
-      .innerJoin(
-        communityMembers,
-        eq(communityMembers.actorApId, notificationPushers.actorApId),
+    // Set-based fanout stays one statement regardless of community size. It
+    // shares the message transaction, so neither orphan messages nor partial
+    // notification populations can survive a later failure.
+    const jobValues: Record<
+      keyof typeof notificationPushJobs.$inferSelect,
+      unknown
+    > = {
+      id: sql`${notificationPushers.actorApId} || char(10) || ${activityApIdVal}`,
+      actorApId: notificationPushers.actorApId,
+      activityApId: sql`${activityApIdVal}`,
+      product: sql`'yurume'`,
+      status: sql`'pending'`,
+      processingToken: sql`NULL`,
+      attempts: sql`0`,
+      pendingPusherIdsJson: sql`NULL`,
+      nextAttemptAt: sql`${now}`,
+      lastError: sql`NULL`,
+      createdAt: sql`${now}`,
+      updatedAt: sql`${now}`,
+      deliveredAt: sql`NULL`,
+    };
+    const pushColumns = Object.keys(getTableColumns(notificationPushJobs)).map(
+      (key) => jobValues[key as keyof typeof jobValues] as SQL,
+    );
+    const pushJobs = db
+      .insert(notificationPushJobs)
+      .select(
+        sql`
+      SELECT DISTINCT ${sql.join(pushColumns, sql`, `)}
+      FROM ${notificationPushers}
+      INNER JOIN ${communityMembers}
+        ON ${communityMembers.actorApId} = ${notificationPushers.actorApId}
+      WHERE ${communityMembers.communityApId} = ${community.apId}
+        AND ${notificationPushers.product} = 'yurume'
+        AND ${notificationPushers.actorApId} <> ${actor.ap_id}
+        AND NOT EXISTS (SELECT 1 FROM account_deletion_targets
+          WHERE actor_ap_id = ${notificationPushers.actorApId})
+    `,
       )
-      .where(
-        and(
-          eq(communityMembers.communityApId, community.apId),
-          eq(notificationPushers.product, "yurume"),
-          ne(notificationPushers.actorApId, actor.ap_id),
-        ),
-      );
-    const pushJobStatements: unknown[] = [];
-    // D1 caps bound parameters at 100. Keep each multi-row insert below that
-    // limit while retaining every insert in the same atomic batch.
-    const pushJobBatchSize = 8;
-    for (
-      let offset = 0;
-      offset < pushRecipients.length;
-      offset += pushJobBatchSize
-    ) {
-      pushJobStatements.push(
-        db
-          .insert(notificationPushJobs)
-          .values(
-            pushRecipients
-              .slice(offset, offset + pushJobBatchSize)
-              .map(({ actorApId }) => ({
-                id: `${actorApId}\n${activityApIdVal}`,
-                actorApId,
-                activityApId: activityApIdVal,
-                product: "yurume",
-                status: "pending",
-                attempts: 0,
-                nextAttemptAt: now,
-                createdAt: now,
-                updatedAt: now,
-              })),
-          )
-          .onConflictDoNothing(),
-      );
-    }
+      .onConflictDoNothing();
 
     // Persist the chat message atomically: the Note, its community-audience
     // recipient row (which the GET-messages reader joins on), the Create
@@ -418,7 +423,7 @@ messagesRouter.post(
         .update(communities)
         .set({ lastMessageAt: now })
         .where(eq(communities.apId, community.apId)),
-      ...pushJobStatements,
+      pushJobs,
     ]);
 
     const messagePayload = {

@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { spy } from "#test/mock";
 import authRoutes from "../../routes/auth.ts";
 import { hashPassword, verifyBootstrapOrPassword } from "../../lib/crypto.ts";
 import { actors } from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 class MockKVNamespace {
   private store = new Map<string, { value: string; expiration?: number }>();
@@ -60,7 +60,7 @@ async function request(
   return { res, body: json };
 }
 
-function createAuthTestApp(
+async function createAuthTestApp(
   authPasswordHash: string,
   envOverrides: Record<string, unknown> = {},
 ) {
@@ -71,46 +71,28 @@ function createAuthTestApp(
     ...envOverrides,
   };
 
+  const { db } = await createTestDb();
+  const apId = "https://test.yurucommu.com/ap/users/tako";
+  await db.insert(actors).values({
+    apId,
+    type: "Person",
+    preferredUsername: "tako",
+    name: "tako",
+    inbox: `${apId}/inbox`,
+    outbox: `${apId}/outbox`,
+    followersUrl: `${apId}/followers`,
+    followingUrl: `${apId}/following`,
+    publicKeyPem: "test-public-key",
+    privateKeyPem: "test-private-key",
+    role: "owner",
+    takosUserId: "password:owner",
+  });
   const app = new Hono();
   app.use("/api/auth/*", async (c, next) => {
-    const actorData = {
-      apId: "https://test.yurucommu.com/ap/users/tako",
-      type: "Person",
-      preferredUsername: "tako",
-      name: "tako",
-      iconUrl: null,
-      role: "owner",
-      takosUserId: "password:owner",
-    };
-
-    const mockGet = spy(() => Promise.resolve(actorData));
-    const mockWhere = spy(() => ({ get: mockGet }));
-    const mockFrom = spy((table?: unknown) => {
-      if (table === actors) return { where: mockWhere, get: mockGet };
-      return { where: mockWhere, get: mockGet };
-    });
-    const mockSelect = spy(() => ({ from: mockFrom }));
-
-    type ThenResolve = ((value: unknown) => unknown) | null | undefined;
-
-    const mockInsertValues = spy(() => ({
-      returning: spy(() => ({ get: spy(() => Promise.resolve(actorData)) })),
-      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
-    }));
-    const mockInsert = spy(() => ({ values: mockInsertValues }));
-    const mockDeleteWhere = spy(() => ({
-      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
-    }));
-    const mockDelete = spy(() => ({
-      where: mockDeleteWhere,
-      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
-    }));
-
-    (c as unknown as { set: (key: string, value: unknown) => void }).set("db", {
-      select: mockSelect,
-      insert: mockInsert,
-      delete: mockDelete,
-    });
+    (c as unknown as { set: (key: string, value: unknown) => void }).set(
+      "db",
+      db,
+    );
     await next();
   });
   app.route("/api/auth", authRoutes);
@@ -127,7 +109,7 @@ test("bootstrap login: colon-less token authenticates only with the exact token"
   expect(BOOTSTRAP_TOKEN.includes(":")).toBe(false);
   expect(BOOTSTRAP_TOKEN.length).toBe(64);
 
-  const { app, env } = createAuthTestApp(BOOTSTRAP_TOKEN);
+  const { app, env } = await createAuthTestApp(BOOTSTRAP_TOKEN);
 
   const okHeaders = { "CF-Connecting-IP": "203.0.113.10" };
   const { res: okRes } = await request(
@@ -141,7 +123,7 @@ test("bootstrap login: colon-less token authenticates only with the exact token"
 });
 
 test("bootstrap login: a wrong token is rejected", async () => {
-  const { app, env } = createAuthTestApp(BOOTSTRAP_TOKEN);
+  const { app, env } = await createAuthTestApp(BOOTSTRAP_TOKEN);
 
   const { res } = await request(
     app,
@@ -157,7 +139,7 @@ test("bootstrap login: a proper salt:hash value still uses the PBKDF2 path", asy
   const pbkdf2 = await hashPassword("correct-horse");
   expect(pbkdf2.includes(":")).toBe(true);
 
-  const { app, env } = createAuthTestApp(pbkdf2);
+  const { app, env } = await createAuthTestApp(pbkdf2);
 
   // Entering the stored hash verbatim must NOT authenticate (PBKDF2 path).
   const { res: verbatimRes } = await request(

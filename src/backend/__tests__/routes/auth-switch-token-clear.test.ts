@@ -1,17 +1,14 @@
 import { expect, test } from "bun:test";
-import { readFile, readdir } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, sessions } from "../../../db/index.ts";
+import { sessions } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import authRoutes from "../../routes/auth.ts";
 import { createActor } from "../../routes/auth-helpers.ts";
 import { hashSessionIdForEnv } from "../../lib/crypto.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 /**
  * POST /api/auth/switch — account switching.
@@ -28,37 +25,33 @@ const APP_URL = "https://yuru.test";
 const env = { APP_URL } as unknown as Env;
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  const files = (await readdir(root)).filter((f) => f.endsWith(".sql")).sort();
-  for (const f of files) {
-    await client.executeMultiple(await readFile(new URL(f, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
-function contextActor(apId: string): Actor {
+function contextActor(
+  row: NonNullable<Awaited<ReturnType<typeof createActor>>>,
+): Actor {
   return {
-    ap_id: apId,
-    type: "Person",
-    preferred_username: apId.split("/").pop() ?? "x",
-    name: null,
-    summary: null,
-    icon_url: null,
-    header_url: null,
-    inbox: `${apId}/inbox`,
-    outbox: `${apId}/outbox`,
-    followers_url: `${apId}/followers`,
-    following_url: `${apId}/following`,
-    public_key_pem: "pub",
-    private_key_pem: "priv",
-    takos_user_id: null,
-    follower_count: 0,
-    following_count: 0,
-    post_count: 0,
-    is_private: 0,
-    role: "owner",
-    created_at: new Date().toISOString(),
+    ap_id: row.apId,
+    type: row.type,
+    preferred_username: row.preferredUsername,
+    name: row.name,
+    summary: row.summary,
+    icon_url: row.iconUrl,
+    header_url: row.headerUrl,
+    inbox: row.inbox,
+    outbox: row.outbox,
+    followers_url: row.followersUrl,
+    following_url: row.followingUrl,
+    public_key_pem: row.publicKeyPem,
+    private_key_pem: row.privateKeyPem,
+    takos_user_id: row.takosUserId,
+    follower_count: row.followerCount,
+    following_count: row.followingCount,
+    post_count: row.postCount,
+    is_private: row.isPrivate,
+    role: row.role as Actor["role"],
+    created_at: row.createdAt,
   };
 }
 
@@ -128,7 +121,7 @@ test("switch to an owned sub-account rotates the session and DROPS provider toke
   const { owner, sub } = await seedOwnerAndSub(db);
   const raw = await seedSession(db, owner.apId);
 
-  const app = appWith(db, contextActor(owner.apId));
+  const app = appWith(db, contextActor(owner));
   const res = await postSwitch(app, raw, sub.apId);
   expect(res.status).toBe(200);
 
@@ -166,7 +159,7 @@ test("switch to an UNOWNED actor is rejected (403 IDOR gate)", async () => {
   });
   const raw = await seedSession(db, owner.apId);
 
-  const app = appWith(db, contextActor(owner.apId));
+  const app = appWith(db, contextActor(owner));
   const res = await postSwitch(app, raw, stranger.apId);
   expect(res.status).toBe(403);
 
@@ -191,7 +184,7 @@ test("switch to a non-existent actor is 404", async () => {
   const { owner } = await seedOwnerAndSub(db);
   const raw = await seedSession(db, owner.apId);
 
-  const app = appWith(db, contextActor(owner.apId));
+  const app = appWith(db, contextActor(owner));
   const res = await postSwitch(app, raw, `${APP_URL}/ap/users/ghost`);
   expect(res.status).toBe(404);
 });

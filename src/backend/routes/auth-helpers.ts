@@ -33,7 +33,12 @@ import {
   parseJsonObject,
   parseNonEmptyString,
 } from "../lib/parse-helpers.ts";
-import { cancelTombstoneDelete } from "./actors.ts";
+import { createGuardedDatabase } from "../../db/guarded-writes.ts";
+import {
+  admissionGuard,
+  actorNotReservedSql,
+  assertActorNotReserved,
+} from "../lib/account-deletion-admission.ts";
 import {
   isValidProfileImageUrl,
   MAX_PROFILE_NAME_LENGTH,
@@ -45,6 +50,8 @@ import {
   ActorIdentityConflictError,
   OwnerStateConflictError,
   SessionRevocationError,
+  AccountDeletionConflictError,
+  isAccountDeletionWriteConflict,
 } from "../lib/errors.ts";
 import { activityDeleteCascadeStatements } from "../lib/activity-delete-cascade.ts";
 import type { VerifiedTakosumiWorkspaceGrant } from "../lib/oidc-id-token.ts";
@@ -171,7 +178,9 @@ export async function deleteSessionSafely(
   try {
     const sessionKey = await hashSessionIdForEnv(env, rawSessionId);
     await db.delete(sessions).where(eq(sessions.id, sessionKey));
-  } catch {
+  } catch (error) {
+    if (isAccountDeletionWriteConflict(error))
+      throw new AccountDeletionConflictError();
     log.warn("Failed to delete session", {
       event: "auth.session.delete_failed",
       context,
@@ -203,10 +212,52 @@ export async function rotateSession(
     };
   } = {},
 ): Promise<string> {
-  const db = c.get("db");
+  let db = c.get("db");
   if (c.env.singleOwner === true && !options.expectedActor) {
     throw new ActorIdentityConflictError();
   }
+
+  const expected =
+    options.expectedActor ??
+    (await db
+      .select({
+        publicKeyPem: actors.publicKeyPem,
+        takosUserId: actors.takosUserId,
+      })
+      .from(actors)
+      .where(eq(actors.apId, memberApId))
+      .get());
+  if (!expected) throw new ActorIdentityConflictError();
+  await assertActorNotReserved(db, memberApId);
+  const identity = and(
+    exists(
+      db
+        .select({ apId: actors.apId })
+        .from(actors)
+        .where(actorIdentityMatches(memberApId, expected)),
+    ),
+    options.expectedSourceActor
+      ? exists(
+          db
+            .select({ apId: actors.apId })
+            .from(actors)
+            .where(
+              actorIdentityMatches(
+                options.expectedSourceActor.apId,
+                options.expectedSourceActor,
+              ),
+            ),
+        )
+      : undefined,
+  )!;
+  const rotationDb = db;
+  db = createGuardedDatabase(rotationDb, () =>
+    admissionGuard(
+      rotationDb,
+      identity,
+      () => new ActorIdentityConflictError(),
+    ),
+  );
 
   // Invalidate existing session
   const existingSessionId = getCookie(c, "session");
@@ -367,113 +418,93 @@ export async function createActor(
   // revived; a LIVE collision is impossible here because every caller probes
   // for a live collision (notDeleted) before reaching createActor.
   const tombstone = await db
-    .select({ apId: actors.apId })
+    .select({
+      apId: actors.apId,
+      publicKeyPem: actors.publicKeyPem,
+      takosUserId: actors.takosUserId,
+    })
     .from(actors)
     .where(and(eq(actors.apId, apId), isNotNull(actors.deletedAt)))
     .get();
 
-  if (tombstone) {
-    if (env.singleOwner === true) {
-      // Cleanup and revival form one atomic unit. A losing claim must retain
-      // both the tombstone's old signer and every queued Delete projection.
-      const guard = and(
-        opts.role === "owner" ? noLiveOwner(db) : undefined,
-        exists(
-          db
-            .select({ apId: actors.apId })
-            .from(actors)
-            .where(and(eq(actors.apId, apId), isNotNull(actors.deletedAt))),
-        ),
-      )!;
-      await runBatch(db, [
-        ...activityDeleteCascadeStatements(
-          db,
-          and(eq(activities.actorApId, apId), eq(activities.type, "Delete"))!,
-          { guard },
-        ),
-        // A stale login may have issued a session after the old deletion.
-        // Never let AP ID reuse reactivate that old incarnation's credential.
-        db.delete(sessions).where(and(eq(sessions.memberId, apId), guard)),
-        db
-          .update(actors)
-          .set({
-            type: "Person",
-            preferredUsername: opts.username,
-            name: opts.name,
-            summary: null,
-            iconUrl: opts.iconUrl ?? null,
-            headerUrl: null,
-            ...actorEndpoints(apId),
-            publicKeyPem,
-            privateKeyPem,
-            takosUserId: opts.takosUserId,
-            followerCount: 0,
-            followingCount: 0,
-            postCount: 0,
-            isPrivate: 0,
-            role: opts.role,
-            fieldsJson: "[]",
-            alsoKnownAsJson: "[]",
-            movedTo: null,
-            ownerActorApId: opts.ownerActorApId ?? null,
-            deletedAt: null,
-          })
-          .where(and(eq(actors.apId, apId), guard)),
-      ]);
-      // Match this request's fresh key, not just the deterministic handle:
-      // a competing revival may have won with the same subject and AP ID.
-      const revived = await db
-        .select()
-        .from(actors)
-        .where(
-          and(
-            eq(actors.apId, apId),
-            eq(actors.publicKeyPem, publicKeyPem),
-            eq(actors.takosUserId, opts.takosUserId),
-            notDeleted(actors),
-          ),
-        )
-        .get();
-      if (!revived) throw new OwnerClaimConflictError();
-      return revived;
-    }
-    // The tombstone preserved the OLD signing key so any still-queued
-    // Delete(actor) delivery jobs could sign with it at send time. Reviving the
-    // row below rotates to a FRESH key + identity, which would make those
-    // in-flight Delete jobs sign with the wrong key (invalid signature) or
-    // target a now-live actor. Cancel the stranded Delete FIRST — drop its
-    // pending/retry_wait/failed delivery_queue rows and the preserved Delete
-    // activity rows — so re-registration starts clean and no half-signed Delete
-    // is sent (#revive).
-    await cancelTombstoneDelete(db, apId);
+  await assertActorNotReserved(db, apId);
+  if (opts.ownerActorApId)
+    await assertActorNotReserved(db, opts.ownerActorApId);
 
-    return await db
-      .update(actors)
-      .set({
-        type: "Person",
-        preferredUsername: opts.username,
-        name: opts.name,
-        summary: null,
-        iconUrl: opts.iconUrl ?? null,
-        headerUrl: null,
-        ...actorEndpoints(apId),
-        publicKeyPem,
-        privateKeyPem,
-        takosUserId: opts.takosUserId,
-        followerCount: 0,
-        followingCount: 0,
-        postCount: 0,
-        isPrivate: 0,
-        role: opts.role,
-        fieldsJson: "[]",
-        alsoKnownAsJson: "[]",
-        movedTo: null,
-        ownerActorApId: opts.ownerActorApId ?? null,
-        deletedAt: null,
-      })
-      .where(eq(actors.apId, apId))
-      .returning()
+  if (tombstone) {
+    // Cleanup and revival share an aborting assertion for the observed old
+    // incarnation. A losing revival cannot cancel the winner's Delete ledger.
+    const guard = and(
+      env.singleOwner === true && opts.role === "owner"
+        ? noLiveOwner(db)
+        : undefined,
+      actorNotReservedSql(apId),
+      exists(
+        db
+          .select({ apId: actors.apId })
+          .from(actors)
+          .where(
+            and(
+              eq(actors.apId, apId),
+              eq(actors.publicKeyPem, tombstone.publicKeyPem),
+              tombstone.takosUserId === null
+                ? isNull(actors.takosUserId)
+                : eq(actors.takosUserId, tombstone.takosUserId),
+              isNotNull(actors.deletedAt),
+            ),
+          ),
+      ),
+    )!;
+    const revivalDb = db;
+    const guarded = createGuardedDatabase(revivalDb, () =>
+      admissionGuard(revivalDb, guard, () => new OwnerClaimConflictError()),
+    );
+    await runBatch(guarded, [
+      ...activityDeleteCascadeStatements(
+        guarded,
+        and(eq(activities.actorApId, apId), eq(activities.type, "Delete"))!,
+      ),
+      guarded.delete(sessions).where(eq(sessions.memberId, apId)),
+      guarded
+        .update(actors)
+        .set({
+          type: "Person",
+          preferredUsername: opts.username,
+          name: opts.name,
+          summary: null,
+          iconUrl: opts.iconUrl ?? null,
+          headerUrl: null,
+          ...actorEndpoints(apId),
+          publicKeyPem,
+          privateKeyPem,
+          takosUserId: opts.takosUserId,
+          followerCount: 0,
+          followingCount: 0,
+          postCount: 0,
+          isPrivate: 0,
+          role: opts.role,
+          fieldsJson: "[]",
+          alsoKnownAsJson: "[]",
+          movedTo: null,
+          ownerActorApId: opts.ownerActorApId ?? null,
+          deletedAt: null,
+        })
+        .where(eq(actors.apId, apId)),
+    ]);
+    const revived = await db
+      .select()
+      .from(actors)
+      .where(
+        and(
+          eq(actors.apId, apId),
+          eq(actors.publicKeyPem, publicKeyPem),
+          eq(actors.takosUserId, opts.takosUserId),
+          notDeleted(actors),
+        ),
+      )
       .get();
+    if (!revived) throw new OwnerClaimConflictError();
+    return revived;
   }
 
   if (env.singleOwner === true && opts.role === "owner") {
@@ -557,6 +588,7 @@ function actorIdentityMatches(
       ? isNull(actors.takosUserId)
       : eq(actors.takosUserId, expected.takosUserId),
     notDeleted(actors),
+    actorNotReservedSql(apId),
   );
 }
 
@@ -575,19 +607,21 @@ function isActorUniqueConflict(error: unknown): boolean {
 /** A verified instance password resolves one owner, never an arbitrary legacy row. */
 export async function getPasswordOwner(db: Database, env: Env) {
   if (env.singleOwner !== true) {
-    return (
-      (await db
-        .select()
-        .from(actors)
-        .where(and(eq(actors.role, "owner"), notDeleted(actors)))
-        .get()) ??
-      (await createActor(db, env, {
-        username: "tako",
-        name: "tako",
-        takosUserId: "password:owner",
-        role: "owner",
-      }))
-    );
+    const existing = await db
+      .select()
+      .from(actors)
+      .where(and(eq(actors.role, "owner"), notDeleted(actors)))
+      .get();
+    if (existing) {
+      await assertActorNotReserved(db, existing.apId);
+      return existing;
+    }
+    return createActor(db, env, {
+      username: "tako",
+      name: "tako",
+      takosUserId: "password:owner",
+      role: "owner",
+    });
   }
   const readOwner = async () => {
     const rows = await db
@@ -601,7 +635,10 @@ export async function getPasswordOwner(db: Database, env: Env) {
     return rows[0];
   };
   const existing = await readOwner();
-  if (existing) return existing;
+  if (existing) {
+    await assertActorNotReserved(db, existing.apId);
+    return existing;
+  }
   try {
     const username = await resolveUniqueUsername(db, env.APP_URL, "tako");
     return await createActor(db, env, {
@@ -881,27 +918,18 @@ export async function findOrCreateOAuthActor(
         .get();
     }
   } else {
+    await assertActorNotReserved(db, actorData.apId);
     const { name, iconUrl } = sanitizeOAuthProfile(userInfo);
-    if (env.singleOwner === true) {
-      actorData = await db
-        .update(actors)
-        .set({
-          name,
-          ...(iconUrl ? { iconUrl } : {}),
-        })
-        .where(actorIdentityMatches(actorData.apId, actorData))
-        .returning()
-        .get();
-      return actorData;
-    }
-    await db
+    actorData = await db
       .update(actors)
       .set({
         name,
         ...(iconUrl ? { iconUrl } : {}),
       })
-      .where(eq(actors.apId, actorData.apId))
-      .run();
+      .where(actorIdentityMatches(actorData.apId, actorData))
+      .returning()
+      .get();
+    return actorData;
   }
 
   return actorData;

@@ -1,3 +1,4 @@
+import { guardObjectWrites } from "../../lib/account-deletion-admission.ts";
 import { Hono } from "hono";
 import { and, count, desc, eq, gt, sql } from "drizzle-orm";
 import type { Env, Variables } from "../../types.ts";
@@ -111,8 +112,8 @@ stories.post("/view", async (c) => {
         viewedAt: now,
       });
     }
-  } catch {
-    // Ignore duplicate key errors
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
   }
 
   return c.json({ success: true });

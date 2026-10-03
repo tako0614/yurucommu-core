@@ -100,7 +100,12 @@ function actorsApp(db: Database, actor: Actor) {
   return app;
 }
 
-function fakeActor(apId: string, username: string): Actor {
+function fakeActor(
+  apId: string,
+  username: string,
+  publicKeyPem: string,
+  takosUserId: string | null,
+): Actor {
   return {
     ap_id: apId,
     type: "Person",
@@ -113,9 +118,9 @@ function fakeActor(apId: string, username: string): Actor {
     outbox: `${apId}/outbox`,
     followers_url: `${apId}/followers`,
     following_url: `${apId}/following`,
-    public_key_pem: "PUBLIC-KEY",
+    public_key_pem: publicKeyPem,
     private_key_pem: "PRIVATE-KEY",
-    takos_user_id: `takos-${username}`,
+    takos_user_id: takosUserId,
     follower_count: 0,
     following_count: 0,
     post_count: 0,
@@ -156,7 +161,15 @@ test("owner login after /me/delete provisions a FRESH owner, not the tombstone",
 
   // 2) The owner deletes their own account -> tombstone (role demoted +
   //    deletedAt set, sessions deleted).
-  const delApp = actorsApp(db, fakeActor(originalOwnerApId, "tako"));
+  const delApp = actorsApp(
+    db,
+    fakeActor(
+      originalOwnerApId,
+      "tako",
+      owner!.publicKeyPem,
+      owner!.takosUserId,
+    ),
+  );
   const delRes = await delApp.fetch(
     new Request(`${APP_URL}/me/delete`, { method: "POST" }),
     envFor(db),
@@ -228,7 +241,10 @@ test("a freed handle is immediately re-registerable as a sub-account", async () 
   const accountsApp = new Hono<{ Bindings: Env; Variables: Variables }>();
   accountsApp.use("*", async (c, next) => {
     c.set("db", db);
-    c.set("actor", fakeActor(ownerApId, "tako"));
+    c.set(
+      "actor",
+      fakeActor(ownerApId, "tako", owner!.publicKeyPem, owner!.takosUserId),
+    );
     await next();
   });
   accountsApp.route("/", authRoutes);
@@ -245,7 +261,16 @@ test("a freed handle is immediately re-registerable as a sub-account", async () 
   const bobApId = localApId("bob");
 
   // Delete bob's account -> tombstone (handle renamed to a deleted-* sentinel).
-  const delBobApp = actorsApp(db, fakeActor(bobApId, "bob"));
+  const bob = await db
+    .select()
+    .from(actors)
+    .where(eq(actors.apId, bobApId))
+    .get();
+  expect(bob).toBeTruthy();
+  const delBobApp = actorsApp(
+    db,
+    fakeActor(bobApId, "bob", bob!.publicKeyPem, bob!.takosUserId),
+  );
   const delBob = await delBobApp.fetch(
     new Request(`${APP_URL}/me/delete`, { method: "POST" }),
     envFor(db),

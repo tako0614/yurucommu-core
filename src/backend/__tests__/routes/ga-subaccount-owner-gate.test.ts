@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 
 /**
  * GA #23 — sub-account creation must be owner-gated.
@@ -16,69 +15,46 @@ import { readFile } from "node:fs/promises";
 
 import { Hono } from "hono";
 
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { count, eq } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actors } from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import authRoutes from "../../routes/auth.ts";
 import { createActor } from "../../routes/auth-helpers.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0003_activity_remote_object_edges.sql",
-  "0004_blocklist.sql",
-  "0005_story_community_scope.sql",
-  "0006_dm_community_read_status.sql",
-  "0007_moderation_reports.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  await client.execute("PRAGMA foreign_keys = ON");
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 const env = { APP_URL } as unknown as Env;
 
-/** Build a minimal context Actor that matches a persisted actor row. */
-function contextActor(
-  apId: string,
-  role: "owner" | "moderator" | "member",
-): Actor {
+/** Convert the persisted Drizzle actor row into the request-context shape. */
+function contextActor(actor: Awaited<ReturnType<typeof createActor>>): Actor {
   return {
-    ap_id: apId,
-    type: "Person",
-    preferred_username: apId.split("/").pop() ?? "x",
-    name: null,
-    summary: null,
-    icon_url: null,
-    header_url: null,
-    inbox: `${apId}/inbox`,
-    outbox: `${apId}/outbox`,
-    followers_url: `${apId}/followers`,
-    following_url: `${apId}/following`,
-    public_key_pem: "pub",
-    private_key_pem: "priv",
-    takos_user_id: null,
-    follower_count: 0,
-    following_count: 0,
-    post_count: 0,
-    is_private: 0,
-    role,
-    created_at: new Date().toISOString(),
+    ap_id: actor.apId,
+    type: actor.type,
+    preferred_username: actor.preferredUsername,
+    name: actor.name,
+    summary: actor.summary,
+    icon_url: actor.iconUrl,
+    header_url: actor.headerUrl,
+    inbox: actor.inbox,
+    outbox: actor.outbox,
+    followers_url: actor.followersUrl,
+    following_url: actor.followingUrl,
+    public_key_pem: actor.publicKeyPem,
+    private_key_pem: actor.privateKeyPem,
+    takos_user_id: actor.takosUserId,
+    follower_count: actor.followerCount,
+    following_count: actor.followingCount,
+    post_count: actor.postCount,
+    is_private: actor.isPrivate,
+    role: actor.role as Actor["role"],
+    created_at: actor.createdAt,
   };
 }
 
@@ -114,7 +90,7 @@ test("owner can create a sub-account", async () => {
     role: "owner",
   });
 
-  const app = appWith(db, contextActor(owner.apId, "owner"));
+  const app = appWith(db, contextActor(owner));
   const res = await postAccount(app, "alter");
   expect(res.status).toBe(200);
 
@@ -143,7 +119,7 @@ test("non-owner member is rejected with 403", async () => {
     role: "member",
   });
 
-  const app = appWith(db, contextActor(member.apId, "member"));
+  const app = appWith(db, contextActor(member));
   const res = await postAccount(app, "stranger_alt");
   expect(res.status).toBe(403);
 
@@ -173,7 +149,7 @@ test("owner switched into their own sub-account can still create accounts", asyn
   });
 
   // The session is currently the sub-account, but its root owner is the owner.
-  const app = appWith(db, contextActor(sub.apId, "member"));
+  const app = appWith(db, contextActor(sub));
   const res = await postAccount(app, "tako_play");
   expect(res.status).toBe(200);
 
@@ -195,7 +171,7 @@ test("per-owner sub-account cap is enforced", async () => {
     role: "owner",
   });
 
-  const app = appWith(db, contextActor(owner.apId, "owner"));
+  const app = appWith(db, contextActor(owner));
 
   // Seed up to the cap (MAX_SUB_ACCOUNTS = 20).
   for (let i = 0; i < 20; i++) {

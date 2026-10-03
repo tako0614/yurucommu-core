@@ -1,13 +1,15 @@
 import { type Context, Hono } from "hono";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
-import type { Database } from "../../db/index.ts";
+import type { Database, D1Statement } from "../../db/index.ts";
 import {
   actors,
   communities,
   communityMembers,
   mediaUploads,
+  mediaUploadAttempts,
   objects,
+  runBatch,
 } from "../../db/index.ts";
 import { generateId } from "../federation-helpers.ts";
 import { canViewerReadObject } from "../lib/community-visibility.ts";
@@ -15,6 +17,11 @@ import { ifNoneMatchIsFresh } from "../lib/conditional-request.ts";
 import { canViewerReadObjectFull } from "../lib/post-visibility.ts";
 import { stripImageMetadata } from "../lib/strip-image-metadata.ts";
 import { logger } from "../lib/logger.ts";
+import {
+  cleanupFailedMediaUpload,
+  guardActorWrites,
+} from "../lib/account-deletion-admission.ts";
+import type { MediaUploadAttempt } from "../lib/media-upload-lifecycle.ts";
 
 const log = logger.child({ component: "media" });
 
@@ -234,14 +241,13 @@ media.post("/upload", async (c) => {
     // re-encode). Videos stay STREAMED: metadata stripping there needs a
     // transcode pipeline, and buffering a 40MB video would pressure the Worker
     // memory budget.
+    let uploadBody: File | ArrayBuffer;
     if (isVideo) {
       // The Blob is handed over whole rather than as a bare stream: an
       // ObjectStore adapter reads `File.size` from it, so the portable
       // `edge.objects` lane can declare the length while streaming instead of
       // buffering the whole video in the Worker to discover it.
-      await media.put(r2Key, file, {
-        contentType,
-      });
+      uploadBody = file;
     } else {
       const original = new Uint8Array(await file.arrayBuffer());
       const cleaned = stripImageMetadata(original, contentType);
@@ -251,28 +257,56 @@ media.post("/upload", async (c) => {
         cleaned.byteOffset,
         cleaned.byteOffset + cleaned.byteLength,
       ) as ArrayBuffer;
-      await media.put(r2Key, cleanedBuffer, {
-        contentType,
-      });
+      uploadBody = cleanedBuffer;
     }
 
-    // Record ownership AFTER the blob lands. If the DB write fails, delete the
-    // now-unreferenced blob: the media GC reaps R2 by iterating media_uploads
-    // rows, so a blob with NO DB record can never be reaped and would leak
-    // forever. (Previously the put + insert ran in Promise.all, so a DB failure
-    // while the put succeeded orphaned the blob.)
-    const db = c.get("db");
+    // Persist the immutable key before any external write. A lost writer's
+    // putting row cannot be expired: storage has no fence against a late put.
+    const db = guardActorWrites(c.get("db"), actor);
+    const attempt: MediaUploadAttempt = {
+      id,
+      r2Key,
+      uploaderApId: actor.ap_id,
+      publicKeyPem: actor.public_key_pem,
+      phase: "putting",
+      createdAt: new Date().toISOString(),
+    };
+    await db.insert(mediaUploadAttempts).values(attempt);
+    const identity = and(
+      eq(mediaUploadAttempts.id, id),
+      eq(mediaUploadAttempts.r2Key, r2Key),
+      eq(mediaUploadAttempts.uploaderApId, actor.ap_id),
+      eq(mediaUploadAttempts.publicKeyPem, actor.public_key_pem),
+    );
     try {
-      await db.insert(mediaUploads).values({
-        id,
-        r2Key,
-        uploaderApId: actor.ap_id,
-        contentType,
-        size: file.size,
-      });
-    } catch (dbError) {
-      await media.delete(r2Key).catch(() => {});
-      throw dbError;
+      await media.put(r2Key, uploadBody, { contentType });
+      // The put settled. Adopt metadata and discard the attempt together, with
+      // a fresh incarnation/reservation assertion in this atomic write batch.
+      await runBatch(db, [
+        db
+          .update(mediaUploadAttempts)
+          .set({ phase: "cleanup" })
+          .where(
+            and(identity, eq(mediaUploadAttempts.phase, "putting")),
+          ) as D1Statement,
+        db.insert(mediaUploads).values({
+          id,
+          r2Key,
+          uploaderApId: actor.ap_id,
+          contentType,
+          size: file.size,
+        }) as D1Statement,
+        db
+          .delete(mediaUploadAttempts)
+          .where(
+            and(identity, eq(mediaUploadAttempts.phase, "cleanup")),
+          ) as D1Statement,
+      ]);
+    } catch (uploadError) {
+      // A rejected put may still have written bytes. The narrow cleanup path
+      // remains legal after reservation, but never erases an unresolved key.
+      await cleanupFailedMediaUpload(c, attempt);
+      throw uploadError;
     }
 
     const url = `/media/${filename}`;

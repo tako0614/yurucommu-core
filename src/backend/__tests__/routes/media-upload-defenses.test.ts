@@ -1,15 +1,16 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { mediaUploads } from "../../../db/index.ts";
+import {
+  actors,
+  mediaUploadAttempts,
+  mediaUploads,
+} from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import type { ObjectStore } from "../../runtime/types.ts";
 import mediaRoutes from "../../routes/media.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 /**
  * POST /api/media/upload input defenses (helpers are module-private, so only a
@@ -19,22 +20,6 @@ import mediaRoutes from "../../routes/media.ts";
  */
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0004_blocklist.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
-
-async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    await client.executeMultiple(await readFile(new URL(file, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
-}
 
 function fakeActor(): Actor {
   const apId = `${APP_URL}/ap/users/tako`;
@@ -60,6 +45,30 @@ function fakeActor(): Actor {
     role: "owner",
     created_at: new Date().toISOString(),
   } as unknown as Actor;
+}
+
+async function freshDbWithClient() {
+  const testDb = await createTestDb();
+  const actor = fakeActor();
+  await testDb.db.insert(actors).values({
+    apId: actor.ap_id,
+    type: actor.type,
+    preferredUsername: actor.preferred_username,
+    inbox: actor.inbox,
+    outbox: actor.outbox,
+    followersUrl: actor.followers_url,
+    followingUrl: actor.following_url,
+    publicKeyPem: actor.public_key_pem,
+    privateKeyPem: actor.private_key_pem,
+    takosUserId: actor.takos_user_id,
+    role: actor.role,
+    createdAt: actor.created_at,
+  });
+  return testDb;
+}
+
+async function freshDb(): Promise<Database> {
+  return (await freshDbWithClient()).db;
 }
 
 function memoryR2() {
@@ -164,17 +173,11 @@ test("rejects an oversize image (413)", async () => {
   expect(res.status).toBe(413);
 });
 
-test("deletes the R2 blob when the DB ownership insert fails (no orphan)", async () => {
-  // Run migrations, then DROP media_uploads so the handler's ownership insert
-  // throws AFTER the R2 put has already succeeded — exactly the partial-failure
-  // that used to orphan the blob (the GC reaps R2 by iterating media_uploads, so
-  // a blob with no row could never be reaped).
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    await client.executeMultiple(await readFile(new URL(file, root), "utf8"));
-  }
-  const db = drizzle(client, { schema }) as unknown as Database;
+test("cleans the R2 blob and attempt when ownership adoption fails", async () => {
+  // Keep upload admission available, then remove only the ownership table.
+  // The put succeeds; atomic ownership adoption fails and compensation must
+  // remove that exact blob before clearing its durable attempt.
+  const { db, client } = await freshDbWithClient();
   await client.execute("DROP TABLE media_uploads");
 
   const put: string[] = [];
@@ -203,11 +206,12 @@ test("deletes the R2 blob when the DB ownership insert fails (no orphan)", async
     env,
   );
 
-  // The insert failed → 500, and the now-unreferenced blob was cleaned up:
-  // exactly the key that was put is the key that was deleted.
+  // The adoption failed → 500; exactly the key that was put was deleted and
+  // no stale attempt blocks account deletion.
   expect(res.status).toBe(500);
   expect(put.length).toBe(1);
   expect(deleted).toEqual(put);
+  expect(await db.select().from(mediaUploadAttempts)).toHaveLength(0);
 });
 
 test("accepts a valid PNG and records it (200)", async () => {

@@ -154,9 +154,9 @@ async function runMediaJobStatements(
   for (
     let offset = 0;
     offset < statements.length;
-    offset += D1_MAX_BATCH_STATEMENTS
+    offset += D1_MAX_BATCH_STATEMENTS - 2
   ) {
-    const page = statements.slice(offset, offset + D1_MAX_BATCH_STATEMENTS);
+    const page = statements.slice(offset, offset + D1_MAX_BATCH_STATEMENTS - 2);
     if (page.length > 0) {
       await runBatch(db, page as [D1Statement, ...D1Statement[]]);
     }
@@ -704,11 +704,11 @@ export async function deleteObjectsCascade(
   for (
     let offset = 0;
     offset < mediaStatements.length;
-    offset += D1_MAX_BATCH_STATEMENTS
+    offset += D1_MAX_BATCH_STATEMENTS - 2
   ) {
     const page = mediaStatements.slice(
       offset,
-      offset + D1_MAX_BATCH_STATEMENTS,
+      offset + D1_MAX_BATCH_STATEMENTS - 2,
     );
     await runBatch(db, page as [D1Statement, ...D1Statement[]]);
   }

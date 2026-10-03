@@ -7,6 +7,8 @@ import {
   InternalError,
   isAppError,
   logError,
+  AccountDeletionConflictError,
+  isAccountDeletionWriteConflict,
 } from "../lib/errors.ts";
 
 interface ErrorMiddlewareOptions {
@@ -32,6 +34,8 @@ function resolveAppError(
   logger: ErrorMiddlewareOptions["logger"],
 ): AppError {
   if (isAppError(err)) return err;
+  if (isAccountDeletionWriteConflict(err))
+    return new AccountDeletionConflictError();
 
   // Client-input parse failures that reach the top-level handler are 400s, not
   // 500s, and are not logged as faults (they're expected client behavior):

@@ -1,3 +1,4 @@
+import { guardObjectWrites } from "../../lib/account-deletion-admission.ts";
 import { and, count, eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { Database } from "../../../db/index.ts";
@@ -74,7 +75,10 @@ export async function setPostLike(input: {
   post: LikeTarget;
   active: boolean;
 }): Promise<PostLikeMutationResult> {
-  const { db, env, actorApId, post, active } = input;
+  const { env, actorApId, post, active } = input;
+  const db = active
+    ? guardObjectWrites(input.db, post.apId, post.attributedTo)
+    : input.db;
   const existing = await db
     .select({ activityApId: likes.activityApId })
     .from(likes)

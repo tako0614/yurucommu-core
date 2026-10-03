@@ -15,6 +15,7 @@ const ErrorCodes = {
   OWNER_CLAIM_CONFLICT: "OWNER_CLAIM_CONFLICT",
   OWNER_STATE_CONFLICT: "OWNER_STATE_CONFLICT",
   ACTOR_IDENTITY_CONFLICT: "ACTOR_IDENTITY_CONFLICT",
+  ACCOUNT_DELETION_CONFLICT: "ACCOUNT_DELETION_CONFLICT",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -114,6 +115,41 @@ export class ActorIdentityConflictError extends AppError {
       409,
     );
   }
+}
+
+export class AccountDeletionConflictError extends AppError {
+  constructor() {
+    super(
+      "Account deletion is in progress; retry deletion",
+      ErrorCodes.ACCOUNT_DELETION_CONFLICT,
+      409,
+    );
+  }
+}
+
+/** Only classify the dedicated SQL admission constraints, not storage faults. */
+export function isAccountDeletionWriteConflict(error: unknown): boolean {
+  let current = error;
+  for (let depth = 0; depth < 8; depth++) {
+    if (current instanceof AccountDeletionConflictError) return true;
+    const message =
+      current instanceof Error ? current.message : String(current);
+    if (
+      message.includes("account deletion reserved") ||
+      /NOT NULL constraint failed: actor_write_assertions\.witness/i.test(
+        message,
+      )
+    )
+      return true;
+    if (
+      typeof current !== "object" ||
+      current === null ||
+      !("cause" in current)
+    )
+      break;
+    current = current.cause;
+  }
+  return false;
 }
 
 // --- Utility functions ---

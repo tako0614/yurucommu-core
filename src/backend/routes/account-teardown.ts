@@ -16,11 +16,14 @@ import {
 import type { BatchItem } from "drizzle-orm/batch";
 import {
   activities,
+  accountDeletionTargets,
+  actorNotes,
   actors,
   announces,
   blocks,
   bookmarks,
   communities,
+  callSessions,
   communityBans,
   communityInvites,
   communityJoinRequests,
@@ -33,6 +36,7 @@ import {
   inbox,
   likes,
   mediaUploads,
+  mobilePushRegistrations,
   mutes,
   notificationArchived,
   notificationPushers,
@@ -82,6 +86,7 @@ export async function purgeActorMediaUploads(
   db: Database,
   media: ObjectStore | undefined,
   apId: string,
+  beforeExternalWait?: () => Promise<void>,
 ): Promise<void> {
   const uploads = await db
     .select({ id: mediaUploads.id, r2Key: mediaUploads.r2Key })
@@ -94,6 +99,7 @@ export async function purgeActorMediaUploads(
     const R2_DELETE_BATCH = 1000;
     try {
       for (let i = 0; i < keys.length; i += R2_DELETE_BATCH) {
+        await beforeExternalWait?.();
         await media.delete(keys.slice(i, i + R2_DELETE_BATCH));
       }
     } catch (err) {
@@ -206,6 +212,7 @@ async function ensureDeleteFollowerSnapshot(
   baseUrl: string,
   subjectApId: string,
   followersUrl: string,
+  persistedDeleteActivityId?: string,
 ): Promise<string> {
   const existingDelete = await db
     .select({ apId: activities.apId })
@@ -220,7 +227,9 @@ async function ensureDeleteFollowerSnapshot(
     .orderBy(asc(activities.createdAt))
     .get();
   const deleteActivityId =
-    existingDelete?.apId ?? activityApId(baseUrl, generateId());
+    existingDelete?.apId ??
+    persistedDeleteActivityId ??
+    activityApId(baseUrl, generateId());
   const deleteActivity = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: deleteActivityId,
@@ -276,7 +285,11 @@ export async function teardownActor(
   baseUrl: string,
   apId: string,
   followersUrl: string,
-  options: { finalizeActor?: boolean } = {},
+  options: {
+    finalizeActor?: boolean;
+    deleteActivityApId?: string;
+    beforeExternalWait?: () => Promise<void>;
+  } = {},
 ): Promise<void> {
   // Federate the Delete BEFORE local teardown, snapshotting follower inboxes
   // into delivery jobs while the follower graph + activity row still exist. The
@@ -288,7 +301,15 @@ export async function teardownActor(
   // see an already-erased follower graph, then the cleanup below could delete
   // the original Activity and its only endpoint/resolution jobs.
   try {
-    await ensureDeleteFollowerSnapshot(db, env, baseUrl, apId, followersUrl);
+    await options.beforeExternalWait?.();
+    await ensureDeleteFollowerSnapshot(
+      db,
+      env,
+      baseUrl,
+      apId,
+      followersUrl,
+      options.deleteActivityApId,
+    );
   } catch (err) {
     // Queue publication is already best-effort inside the snapshot helper, but
     // the durable Activity/outbox write is not. Continuing would erase the
@@ -435,7 +456,22 @@ export async function teardownActor(
 
   // Media: purge backing R2 first, then remove the durable upload metadata.
   // A storage failure propagates and leaves the row for the retry path.
-  await purgeActorMediaUploads(db, env.MEDIA, apId);
+  await purgeActorMediaUploads(db, env.MEDIA, apId, options.beforeExternalWait);
+
+  // These actor-scoped rows survive a tombstone (and mobile registrations can
+  // still address a device). They cannot be left for a later actor-row reap.
+  await db.delete(actorNotes).where(eq(actorNotes.actorApId, apId));
+  await db
+    .delete(mobilePushRegistrations)
+    .where(eq(mobilePushRegistrations.actorApId, apId));
+  await db
+    .delete(callSessions)
+    .where(
+      or(
+        eq(callSessions.localActorApId, apId),
+        eq(callSessions.peerActorApId, apId),
+      ),
+    );
 
   // Story interactions the actor performed on OTHER/remote stories.
   await db.delete(storyVotes).where(eq(storyVotes.actorApId, apId));
@@ -487,6 +523,17 @@ export async function teardownActor(
           eq(communityMembers.communityApId, m.communityApId),
           eq(communityMembers.role, "owner"),
           ne(communityMembers.actorApId, apId),
+          notExists(
+            db
+              .select({ apId: accountDeletionTargets.actorApId })
+              .from(accountDeletionTargets)
+              .where(
+                eq(
+                  accountDeletionTargets.actorApId,
+                  communityMembers.actorApId,
+                ),
+              ),
+          ),
         ),
       )
       .get();
@@ -498,6 +545,17 @@ export async function teardownActor(
         and(
           eq(communityMembers.communityApId, m.communityApId),
           ne(communityMembers.actorApId, apId),
+          notExists(
+            db
+              .select({ apId: accountDeletionTargets.actorApId })
+              .from(accountDeletionTargets)
+              .where(
+                eq(
+                  accountDeletionTargets.actorApId,
+                  communityMembers.actorApId,
+                ),
+              ),
+          ),
         ),
       )
       .orderBy(asc(communityMembers.joinedAt))
@@ -510,6 +568,15 @@ export async function teardownActor(
           and(
             eq(communityMembers.communityApId, m.communityApId),
             eq(communityMembers.actorApId, heir.actorApId),
+          ),
+        );
+      await db
+        .update(communities)
+        .set({ createdBy: heir.actorApId })
+        .where(
+          and(
+            eq(communities.apId, m.communityApId),
+            eq(communities.createdBy, apId),
           ),
         );
     } else {
@@ -531,6 +598,17 @@ export async function teardownActor(
         and(
           eq(communityMembers.communityApId, communityApId),
           ne(communityMembers.actorApId, apId),
+          notExists(
+            db
+              .select({ apId: accountDeletionTargets.actorApId })
+              .from(accountDeletionTargets)
+              .where(
+                eq(
+                  accountDeletionTargets.actorApId,
+                  communityMembers.actorApId,
+                ),
+              ),
+          ),
         ),
       )
       .limit(1);
@@ -567,6 +645,16 @@ export async function teardownActor(
       .get();
     if (!retired?.deletedAt) continue;
 
+    await db
+      .update(communities)
+      .set({ createdBy: "" })
+      .where(
+        and(
+          eq(communities.apId, communityApId),
+          eq(communities.createdBy, apId),
+        ),
+      );
+
     try {
       await ensureDeleteFollowerSnapshot(
         db,
@@ -588,76 +676,100 @@ export async function teardownActor(
   }
 
   if (memberships.length > 0) {
-    // Keep the denormalized count and its membership authority edge atomic.
-    // Otherwise a failed DELETE leaves the edge visible to a retry, which
-    // would decrement the same community for a second time.
-    const membershipCleanup: BatchStatement[] = [
-      db
-        .update(communities)
-        .set({ memberCount: sql`${communities.memberCount} - 1` })
-        .where(
-          and(
-            inArray(
-              communities.apId,
-              db
-                .select({ id: communityMembers.communityApId })
-                .from(communityMembers)
-                .where(eq(communityMembers.actorApId, apId)),
-            ),
-            gt(communities.memberCount, 0),
-          ),
-        ) as unknown as BatchStatement,
-    ];
-
-    // A retired Group keeps its row + signing keys while the durable Delete
-    // drains, but no membership, moderation/read state, or follow authority
-    // should remain. Chunk every IN predicate for D1's 100-bind limit and keep
-    // all retirement cleanup in the same batch as memberCount + membership.
-    // The follows DELETE binds each id twice (follower OR following), so use
-    // 45 rather than the normal 90 to stay below D1's 100-bind query ceiling.
-    for (const chunk of chunkForInClause(retiredCommunityApIds, 45)) {
-      membershipCleanup.push(
+    // Each community is an independent seven-statement unit. The counter,
+    // retired Group graph, and actor membership edge commit or roll back
+    // together; a failed last DELETE preserves the whole unit for retry.
+    // Paging by one community keeps legacy sets below D1's 50-statement cap.
+    const retired = new Set(retiredCommunityApIds);
+    for (const membership of memberships) {
+      const communityApId = membership.communityApId;
+      const statements: BatchStatement[] = [
         db
-          .delete(follows)
+          .update(communities)
+          .set({ memberCount: sql`${communities.memberCount} - 1` })
           .where(
-            or(
-              inArray(follows.followerApId, chunk),
-              inArray(follows.followingApId, chunk),
+            and(
+              eq(communities.apId, communityApId),
+              gt(communities.memberCount, 0),
+              exists(
+                db
+                  .select({ actorApId: communityMembers.actorApId })
+                  .from(communityMembers)
+                  .where(
+                    and(
+                      eq(communityMembers.communityApId, communityApId),
+                      eq(communityMembers.actorApId, apId),
+                    ),
+                  ),
+              ),
             ),
           ) as unknown as BatchStatement,
+      ];
+      if (retired.has(communityApId)) {
+        statements.push(
+          db
+            .delete(follows)
+            .where(
+              or(
+                eq(follows.followerApId, communityApId),
+                eq(follows.followingApId, communityApId),
+              ),
+            ) as unknown as BatchStatement,
+          db
+            .delete(communityJoinRequests)
+            .where(
+              eq(communityJoinRequests.communityApId, communityApId),
+            ) as unknown as BatchStatement,
+          db
+            .delete(communityInvites)
+            .where(
+              eq(communityInvites.communityApId, communityApId),
+            ) as unknown as BatchStatement,
+          db
+            .delete(communityBans)
+            .where(
+              eq(communityBans.communityApId, communityApId),
+            ) as unknown as BatchStatement,
+          db
+            .delete(dmCommunityReadStatus)
+            .where(
+              eq(dmCommunityReadStatus.communityApId, communityApId),
+            ) as unknown as BatchStatement,
+        );
+      }
+      statements.push(
         db
-          .delete(communityJoinRequests)
+          .delete(communityMembers)
           .where(
-            inArray(communityJoinRequests.communityApId, chunk),
-          ) as unknown as BatchStatement,
-        db
-          .delete(communityInvites)
-          .where(
-            inArray(communityInvites.communityApId, chunk),
-          ) as unknown as BatchStatement,
-        db
-          .delete(communityBans)
-          .where(
-            inArray(communityBans.communityApId, chunk),
-          ) as unknown as BatchStatement,
-        db
-          .delete(dmCommunityReadStatus)
-          .where(
-            inArray(dmCommunityReadStatus.communityApId, chunk),
+            and(
+              eq(communityMembers.actorApId, apId),
+              eq(communityMembers.communityApId, communityApId),
+            ),
           ) as unknown as BatchStatement,
       );
+      await (db as unknown as BatchableDb).batch(
+        statements as [BatchStatement, ...BatchStatement[]],
+      );
     }
-    membershipCleanup.push(
-      db
-        .delete(communityMembers)
-        .where(
-          eq(communityMembers.actorApId, apId),
-        ) as unknown as BatchStatement,
-    );
-    await (db as unknown as BatchableDb).batch(
-      membershipCleanup as [BatchStatement, ...BatchStatement[]],
-    );
   }
+
+  // The historical creator field is also used as an authorization hint for a
+  // live community. Give it to a surviving member after this actor's member
+  // edge has gone; an empty sentinel is valid for a retired Group and avoids
+  // retaining the deleted local identity in that long-lived tombstone.
+  await db
+    .update(communities)
+    .set({
+      createdBy: sql`COALESCE((
+        SELECT heir.actor_ap_id FROM community_members AS heir
+        WHERE heir.community_ap_id = ${communities.apId}
+          AND heir.actor_ap_id <> ${apId}
+        ORDER BY CASE WHEN heir.role = 'owner' THEN 0 ELSE 1 END,
+                 heir.joined_at ASC
+        LIMIT 1
+      ), '')`,
+    })
+    .where(eq(communities.createdBy, apId));
 
   await db
     .delete(objectRecipients)
