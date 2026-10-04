@@ -296,7 +296,8 @@ function attachLocalDeliveryQueues(env: LocalServerEnv): void {
 //   - processing older than the stale threshold: a delivery that was claimed
 //     by a worker that died before acking/finishing (queue-delivery.ts treats
 //     such rows as reclaimable via STALE_PROCESSING_MS).
-// Rows in delivered / dead_letter / failed are terminal and skipped.
+// Settled delivered/dead_letter/failed rows are skipped. Due dead_letter
+// repair intents are republished until a reconcile CAS consumes them.
 //
 // This is guarded to the local/bun queue path only — under Cloudflare Queues
 // the platform persists in-flight messages and re-delivers them itself, so the
