@@ -117,7 +117,7 @@ test("explicit story delete reaps local data and leaves durable fanout pending t
   });
 
   const storyApId = `${APP_URL}/ap/objects/story-1`;
-  const r2Key = "uploads/secret-story.jpg";
+  const r2Key = `uploads/${"a".repeat(64)}.jpg`;
   await db.insert(objects).values({
     apId: storyApId,
     type: "Story",
@@ -127,7 +127,7 @@ test("explicit story delete reaps local data and leaves durable fanout pending t
       {
         type: "Document",
         mediaType: "image/jpeg",
-        url: "/media/secret-story.jpg",
+        url: `/media/${r2Key.slice("uploads/".length)}`,
         r2_key: r2Key,
       },
     ]),

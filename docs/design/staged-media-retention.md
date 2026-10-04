@@ -79,11 +79,11 @@ cannot safely revive collected keys, so use forward repair and retained
 provider/database backup evidence rather than deleting tombstones.
 
 This protocol covers newly settled uploads that were **never published**. Once
-published, existing object deletion, profile replacement, Story expiry and
-account teardown keep their current semantics. Their general reattachment
-versus external deletion races, legacy orphan adjudication, actual provider
-behavior, real existing-data update/restore, Core/API publication and consumer
-adoption remain separate dependencies. Generic Core and Yurumeet registration
+published, migration0035's [published deletion protocol](published-media-deletion.md)
+coordinates object/profile/Story/account cleanup through permanent key claims.
+Unsupported legacy-key adjudication, actual provider behavior, real existing-data
+update/restore, Core/API publication and consumer adoption remain separate
+dependencies. Generic Core and Yurumeet registration
 semantics are unchanged; Yurucommu's single-owner premise remains product-owned.
 
 Portable tests establish local behavior. Isolated D1/workerd qualification must

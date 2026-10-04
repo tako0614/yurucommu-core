@@ -8,6 +8,8 @@ import {
   actors,
   communities,
   communityMembers,
+  mediaBlobDeletionClaims,
+  mediaBlobDeletionJobs,
   mediaUploadAttempts,
   mediaUploads,
   sessions,
@@ -22,10 +24,18 @@ import {
 } from "../../routes/account-deletion-lifecycle.ts";
 import type { Env } from "../../types.ts";
 import type { ObjectStore } from "../../runtime/types.ts";
-import { createTestDb } from "../helpers/d1-semantics.ts";
+import { createTestDb, readMigration } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://durable.test";
 const SESSION_SALT = "durable-account-deletion-test-salt";
+
+function canonicalKey(label: string): string {
+  const digest = [...new TextEncoder().encode(label)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .padEnd(64, "0");
+  return `uploads/${digest}.jpg`;
+}
 
 function deferred() {
   let resolve!: () => void;
@@ -109,7 +119,7 @@ function request(rawId: string) {
 async function upload(db: Database, apId: string, id: string) {
   await db.insert(mediaUploads).values({
     id,
-    r2Key: `durable/${id}`,
+    r2Key: canonicalKey(id),
     uploaderApId: apId,
     contentType: "image/jpeg",
     size: 1,
@@ -149,6 +159,8 @@ test("an expired lease transfers work; the stale worker cannot acknowledge metad
     expect(await db.select().from(accountDeletions)).toHaveLength(0);
     expect(await db.select().from(accountDeletionTargets)).toHaveLength(0);
     expect(await db.select().from(mediaUploads)).toHaveLength(0);
+    expect(await db.select().from(mediaBlobDeletionClaims)).toHaveLength(1);
+    expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
     expect(await db.select().from(sessions)).toHaveLength(0);
   } finally {
     release.resolve();
@@ -181,11 +193,14 @@ test("retention finishes a failed plan after the only session expires", async ()
   const retained = await db.select().from(accountDeletions).get();
   expect(retained).toBeDefined();
   expect(await db.select().from(accountDeletionTargets)).toHaveLength(1);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
+  expect(await db.select().from(mediaBlobDeletionClaims)).toHaveLength(1);
   await Bun.sleep(1_600);
   expect((await app.fetch(request(rawId), env)).status).toBe(401);
   const expiredEnv = envFor(db, env.MEDIA);
   expect(await resumeAbandonedAccountDeletions(expiredEnv)).toBe(1);
   expect(await db.select().from(accountDeletions)).toHaveLength(0);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
   expect(await db.select().from(sessions)).toHaveLength(0);
   expect(
     (
@@ -346,4 +361,131 @@ test("an aged in-flight upload keeps deletion reserved until its writer settles"
   await expect(resumeAbandonedAccountDeletions(env)).rejects.toThrow();
   expect(await db.select().from(mediaUploadAttempts)).toHaveLength(1);
   expect(await db.select().from(accountDeletionTargets)).toHaveLength(1);
+});
+
+test("unsupported legacy key keeps an account deletion reserved", async () => {
+  const { db } = await createTestDb();
+  const actor = await owner(db);
+  const rawId = "durable-legacy-media-session";
+  await session(db, actor.apId, rawId);
+  const r2Key = "uploads/legacy key with spaces.jpg";
+  await db.insert(mediaUploads).values({
+    id: "legacy-unclaimable-media",
+    r2Key,
+    uploaderApId: actor.apId,
+    contentType: "image/jpeg",
+    size: 1,
+  });
+  let deleteCalls = 0;
+  const env = envFor(
+    db,
+    mediaStore(async () => {
+      deleteCalls += 1;
+    }),
+  );
+
+  expect(
+    (
+      await createYurucommuBackendApp({ singleOwner: true }).fetch(
+        request(rawId),
+        env,
+      )
+    ).status,
+  ).toBe(500);
+  expect(deleteCalls).toBe(0);
+  expect(await db.select().from(mediaUploads)).toHaveLength(1);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
+  expect(await db.select().from(mediaBlobDeletionClaims)).toHaveLength(0);
+  expect(await db.select().from(accountDeletionTargets)).toHaveLength(1);
+  expect(await db.select().from(sessions)).toHaveLength(1);
+});
+
+test("retention reconciles a pre-0035 target's job without resurrecting its key", async () => {
+  const { db, client, applied } = await createTestDb({
+    through: "0034_staged_media_retention.sql",
+  });
+  expect(applied[applied.length - 1]).toBe("0034_staged_media_retention.sql");
+  const actor = await owner(db);
+  const operationId = "pre-0035-account-deletion";
+  const r2Key = canonicalKey("pre-0035-media");
+  await db.insert(accountDeletions).values({
+    id: operationId,
+    rootActorApId: actor.apId,
+    rootPublicKeyPem: actor.publicKeyPem,
+    workerToken: "expired-worker-token",
+    leaseExpiresAt: new Date(0).toISOString(),
+  });
+  await db.insert(accountDeletionTargets).values({
+    actorApId: actor.apId,
+    operationId,
+    publicKeyPem: actor.publicKeyPem,
+    followersUrl: actor.followersUrl,
+    deleteActivityApId: `${APP_URL}/ap/activities/pre-0035-delete`,
+    cascadeComplete: true,
+  });
+  await db.insert(mediaBlobDeletionJobs).values({
+    r2Key,
+    uploaderApId: actor.apId,
+  });
+
+  // Simulate an upgrade after the old worker already removed upload metadata
+  // but left its durable physical-delete retry job behind.
+  expect(await db.select().from(mediaUploads)).toHaveLength(0);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
+  await client.executeMultiple(
+    await readMigration("0035_published_media_deletion_claims.sql"),
+  );
+
+  const deleted: string[][] = [];
+  const env = envFor(
+    db,
+    mediaStore(async (keys) => {
+      deleted.push([...keys]);
+    }),
+  );
+  expect(await resumeAbandonedAccountDeletions(env)).toBe(1);
+
+  expect(deleted).toEqual([[r2Key]]);
+  expect(await db.select().from(mediaBlobDeletionClaims)).toEqual([
+    expect.objectContaining({
+      r2Key,
+      uploaderApId: actor.apId,
+      uploadId: null,
+    }),
+  ]);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
+  expect(await db.select().from(mediaUploads)).toHaveLength(0);
+  expect(await db.select().from(accountDeletionTargets)).toHaveLength(0);
+  expect(await db.select().from(accountDeletions)).toHaveLength(0);
+  const replayError = await db
+    .insert(mediaUploads)
+    .values({
+      id: "pre-0035-media-replay",
+      r2Key,
+      uploaderApId: actor.apId,
+      contentType: "image/jpeg",
+      size: 1,
+    })
+    .execute()
+    .then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+  expect(replayError).toBeInstanceOf(Error);
+  const replayMessages: string[] = [];
+  let replayCause: unknown = replayError;
+  while (replayCause instanceof Error) {
+    replayMessages.push(replayCause.message);
+    replayCause = replayCause.cause;
+  }
+  expect(replayMessages.join("\n")).toContain("staged media deleted");
+  expect(
+    (
+      await db
+        .select({ deletedAt: actors.deletedAt })
+        .from(actors)
+        .where(eq(actors.apId, actor.apId))
+        .get()
+    )?.deletedAt,
+  ).toBeTruthy();
 });

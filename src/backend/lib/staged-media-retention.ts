@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
 import {
   mediaUploadLifetimes,
-  rawBatchStatement,
+  mediaStagedSourceInputs,
+  mediaStagedBackfill,
   runBatch,
   type Database,
 } from "../../db/index.ts";
@@ -34,34 +35,29 @@ export async function backfillStagedMediaReferences(
     const source = sql.raw(table);
     const value = sql.raw(payload);
     await runBatch(db, [
-      rawBatchStatement(
-        db,
-        sql`INSERT INTO media_staged_source_inputs
-        (source_kind,source_id,payload,is_json,allow_ambiguous)
-        SELECT ${kind},ap_id,coalesce(${value},'[]'),1,1 FROM ${source}
+      db.insert(mediaStagedSourceInputs)
+        .select(sql`SELECT ${kind},ap_id,coalesce(${value},'[]'),1,1 FROM ${source}
         WHERE ap_id>=coalesce((SELECT cursor FROM media_staged_backfill WHERE source_kind=${kind}),'')
           AND ((SELECT cursor FROM media_staged_backfill WHERE source_kind=${kind}) IS NULL
           OR ap_id>(SELECT cursor FROM media_staged_backfill WHERE source_kind=${kind}))
-        ORDER BY ap_id LIMIT ${REFERENCE_BACKFILL_PAGE}`,
-      ),
-      rawBatchStatement(
-        db,
-        sql`UPDATE media_staged_backfill SET cursor=coalesce((
+        ORDER BY ap_id LIMIT ${REFERENCE_BACKFILL_PAGE}`),
+      db
+        .update(mediaStagedBackfill)
+        .set({
+          cursor: sql`coalesce((
         SELECT max(ap_id) FROM (
           SELECT ap_id FROM ${source} WHERE ap_id>=coalesce(media_staged_backfill.cursor,'')
             AND (media_staged_backfill.cursor IS NULL OR ap_id>media_staged_backfill.cursor)
           ORDER BY ap_id LIMIT ${REFERENCE_BACKFILL_PAGE}
         )
-      ),cursor) WHERE source_kind=${kind}`,
-      ),
-      rawBatchStatement(
-        db,
-        sql`UPDATE media_staged_backfill SET complete=1
-        WHERE source_kind=${kind} AND NOT EXISTS (
+      ),cursor)`,
+        })
+        .where(sql`source_kind=${kind}`),
+      db.update(mediaStagedBackfill).set({ complete: 1 }).where(sql`
+        source_kind=${kind} AND NOT EXISTS (
           SELECT 1 FROM ${source} WHERE ap_id>=coalesce(media_staged_backfill.cursor,'')
             AND (media_staged_backfill.cursor IS NULL OR ap_id>media_staged_backfill.cursor)
-        )`,
-      ),
+        )`),
     ]);
   }
 }

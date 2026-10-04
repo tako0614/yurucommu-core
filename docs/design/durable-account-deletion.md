@@ -38,9 +38,13 @@ Failures preserve the operation and targets. All actors stay live and original
 sessions remain deletion-only retry authority until every cascade completes.
 The final atomic batch tombstones all targets, removes their sessions and then
 releases the plan. Retention resumes up to two expired operations per pass even
-after login sessions expire. Storage keys are snapshotted before external delete,
-and acknowledgment removes only the matching ID/key rows. A stale worker cannot
-acknowledge a successor's work.
+after login sessions expire. Migration0035 removes the target's authored/profile
+source references before
+claiming supported media keys. Metadata is removed at the atomic permanent key
+claim; provider success acknowledges only the matching durable deletion jobs.
+Surviving community/foreign references or unsupported historical keys preserve
+metadata/bytes and block cascade completion for explicit reconciliation. A stale
+worker cannot acknowledge a successor's work.
 
 ## Upload coordination
 

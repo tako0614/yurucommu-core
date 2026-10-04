@@ -18,6 +18,8 @@ import {
   follows,
   mediaUploads,
   objects,
+  runBatch,
+  type D1Statement,
 } from "../../../db/index.ts";
 import type { Database } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
@@ -36,6 +38,7 @@ import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 import { communityRequiresMembership } from "../../lib/community-visibility.ts";
 import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
 import { reapReplacedMediaUrl } from "../posts/delete-cascade.ts";
+import { communityIconDeletionIntent } from "../../lib/media-deletion-claims.ts";
 
 /**
  * Narrow view over the concrete D1/libsql drizzle client's atomic batch API.
@@ -644,10 +647,23 @@ communitiesRouter.patch("/:identifier/settings", async (c) => {
     priorIconUrl = current?.iconUrl ?? null;
   }
 
-  await db
+  const updateCommunity = db
     .update(communities)
     .set(updates)
-    .where(eq(communities.apId, community.apId));
+    .where(eq(communities.apId, community.apId)) as D1Statement;
+  if (updates.iconUrl !== undefined) {
+    await runBatch(db, [
+      communityIconDeletionIntent(
+        db,
+        community.apId,
+        actor.ap_id,
+        updates.iconUrl,
+      ),
+      updateCommunity,
+    ]);
+  } else {
+    await updateCommunity;
+  }
 
   if (priorIconUrl && priorIconUrl !== updates.iconUrl) {
     await reapReplacedMediaUrl(db, priorIconUrl, actor.ap_id, c.env.MEDIA);

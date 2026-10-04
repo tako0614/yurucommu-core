@@ -3,11 +3,9 @@ import { expect, test } from "bun:test";
 /**
  * GA MEDIA-GC #6 — object delete must purge the backing R2 blobs.
  *
- * `deleteObjectCascade` / `cleanupExpiredStories` delete the object-attached
- * `media_uploads` DB rows, but historically left the backing R2 objects behind
- * forever (there is no orphaned-key GC). They now best-effort delete the blobs
- * by `r2_key` through the threaded `MEDIA` (ObjectStore) binding, mirroring
- * the account-delete teardown in `routes/actors.ts`.
+ * Object cascades record durable deletion intent while retaining upload
+ * metadata. After the source object is removed, a global-reference claim may
+ * remove metadata and authorize physical deletion through MEDIA.
  *
  * These tests assert the reaped uploads' `r2_key`s are requested for deletion on
  * the object-store binding, that an unrelated object's blob is NOT requested,
@@ -22,6 +20,7 @@ import {
   announces,
   bookmarks,
   likes,
+  mediaBlobDeletionJobs,
   mediaUploads,
   objectRecipients,
   objects,
@@ -39,6 +38,14 @@ import { cleanupExpiredStories } from "../../routes/stories/query-helpers.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
+
+function canonicalKey(label: string, extension = "jpg"): string {
+  const digest = [...new TextEncoder().encode(label)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .padEnd(64, "0");
+  return `uploads/${digest}.${extension}`;
+}
 
 async function freshDb(): Promise<Database> {
   return (await createTestDb()).db;
@@ -87,7 +94,7 @@ async function seedWithMedia(
     endTime: type === "Story" ? "1970-01-01T00:00:00.000Z" : null,
   });
   await db.insert(mediaUploads).values({
-    id: `media-${r2Key}`,
+    id: `media-${objectApId.slice(objectApId.lastIndexOf("/") + 1)}`,
     r2Key,
     uploaderApId: authorApId,
     contentType: "image/jpeg",
@@ -146,8 +153,8 @@ test("deleteObjectCascade requests R2 deletion of the reaped upload's r2_key", a
 
   const target = `${APP_URL}/ap/objects/with-media`;
   const survivor = `${APP_URL}/ap/objects/survivor`;
-  const targetKey = "uploads/target.jpg";
-  const survivorKey = "uploads/survivor.jpg";
+  const targetKey = canonicalKey("target");
+  const survivorKey = canonicalKey("survivor");
 
   await seedWithMedia(db, target, author, other, targetKey);
   await seedWithMedia(db, survivor, author, other, survivorKey);
@@ -157,8 +164,16 @@ test("deleteObjectCascade requests R2 deletion of the reaped upload's r2_key", a
   // New contract: cascade returns the keys; the caller purges AFTER deleting
   // the objects row.
   const keys = await deleteObjectCascade(db, target, storage);
+  expect(deleted).toEqual([]);
+  expect(
+    await db
+      .select()
+      .from(mediaUploads)
+      .where(eq(mediaUploads.r2Key, targetKey))
+      .get(),
+  ).toBeDefined();
   await db.delete(objects).where(eq(objects.apId, target));
-  await purgeMediaBlobs(storage, keys);
+  await purgeMediaBlobs(db, storage, keys);
 
   // The reaped object's blob was requested for deletion ...
   expect(deleted).toContain(targetKey);
@@ -174,41 +189,45 @@ test("deleteObjectCascade requests R2 deletion of the reaped upload's r2_key", a
   expect(row).toBeUndefined();
 });
 
-test("deleteObjectCascade with no MEDIA binding still deletes the DB row", async () => {
+test("deleteObjectCascade retains metadata and intent without MEDIA", async () => {
   const db = await freshDb();
   const author = await insertActor(db, "author");
   const other = await insertActor(db, "other");
 
   const target = `${APP_URL}/ap/objects/no-binding`;
-  const key = "uploads/no-binding.jpg";
+  const key = canonicalKey("no-binding");
   await seedWithMedia(db, target, author, other, key);
 
-  // No storage argument: must not throw and must still reap the DB row.
-  await deleteObjectCascade(db, target);
+  // Without MEDIA, retain both the upload metadata and durable job.
+  const keys = await deleteObjectCascade(db, target);
+  await db.delete(objects).where(eq(objects.apId, target));
+  await purgeMediaBlobs(db, undefined, keys);
 
   const row = await db
     .select()
     .from(mediaUploads)
     .where(eq(mediaUploads.r2Key, key))
     .get();
-  expect(row).toBeUndefined();
+  expect(row).toBeDefined();
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
 });
 
-test("deleteObjectCascade swallows R2 delete errors (DB delete still succeeds)", async () => {
+test("deleteObjectCascade keeps the claimed retry job after R2 failure", async () => {
   const db = await freshDb();
   const author = await insertActor(db, "author");
   const other = await insertActor(db, "other");
 
   const target = `${APP_URL}/ap/objects/throwing`;
-  const key = "uploads/throwing.jpg";
+  const key = canonicalKey("throwing");
   await seedWithMedia(db, target, author, other, key);
 
   const { storage } = recordingStorage({ throwOnDelete: true });
 
-  // R2 error must NOT propagate / fail the DB delete. The purge now lives in the
-  // trailing purgeMediaBlobs step, so exercise it with a throwing storage too.
+  // The source mutation and permanent claim commit before external storage.
+  // Provider failure is swallowed and the durable job remains for retry.
   const keys = await deleteObjectCascade(db, target, storage);
-  await purgeMediaBlobs(storage, keys); // throwOnDelete — must swallow, not throw
+  await db.delete(objects).where(eq(objects.apId, target));
+  await purgeMediaBlobs(db, storage, keys); // provider failure keeps durable intent
 
   const row = await db
     .select()
@@ -216,6 +235,7 @@ test("deleteObjectCascade swallows R2 delete errors (DB delete still succeeds)",
     .where(eq(mediaUploads.r2Key, key))
     .get();
   expect(row).toBeUndefined();
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
 });
 
 test("deleteObjectCascade reaps a blob referenced by ONLY its /media URL (no r2_key field)", async () => {
@@ -226,14 +246,16 @@ test("deleteObjectCascade reaps a blob referenced by ONLY its /media URL (no r2_
   const author = await insertActor(db, "author");
 
   const objApId = `${APP_URL}/ap/objects/url-only`;
-  const r2Key = "uploads/urlonly.jpg";
+  const r2Key = canonicalKey("urlonly");
   await db.insert(objects).values({
     apId: objApId,
     type: "Note",
     attributedTo: author,
     content: "hi",
     // ONLY the /media URL — no r2_key field at all.
-    attachmentsJson: JSON.stringify([{ url: "/media/urlonly.jpg" }]),
+    attachmentsJson: JSON.stringify([
+      { url: `/media/${r2Key.slice("uploads/".length)}` },
+    ]),
     isLocal: 1,
   });
   await db.insert(mediaUploads).values({
@@ -246,7 +268,8 @@ test("deleteObjectCascade reaps a blob referenced by ONLY its /media URL (no r2_
 
   const { storage, deleted } = recordingStorage();
   const keys = await deleteObjectCascade(db, objApId, storage);
-  await purgeMediaBlobs(storage, keys);
+  await db.delete(objects).where(eq(objects.apId, objApId));
+  await purgeMediaBlobs(db, storage, keys);
 
   expect(deleted).toContain(r2Key);
   expect(
@@ -263,8 +286,8 @@ test("reapReplacedMediaUrl reaps an unreferenced replaced avatar but KEEPS one s
   // path reclaims a replaced one. reapReplacedMediaUrl handles the replace.
   const db = await freshDb();
   const author = await insertActor(db, "author");
-  const oldUrl = "/media/old.png";
-  const r2Key = "uploads/old.png";
+  const r2Key = canonicalKey("old", "png");
+  const oldUrl = `/media/${r2Key.slice("uploads/".length)}`;
   await db.insert(mediaUploads).values({
     id: "media-old",
     r2Key,
@@ -293,25 +316,27 @@ test("reapReplacedMediaUrl reaps an unreferenced replaced avatar but KEEPS one s
   // Case B: an identical blob is still referenced as the header → it is KEPT.
   await db.insert(mediaUploads).values({
     id: "media-shared",
-    r2Key: "uploads/shared.png",
+    r2Key: canonicalKey("shared", "png"),
     uploaderApId: author,
     contentType: "image/png",
     size: 1,
   });
+  const sharedProfileKey = canonicalKey("shared", "png");
+  const sharedProfileUrl = `/media/${sharedProfileKey.slice("uploads/".length)}`;
   await db
     .update(actors)
-    .set({ iconUrl: "/media/new.png", headerUrl: "/media/shared.png" })
+    .set({ iconUrl: "/media/new.png", headerUrl: sharedProfileUrl })
     .where(eq(actors.apId, author));
   const { storage: s2, deleted: d2 } = recordingStorage();
   // Pretend the icon was set to shared.png then changed away — but header still
   // uses shared.png, so the blob must NOT be reaped.
-  await reapReplacedMediaUrl(db, "/media/shared.png", author, s2);
-  expect(d2).not.toContain("uploads/shared.png");
+  await reapReplacedMediaUrl(db, sharedProfileUrl, author, s2);
+  expect(d2).not.toContain(sharedProfileKey);
   expect(
     await db
       .select()
       .from(mediaUploads)
-      .where(eq(mediaUploads.r2Key, "uploads/shared.png"))
+      .where(eq(mediaUploads.r2Key, sharedProfileKey))
       .get(),
   ).toBeDefined();
 });
@@ -319,8 +344,8 @@ test("reapReplacedMediaUrl reaps an unreferenced replaced avatar but KEEPS one s
 test("reapReplacedMediaUrl keeps a blob still embedded in one of the uploader's posts", async () => {
   const db = await freshDb();
   const author = await insertActor(db, "author");
-  const url = "/media/inpost.png";
-  const r2Key = "uploads/inpost.png";
+  const r2Key = canonicalKey("inpost", "png");
+  const url = `/media/${r2Key.slice("uploads/".length)}`;
   await db.insert(mediaUploads).values({
     id: "media-inpost",
     r2Key,
@@ -356,7 +381,7 @@ test("cleanupExpiredStories requests R2 deletion of expired stories' r2_keys", a
   const other = await insertActor(db, "other");
 
   const story = `${APP_URL}/ap/objects/expired-story`;
-  const storyKey = "uploads/story.jpg";
+  const storyKey = canonicalKey("story");
   await seedWithMedia(db, story, author, other, storyKey, "Story");
 
   const { storage, deleted } = recordingStorage();

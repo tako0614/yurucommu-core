@@ -72,6 +72,15 @@ import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
 
+function canonicalKey(label: string): string {
+  const digest = [...new TextEncoder().encode(label)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 64)
+    .padEnd(64, "0");
+  return `uploads/${digest}.jpg`;
+}
+
 async function freshDb(): Promise<Database> {
   return (await createTestDb()).db;
 }
@@ -833,7 +842,7 @@ test("agent delete_post reaps children/media and repairs parent and author count
   const parent = `${APP_URL}/ap/objects/tool-delete-parent`;
   const target = `${APP_URL}/ap/objects/tool-delete-target`;
   const survivor = `${APP_URL}/ap/objects/tool-delete-survivor`;
-  const r2Key = "uploads/tool-delete.jpg";
+  const r2Key = canonicalKey("tool-delete");
 
   await db.insert(objects).values([
     {
@@ -854,7 +863,7 @@ test("agent delete_post reaps children/media and repairs parent and author count
       attachmentsJson: JSON.stringify([
         {
           type: "Document",
-          url: "/media/tool-delete.jpg",
+          url: `/media/${r2Key.slice("uploads/".length)}`,
           r2_key: r2Key,
         },
       ]),

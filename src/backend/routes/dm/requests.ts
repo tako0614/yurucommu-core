@@ -174,7 +174,7 @@ requests.post("/requests/reject", async (c) => {
     const apIds = page.map((row) => row.apId);
     const mediaKeys = await deleteObjectsCascade(db, apIds, c.env.MEDIA);
     await db.delete(objects).where(inArray(objects.apId, apIds));
-    await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
+    await purgeMediaBlobs(db, c.env.MEDIA, mediaKeys);
 
     cursor = apIds.at(-1);
     if (!cursor || page.length < D1_IN_CHUNK) break;

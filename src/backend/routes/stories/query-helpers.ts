@@ -380,7 +380,7 @@ export async function cleanupExpiredStories(
   }
 
   // Irreversible R2 purge LAST — after the objects rows are gone.
-  await purgeMediaBlobs(media, mediaKeys);
+  await purgeMediaBlobs(db, media, mediaKeys);
 
   return expiredApIds.length;
 }

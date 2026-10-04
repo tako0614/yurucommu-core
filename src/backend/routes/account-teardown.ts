@@ -36,6 +36,10 @@ import {
   inbox,
   likes,
   mediaUploads,
+  mediaBlobDeletionJobs,
+  insertMany,
+  runBatch,
+  type D1Statement,
   mobilePushRegistrations,
   mutes,
   notificationArchived,
@@ -53,6 +57,7 @@ import type { Database } from "../../db/index.ts";
 import type { Env } from "../types.ts";
 import type { ObjectStore } from "../runtime/types.ts";
 import { activityApId, generateId } from "../federation-helpers.ts";
+import { claimedMediaDeletionKeys } from "../lib/media-deletion-claims.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
 import { snapshotAndEnqueueFollowerDeliveries } from "../lib/delivery/queue-batching.ts";
 import { logger } from "../lib/logger.ts";
@@ -72,13 +77,11 @@ interface BatchableDb {
 }
 
 /**
- * Hard-delete an actor's media uploads after purging the backing R2 objects.
- *
- * The media row is the durable retry/GC identity (`r2_key`). When a configured
- * object store rejects a delete, keep that row and propagate the error so the
- * account route reports failure and a later retry can attempt the same key.
- * Without a MEDIA binding there is no external delete to fail, so metadata can
- * still be removed.
+ * Claim supported, unreferenced uploads before purging their backing objects.
+ * The permanent claim fences key reuse and removes exact metadata; durable jobs
+ * retain physical-delete retry authority. Provider failure or missing MEDIA
+ * propagates without acknowledging jobs or releasing the account reservation.
+ * Legacy, unresolved or referenced keys keep their metadata and block completion.
  * Shared by the owner teardown (routes/actors.ts POST /me/delete) and each
  * sub-account teardown in {@link teardownActor}.
  */
@@ -92,54 +95,68 @@ export async function purgeActorMediaUploads(
     .select({ id: mediaUploads.id, r2Key: mediaUploads.r2Key })
     .from(mediaUploads)
     .where(eq(mediaUploads.uploaderApId, apId));
-  if (uploads.length === 0) return;
-  if (media) {
-    const keys = uploads.map((u) => u.r2Key);
-    // R2 caps a single delete() at 1000 keys; chunk the purge.
-    const R2_DELETE_BATCH = 1000;
-    try {
-      for (let i = 0; i < keys.length; i += R2_DELETE_BATCH) {
-        await beforeExternalWait?.();
-        await media.delete(keys.slice(i, i + R2_DELETE_BATCH));
-      }
-    } catch (err) {
-      log.error("Failed to purge R2 objects for deleted account", {
-        event: "actors.account.delete_media_purge_failed",
-        actor: apId,
-        count: keys.length,
-        error: err,
-      });
-      // Do not discard the only durable identity from which a later retry or
-      // GC pass can recover the object. The caller must return a non-success
-      // response while the metadata remains available for retry.
-      throw err;
-    }
+  // Include committed claims from a prior failed physical deletion: upload
+  // metadata is removed at claim, but its durable job remains retry authority.
+  const pending = await db
+    .select({ r2Key: mediaBlobDeletionJobs.r2Key })
+    .from(mediaBlobDeletionJobs)
+    .where(eq(mediaBlobDeletionJobs.uploaderApId, apId));
+  const keys = [
+    ...new Set([
+      ...uploads.map((upload) => upload.r2Key),
+      ...pending.map((job) => job.r2Key),
+    ]),
+  ];
+  if (keys.length === 0) return;
+  const now = new Date().toISOString();
+  for (const page of chunkForInClause(uploads, 50)) {
+    const statements = insertMany(
+      db,
+      mediaBlobDeletionJobs,
+      page.map((upload) => ({
+        r2Key: upload.r2Key,
+        uploaderApId: apId,
+        createdAt: now,
+        nextAttemptAt: now,
+      })),
+      { conflict: "ignore" },
+    );
+    if (statements.length)
+      await runBatch(db, statements as [D1Statement, ...D1Statement[]]);
   }
-  // Only acknowledge the exact upload identities selected before external
-  // deletion. An upload may finish while R2 is awaited; uploader-wide cleanup
-  // would lose that new blob's durable retry/GC identity without deleting it.
-  // Match both id and key so even a replaced row is not acknowledged for the
-  // old key. The owning upload route generates immutable id/key pairs.
-  // Each row is an independent, idempotent acknowledgement of an already
-  // deleted blob. A failed statement retains its rows for retry; earlier
-  // successful acknowledgements need not be rolled back.
-  // Two binds per pair plus the uploader bind: 45 pairs use 91 (<100) on D1.
-  for (const chunk of chunkForInClause(uploads, 45)) {
-    await db
-      .delete(mediaUploads)
-      .where(
-        and(
-          eq(mediaUploads.uploaderApId, apId),
-          or(
-            ...chunk.map((upload) =>
-              and(
-                eq(mediaUploads.id, upload.id),
-                eq(mediaUploads.r2Key, upload.r2Key),
-              ),
+  const claimed = await claimedMediaDeletionKeys(db, keys);
+  // Unknown historical identities, unresolved puts/backfill and surviving
+  // references preserve the account reservation and explicit retry authority.
+  if (claimed.length !== keys.length)
+    throw new Error(
+      "account media deletion pending reference or legacy-key reconciliation",
+    );
+  if (!media)
+    throw new Error("account media deletion requires MEDIA for pending jobs");
+  try {
+    for (const page of chunkForInClause(claimed, 1000)) {
+      await beforeExternalWait?.();
+      await media.delete(page);
+      // Each acknowledgment is guarded by the current account worker lease.
+      for (const chunk of chunkForInClause(page)) {
+        await db
+          .delete(mediaBlobDeletionJobs)
+          .where(
+            and(
+              eq(mediaBlobDeletionJobs.uploaderApId, apId),
+              inArray(mediaBlobDeletionJobs.r2Key, chunk),
             ),
-          ),
-        ),
-      );
+          );
+      }
+    }
+  } catch (err) {
+    log.error("Failed to purge R2 objects for deleted account", {
+      event: "actors.account.delete_media_purge_failed",
+      actor: apId,
+      count: keys.length,
+      error: err,
+    });
+    throw err;
   }
 }
 
@@ -454,10 +471,6 @@ export async function teardownActor(
     .delete(notificationPushJobs)
     .where(eq(notificationPushJobs.actorApId, apId));
 
-  // Media: purge backing R2 first, then remove the durable upload metadata.
-  // A storage failure propagates and leaves the row for the retry path.
-  await purgeActorMediaUploads(db, env.MEDIA, apId, options.beforeExternalWait);
-
   // These actor-scoped rows survive a tombstone (and mobile registrations can
   // still address a device). They cannot be left for a later actor-row reap.
   await db.delete(actorNotes).where(eq(actorNotes.actorApId, apId));
@@ -625,7 +638,7 @@ export async function teardownActor(
       .limit(1);
     await db
       .update(communities)
-      .set({ deletedAt: nowIso() })
+      .set({ deletedAt: nowIso(), iconUrl: null })
       .where(
         and(
           eq(communities.apId, communityApId),
@@ -836,6 +849,14 @@ export async function teardownActor(
     );
 
   await db.delete(objects).where(eq(objects.attributedTo, apId));
+
+  // Remove the target's own source references before claiming physical keys.
+  // Live community/foreign references are deliberately not silently revoked.
+  await db
+    .update(actors)
+    .set({ iconUrl: null, headerUrl: null })
+    .where(eq(actors.apId, apId));
+  await purgeActorMediaUploads(db, env.MEDIA, apId, options.beforeExternalWait);
 
   // Tombstone + scrub the actor row only when the caller asks for immediate
   // finalization. The owner route defers this final step until every

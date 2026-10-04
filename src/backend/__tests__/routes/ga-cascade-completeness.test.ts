@@ -20,6 +20,7 @@ import { expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import type { Database } from "../../../db/index.ts";
+import type { ObjectStore } from "../../runtime/types.ts";
 import {
   activities,
   actors,
@@ -32,6 +33,7 @@ import {
   inboundActivityClaims,
   inbox as inboxTable,
   likes,
+  mediaBlobDeletionJobs,
   mediaUploads,
   notificationArchived,
   notificationPushJobs,
@@ -41,12 +43,24 @@ import {
   storyViews,
   storyVotes,
 } from "../../../db/index.ts";
-import { deleteObjectCascade } from "../../routes/posts/delete-cascade.ts";
+import {
+  deleteObjectCascade,
+  purgeMediaBlobs,
+} from "../../routes/posts/delete-cascade.ts";
 import { deleteActivitiesCascade } from "../../lib/activity-delete-cascade.ts";
 import { cleanupExpiredStories } from "../../routes/stories/query-helpers.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
+
+function canonicalKey(label: string): string {
+  const digest = [...new TextEncoder().encode(label)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 64)
+    .padEnd(64, "0");
+  return `uploads/${digest}.jpg`;
+}
 
 async function freshDb(): Promise<Database> {
   return (await createTestDb()).db;
@@ -161,6 +175,20 @@ async function countAllChildRows(
   );
 }
 
+function recordingStorage(): { storage: ObjectStore; deleted: string[] } {
+  const deleted: string[] = [];
+  const storage = {
+    async put() {},
+    async get() {
+      return null;
+    },
+    async delete(key: string | string[]) {
+      deleted.push(...(Array.isArray(key) ? key : [key]));
+    },
+  } as unknown as ObjectStore;
+  return { storage, deleted };
+}
+
 test("deleteObjectCascade reaps the object-attached media_uploads row (no orphan)", async () => {
   const db = await freshDb();
   const author = await insertActor(db, "author");
@@ -168,8 +196,8 @@ test("deleteObjectCascade reaps the object-attached media_uploads row (no orphan
 
   const target = `${APP_URL}/ap/objects/with-media`;
   const survivor = `${APP_URL}/ap/objects/survivor`;
-  const targetKey = "uploads/target.jpg";
-  const survivorKey = "uploads/survivor.jpg";
+  const targetKey = canonicalKey("target");
+  const survivorKey = canonicalKey("survivor");
 
   await seedWithMediaAndChildren(db, target, author, other, targetKey);
   await seedWithMediaAndChildren(db, survivor, author, other, survivorKey);
@@ -178,11 +206,20 @@ test("deleteObjectCascade reaps the object-attached media_uploads row (no orphan
   expect(await countAllChildRows(db, target, targetKey)).toBe(8);
   expect(await countAllChildRows(db, survivor, survivorKey)).toBe(8);
 
-  await deleteObjectCascade(db, target);
+  const { storage, deleted } = recordingStorage();
+  const keys = await deleteObjectCascade(db, target, storage);
+  expect(
+    await db
+      .select({ r2Key: mediaBlobDeletionJobs.r2Key })
+      .from(mediaBlobDeletionJobs)
+      .where(eq(mediaBlobDeletionJobs.r2Key, targetKey)),
+  ).toEqual([{ r2Key: targetKey }]);
   await db.delete(objects).where(eq(objects.apId, target));
+  await purgeMediaBlobs(db, storage, keys);
 
   // Target fully reaped, including its media_uploads row.
   expect(await countAllChildRows(db, target, targetKey)).toBe(0);
+  expect(deleted).toEqual([targetKey]);
   // Unrelated object's media + children untouched.
   expect(await countAllChildRows(db, survivor, survivorKey)).toBe(8);
 });
@@ -356,26 +393,31 @@ test("deleteObjectCascade does not reap another author's media that shares no at
   const other = await insertActor(db, "other");
 
   const target = `${APP_URL}/ap/objects/mine`;
-  await seedWithMediaAndChildren(db, target, author, other, "uploads/mine.jpg");
+  const targetKey = canonicalKey("mine");
+  const unrelatedKey = canonicalKey("unrelated");
+  await seedWithMediaAndChildren(db, target, author, other, targetKey);
 
   // Unrelated upload owned by a different actor, not referenced by this object.
   await db.insert(mediaUploads).values({
     id: "media-unrelated",
-    r2Key: "uploads/unrelated.jpg",
+    r2Key: unrelatedKey,
     uploaderApId: other,
     contentType: "image/jpeg",
     size: 9,
   });
 
-  await deleteObjectCascade(db, target);
+  const { storage, deleted } = recordingStorage();
+  const keys = await deleteObjectCascade(db, target, storage);
   await db.delete(objects).where(eq(objects.apId, target));
+  await purgeMediaBlobs(db, storage, keys);
 
   const survivingUpload = await db
     .select()
     .from(mediaUploads)
-    .where(eq(mediaUploads.r2Key, "uploads/unrelated.jpg"))
+    .where(eq(mediaUploads.r2Key, unrelatedKey))
     .get();
-  expect(survivingUpload?.r2Key).toBe("uploads/unrelated.jpg");
+  expect(survivingUpload?.r2Key).toBe(unrelatedKey);
+  expect(deleted).toEqual([targetKey]);
 });
 
 test("cleanupExpiredStories reaps the FULL child set (announces, bookmarks, media) per expired story", async () => {
@@ -384,12 +426,13 @@ test("cleanupExpiredStories reaps the FULL child set (announces, bookmarks, medi
   const other = await insertActor(db, "other");
 
   const story = `${APP_URL}/ap/objects/expired-story`;
-  const storyKey = "uploads/story.jpg";
+  const storyKey = canonicalKey("expired-story");
   await seedWithMediaAndChildren(db, story, author, other, storyKey, "Story");
 
   expect(await countAllChildRows(db, story, storyKey)).toBe(8);
 
-  const removed = await cleanupExpiredStories(db);
+  const { storage, deleted } = recordingStorage();
+  const removed = await cleanupExpiredStories(db, storage);
   expect(removed).toBe(1);
 
   // Object row gone.
@@ -403,6 +446,7 @@ test("cleanupExpiredStories reaps the FULL child set (announces, bookmarks, medi
   // Every child row reaped — including announces/bookmarks/media the old
   // partial cleanup list missed.
   expect(await countAllChildRows(db, story, storyKey)).toBe(0);
+  expect(deleted).toEqual([storyKey]);
 });
 
 test("cleanupExpiredStories decrements each author's postCount by their expired count (mirrors create +1)", async () => {

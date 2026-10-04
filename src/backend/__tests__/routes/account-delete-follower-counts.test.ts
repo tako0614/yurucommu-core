@@ -21,6 +21,8 @@ import {
   deliveryResolutions,
   follows,
   likes,
+  mediaBlobDeletionClaims,
+  mediaBlobDeletionJobs,
   mediaUploads,
   mutes,
   objectRecipients,
@@ -41,6 +43,15 @@ import actorsRoute from "../../routes/actors.ts";
  */
 
 const APP_URL = "https://yuru.test";
+
+function canonicalKey(label: string): string {
+  const digest = [...new TextEncoder().encode(label)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 64)
+    .padEnd(64, "0");
+  return `uploads/${digest}.jpg`;
+}
 
 async function freshDb(): Promise<Database> {
   const client = createClient({ url: ":memory:" });
@@ -223,10 +234,10 @@ test("account deletion does NOT decrement a counterparty for a PENDING (never-co
   expect((await countOf(db, alice))?.followerCount).toBe(1);
 });
 
-test("account deletion keeps media metadata and retry authority when R2 purge fails", async () => {
+test("account deletion keeps permanent claim and retry authority when R2 purge fails", async () => {
   const db = await freshDb();
   const tako = await insertActor(db, "tako");
-  const r2Key = "uploads/tako-retry.jpg";
+  const r2Key = canonicalKey("tako-retry");
   await db.insert(mediaUploads).values({
     id: "media-tako-retry",
     r2Key,
@@ -267,7 +278,7 @@ test("account deletion keeps media metadata and retry authority when R2 purge fa
       .from(mediaUploads)
       .where(eq(mediaUploads.r2Key, r2Key))
       .get(),
-  ).toBeDefined();
+  ).toBeUndefined();
   const firstDelete = await db
     .select({ apId: activities.apId })
     .from(activities)
@@ -295,6 +306,24 @@ test("account deletion keeps media metadata and retry authority when R2 purge fa
       .get(),
   ).toBeDefined();
 
+  // The claim commits before R2. Its metadata is removed immediately, while
+  // the job and permanent claim preserve retry/fence authority after failure.
+  expect(
+    await db.select().from(mediaUploads).where(eq(mediaUploads.r2Key, r2Key)),
+  ).toHaveLength(0);
+  expect(
+    await db
+      .select({ r2Key: mediaBlobDeletionJobs.r2Key })
+      .from(mediaBlobDeletionJobs)
+      .where(eq(mediaBlobDeletionJobs.r2Key, r2Key)),
+  ).toEqual([{ r2Key }]);
+  expect(
+    await db
+      .select({ r2Key: mediaBlobDeletionClaims.r2Key })
+      .from(mediaBlobDeletionClaims)
+      .where(eq(mediaBlobDeletionClaims.r2Key, r2Key)),
+  ).toEqual([{ r2Key }]);
+
   // A retry with the same durable media identity completes the cascade and
   // only then removes the session/retry authority.
   setFailing(false);
@@ -311,6 +340,18 @@ test("account deletion keeps media metadata and retry authority when R2 purge fa
       .where(eq(mediaUploads.r2Key, r2Key))
       .get(),
   ).toBeUndefined();
+  expect(
+    await db
+      .select()
+      .from(mediaBlobDeletionJobs)
+      .where(eq(mediaBlobDeletionJobs.r2Key, r2Key)),
+  ).toHaveLength(0);
+  expect(
+    await db
+      .select({ r2Key: mediaBlobDeletionClaims.r2Key })
+      .from(mediaBlobDeletionClaims)
+      .where(eq(mediaBlobDeletionClaims.r2Key, r2Key)),
+  ).toEqual([{ r2Key }]);
   expect(
     await db
       .select({ id: sessions.id })
@@ -341,7 +382,7 @@ test("account deletion retry does not double-decrement follow counters after a m
   await follow(db, bob, tako);
   await db.insert(mediaUploads).values({
     id: "media-counter-retry",
-    r2Key: "uploads/counter-retry.jpg",
+    r2Key: canonicalKey("counter-retry"),
     uploaderApId: tako,
     contentType: "image/jpeg",
     size: 1,
@@ -402,7 +443,7 @@ test("owner retry authority survives a sub-account teardown failure", async () =
   });
   await db.insert(mediaUploads).values({
     id: "media-sub-retry",
-    r2Key: "uploads/sub-retry.jpg",
+    r2Key: canonicalKey("sub-retry"),
     uploaderApId: sub,
     contentType: "image/jpeg",
     size: 1,
