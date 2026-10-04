@@ -51,6 +51,7 @@ import {
 } from "../lib/account-migration.ts";
 import { getInstanceFetchSigner } from "./activitypub/query-helpers.ts";
 import { blockActorAndSeverFollowPair } from "../lib/follow-edge-mutations.ts";
+import { activityPubActorIdentityMatchesSql } from "../lib/activitypub-actor-identity-sql.ts";
 import {
   deletePersonalActorBlock,
   deletePersonalActorMute,
@@ -748,12 +749,82 @@ actorsRoute.get("/:identifier/posts", async (c) => {
   });
 });
 
-// Get actor by AP ID or username
+/** Read the authenticated viewer's relationship, never another actor's edge. */
+async function profileFollowState(
+  db: Database,
+  viewerApId: string | undefined,
+  targetApId: string,
+  remote: boolean,
+) {
+  if (!viewerApId) return { is_following: false, is_followed_by: false };
+  if (viewerApId === targetApId) {
+    return {
+      outgoing_follow_status: "none" as const,
+      is_following: false,
+      is_followed_by: false,
+    };
+  }
+  // Narrow candidates to the indexed local endpoint before applying the same
+  // cosmetic remote-ID equivalence used by verified federation mutations.
+  const outgoingTarget = remote
+    ? sql`${follows.followingApId} IN (${activityPubActorIdentityMatchesSql(
+        sql`SELECT ${follows.followingApId} FROM ${follows}
+            WHERE ${follows.followerApId} = ${viewerApId}`,
+        targetApId,
+      )})`
+    : eq(follows.followingApId, targetApId);
+  const incomingTarget = remote
+    ? sql`${follows.followerApId} IN (${activityPubActorIdentityMatchesSql(
+        sql`SELECT ${follows.followerApId} FROM ${follows}
+            WHERE ${follows.followingApId} = ${viewerApId}`,
+        targetApId,
+      )})`
+    : eq(follows.followerApId, targetApId);
+  const [outgoing, incoming] = await Promise.all([
+    db
+      .select({
+        // Legacy duplicate spellings can coexist. Accepted authority wins;
+        // rejected/unknown statuses contribute no relationship authority.
+        rank: sql<number>`COALESCE(MAX(CASE ${follows.status}
+          WHEN 'accepted' THEN 2 WHEN 'pending' THEN 1 ELSE 0 END), 0)`,
+      })
+      .from(follows)
+      .where(and(eq(follows.followerApId, viewerApId), outgoingTarget))
+      .get(),
+    db
+      .select({ followerApId: follows.followerApId })
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followingApId, viewerApId),
+          incomingTarget,
+          eq(follows.status, "accepted"),
+        ),
+      )
+      .limit(1)
+      .get(),
+  ]);
+  return {
+    outgoing_follow_status:
+      outgoing?.rank === 2
+        ? ("accepted" as const)
+        : outgoing?.rank === 1
+          ? ("pending" as const)
+          : ("none" as const),
+    is_following: outgoing?.rank === 2,
+    is_followed_by: !!incoming,
+  };
+}
+
+// Get actor by AP ID or username.
 actorsRoute.get("/:identifier", async (c) => {
   const currentActor = c.get("actor");
   const identifier = c.req.param("identifier");
   const baseUrl = c.env.APP_URL;
   const db = c.get("db");
+  // An anonymous cache entry must not satisfy an authenticated profile read.
+  c.header("Vary", "Cookie, Authorization", { append: true });
+  if (currentActor) c.header("Cache-Control", "private, no-store");
 
   // For @user@remote-domain, we may need to return cached data directly
   // (resolveActorApId only returns an apId when the cache has a match)
@@ -889,43 +960,9 @@ actorsRoute.get("/:identifier", async (c) => {
         fields: sanitizeProfileFields(rawAttachment),
         also_known_as: rawAlsoKnownAs.slice(0, MAX_ALSO_KNOWN_AS),
         moved_to: rawMovedTo,
-        is_following: false,
-        is_followed_by: false,
+        ...(await profileFollowState(db, currentActor?.ap_id, apId, true)),
       },
     });
-  }
-
-  // Check follow status if logged in and viewing a different actor
-  let is_following = false;
-  let is_followed_by = false;
-
-  if (currentActor && currentActor.ap_id !== apId) {
-    const [followingStatus, followedByStatus] = await Promise.all([
-      db
-        .select({ followerApId: follows.followerApId })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.followerApId, currentActor.ap_id),
-            eq(follows.followingApId, apId),
-            eq(follows.status, "accepted"),
-          ),
-        )
-        .get(),
-      db
-        .select({ followerApId: follows.followerApId })
-        .from(follows)
-        .where(
-          and(
-            eq(follows.followerApId, apId),
-            eq(follows.followingApId, currentActor.ap_id),
-            eq(follows.status, "accepted"),
-          ),
-        )
-        .get(),
-    ]);
-    is_following = !!followingStatus;
-    is_followed_by = !!followedByStatus;
   }
 
   return c.json({
@@ -946,8 +983,7 @@ actorsRoute.get("/:identifier", async (c) => {
       fields: sanitizeProfileFields(safeJsonParse(localActor.fieldsJson, [])),
       also_known_as: safeJsonParse<string[]>(localActor.alsoKnownAsJson, []),
       moved_to: localActor.movedTo,
-      is_following,
-      is_followed_by,
+      ...(await profileFollowState(db, currentActor?.ap_id, apId, false)),
     },
   });
 });
