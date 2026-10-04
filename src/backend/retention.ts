@@ -9,10 +9,12 @@ import { reapRemoteActorFetchFailures } from "./lib/activitypub-actor-cache.ts";
 import { drainMediaBlobDeletionJobs } from "./routes/posts/delete-cascade.ts";
 import { resumeAbandonedAccountDeletions } from "./routes/account-deletion-lifecycle.ts";
 import { drainSettledMediaUploadAttempts } from "./lib/media-upload-lifecycle.ts";
+import { claimExpiredStagedMedia } from "./lib/staged-media-retention.ts";
 
 export type YurucommuRetentionStep =
   | "account_deletions"
   | "media_upload_cleanup"
+  | "staged_media"
   | "expired_stories"
   | "drained_tombstones"
   | "remote_actor_fetch_failures"
@@ -25,6 +27,7 @@ export type YurucommuRetentionStep =
 export interface YurucommuRetentionResult {
   readonly resumedAccountDeletions: number;
   readonly drainedMediaUploadAttempts: number;
+  readonly claimedStagedMedia: number;
   readonly expiredStories: number;
   readonly reapedTombstones: number;
   readonly reapedRemoteActorFetchFailures: number;
@@ -68,6 +71,9 @@ export class YurucommuRetentionError extends Error {
  * - Upload cleanup drains at most 50 settled attempts. Putting attempts never
  *   expire: an external put has no write fence, so a lost writer requires
  *   operator reconciliation before account deletion can finish.
+ * - Staged retention claims at most 50 newly settled, never-published uploads
+ *   after their disclosed seven-day lifetime. Atomic reference fences preserve
+ *   published/legacy keys; provider deletion uses the trailing durable drain.
  * - Account deletion resumes at most two expired leases from their durable
  *   target plans; expiry never releases those identities for ordinary writes.
  *
@@ -108,6 +114,9 @@ export async function runYurucommuRetention(
     "notification_push",
     () => enqueuePendingNotificationPushJobs(env),
   );
+  const claimedStagedMedia = await retentionStep("staged_media", () =>
+    claimExpiredStagedMedia(env.DB_INSTANCE),
+  );
   const drainedMediaBlobDeletionJobs = await retentionStep(
     "media_blob_deletion",
     () => drainMediaBlobDeletionJobs(env.DB_INSTANCE, env.MEDIA),
@@ -123,6 +132,7 @@ export async function runYurucommuRetention(
   return {
     resumedAccountDeletions,
     drainedMediaUploadAttempts,
+    claimedStagedMedia,
     expiredStories,
     reapedTombstones,
     reapedRemoteActorFetchFailures,

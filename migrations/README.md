@@ -16,6 +16,13 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration 0034 adds new-upload staged lifetimes, atomic reference fences and a
+bounded, resumable reference backfill. It preserves legacy upload rows and
+unknown external puts. Apply it before serving the engine; collection stays
+closed until all reference cursors complete and preserved ambiguity is resolved.
+See [staged media retention](../docs/design/staged-media-retention.md) for
+consumer deadlines, activation, forward repair and qualification limits.
+
 Migration 0033 makes endpoint reconciliation generations and repair intents
 durable without rebuilding tables. Legacy jobs retain their current series but
 receive no inferred additional reconciliation budget. Apply it with delivery

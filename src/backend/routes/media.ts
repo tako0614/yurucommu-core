@@ -8,6 +8,7 @@ import {
   communityMembers,
   mediaUploads,
   mediaUploadAttempts,
+  mediaUploadLifetimes,
   objects,
   runBatch,
 } from "../../db/index.ts";
@@ -22,6 +23,7 @@ import {
   guardActorWrites,
 } from "../lib/account-deletion-admission.ts";
 import type { MediaUploadAttempt } from "../lib/media-upload-lifecycle.ts";
+import { STAGED_MEDIA_RETENTION_MS } from "../lib/staged-media-retention.ts";
 
 const log = logger.child({ component: "media" });
 
@@ -278,8 +280,11 @@ media.post("/upload", async (c) => {
       eq(mediaUploadAttempts.uploaderApId, actor.ap_id),
       eq(mediaUploadAttempts.publicKeyPem, actor.public_key_pem),
     );
+    let expiresAt: string;
     try {
       await media.put(r2Key, uploadBody, { contentType });
+      const settledAt = Date.now();
+      expiresAt = new Date(settledAt + STAGED_MEDIA_RETENTION_MS).toISOString();
       // The put settled. Adopt metadata and discard the attempt together, with
       // a fresh incarnation/reservation assertion in this atomic write batch.
       await runBatch(db, [
@@ -295,6 +300,15 @@ media.post("/upload", async (c) => {
           uploaderApId: actor.ap_id,
           contentType,
           size: file.size,
+        }) as D1Statement,
+        db.insert(mediaUploadLifetimes).values({
+          r2Key,
+          uploadId: id,
+          uploaderApId: actor.ap_id,
+          publicKeyPem: actor.public_key_pem,
+          state: "staged",
+          createdAt: new Date(settledAt).toISOString(),
+          expiresAt,
         }) as D1Statement,
         db
           .delete(mediaUploadAttempts)
@@ -316,6 +330,7 @@ media.post("/upload", async (c) => {
       r2_key: r2Key,
       content_type: contentType,
       id,
+      expires_at: expiresAt,
     });
   } catch (error) {
     // Log error internally but don't expose details to client

@@ -16,6 +16,8 @@ const ErrorCodes = {
   OWNER_STATE_CONFLICT: "OWNER_STATE_CONFLICT",
   ACTOR_IDENTITY_CONFLICT: "ACTOR_IDENTITY_CONFLICT",
   ACCOUNT_DELETION_CONFLICT: "ACCOUNT_DELETION_CONFLICT",
+  MEDIA_EXPIRED: "MEDIA_EXPIRED",
+  MEDIA_REFERENCE_INVALID: "MEDIA_REFERENCE_INVALID",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -125,6 +127,49 @@ export class AccountDeletionConflictError extends AppError {
       409,
     );
   }
+}
+
+/** Keep a failed draft: the client must reupload its expired attachment. */
+export class MediaExpiredError extends AppError {
+  constructor() {
+    super("Attachment expired; upload it again", ErrorCodes.MEDIA_EXPIRED, 409);
+  }
+}
+
+export class MediaReferenceInvalidError extends AppError {
+  constructor() {
+    super(
+      "Media reference cannot be normalized safely",
+      ErrorCodes.MEDIA_REFERENCE_INVALID,
+      400,
+    );
+  }
+}
+
+/** Match only dedicated DB fences, preserving unrelated provider/SQL errors. */
+export function mediaReferenceError(error: unknown): AppError | undefined {
+  let current = error;
+  for (let depth = 0; depth < 8; depth++) {
+    if (
+      current instanceof MediaExpiredError ||
+      current instanceof MediaReferenceInvalidError
+    )
+      return current;
+    const message =
+      current instanceof Error ? current.message : String(current);
+    if (message.includes("staged media deleted"))
+      return new MediaExpiredError();
+    if (message.includes("media reference invalid"))
+      return new MediaReferenceInvalidError();
+    if (
+      typeof current !== "object" ||
+      current === null ||
+      !("cause" in current)
+    )
+      break;
+    current = current.cause;
+  }
+  return undefined;
 }
 
 /** Only classify the dedicated SQL admission constraints, not storage faults. */

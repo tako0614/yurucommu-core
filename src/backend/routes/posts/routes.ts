@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { mediaReferenceError } from "../../lib/errors.ts";
 import {
   actors,
   follows,
@@ -267,6 +268,8 @@ posts.post("/", async (c) => {
     });
     await runBatch(db, [...localStatements, ...preparedFederation.statements]);
   } catch (e) {
+    const mediaError = mediaReferenceError(e);
+    if (mediaError) throw mediaError;
     log.error("Failed to create post transaction", {
       event: "posts.create.transaction_failed",
       actor: actor.ap_id,

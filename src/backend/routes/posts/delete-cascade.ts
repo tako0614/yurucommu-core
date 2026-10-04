@@ -28,6 +28,7 @@ import {
   likes,
   mediaBlobDeletionJobs,
   mediaUploads,
+  mediaUploadLifetimes,
   objectRecipients,
   objects,
   runBatch,
@@ -69,9 +70,28 @@ async function findReferencedMediaKeys(
 ): Promise<Set<string>> {
   const referenced = new Set<string>();
   const seen = new Set<string>();
+  // Collected staged keys have an immutable writer fence and an indexed
+  // reference proof. Do not perform the legacy per-key attachment scans for
+  // this bounded page of already-claimed keys.
+  const claimedKeys = new Set<string>();
+  for (const chunk of chunkForInClause([
+    ...new Set(jobs.map((job) => job.r2Key)),
+  ])) {
+    const rows = await db
+      .select({ r2Key: mediaUploadLifetimes.r2Key })
+      .from(mediaUploadLifetimes)
+      .where(
+        and(
+          eq(mediaUploadLifetimes.state, "deleting"),
+          inArray(mediaUploadLifetimes.r2Key, chunk),
+        ),
+      );
+    for (const row of rows) claimedKeys.add(row.r2Key);
+  }
   for (const { r2Key, uploaderApId } of jobs) {
     if (seen.has(r2Key)) continue;
     seen.add(r2Key);
+    if (claimedKeys.has(r2Key)) continue;
     const mediaUrl = mediaUrlForKey(r2Key);
 
     // Profile PUTs may retain a valid media URL even when the upload row is
@@ -413,7 +433,12 @@ export async function drainMediaBlobDeletionJobs(
       uploaderApId: mediaBlobDeletionJobs.uploaderApId,
     })
     .from(mediaBlobDeletionJobs)
-    .where(lte(mediaBlobDeletionJobs.nextAttemptAt, new Date().toISOString()))
+    .where(
+      lte(
+        mediaBlobDeletionJobs.nextAttemptAt,
+        new Date(Date.now()).toISOString(),
+      ),
+    )
     .orderBy(
       asc(mediaBlobDeletionJobs.nextAttemptAt),
       asc(mediaBlobDeletionJobs.createdAt),

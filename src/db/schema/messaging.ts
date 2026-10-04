@@ -362,6 +362,26 @@ export const mediaUploads = sqliteTable(
   ],
 );
 
+// Only newly settled uploads acquire a lifetime. The immutable key survives
+// metadata/provider deletion as a permanent replay and reference fence.
+export const mediaUploadLifetimes = sqliteTable(
+  "media_upload_lifetimes",
+  {
+    r2Key: text("r2_key").primaryKey(),
+    uploadId: text("upload_id").notNull().unique(),
+    uploaderApId: text("uploader_ap_id").notNull(),
+    publicKeyPem: text("public_key_pem").notNull(),
+    state: text("state", { enum: ["staged", "published", "deleting"] })
+      .notNull()
+      .default("staged"),
+    createdAt: text("created_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+  },
+  (t) => [
+    index("media_upload_lifetimes_due_idx").on(t.state, t.expiresAt, t.r2Key),
+  ],
+);
+
 // Durable intent for object-attached media deletion. This row is created in
 // the same atomic batch as the canonical object delete and is removed only
 // after the ObjectStore acknowledges deletion. It intentionally carries no

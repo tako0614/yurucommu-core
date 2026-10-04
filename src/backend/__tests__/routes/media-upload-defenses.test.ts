@@ -174,11 +174,12 @@ test("rejects an oversize image (413)", async () => {
 });
 
 test("cleans the R2 blob and attempt when ownership adoption fails", async () => {
-  // Keep upload admission available, then remove only the ownership table.
-  // The put succeeds; atomic ownership adoption fails and compensation must
-  // remove that exact blob before clearing its durable attempt.
+  // Keep the collision/admission proof available, then fail metadata adoption
+  // after the put succeeds. Dropping the table would now fail the pre-put
+  // collision trigger and never exercise compensation after storage writes.
   const { db, client } = await freshDbWithClient();
-  await client.execute("DROP TABLE media_uploads");
+  await client.execute(`CREATE TRIGGER fail_upload_adoption BEFORE INSERT ON media_uploads
+    BEGIN SELECT RAISE(ABORT, 'synthetic adoption failure'); END`);
 
   const put: string[] = [];
   const deleted: string[] = [];

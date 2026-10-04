@@ -9,6 +9,7 @@ import {
   logError,
   AccountDeletionConflictError,
   isAccountDeletionWriteConflict,
+  mediaReferenceError,
 } from "../lib/errors.ts";
 
 interface ErrorMiddlewareOptions {
@@ -36,6 +37,8 @@ function resolveAppError(
   if (isAppError(err)) return err;
   if (isAccountDeletionWriteConflict(err))
     return new AccountDeletionConflictError();
+  const mediaError = mediaReferenceError(err);
+  if (mediaError) return mediaError;
 
   // Client-input parse failures that reach the top-level handler are 400s, not
   // 500s, and are not logged as faults (they're expected client behavior):
