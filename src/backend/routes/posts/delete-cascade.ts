@@ -1,22 +1,17 @@
 /**
  * Shared object-delete cascade.
  *
- * Migrations declare `ON DELETE CASCADE` on the object's interaction/edge
- * tables (likes, announces, bookmarks, object_recipients, story_views,
- * story_votes, story_shares), but SQLite enforces foreign keys only when
- * `PRAGMA foreign_keys = ON` is set on the connection — which is NOT reliably
- * the case on every runtime/connection (D1 does not honour it, and the libsql
- * connection is not guaranteed to have it). Deleting an object row therefore
- * orphans those child rows on at least some runtimes.
+ * D1 enforces foreign keys. This helper also explicitly reaps child edges on
+ * libsql connections with FK enforcement disabled, and cancels durable
+ * delivery/notification projections that have no object FK.
  *
- * This helper deletes every child row keyed by `objectApId` deterministically,
- * independent of FK enforcement, so the data stays consistent on all runtimes.
- * It does NOT delete the `objects` row itself — callers do that (and own any
- * counter/fanout side effects) — and it intentionally leaves `activities`
- * alone, whose `object_ap_id` is `ON DELETE SET NULL`, not CASCADE.
+ * Callers own the final objects delete and counter/fanout side effects.
+ * Migration 0003 makes activities.object_ap_id a plain AP-ID string: retain
+ * the ledger and target for history/Undo. Migration 0032 atomically withdraws
+ * its Create/Update/Announce publication when the caller deletes the object.
+ * This helper does not itself commit that withdrawal before object deletion.
  *
- * Used by BOTH the local post-delete path (routes.ts `DELETE /posts/:id`) and
- * the remote `handleDelete` inbox path so neither can orphan rows.
+ * Used by local deletes, remote Delete, moderation purge and account teardown.
  */
 
 import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
@@ -522,7 +517,7 @@ export async function reapReplacedMediaUrl(
  * a `media` binding is passed, the backing R2 blobs are best-effort deleted too
  * so storage does not leak; pass `c.env.MEDIA` from the request context.
  *
- * Does not touch the `objects` row or `activities` (SET NULL, not CASCADE),
+ * Does not touch the `objects` row or retained `activities` target strings,
  * but cancels every durable notification/delivery projection of Activities
  * that target the object.
  */
@@ -634,7 +629,7 @@ export async function prepareObjectDeleteCascade(
  * meant one attachment read plus eight serial delete round-trips per post: five
  * empty posts took about ten seconds in a real workerd probe and larger domain
  * purges could outlive the request. Here each <=90-id D1-safe chunk issues one
- * atomic twelve-statement batch, so latency scales by chunks rather than posts.
+ * atomic bounded statement batch, so latency scales by chunks rather than posts.
  */
 export async function deleteObjectsCascade(
   db: Database,

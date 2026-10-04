@@ -16,6 +16,13 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration 0032 adds atomic public-outbox revocation for deleted-object Activity
+history without rebuilding tables or rewriting ledger rows. Apply it before
+serving its engine. It cannot classify pre-existing absent targets; exact
+operator-data audit/adjudication and rollback limits are documented in
+[public outbox reads](../docs/design/activitypub-outbox.md).
+
+
 Migration 0031 adds durable account-deletion reservations and upload-attempt
 coordination without rebuilding existing tables. Its runtime and recovery
 limits are documented in [durable account deletion](../docs/design/durable-account-deletion.md).
