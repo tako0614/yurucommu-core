@@ -65,6 +65,20 @@ explicit adjudication policy for historical orphan rows. Zero affected legacy
 rows or qualified individual remediation is a condition for a complete
 moderation boundary; this prospective repair alone is not GA.
 
+## Envelope syntax and page/count parity
+
+Every public outbox requires a strict JSON object at the stored envelope root,
+including joined-object Create/Announce and public Group Announce. Invalid JSON,
+JSON null, arrays and scalar roots are excluded before totalItems, cursor and
+limit. JSON1 type evaluation is guarded by json_valid so a malformed historical
+envelope cannot raise a query error. Filtering only during response parsing
+would let invisible rows inflate totals or consume a page. Activity history is
+retained, and normal joined objects and unknown Public boosts remain supported.
+This is syntax/root validation only: it does not independently validate all
+Activity fields, duplicate keys in joined envelopes, or joined-envelope
+consistency. The absent-object Announce branch separately rejects duplicate
+addressing keys under its existing Public-address rule.
+
 Local libsql, disposable actual-source D1/workerd, published package bytes and
 live federation checks are separate evidence. General same-AP-ID Delete revival
-and malformed joined-envelope page/count parity remain separate concerns.
+remains a separate concern.
