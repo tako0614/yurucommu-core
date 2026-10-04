@@ -42,15 +42,40 @@ not import unpublished source paths from this checkout.
 ```bash
 cd yurucommu-core
 bun install
-bun run check   # tsc --noEmit
-bun test        # bun:test suite
-bun run lint    # type check
+bun run check   # complete portable gate
+bun run test    # portable suites and packaged-consumer checks
+bun run lint    # alias of the complete portable gate
 bun run fmt     # prettier
 ```
 
 The backend engine source lives in `src/backend` (Hono routes, ActivityPub
 federation, delivery pipeline), the shared npm API package in `packages/api`,
 and the database schema and migrations in `src/db/schema` and `migrations/`.
+
+`bun run check` is the complete portable gate: format checks, TypeScript /
+static analysis, portable tests, the API build, Worker / browser bundles, and
+packed-consumer checks. A green routine CI run proves this portable gate.
+
+### Linux procfs native verification
+
+The two real kernel probes for a sibling PID namespace owner and `hidepid=2`
+live separately in `test-native/`. Run this separate cadence on a Linux host
+that already has the required capabilities:
+
+```bash
+bun run check:native:linux-procfs
+```
+
+The entrypoint requires Linux and `unshare` / `mount` / `setpriv`. Ten-second
+prerequisite probes check PID namespaces, procfs mounts, `hidepid=2`, and
+execution as both probe UIDs. Missing tools or denied namespace / mount rights
+produce raw diagnostics and a nonzero exit. After the prerequisites pass, the
+current Bun runs both tests unconditionally and preserves their failure status.
+The entire native suite has a 60-second limit. A timeout prints a diagnostic,
+returns status `124`, and terminates only the suite's own process group. Normal
+exit also cleans up any remaining children in that group.
+The command does not install tools or grant privileges. Green portable CI does
+not prove that this Linux native verification passed.
 
 API package commands:
 
