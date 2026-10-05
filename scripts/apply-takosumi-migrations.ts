@@ -9,6 +9,7 @@ export type SqlExecutionContext = {
   purpose: "ledger-init" | "ledger-read" | "migration";
 };
 
+/** For migration calls, commit the complete SQL script and ledger mark atomically. */
 export type SqlExecutor = (
   sql: string,
   context: SqlExecutionContext,
@@ -158,11 +159,18 @@ export async function applyMigrations(options: Options): Promise<{
     const path = `${options.migrationsDir.replace(/\/+$/, "")}/${file}`;
     const sql = await readFile(path, "utf8");
     console.log(`[app:activate] Applying ${file} to ${options.resource}`);
-    await executeSql(options, migrationSqlWithLedgerMark(file, sql, options), {
-      resource: options.resource,
-      migration: file,
-      purpose: "migration",
-    });
+    // A timeout may arrive after the schema AND ledger have committed. Replaying
+    // an ALTER/rebuild without re-reading that ledger is unsafe. A new activation
+    // reads it again; within this activation, surface the first failure.
+    await executeSql(
+      { ...options, retryAttempts: 1 },
+      migrationSqlWithLedgerMark(file, sql, options),
+      {
+        resource: options.resource,
+        migration: file,
+        purpose: "migration",
+      },
+    );
     appliedSet.add(file);
     applied.push(file);
   }
