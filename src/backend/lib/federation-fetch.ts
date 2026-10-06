@@ -213,10 +213,10 @@ function wrapResponseWithCap(
  *     resolves at the edge with no host-OS resolver to diverge from, so DoH
  *     and the connection resolve in the same trust domain.
  *  2. Low-TTL flip — the record changes between validation and connection.
- *     Neither Workers' nor host `fetch` exposes a hook to pin the
- *     connection to an already-resolved IP, so we cannot eliminate this
- *     sub-resolution window through `fetch`; we minimize it by resolving
- *     immediately before the request with no other awaited work in between.
+ *     This helper does not bind the actual connection to the validated IP
+ *     set; fetching the original URL can resolve it again. Sharing the
+ *     resolver narrows vector 1 but leaves this window. Runtime-specific
+ *     connection pinning requires a separate transport change.
  */
 async function resolveConnectionResolverIPs(
   hostname: string,
@@ -232,6 +232,33 @@ async function resolveConnectionResolverIPs(
   const processLike = (globalThis as { process?: unknown }).process;
   if (processLike) return await nodeLookupAll(hostname);
   return resolveRemoteHostnameIPs(hostname);
+}
+
+// Returning on abort does not cancel the underlying resolver. Attach both
+// settlement handlers so late DNS success or rejection cannot resume the
+// request or escape as an unhandled rejection.
+function awaitPreflightWithAbort<T>(
+  preflight: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    preflight.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+    if (signal.aborted) onAbort();
+  });
 }
 
 export async function fetchWithTimeout(
@@ -261,41 +288,44 @@ export async function fetchWithTimeout(
   };
   checkAdmission();
 
-  if (!skipSafetyCheck) {
-    // Validate using the resolver that `fetch` itself will use on this
-    // runtime (closes the resolver-split rebinding vector — see
-    // resolveConnectionResolverIPs). The local-substrate path keeps its own
-    // resolver logic, so only override the remote-resolver default here.
-    const parsed = new URL(url);
-    const hostname = normalizeHostname(parsed.hostname);
-    const allowLocalSubstrate = localSubstrateRemoteFetchesEnabled();
-    const useConnectionResolver = !(
-      allowLocalSubstrate && isTakosTestHostname(hostname)
-    );
-
-    await assertSafeRemoteUrlResolved(
-      url,
-      useConnectionResolver
-        ? { remoteResolver: resolveConnectionResolverIPs }
-        : {},
-    );
-  }
-
-  // DNS/safety validation may not be cancellable. Never start a late request
-  // merely because that earlier producer eventually settled.
-  checkAdmission();
-
+  let awaitingPreflight = false;
   const controller = new AbortController();
   const onCallerAbort = () => controller.abort(callerSignal?.reason);
   callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
+  const deadlineDelay =
+    deadline === undefined ? Infinity : Math.max(0, deadline - Date.now());
   const timeoutId = setTimeout(
     () => controller.abort(),
-    deadline === undefined
-      ? timeout
-      : Math.min(timeout, Math.max(0, deadline - Date.now())),
+    Math.min(timeout, deadlineDelay),
   );
 
   try {
+    checkAdmission();
+    if (!skipSafetyCheck) {
+      awaitingPreflight = true;
+      // Keep resolved-URL validation in front of every remote request and
+      // inside the same timeout budget as the HTTP headers phase.
+      const parsed = new URL(url);
+      const hostname = normalizeHostname(parsed.hostname);
+      const allowLocalSubstrate = localSubstrateRemoteFetchesEnabled();
+      const useConnectionResolver = !(
+        allowLocalSubstrate && isTakosTestHostname(hostname)
+      );
+
+      await awaitPreflightWithAbort(
+        assertSafeRemoteUrlResolved(
+          url,
+          useConnectionResolver
+            ? { remoteResolver: resolveConnectionResolverIPs }
+            : {},
+        ),
+        controller.signal,
+      );
+      awaitingPreflight = false;
+    }
+
+    // A resolver can settle after abort/deadline. Keep the admission check
+    // even though waiting for that resolver is now bounded independently.
     checkAdmission();
     const response = await fetch(url, {
       ...fetchOptions,
@@ -323,6 +353,13 @@ export async function fetchWithTimeout(
   } catch (err) {
     if (callerSignal?.aborted)
       throw callerSignal.reason ?? new DOMException("Aborted", "AbortError");
+    if (awaitingPreflight) {
+      // Resolver errors keep their original identity. Only our own abort
+      // bounds the wait; header-phase abort normalization stays unchanged.
+      if (!controller.signal.aborted) throw err;
+      if (deadline !== undefined && deadlineDelay <= timeout)
+        throw new Error("Federation request deadline exceeded");
+    }
     if (err instanceof Error && err.name === "AbortError") {
       throw new Error(
         `Request timed out after ${timeout / 1000} seconds: ${url}`,
