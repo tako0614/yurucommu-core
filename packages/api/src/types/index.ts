@@ -23,6 +23,9 @@ export interface Actor {
   created_at: string;
   is_following?: boolean;
   is_followed_by?: boolean;
+  // Authenticated Actor GET only; legacy servers and anonymous reads omit it.
+  // Pending requests never contribute to accepted-only booleans/counts/lists.
+  outgoing_follow_status?: "none" | "pending" | "accepted";
   // Structured PropertyValue profile fields (Mastodon-parity, capped at 4 on
   // the backend). Rendered as a small label/value list on the profile.
   fields?: { name: string; value: string }[];

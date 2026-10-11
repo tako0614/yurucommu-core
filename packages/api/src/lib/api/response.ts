@@ -103,6 +103,14 @@ export function validateActor(value: unknown): void {
     requiredString(actor.username, "actor.username");
   for (const key of ["preferred_username", "name", "icon_url"])
     optionalString(actor, key);
+  if (
+    actor.outgoing_follow_status !== undefined &&
+    actor.outgoing_follow_status !== "none" &&
+    actor.outgoing_follow_status !== "pending" &&
+    actor.outgoing_follow_status !== "accepted"
+  ) {
+    throw new InvalidApiResponseError("actor.outgoing_follow_status");
+  }
 }
 
 export function validatePost(value: unknown): void {

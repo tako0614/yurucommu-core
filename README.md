@@ -65,6 +65,10 @@ public export をすべて import します。Core の `client-api` と独立し
 bundle、Core の Worker bundle も検査します。依存はインストール済みのローカル module を
 使うため registry への接続は不要です。公開後の registry readback は deploy の別検証です。
 
+Actor GET の閲覧者別Follow状態は
+[outgoing Follow契約](docs/design/actor-outgoing-follow-status.md)を参照してください。
+未公開sourceの契約と、registry公開済みpackageのconsumer利用は別に検証します。
+
 ### core → product の release 順序
 
 新しい API 契約 (例: ブラウザ通知の public API と `0019_notification_push_delivery.sql`、core / API `3.1.0` から)
