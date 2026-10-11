@@ -12,6 +12,9 @@ const ErrorCodes = {
   INTERNAL_ERROR: "INTERNAL_ERROR",
   BAD_REQUEST: "BAD_REQUEST",
   SESSION_REVOCATION_FAILED: "SESSION_REVOCATION_FAILED",
+  OWNER_CLAIM_CONFLICT: "OWNER_CLAIM_CONFLICT",
+  OWNER_STATE_CONFLICT: "OWNER_STATE_CONFLICT",
+  ACTOR_IDENTITY_CONFLICT: "ACTOR_IDENTITY_CONFLICT",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -78,6 +81,37 @@ export class SessionRevocationError extends AppError {
       "Session revocation failed",
       ErrorCodes.SESSION_REVOCATION_FAILED,
       503,
+    );
+  }
+}
+
+export class OwnerClaimConflictError extends AppError {
+  constructor() {
+    super(
+      "Account claim conflicts with another login",
+      ErrorCodes.OWNER_CLAIM_CONFLICT,
+      409,
+    );
+  }
+}
+
+/** A password cannot safely choose one owner from an ambiguous legacy store. */
+export class OwnerStateConflictError extends AppError {
+  constructor() {
+    super(
+      "Multiple owners require operator reconciliation",
+      ErrorCodes.OWNER_STATE_CONFLICT,
+      409,
+    );
+  }
+}
+
+export class ActorIdentityConflictError extends AppError {
+  constructor() {
+    super(
+      "Account changed during login; retry authentication",
+      ErrorCodes.ACTOR_IDENTITY_CONFLICT,
+      409,
     );
   }
 }

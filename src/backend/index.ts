@@ -97,6 +97,8 @@ export interface YurucommuBackendPluginV1 {
 }
 
 export interface CreateYurucommuBackendAppOptionsV1 {
+  /** Atomically fence new live instance-owner claims. Default: false. */
+  singleOwner?: boolean;
   plugins?: YurucommuBackendPluginV1[];
   discovery?: YurucommuBackendDiscoveryOptionsV1;
   /**
@@ -1008,6 +1010,7 @@ export function createYurucommuBackendApp(
   // `.well-known` discovery documents publish it. Reads no body and consults no
   // route, so it does not weaken the body-cap ordering below.
   app.use("*", (c, next) => {
+    c.env = { ...c.env, singleOwner: options.singleOwner === true };
     c.set("cacheNamespace", cacheNamespace);
     return next();
   });

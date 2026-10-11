@@ -38,6 +38,7 @@ import {
   exchangeOAuthToken,
   findOrCreateOAuthActor,
   formatAccountResponse,
+  getPasswordOwner,
   lockoutErrorResponse,
   parseJsonObject,
   parseNonEmptyString,
@@ -45,7 +46,6 @@ import {
 } from "./auth-helpers.ts";
 import { logger } from "../lib/logger.ts";
 import { rawSessionCredential } from "../lib/session-actor.ts";
-import { SessionRevocationError } from "../lib/errors.ts";
 
 const log = logger.child({ component: "auth" });
 
@@ -200,18 +200,7 @@ auth.post("/login", async (c) => {
   // Delete signer. Without this guard the owner-resolution query would re-resolve
   // that zombie and log a fresh login into a deleted account; with it, login
   // falls through to createActor and provisions a clean owner.
-  const actorData =
-    (await db
-      .select()
-      .from(actors)
-      .where(and(eq(actors.role, "owner"), notDeleted(actors)))
-      .get()) ??
-    (await createActor(db, c.env, {
-      username: "tako",
-      name: "tako",
-      takosUserId: "password:owner",
-      role: "owner",
-    }));
+  const actorData = await getPasswordOwner(db, c.env);
 
   await rotateSession(
     c,
@@ -220,6 +209,7 @@ auth.post("/login", async (c) => {
     null,
     c.env.ENCRYPTION_KEY,
     "password login rotation",
+    { expectedActor: actorData },
   );
   await clearLoginLockout(c.env.KV, lockoutKey);
 
@@ -261,18 +251,7 @@ auth.post("/mobile/login", async (c) => {
   }
 
   const db = c.get("db");
-  const actorData =
-    (await db
-      .select()
-      .from(actors)
-      .where(and(eq(actors.role, "owner"), notDeleted(actors)))
-      .get()) ??
-    (await createActor(db, c.env, {
-      username: "tako",
-      name: "tako",
-      takosUserId: "password:owner",
-      role: "owner",
-    }));
+  const actorData = await getPasswordOwner(db, c.env);
   const sessionId = await rotateSession(
     c,
     actorData.apId,
@@ -280,7 +259,7 @@ auth.post("/mobile/login", async (c) => {
     null,
     c.env.ENCRYPTION_KEY,
     "mobile password login rotation",
-    { setCookie: false },
+    { setCookie: false, expectedActor: actorData },
   );
   await clearLoginLockout(c.env.KV, lockoutKey);
   return c.json(mobileSessionResponse(sessionId));
@@ -300,47 +279,46 @@ auth.post("/mobile/oidc", async (c) => {
     return c.json({ error: "id_token is required", code: "BAD_REQUEST" }, 400);
   }
 
+  let claims: Awaited<ReturnType<typeof verifyOidcIdToken>>;
   try {
     const clientId = getMobileOidcAudience(c.env);
-    const claims = await verifyOidcIdToken(idToken, {
+    claims = await verifyOidcIdToken(idToken, {
       issuer: provider.issuer,
       clientId,
       jwksUrl: provider.jwksUrl,
     });
-    const actorData = await findOrCreateOAuthActor(
-      c.get("db"),
-      c.env,
-      "takos",
-      {
-        id: claims.sub,
-        name:
-          claims.name ?? claims.preferred_username ?? claims.email ?? "user",
-        email: claims.email,
-        username: claims.preferred_username,
-      },
-      readVerifiedTakosumiWorkspaceGrant(claims),
-    );
-    if (!actorData) return c.json({ error: "actor_creation_failed" }, 403);
-    const sessionId = await rotateSession(
-      c,
-      actorData.apId,
-      "takos",
-      null,
-      c.env.ENCRYPTION_KEY,
-      "mobile oidc login rotation",
-      { setCookie: false },
-    );
-    return c.json(mobileSessionResponse(sessionId));
   } catch (error) {
-    // Verification succeeded; a storage failure must not be misreported as a
-    // bad ID token or a successful replacement session.
-    if (error instanceof SessionRevocationError) throw error;
-    log.warn("Mobile OIDC exchange failed", {
+    log.warn("Mobile OIDC verification failed", {
       event: "auth.mobile.oidc_exchange_failed",
       error,
     });
     return c.json({ error: "invalid_id_token" }, 401);
   }
+  // Only identity verification is classified as a bad token. Persistence and
+  // owner/session failures propagate through the shared error handler.
+  const actorData = await findOrCreateOAuthActor(
+    c.get("db"),
+    c.env,
+    "takos",
+    {
+      id: claims.sub,
+      name: claims.name ?? claims.preferred_username ?? claims.email ?? "user",
+      email: claims.email,
+      username: claims.preferred_username,
+    },
+    readVerifiedTakosumiWorkspaceGrant(claims),
+  );
+  if (!actorData) return c.json({ error: "actor_creation_failed" }, 403);
+  const sessionId = await rotateSession(
+    c,
+    actorData.apId,
+    "takos",
+    null,
+    c.env.ENCRYPTION_KEY,
+    "mobile oidc login rotation",
+    { setCookie: false, expectedActor: actorData },
+  );
+  return c.json(mobileSessionResponse(sessionId));
 });
 
 // OAuth: 認証開始
@@ -522,6 +500,7 @@ auth.get("/callback/:provider", async (c) => {
     providerId === "takos" ? tokens : null,
     c.env.ENCRYPTION_KEY,
     "oauth login rotation",
+    { expectedActor: actorData },
   );
 
   return c.redirect("/");
@@ -612,9 +591,11 @@ auth.post("/switch", async (c) => {
     .select({
       apId: actors.apId,
       ownerActorApId: actors.ownerActorApId,
+      publicKeyPem: actors.publicKeyPem,
+      takosUserId: actors.takosUserId,
     })
     .from(actors)
-    .where(eq(actors.apId, targetApId))
+    .where(and(eq(actors.apId, targetApId), notDeleted(actors)))
     .get();
 
   if (!targetActor) return c.json({ error: "Account not found" }, 404);
@@ -638,6 +619,14 @@ auth.post("/switch", async (c) => {
     null,
     c.env.ENCRYPTION_KEY,
     "account switch",
+    {
+      expectedActor: targetActor,
+      expectedSourceActor: {
+        apId: currentActor.ap_id,
+        publicKeyPem: currentActor.public_key_pem,
+        takosUserId: currentActor.takos_user_id,
+      },
+    },
   );
 
   return c.json({ success: true });
