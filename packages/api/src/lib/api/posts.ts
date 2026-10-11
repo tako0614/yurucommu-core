@@ -1,10 +1,14 @@
+import {
+  readResponseJson,
+  requiredArray,
+  optionalBoolean,
+  optionalString,
+  validatePost,
+} from "./response.ts";
+import type { ApiReadOptions } from "./fetch.ts";
 import type { Post } from "../../types/index.ts";
 import { normalizePost } from "./normalize.ts";
 import { apiDelete, apiFetch, apiPatch, apiPost, assertOk } from "./fetch.ts";
-
-type PostListResponse = {
-  posts?: Post[];
-};
 
 type CreatePostResponse = {
   post: Post;
@@ -21,38 +25,40 @@ export type TimelinePage = {
   hasMore: boolean;
 };
 
-export async function fetchTimeline(options?: {
-  limit?: number;
-  before?: string;
-  community?: string;
-}): Promise<TimelinePage> {
+export async function fetchTimeline(
+  options?: ApiReadOptions & {
+    limit?: number;
+    before?: string;
+    community?: string;
+  },
+): Promise<TimelinePage> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
   if (options?.before) params.set("before", options.before);
   if (options?.community) params.set("community", options.community);
   const query = params.toString() ? `?${params}` : "";
-  const res = await apiFetch(`/api/timeline${query}`);
+  const res = await apiFetch(`/api/timeline${query}`, options);
   // Throw on a non-OK response (the backend returns a JSON `{ error }` body, so
   // without this res.json() would resolve, posts would be undefined, and the
   // caller would render an empty "welcome" feed instead of an error+retry UI).
   await assertOk(res, "Failed to load timeline");
-  const data = (await res.json()) as {
-    posts?: Post[];
-    next_cursor?: string | null;
-    has_more?: boolean;
-  };
+  const data = await readResponseJson(res);
   return {
-    posts: (data.posts || []).map(normalizePost),
-    nextCursor: data.next_cursor ?? null,
-    hasMore: data.has_more ?? false,
+    posts: requiredArray<Post>(data, "posts", validatePost).map(normalizePost),
+    nextCursor: optionalString(data, "next_cursor"),
+    hasMore: optionalBoolean(data, "has_more"),
   };
 }
 
-export async function fetchPost(apId: string): Promise<Post> {
-  const res = await apiFetch(`/api/posts/${encodeURIComponent(apId)}`);
+export async function fetchPost(
+  apId: string,
+  options?: ApiReadOptions,
+): Promise<Post> {
+  const res = await apiFetch(`/api/posts/${encodeURIComponent(apId)}`, options);
   await assertOk(res, "Post not found");
-  const data = (await res.json()) as { post: Post };
-  return normalizePost(data.post);
+  const data = await readResponseJson(res);
+  validatePost(data.post);
+  return normalizePost(data.post as Post);
 }
 
 export interface RepliesPage {
@@ -63,23 +69,23 @@ export interface RepliesPage {
 
 export async function fetchReplies(
   postApId: string,
-  options?: { before?: string },
+  options?: ApiReadOptions & { before?: string },
 ): Promise<RepliesPage> {
   const params = new URLSearchParams();
   if (options?.before) params.set("before", options.before);
   const query = params.toString() ? `?${params}` : "";
   const res = await apiFetch(
     `/api/posts/${encodeURIComponent(postApId)}/replies${query}`,
+    options,
   );
-  const data = (await res.json()) as {
-    replies?: Post[];
-    next_cursor?: string | null;
-    has_more?: boolean;
-  };
+  await assertOk(res, "Failed to load replies");
+  const data = await readResponseJson(res);
   return {
-    replies: (data.replies || []).map(normalizePost),
-    nextCursor: data.next_cursor ?? null,
-    hasMore: data.has_more ?? false,
+    replies: requiredArray<Post>(data, "replies", validatePost).map(
+      normalizePost,
+    ),
+    nextCursor: optionalString(data, "next_cursor"),
+    hasMore: optionalBoolean(data, "has_more"),
   };
 }
 
@@ -160,23 +166,22 @@ export interface BookmarksPage {
   hasMore: boolean;
 }
 
-export async function fetchBookmarks(options?: {
-  limit?: number;
-  before?: string;
-}): Promise<BookmarksPage> {
+export async function fetchBookmarks(
+  options?: ApiReadOptions & {
+    limit?: number;
+    before?: string;
+  },
+): Promise<BookmarksPage> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
   if (options?.before) params.set("before", options.before);
   const query = params.toString() ? `?${params}` : "";
-  const res = await apiFetch(`/api/bookmarks${query}`);
+  const res = await apiFetch(`/api/bookmarks${query}`, options);
   await assertOk(res, "Failed to load bookmarks");
-  const data = (await res.json()) as PostListResponse & {
-    next_cursor?: string | null;
-    has_more?: boolean;
-  };
+  const data = await readResponseJson(res);
   return {
-    posts: (data.posts ?? []).map(normalizePost),
-    nextCursor: data.next_cursor ?? null,
-    hasMore: data.has_more ?? false,
+    posts: requiredArray<Post>(data, "posts", validatePost).map(normalizePost),
+    nextCursor: optionalString(data, "next_cursor"),
+    hasMore: optionalBoolean(data, "has_more"),
   };
 }
