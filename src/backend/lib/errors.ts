@@ -11,6 +11,7 @@ const log = logger.child({ component: "errors" });
 const ErrorCodes = {
   INTERNAL_ERROR: "INTERNAL_ERROR",
   BAD_REQUEST: "BAD_REQUEST",
+  SESSION_REVOCATION_FAILED: "SESSION_REVOCATION_FAILED",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -57,8 +58,6 @@ export class AppError extends Error {
 
 // --- Concrete error classes ---
 // Each binds a fixed error code and HTTP status to AppError.
-// InternalError is the only subclass with an actual `new` site
-// (error-handler.ts resolveAppError fallback).
 
 export class InternalError extends AppError {
   constructor(message = "Internal server error", details?: unknown) {
@@ -69,6 +68,17 @@ export class InternalError extends AppError {
 export class BadRequestError extends AppError {
   constructor(message = "Bad request", details?: unknown) {
     super(message, ErrorCodes.BAD_REQUEST, 400, details);
+  }
+}
+
+/** The old session may still be usable; callers must not report success. */
+export class SessionRevocationError extends AppError {
+  constructor() {
+    super(
+      "Session revocation failed",
+      ErrorCodes.SESSION_REVOCATION_FAILED,
+      503,
+    );
   }
 }
 

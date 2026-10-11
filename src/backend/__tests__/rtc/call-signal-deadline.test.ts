@@ -1,125 +1,115 @@
 import { expect, test } from "bun:test";
-import { fetchWithTimeout } from "../../lib/federation-fetch.ts";
-import { sendCallSignal } from "../../lib/rtc/signal-transport.ts";
+
+function runIsolated(script: string) {
+  const result = Bun.spawnSync([process.execPath, "-e", script], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  expect(new TextDecoder().decode(result.stderr)).toBe("");
+  expect(result.exitCode).toBe(0);
+}
 
 test("federation fetch composes caller abort with its own timeout", async () => {
-  const original = globalThis.fetch;
-  const caller = new AbortController();
-  let received: AbortSignal | undefined;
-  globalThis.fetch = (async (_input, init) => {
-    received = init?.signal ?? undefined;
-    return await new Promise<Response>((_, reject) =>
-      received!.addEventListener("abort", () => reject(received!.reason), {
-        once: true,
-      }),
-    );
-  }) as typeof fetch;
-  try {
-    const request = fetchWithTimeout("https://8.8.8.8/rtc", {
-      signal: caller.signal,
-      skipSafetyCheck: true,
-      timeout: 1000,
-    });
-    caller.abort(new Error("caller cancelled"));
-    await expect(request).rejects.toThrow("caller cancelled");
-    expect(received?.aborted).toBe(true);
-    const defaultCaller = new AbortController();
-    const defaultRequest = fetchWithTimeout("https://8.8.8.8/rtc", {
-      signal: defaultCaller.signal,
-      skipSafetyCheck: true,
-    });
-    defaultCaller.abort();
-    await expect(defaultRequest).rejects.toBe(defaultCaller.signal.reason);
-    await expect(
-      fetchWithTimeout("https://8.8.8.8/rtc", {
-        skipSafetyCheck: true,
-        timeout: 5,
-      }),
-    ).rejects.toThrow("timed out");
-  } finally {
-    globalThis.fetch = original;
-  }
+  const module = new URL("../../lib/federation-fetch.ts", import.meta.url).href;
+  runIsolated(`
+    import { expect } from 'bun:test';
+    const { fetchWithTimeout } = await import(${JSON.stringify(module)});
+    const original = globalThis.fetch;
+    const caller = new AbortController();
+    let received;
+    globalThis.fetch = async (_input, init) => {
+      received = init?.signal ?? undefined;
+      return await new Promise((_, reject) =>
+        received.addEventListener('abort', () => reject(received.reason), { once: true }),
+      );
+    };
+    try {
+      const request = fetchWithTimeout('https://8.8.8.8/rtc', {
+        signal: caller.signal, skipSafetyCheck: true, timeout: 1000,
+      });
+      caller.abort(new Error('caller cancelled'));
+      await expect(request).rejects.toThrow('caller cancelled');
+      expect(received?.aborted).toBe(true);
+      const defaultCaller = new AbortController();
+      const defaultRequest = fetchWithTimeout('https://8.8.8.8/rtc', {
+        signal: defaultCaller.signal, skipSafetyCheck: true,
+      });
+      defaultCaller.abort();
+      await expect(defaultRequest).rejects.toBe(defaultCaller.signal.reason);
+      await expect(fetchWithTimeout('https://8.8.8.8/rtc', {
+        skipSafetyCheck: true, timeout: 5,
+      })).rejects.toThrow('timed out');
+    } finally {
+      globalThis.fetch = original;
+    }
+  `);
 });
 
 test("pre-aborted or expired requests perform no network I/O", async () => {
-  const original = globalThis.fetch;
-  let requests = 0;
-  globalThis.fetch = Object.assign(
-    async () => {
+  const module = new URL("../../lib/federation-fetch.ts", import.meta.url).href;
+  runIsolated(`
+    import { expect } from 'bun:test';
+    const { fetchWithTimeout } = await import(${JSON.stringify(module)});
+    const original = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = Object.assign(async () => {
       requests++;
       return new Response(null, { status: 204 });
-    },
-    { preconnect: original.preconnect },
-  );
-  try {
-    const caller = new AbortController();
-    caller.abort(new Error("stopped"));
-    await expect(
-      fetchWithTimeout("https://8.8.8.8/rtc", { signal: caller.signal }),
-    ).rejects.toThrow("stopped");
-    await expect(
-      fetchWithTimeout("https://8.8.8.8/rtc", { deadline: Date.now() - 1 }),
-    ).rejects.toThrow("deadline");
-    expect(requests).toBe(0);
-    expect(
-      (await fetchWithTimeout("https://8.8.8.8/rtc", { skipSafetyCheck: true }))
-        .status,
-    ).toBe(204);
-    expect(requests).toBe(1);
-  } finally {
-    globalThis.fetch = original;
-  }
+    }, { preconnect: original.preconnect });
+    try {
+      const caller = new AbortController();
+      caller.abort(new Error('stopped'));
+      await expect(fetchWithTimeout('https://8.8.8.8/rtc', {
+        signal: caller.signal,
+      })).rejects.toThrow('stopped');
+      await expect(fetchWithTimeout('https://8.8.8.8/rtc', {
+        deadline: Date.now() - 1,
+      })).rejects.toThrow('deadline');
+      expect(requests).toBe(0);
+      expect((await fetchWithTimeout('https://8.8.8.8/rtc', {
+        skipSafetyCheck: true,
+      })).status).toBe(204);
+      expect(requests).toBe(1);
+    } finally {
+      globalThis.fetch = original;
+    }
+  `);
 });
 
 test("RTC deadline is rechecked after endpoint lookup before signing or POST", async () => {
-  const original = globalThis.fetch;
-  const originalNow = Date.now;
-  let requests = 0;
-  let now = 1000;
-  Date.now = () => now;
-  globalThis.fetch = Object.assign(
-    async () => {
+  const transport = new URL(
+    "../../lib/rtc/signal-transport.ts",
+    import.meta.url,
+  ).href;
+  runIsolated(`
+    import { expect } from 'bun:test';
+    const { sendCallSignal } = await import(${JSON.stringify(transport)});
+    const original = globalThis.fetch;
+    const originalNow = Date.now;
+    let requests = 0;
+    let now = 1000;
+    Date.now = () => now;
+    globalThis.fetch = Object.assign(async () => {
       requests++;
       return new Response(null, { status: 204 });
-    },
-    { preconnect: original.preconnect },
-  );
-  const db = {
-    query: {
-      actorCache: {
-        findFirst: async () => {
-          now = 3000;
-          return { inbox: "https://peer.example/inbox", rawJson: "{}" };
-        },
-      },
-    },
-  };
-  try {
-    await expect(
-      sendCallSignal(
-        db as never,
-        {
-          apId: "https://local.example/alice",
-          privateKeyPem: "must not be used",
-        },
-        {
-          v: 1,
-          callId: "one",
-          from: "https://local.example/alice",
-          to: "https://peer.example/bob",
-          type: "accept",
-          ts: 1000,
-          ttlMs: 30000,
-        },
-        undefined,
-        { deadline: 2000 },
-      ),
-    ).rejects.toThrow("deadline");
-    expect(requests).toBe(0);
-  } finally {
-    Date.now = originalNow;
-    globalThis.fetch = original;
-  }
+    }, { preconnect: original.preconnect });
+    const db = { query: { actorCache: { findFirst: async () => {
+      now = 3000;
+      return { inbox: 'https://peer.example/inbox', rawJson: '{}' };
+    } } } };
+    try {
+      await expect(sendCallSignal(db, {
+        apId: 'https://local.example/alice', privateKeyPem: 'must not be used',
+      }, {
+        v: 1, callId: 'one', from: 'https://local.example/alice',
+        to: 'https://peer.example/bob', type: 'accept', ts: 1000, ttlMs: 30000,
+      }, undefined, { deadline: 2000 })).rejects.toThrow('deadline');
+      expect(requests).toBe(0);
+    } finally {
+      Date.now = originalNow;
+      globalThis.fetch = original;
+    }
+  `);
 });
 
 for (const mode of ["abort", "deadline"] as const)

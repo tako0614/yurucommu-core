@@ -23,6 +23,7 @@ import {
   MAX_PROFILE_URL_LENGTH,
 } from "./actors-helpers.ts";
 import { logger } from "../lib/logger.ts";
+import { SessionRevocationError } from "../lib/errors.ts";
 import type { VerifiedTakosumiWorkspaceGrant } from "../lib/oidc-id-token.ts";
 
 export type { VerifiedTakosumiWorkspaceGrant } from "../lib/oidc-id-token.ts";
@@ -135,6 +136,8 @@ export function formatAccountResponse(a: {
 /**
  * Delete a session row by its raw (cookie) id. The raw id is hashed before
  * the lookup because the stored key is `sha256:<salt:rawId>`, never the raw id.
+ * An already-absent row is successfully revoked. Hashing/storage failures
+ * reject so logout and rotation stop before clearing or replacing the cookie.
  */
 export async function deleteSessionSafely(
   db: Database,
@@ -145,12 +148,14 @@ export async function deleteSessionSafely(
   try {
     const sessionKey = await hashSessionIdForEnv(env, rawSessionId);
     await db.delete(sessions).where(eq(sessions.id, sessionKey));
-  } catch (err) {
+  } catch {
     log.warn("Failed to delete session", {
       event: "auth.session.delete_failed",
       context,
-      error: err,
     });
+    // Neither credential-bearing query diagnostics nor the raw id belong in
+    // the public error. A failed/indeterminate write is never a success ACK.
+    throw new SessionRevocationError();
   }
 }
 

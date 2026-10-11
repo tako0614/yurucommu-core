@@ -45,6 +45,7 @@ import {
 } from "./auth-helpers.ts";
 import { logger } from "../lib/logger.ts";
 import { rawSessionCredential } from "../lib/session-actor.ts";
+import { SessionRevocationError } from "../lib/errors.ts";
 
 const log = logger.child({ component: "auth" });
 
@@ -331,6 +332,9 @@ auth.post("/mobile/oidc", async (c) => {
     );
     return c.json(mobileSessionResponse(sessionId));
   } catch (error) {
+    // Verification succeeded; a storage failure must not be misreported as a
+    // bad ID token or a successful replacement session.
+    if (error instanceof SessionRevocationError) throw error;
     log.warn("Mobile OIDC exchange failed", {
       event: "auth.mobile.oidc_exchange_failed",
       error,
