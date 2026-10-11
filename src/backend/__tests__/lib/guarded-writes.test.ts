@@ -248,6 +248,77 @@ test("upsert, builder chain, and a mixed batch retain one guard pair per executi
   expect(await counter(db)).toBe(6);
 });
 
+test("guarded INSERT SELECT accepts its own read and keeps the write fenced", async () => {
+  const { db, guarded } = await fixture();
+  const candidate = guarded
+    .select({
+      id: sql<string>`'projected'`.as("id"),
+      witness: fence.witness,
+      counter: fence.counter,
+    })
+    .from(fence)
+    .where(eq(fence.id, "counter"));
+  expect(() => (candidate as unknown as { _: unknown })._).toThrow(
+    "bypasses the write guard",
+  );
+
+  const write = guarded.insert(fence).select(candidate);
+  expect(() =>
+    (write as unknown as { _prepare(): unknown })._prepare(),
+  ).toThrow("bypasses the write guard");
+  expect(await counter(db)).toBe(0);
+  await write;
+  expect(
+    await db.select().from(fence).where(eq(fence.id, "projected")),
+  ).toEqual([{ id: "projected", witness: "valid", counter: 1 }]);
+  expect(await counter(db)).toBe(2);
+
+  const rejected = withGuardedWrites(db, {
+    before: () =>
+      db
+        .update(fence)
+        .set({ counter: sql`${fence.counter} + 1` })
+        .where(eq(fence.id, "counter")),
+    after: () =>
+      db.insert(fence).values({
+        id: "failed-select-assertion",
+        witness: sql<string>`(SELECT witness FROM test_write_fence WHERE id = 'missing')`,
+      }),
+  });
+  const rejectedCandidate = rejected
+    .select({
+      id: sql<string>`'rejected-projection'`.as("id"),
+      witness: fence.witness,
+      counter: fence.counter,
+    })
+    .from(fence)
+    .where(eq(fence.id, "counter"));
+  await expect(
+    Promise.resolve(rejected.insert(fence).select(rejectedCandidate)),
+  ).rejects.toThrow();
+  expect(await counter(db)).toBe(2);
+  expect(
+    await db.select().from(fence).where(eq(fence.id, "rejected-projection")),
+  ).toHaveLength(0);
+
+  const otherGuard = createGuardedDatabase(db, () => ({
+    before: db.select({ witness: fence.witness }).from(fence).limit(1),
+    after: db.select({ witness: fence.witness }).from(fence).limit(1),
+  }));
+  const foreignCandidate = otherGuard
+    .select({
+      id: sql<string>`'foreign-projection'`.as("id"),
+      witness: fence.witness,
+      counter: fence.counter,
+    })
+    .from(fence)
+    .where(eq(fence.id, "counter"));
+  expect(() => guarded.insert(fence).select(foreignCandidate)).toThrow(
+    "bypasses the write guard",
+  );
+  expect(await counter(db)).toBe(2);
+});
+
 test("nested request and target guards compose around RETURNING and roll back together", async () => {
   const { db, guarded: requestGuard } = await fixture();
   const targetGuard = createGuardedDatabase(requestGuard, () => ({
