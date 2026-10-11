@@ -24,20 +24,47 @@ string-array addressing and check the object's boostability and operator block
 before writing. The retained-data predicate is not evidence of an inbound
 private-repost exploit.
 
-## Remaining moderation boundary for orphan boosts
+## Withdrawal when a stored object is deleted
 
-`migrations/0003_activity_remote_object_edges.sql` makes `activities.object_ap_id`
-a plain AP-ID string, without an object FK. Object deletion retains activity
-ledger rows for history/Undo and removes the `announces` edge. After an operator
-purge, a local user's prior public Announce can consequently have no joined
-object, keep its target string and satisfy the absent-object public-address gate.
-The deleted author's identity cannot be recovered reliably from the target URL.
-The joined-author filter and exact-address check do not close this orphan case.
+Migration `0032_outbox_revocations.sql` adds an Activity-ID sidecar, without
+changing retained Activity rows or rebuilding existing tables. An `objects`
+AFTER DELETE trigger records each existing Create, Update and Announce that
+references the deleted object's exact AP-ID. The write commits or rolls back
+with the deletion, across local/remote deletes, moderation purge and account
+teardown. It includes legacy Activities with no direction; it does not update
+another actor's reservation-protected Activity ledger. A common NOT EXISTS gate
+excludes revoked rows before personal, instance and Group count/cursor/limit.
+Recreating the object or removing a block never republishes an old revoked
+Activity; a new Activity has a different publication lifetime. The Activity
+DELETE trigger removes its sidecar row. Delete/Undo Activities are not revoked.
+Normal unrepost still persists its Undo and reaps the original Announce.
 
-Closing that boundary requires an explicit durable provenance or targeted
-moderation-cleanup policy that preserves legitimate remote boosts and the
-history/Undo contract. Neither the activity processing flag nor verified
-Delete(Actor) tombstones represent operator moderation. This reader change
-adds no schema or cleanup mutation and does not qualify complete moderation or
-GA. Local libsql, disposable D1/workerd, published package and live federation
-checks are separate evidence.
+The user repost writer records `direction: outbound`, like other outbound
+producers, so its public Announce is actually included in the outbox. Its
+existing object-existence and boostability guards still apply. This changes no
+API response or package version.
+
+Apply migration 0032 before serving this engine. For operator-owned upgrades,
+close serving/writers, preserve a backup, apply the owning migration runner,
+verify the exact ledger and reopen with the corresponding engine. The sidecar
+is a read security boundary; an older runtime ignores it and may republish
+withdrawn history. Recovery therefore requires a runtime that honors this
+boundary, using forward repair rather than reopening on older code. No live
+migration or operator-data qualification is implied by source/local tests.
+
+## Legacy absent targets remain unclassified
+
+Migration 0003 makes `activities.object_ap_id` a plain AP-ID string without
+an object FK. Before migration 0032, object purge could retain a local public
+Announce, remove its object and edge, and lose the deleted author's identity.
+That author cannot be recovered safely from the target URL. The new trigger
+only captures deletions after installation; it does not backfill or quarantine
+all old unknown-object boosts. Their exact Public addressing contract remains
+unchanged. Adoption needs a read-only audit of exact operator data and an
+explicit adjudication policy for historical orphan rows. Zero affected legacy
+rows or qualified individual remediation is a condition for a complete
+moderation boundary; this prospective repair alone is not GA.
+
+Local libsql, disposable actual-source D1/workerd, published package bytes and
+live federation checks are separate evidence. General same-AP-ID Delete revival
+and malformed joined-envelope page/count parity remain separate concerns.

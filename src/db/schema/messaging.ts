@@ -46,6 +46,15 @@ export const activities = sqliteTable(
   ],
 );
 
+/**
+ * Permanent public-outbox withdrawal for retained Activity history. Object
+ * deletion records Create/Update/Announce IDs atomically; only Activity deletion
+ * removes them. No FK to deleted objects or remote actors (migration 0032).
+ */
+export const outboxRevocations = sqliteTable("outbox_revocations", {
+  activityApId: text("activity_ap_id").primaryKey(),
+});
+
 // ---------------------------------------------------------------------------
 // DELIVERY_QUEUE
 // ---------------------------------------------------------------------------

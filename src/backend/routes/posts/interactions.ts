@@ -325,6 +325,7 @@ posts.post("/:id/repost", async (c) => {
       type: "Announce",
       actorApId: actor.ap_id,
       objectApId: post.apId,
+      direction: "outbound",
       rawJson: JSON.stringify(announceActivityRaw),
       createdAt: now,
     }),
