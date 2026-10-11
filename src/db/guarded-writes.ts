@@ -210,6 +210,21 @@ export function createGuardedDatabase(
         }
         if (typeof value !== "function") return value;
         return (...args: unknown[]) => {
+          if (property === "select") {
+            const source = args[0];
+            if (typeof source === "object" && source !== null) {
+              const originalSelect = ORIGINAL_BUILDER.get(source);
+              if (originalSelect) {
+                // Drizzle's INSERT SELECT inspects `source._` itself. Only
+                // hand it a read builder made by this guard; a caller still
+                // cannot inspect `_` or pass a builder from another guard.
+                if (wrappedReads.get(originalSelect) !== source) {
+                  return forbidden("select source");
+                }
+                args[0] = originalSelect;
+              }
+            }
+          }
           const result = Reflect.apply(value, object, args) as unknown;
           return mutationBuilder(result) ? wrapMutation(result) : result;
         };
