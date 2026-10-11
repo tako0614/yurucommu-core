@@ -84,7 +84,7 @@ export async function purgeActorMediaUploads(
   apId: string,
 ): Promise<void> {
   const uploads = await db
-    .select({ r2Key: mediaUploads.r2Key })
+    .select({ id: mediaUploads.id, r2Key: mediaUploads.r2Key })
     .from(mediaUploads)
     .where(eq(mediaUploads.uploaderApId, apId));
   if (uploads.length === 0) return;
@@ -109,7 +109,32 @@ export async function purgeActorMediaUploads(
       throw err;
     }
   }
-  await db.delete(mediaUploads).where(eq(mediaUploads.uploaderApId, apId));
+  // Only acknowledge the exact upload identities selected before external
+  // deletion. An upload may finish while R2 is awaited; uploader-wide cleanup
+  // would lose that new blob's durable retry/GC identity without deleting it.
+  // Match both id and key so even a replaced row is not acknowledged for the
+  // old key. The owning upload route generates immutable id/key pairs.
+  // Each row is an independent, idempotent acknowledgement of an already
+  // deleted blob. A failed statement retains its rows for retry; earlier
+  // successful acknowledgements need not be rolled back.
+  // Two binds per pair plus the uploader bind: 45 pairs use 91 (<100) on D1.
+  for (const chunk of chunkForInClause(uploads, 45)) {
+    await db
+      .delete(mediaUploads)
+      .where(
+        and(
+          eq(mediaUploads.uploaderApId, apId),
+          or(
+            ...chunk.map((upload) =>
+              and(
+                eq(mediaUploads.id, upload.id),
+                eq(mediaUploads.r2Key, upload.r2Key),
+              ),
+            ),
+          ),
+        ),
+      );
+  }
 }
 
 /**
