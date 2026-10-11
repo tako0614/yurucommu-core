@@ -43,15 +43,38 @@ Yurucommu Core は、yurucommu family の製品 (yurucommu / yurumeet など) �
 ```bash
 cd yurucommu-core
 bun install
-bun run check   # tsc --noEmit
-bun test        # bun:test suite
-bun run lint    # type check
+bun run check   # complete portable gate
+bun run test    # portable suites and packaged-consumer checks
+bun run lint    # alias of the complete portable gate
 bun run fmt     # prettier
 ```
 
 backend エンジンの source は `src/backend` (Hono routes、ActivityPub 連合、配送 pipeline)、
 共有 npm API package は `packages/api`、データベースの schema と migration は
 `src/db/schema` と `migrations/` にあります。
+
+`bun run check` は format check、TypeScript / static analysis、portable tests、
+API build、Worker / browser bundle、packaged consumer を含む完全な portable gate
+です。通常の CI が green なら、この portable gate の証拠になります。
+
+### Linux procfs の native 検証
+
+実 kernel の sibling PID namespace owner と `hidepid=2` を調べる2件は、
+`test-native/` の独立した検証です。必要な能力を持つ Linux host で別 cadence として
+実行します。
+
+```bash
+bun run check:native:linux-procfs
+```
+
+入口は Linux と `unshare` / `mount` / `setpriv` を要求し、各10秒の時間制限付きで PID namespace、
+procfs mount、`hidepid=2` と異なる UID での実行能力を先に確認します。ツール不足や
+namespace / mount 権限の拒否は、生の診断を表示して非ゼロで終了します。
+prerequisite が通ると、現在の Bun で2件を無条件に実行し、テストの失敗 status を返します。
+native suite 全体の上限は60秒です。時間切れは診断と status `124` を返し、
+入口が作った suite の process group だけを終了します。通常終了時にも残った子を掃除します。
+ツールの自動 install や権限の追加は行いません。portable CI の green は、
+この Linux native 検証の成功を意味しません。
 
 API package のコマンド:
 
