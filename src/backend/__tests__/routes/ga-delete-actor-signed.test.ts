@@ -40,6 +40,15 @@ import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
 
+function canonicalKey(label: string, extension = "png"): string {
+  const digest = [...new TextEncoder().encode(label)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 64)
+    .padEnd(64, "0");
+  return `uploads/${digest}.${extension}`;
+}
+
 async function freshDb(): Promise<Database> {
   return (await createTestDb()).db;
 }
@@ -213,7 +222,7 @@ test("after /me/delete the Delete(actor) deliver job can still resolve a signing
   });
 
   // Media owned by alice, with a backing R2 object.
-  const r2Key = "uploads/abc123.png";
+  const r2Key = canonicalKey("delete-actor-media");
   await r2.storage.put(r2Key, new Uint8Array([1, 2, 3]));
   await db.insert(mediaUploads).values({
     id: "abc123",

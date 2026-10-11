@@ -734,7 +734,7 @@ dm.delete("/messages/:messageId", async (c) => {
   await db.delete(objects).where(eq(objects.apId, message.apId));
   // Irreversible R2 purge LAST — after the objects row is gone, so a failed
   // object delete can't leave a live (private) DM pointing at a deleted blob.
-  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
+  await purgeMediaBlobs(db, c.env.MEDIA, mediaKeys);
 
   return c.json({ success: true });
 });

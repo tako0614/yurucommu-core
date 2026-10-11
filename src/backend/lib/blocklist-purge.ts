@@ -137,7 +137,7 @@ async function purgeObjects(
         .where(inArray(objects.apId, parentApIds)),
     ]);
   }
-  await purgeMediaBlobs(media, mediaKeys);
+  await purgeMediaBlobs(db, media, mediaKeys);
 }
 
 type ActorEdgeWhere = (column: SQLiteColumn) => SQL;

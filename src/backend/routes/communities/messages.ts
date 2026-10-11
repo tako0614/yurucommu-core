@@ -633,7 +633,7 @@ messagesRouter.delete("/:identifier/messages/:messageId", async (c) => {
   // enforcement off). Then drop the object row and purge blobs last.
   const mediaKeys = await deleteObjectCascade(db, messageId, c.env.MEDIA);
   await db.delete(objects).where(eq(objects.apId, messageId));
-  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
+  await purgeMediaBlobs(db, c.env.MEDIA, mediaKeys);
 
   return c.json({ success: true });
 });

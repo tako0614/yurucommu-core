@@ -382,6 +382,36 @@ export const mediaUploadLifetimes = sqliteTable(
   ],
 );
 
+// Engine-owned scratch and cursors for guarded bounded reference backfill.
+export const mediaStagedSourceInputs = sqliteTable(
+  "media_staged_source_inputs",
+  {
+    sourceKind: text("source_kind").notNull(),
+    sourceId: text("source_id").notNull(),
+    payload: text("payload").notNull(),
+    isJson: integer("is_json").notNull(),
+    allowAmbiguous: integer("allow_ambiguous").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.sourceKind, t.sourceId] })],
+);
+export const mediaStagedBackfill = sqliteTable("media_staged_backfill", {
+  sourceKind: text("source_kind").primaryKey(),
+  cursor: text("cursor"),
+  complete: integer("complete").notNull().default(0),
+});
+
+// A permanent writer fence, independent of new-upload staged lifetimes.
+// Job acknowledgment never removes this immutable physical-key identity.
+export const mediaBlobDeletionClaims = sqliteTable(
+  "media_blob_deletion_claims",
+  {
+    r2Key: text("r2_key").primaryKey(),
+    uploaderApId: text("uploader_ap_id").notNull(),
+    uploadId: text("upload_id"),
+    createdAt: text("created_at").notNull(),
+  },
+);
+
 // Durable intent for object-attached media deletion. This row is created in
 // the same atomic batch as the canonical object delete and is removed only
 // after the ObjectStore acknowledges deletion. It intentionally carries no
@@ -395,6 +425,7 @@ export const mediaBlobDeletionJobs = sqliteTable(
     nextAttemptAt: text("next_attempt_at").notNull().$defaultFn(nowIsoUtc),
   },
   (t) => [
+    index("media_blob_deletion_jobs_uploader_idx").on(t.uploaderApId),
     index("media_blob_deletion_jobs_due_idx").on(
       t.nextAttemptAt,
       t.createdAt,

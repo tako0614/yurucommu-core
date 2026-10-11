@@ -16,6 +16,12 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration0035 adds permanent published-media deletion claims, keeping metadata
+until complete reference proof and preserving unsupported legacy identities.
+Apply with writers closed; no existing upload/job is automatically claimed.
+See [published media deletion](../docs/design/published-media-deletion.md) for
+account ordering, retry, legacy reconciliation and closed-restore limitations.
+
 Migration 0034 adds new-upload staged lifetimes, atomic reference fences and a
 bounded, resumable reference backfill. It preserves legacy upload rows and
 unknown external puts. Apply it before serving the engine; collection stays

@@ -5,7 +5,9 @@ import { eq, inArray, sql } from "drizzle-orm";
 import {
   actors,
   communities,
+  mediaBlobDeletionClaims,
   mediaBlobDeletionJobs,
+  mediaStagedBackfill,
   mediaUploads,
   objects,
   runBatch,
@@ -21,9 +23,18 @@ import {
 import postsRoutes from "../../routes/posts/routes.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
+import { backfillStagedMediaReferences } from "../../lib/staged-media-retention.ts";
 
 const APP_URL = "https://yuru.test";
 const JOB_OWNER = `${APP_URL}/ap/users/job-owner`;
+
+function canonicalKey(label: string): string {
+  const digest = [...new TextEncoder().encode(label)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .padEnd(64, "0");
+  return `uploads/${digest}.jpg`;
+}
 
 async function freshDb(): Promise<Database> {
   return (await createTestDb()).db;
@@ -72,7 +83,7 @@ async function insertMediaPost(
   });
   if (includeUpload) {
     await db.insert(mediaUploads).values({
-      id: `media-${r2Key}`,
+      id: `media-${apId.slice(apId.lastIndexOf("/") + 1)}`,
       r2Key,
       uploaderApId: authorApId,
       contentType: "image/jpeg",
@@ -112,7 +123,7 @@ test("prepared canonical delete atomically rolls back object, media row, and job
   const db = await freshDb();
   const author = await insertActor(db, "atomic-media");
   const objectApId = `${APP_URL}/ap/objects/atomic-media`;
-  const r2Key = "uploads/atomic-media.jpg";
+  const r2Key = canonicalKey("atomic-media");
   await insertMediaPost(db, objectApId, author, r2Key);
   await db.run(sql`
     CREATE TRIGGER reject_media_object_delete
@@ -143,7 +154,7 @@ test("canonical post DELETE commits a job before trailing storage completion", a
   const db = await freshDb();
   const author = await insertActor(db, "canonical-media");
   const objectApId = `${APP_URL}/ap/objects/canonical-media`;
-  const r2Key = "uploads/canonical-media.jpg";
+  const r2Key = canonicalKey("canonical-media");
   await insertMediaPost(db, objectApId, author, r2Key);
   await db.update(actors).set({ postCount: 1 }).where(eq(actors.apId, author));
   const { storage, deleted } = recordingStorage({ fail: true });
@@ -181,7 +192,7 @@ test("canonical post DELETE commits a job before trailing storage completion", a
 
 test("successful trailing deletion removes the blob job and missing blobs replay idempotently", async () => {
   const db = await freshDb();
-  const r2Key = "uploads/replay.jpg";
+  const r2Key = canonicalKey("replay");
   await db.insert(mediaBlobDeletionJobs).values({
     r2Key,
     uploaderApId: JOB_OWNER,
@@ -203,13 +214,13 @@ test("failed and partial storage deletion retains jobs for replay", async () => 
   const oldDue = "2020-01-01T00:00:00.000Z";
   await db.insert(mediaBlobDeletionJobs).values([
     {
-      r2Key: "uploads/partial-a.jpg",
+      r2Key: canonicalKey("partial-a"),
       uploaderApId: JOB_OWNER,
       createdAt: oldDue,
       nextAttemptAt: oldDue,
     },
     {
-      r2Key: "uploads/partial-b.jpg",
+      r2Key: canonicalKey("partial-b"),
       uploaderApId: JOB_OWNER,
       createdAt: oldDue,
       nextAttemptAt: oldDue,
@@ -220,7 +231,7 @@ test("failed and partial storage deletion retains jobs for replay", async () => 
   await expect(drainMediaBlobDeletionJobs(db, storage)).rejects.toThrow(
     "partial storage failure",
   );
-  expect(deleted).toEqual(["uploads/partial-a.jpg"]);
+  expect(deleted).toEqual([canonicalKey("partial-a")]);
   expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(2);
 
   await db
@@ -228,20 +239,20 @@ test("failed and partial storage deletion retains jobs for replay", async () => 
     .set({ nextAttemptAt: oldDue })
     .where(
       inArray(mediaBlobDeletionJobs.r2Key, [
-        "uploads/partial-a.jpg",
-        "uploads/partial-b.jpg",
+        canonicalKey("partial-a"),
+        canonicalKey("partial-b"),
       ]),
     );
   expect(await drainMediaBlobDeletionJobs(db, storage)).toBe(2);
   expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
 });
 
-test("shared references prevent a job and remain protected without MEDIA", async () => {
+test("shared references retain pending intent without authorizing a claim", async () => {
   const db = await freshDb();
   const author = await insertActor(db, "shared-media");
   const first = `${APP_URL}/ap/objects/shared-first`;
   const second = `${APP_URL}/ap/objects/shared-second`;
-  const r2Key = "uploads/shared.jpg";
+  const r2Key = canonicalKey("shared");
   await insertMediaPost(db, first, author, r2Key);
   await insertMediaPost(db, second, author, r2Key, false);
 
@@ -251,7 +262,8 @@ test("shared references prevent a job and remain protected without MEDIA", async
     db.delete(objects).where(eq(objects.apId, first)),
   ] as [D1Statement, ...D1Statement[]]);
 
-  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
+  expect(await db.select().from(mediaBlobDeletionClaims)).toHaveLength(0);
   expect(
     await db.select().from(mediaUploads).where(eq(mediaUploads.r2Key, r2Key)),
   ).toHaveLength(1);
@@ -262,9 +274,8 @@ test("shared references prevent a job and remain protected without MEDIA", async
 
 test("retention drains at most 50 media deletion jobs per pass", async () => {
   const db = await freshDb();
-  const keys = Array.from(
-    { length: 51 },
-    (_, index) => `uploads/bounded-${String(index).padStart(2, "0")}.jpg`,
+  const keys = Array.from({ length: 51 }, (_, index) =>
+    canonicalKey(`bounded-${String(index).padStart(2, "0")}`),
   );
   for (const r2Key of keys) {
     await db.insert(mediaBlobDeletionJobs).values({
@@ -287,13 +298,13 @@ test("a failed oldest page is rescheduled so newer due work progresses", async (
   const oldDue = "2020-01-01T00:00:00.000Z";
   await db.insert(mediaBlobDeletionJobs).values([
     {
-      r2Key: "uploads/poison-a.jpg",
+      r2Key: canonicalKey("poison-a"),
       uploaderApId: JOB_OWNER,
       createdAt: oldDue,
       nextAttemptAt: oldDue,
     },
     {
-      r2Key: "uploads/poison-b.jpg",
+      r2Key: canonicalKey("poison-b"),
       uploaderApId: JOB_OWNER,
       createdAt: oldDue,
       nextAttemptAt: oldDue,
@@ -305,14 +316,14 @@ test("a failed oldest page is rescheduled so newer due work progresses", async (
     "partial storage failure",
   );
 
-  const newerKey = "uploads/newer-eligible.jpg";
+  const newerKey = canonicalKey("newer-eligible");
   await db.insert(mediaBlobDeletionJobs).values({
     r2Key: newerKey,
     uploaderApId: JOB_OWNER,
   });
   expect(await drainMediaBlobDeletionJobs(db, storage)).toBe(1);
   expect(calls).toEqual([
-    ["uploads/poison-a.jpg", "uploads/poison-b.jpg"],
+    [canonicalKey("poison-a"), canonicalKey("poison-b")],
     [newerKey],
   ]);
   expect(
@@ -321,8 +332,8 @@ test("a failed oldest page is rescheduled so newer due work progresses", async (
       .from(mediaBlobDeletionJobs)
       .where(
         inArray(mediaBlobDeletionJobs.r2Key, [
-          "uploads/poison-a.jpg",
-          "uploads/poison-b.jpg",
+          canonicalKey("poison-a"),
+          canonicalKey("poison-b"),
         ]),
       ),
   ).toHaveLength(2);
@@ -332,9 +343,8 @@ test("referenced oldest jobs do not starve a later eligible job", async () => {
   const db = await freshDb();
   const author = await insertActor(db, "fair-media");
   const oldDue = "2020-01-01T00:00:00.000Z";
-  const referencedKeys = Array.from(
-    { length: 50 },
-    (_, index) => `uploads/ref-${String(index).padStart(2, "0")}.jpg`,
+  const referencedKeys = Array.from({ length: 50 }, (_, index) =>
+    canonicalKey(`ref-${String(index).padStart(2, "0")}`),
   );
   for (const [index, r2Key] of referencedKeys.entries()) {
     await insertMediaPost(
@@ -350,7 +360,18 @@ test("referenced oldest jobs do not starve a later eligible job", async () => {
       nextAttemptAt: oldDue,
     });
   }
-  const eligibleKey = "uploads/zz-eligible.jpg";
+  let incomplete = await db
+    .select({ sourceKind: mediaStagedBackfill.sourceKind })
+    .from(mediaStagedBackfill)
+    .where(eq(mediaStagedBackfill.complete, 0));
+  while (incomplete.length > 0) {
+    await backfillStagedMediaReferences(db);
+    incomplete = await db
+      .select({ sourceKind: mediaStagedBackfill.sourceKind })
+      .from(mediaStagedBackfill)
+      .where(eq(mediaStagedBackfill.complete, 0));
+  }
+  const eligibleKey = canonicalKey("zz-eligible");
   await db.insert(mediaBlobDeletionJobs).values({
     r2Key: eligibleKey,
     uploaderApId: author,
@@ -380,15 +401,15 @@ test("referenced oldest jobs do not starve a later eligible job", async () => {
 test("profile and live community references protect reattached jobs without upload rows", async () => {
   const db = await freshDb();
   const owner = await insertActor(db, "reattached-media");
-  const profileKey = "uploads/profile-reattach.jpg";
-  const communityKey = "uploads/community-reattach.jpg";
+  const profileKey = canonicalKey("profile-reattach");
+  const communityKey = canonicalKey("community-reattach");
   await db.insert(mediaBlobDeletionJobs).values([
     { r2Key: profileKey, uploaderApId: owner },
     { r2Key: communityKey, uploaderApId: owner },
   ]);
   await db
     .update(actors)
-    .set({ iconUrl: "/media/profile-reattach.jpg" })
+    .set({ iconUrl: `/media/${profileKey.slice("uploads/".length)}` })
     .where(eq(actors.apId, owner));
   await db.insert(communities).values({
     apId: `${APP_URL}/ap/communities/reattached-media`,
@@ -400,7 +421,7 @@ test("profile and live community references protect reattached jobs without uplo
     publicKeyPem: "community-pub",
     privateKeyPem: "community-priv",
     createdBy: owner,
-    iconUrl: "/media/community-reattach.jpg",
+    iconUrl: `/media/${communityKey.slice("uploads/".length)}`,
   });
   const { storage, calls } = recordingStorage();
 
@@ -409,11 +430,11 @@ test("profile and live community references protect reattached jobs without uplo
   expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(2);
 });
 
-test("foreign-owner object references do not block an uploader-owned job", async () => {
+test("foreign-owner object references conservatively block the deletion claim", async () => {
   const db = await freshDb();
   const owner = await insertActor(db, "media-owner");
   const foreign = await insertActor(db, "foreign-media-owner");
-  const r2Key = "uploads/foreign-object.jpg";
+  const r2Key = canonicalKey("foreign-object");
   await db.insert(mediaBlobDeletionJobs).values({
     r2Key,
     uploaderApId: owner,
@@ -427,16 +448,42 @@ test("foreign-owner object references do not block an uploader-owned job", async
   );
   const { storage, calls } = recordingStorage();
 
-  expect(await drainMediaBlobDeletionJobs(db, storage)).toBe(1);
-  expect(calls).toEqual([[r2Key]]);
-  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
+  expect(await drainMediaBlobDeletionJobs(db, storage)).toBe(0);
+  expect(calls).toEqual([]);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
+});
+
+test("unsupported legacy keys retain metadata and retry intent", async () => {
+  const db = await freshDb();
+  const owner = await insertActor(db, "legacy-key-owner");
+  const r2Key = "uploads/legacy arbitrary.jpg";
+  await db.insert(mediaUploads).values({
+    id: "media-legacy-arbitrary",
+    r2Key,
+    uploaderApId: owner,
+    contentType: "image/jpeg",
+    size: 1,
+  });
+  await db.insert(mediaBlobDeletionJobs).values({ r2Key, uploaderApId: owner });
+  const { storage, calls } = recordingStorage();
+
+  expect(await drainMediaBlobDeletionJobs(db, storage)).toBe(0);
+  expect(calls).toEqual([]);
+  expect(
+    await db.select().from(mediaUploads).where(eq(mediaUploads.r2Key, r2Key)),
+  ).toHaveLength(1);
+  expect(
+    await db
+      .select()
+      .from(mediaBlobDeletionJobs)
+      .where(eq(mediaBlobDeletionJobs.r2Key, r2Key)),
+  ).toHaveLength(1);
 });
 
 test("immediate completion chunks job-row deletion beyond the D1 parameter ceiling", async () => {
   const db = await freshDb();
-  const keys = Array.from(
-    { length: 101 },
-    (_, index) => `uploads/immediate-${String(index).padStart(3, "0")}.jpg`,
+  const keys = Array.from({ length: 101 }, (_, index) =>
+    canonicalKey(`immediate-${String(index).padStart(3, "0")}`),
   );
   for (const r2Key of keys) {
     await db.insert(mediaBlobDeletionJobs).values({
@@ -453,7 +500,7 @@ test("immediate completion chunks job-row deletion beyond the D1 parameter ceili
 
 test("missing MEDIA fails the retention step without discarding jobs", async () => {
   const db = await freshDb();
-  const r2Key = "uploads/no-media-binding.jpg";
+  const r2Key = canonicalKey("no-media-binding");
   await db.insert(mediaBlobDeletionJobs).values({
     r2Key,
     uploaderApId: JOB_OWNER,
@@ -469,7 +516,7 @@ test("canonical completion keeps a job when MEDIA is absent", async () => {
   const db = await freshDb();
   const author = await insertActor(db, "no-media-canonical");
   const objectApId = `${APP_URL}/ap/objects/no-media-canonical`;
-  const r2Key = "uploads/no-media-canonical.jpg";
+  const r2Key = canonicalKey("no-media-canonical");
   await insertMediaPost(db, objectApId, author, r2Key);
 
   const cascade = await prepareObjectDeleteCascade(db, objectApId);

@@ -876,7 +876,7 @@ stories.post("/delete", async (c) => {
 
   // Irreversible R2 purge only after the story row is gone and its durable
   // federation intent exists.
-  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
+  await purgeMediaBlobs(db, c.env.MEDIA, mediaKeys);
   await publishDurableStoryFanoutWakeup(
     c.env,
     deleteActivity.id,

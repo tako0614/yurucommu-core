@@ -4,7 +4,10 @@ import { and, eq } from "drizzle-orm";
 import {
   activities,
   actors,
+  mediaBlobDeletionClaims,
+  mediaBlobDeletionJobs,
   mediaUploads,
+  objects,
   sessions,
   type Database,
 } from "../../../db/index.ts";
@@ -18,6 +21,14 @@ import { createTestDb } from "../helpers/d1-semantics.ts";
 const APP_URL = "https://yuru.test";
 const SESSION_SALT = "account-deletion-lifecycle-test-salt";
 const PASSWORD = "account-deletion-lifecycle-test-password";
+
+function canonicalKey(label: string): string {
+  const digest = [...new TextEncoder().encode(label)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .padEnd(64, "0");
+  return `uploads/${digest}.jpg`;
+}
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -126,7 +137,7 @@ async function seedOwner(db: Database) {
 async function seedUpload(db: Database, actorApId: string, id: string) {
   await db.insert(mediaUploads).values({
     id,
-    r2Key: `account-deletion/${id}.jpg`,
+    r2Key: canonicalKey(id),
     uploaderApId: actorApId,
     contentType: "image/jpeg",
     size: 1,
@@ -187,7 +198,7 @@ test("reserved deletion excludes a second teardown, new accounts, writes, and lo
       ),
     );
     expect(await enteredStorageDelete.promise).toEqual([
-      "account-deletion/overlap-owner-media.jpg",
+      canonicalKey("overlap-owner-media"),
     ]);
 
     const concurrentDelete = await app.fetch(
@@ -270,15 +281,43 @@ test("storage failure preserves every actor and session for deletion retry only"
   await seedUpload(db, owner.apId, "retry-owner-media");
   await seedUpload(db, first.apId, "retry-first-media");
   await seedUpload(db, second.apId, "retry-second-media");
+  for (const [actor, uploadId] of [
+    [owner, "retry-owner-media"],
+    [first, "retry-first-media"],
+    [second, "retry-second-media"],
+  ] as const) {
+    await db
+      .update(actors)
+      .set({
+        iconUrl: `/media/${canonicalKey(uploadId).slice("uploads/".length)}`,
+      })
+      .where(eq(actors.apId, actor.apId));
+  }
 
   let shouldFail = true;
   const deletedKeys: string[] = [];
+  const sourceStatesAtDelete: {
+    iconUrl: string | null;
+    headerUrl: string | null;
+  }[] = [];
+  const actorByKey = new Map([
+    [canonicalKey("retry-owner-media"), owner.apId],
+    [canonicalKey("retry-first-media"), first.apId],
+    [canonicalKey("retry-second-media"), second.apId],
+  ]);
   const media = objectStore(async (keys) => {
     deletedKeys.push(...keys);
-    if (
-      shouldFail &&
-      keys.includes("account-deletion/retry-second-media.jpg")
-    ) {
+    for (const key of keys) {
+      const apId = actorByKey.get(key);
+      if (!apId) continue;
+      const source = await db
+        .select({ iconUrl: actors.iconUrl, headerUrl: actors.headerUrl })
+        .from(actors)
+        .where(eq(actors.apId, apId))
+        .get();
+      if (source) sourceStatesAtDelete.push(source);
+    }
+    if (shouldFail && keys.includes(canonicalKey("retry-second-media"))) {
       shouldFail = false;
       throw new Error("fixture storage failure");
     }
@@ -293,9 +332,18 @@ test("storage failure preserves every actor and session for deletion retry only"
 
   const failed = await deleteRequest();
   expect(failed.status).toBe(500);
+  expect(sourceStatesAtDelete).toHaveLength(3);
+  expect(
+    sourceStatesAtDelete.every(
+      (source) => !source.iconUrl && !source.headerUrl,
+    ),
+  ).toBe(true);
   expect((await actorState(db, owner.apId))?.deletedAt).toBeNull();
   expect((await actorState(db, first.apId))?.deletedAt).toBeNull();
   expect((await actorState(db, second.apId))?.deletedAt).toBeNull();
+  expect(await db.select().from(mediaUploads)).toHaveLength(0);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
+  expect(await db.select().from(mediaBlobDeletionClaims)).toHaveLength(3);
   expect(
     await db
       .select({ id: sessions.id })
@@ -328,7 +376,56 @@ test("storage failure preserves every actor and session for deletion retry only"
       .from(sessions)
       .where(eq(sessions.memberId, owner.apId)),
   ).toHaveLength(0);
-  expect(deletedKeys).toContain("account-deletion/retry-second-media.jpg");
+  expect(deletedKeys).toContain(canonicalKey("retry-second-media"));
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
+});
+
+test("live foreign media reference keeps the owner deletion reserved", async () => {
+  const { db } = await createTestDb();
+  const owner = await seedOwner(db);
+  const foreign = await createActor(db, envFor(db), {
+    username: "live-media-ref-owner",
+    name: "Live reference owner",
+    takosUserId: "local:live-media-ref-owner",
+    role: "member",
+  });
+  const rawSessionId = "lifecycle-live-media-reference-session";
+  await seedSession(db, owner.apId, rawSessionId);
+  await seedUpload(db, owner.apId, "foreign-reference-media");
+  const r2Key = canonicalKey("foreign-reference-media");
+  const objectApId = `${APP_URL}/ap/objects/live-foreign-media-reference`;
+  await db.insert(objects).values({
+    apId: objectApId,
+    type: "Note",
+    attributedTo: foreign.apId,
+    content: "Retains the shared blob",
+    attachmentsJson: JSON.stringify([
+      { url: `/media/${r2Key.slice("uploads/".length)}`, r2_key: r2Key },
+    ]),
+    isLocal: 1,
+  });
+  let storageCalls = 0;
+  const env = envFor(
+    db,
+    objectStore(async () => {
+      storageCalls += 1;
+    }),
+  );
+
+  const response = await appFor().fetch(
+    cookieRequest("/api/actors/me/delete", "POST", rawSessionId),
+    env,
+  );
+
+  expect(response.status).toBe(500);
+  expect((await actorState(db, owner.apId))?.deletedAt).toBeNull();
+  expect(await db.select().from(mediaUploads)).toHaveLength(1);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
+  expect(await db.select().from(mediaBlobDeletionClaims)).toHaveLength(0);
+  expect(storageCalls).toBe(0);
+  expect(
+    await db.select().from(actors).where(eq(actors.apId, owner.apId)),
+  ).toHaveLength(1);
 });
 
 test("owner deletion completes for legacy ownership sets larger than the account cap", async () => {

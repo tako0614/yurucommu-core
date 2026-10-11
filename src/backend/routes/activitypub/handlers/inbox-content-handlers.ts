@@ -1591,7 +1591,7 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
   // Irreversible R2 purge LAST — after the objects row is gone. On the queue-
   // backed inbox path a failure here is also self-healing: a Delete retry
   // re-runs, finds no media_uploads rows, and proceeds.
-  await purgeMediaBlobs(c.env.MEDIA, mediaKeys);
+  await purgeMediaBlobs(db, c.env.MEDIA, mediaKeys);
 }
 
 // ---------------------------------------------------------------------------

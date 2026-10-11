@@ -1,13 +1,26 @@
 import { expect, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 
-import { mediaUploads, type Database } from "../../../db/index.ts";
+import {
+  mediaBlobDeletionClaims,
+  mediaBlobDeletionJobs,
+  mediaUploads,
+  type Database,
+} from "../../../db/index.ts";
 import type { ObjectStore } from "../../runtime/types.ts";
 import { purgeActorMediaUploads } from "../../routes/account-teardown.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const OWNER = "https://yuru.test/ap/users/media-owner";
 const OTHER = "https://yuru.test/ap/users/media-other";
+
+function canonicalKey(label: string): string {
+  const digest = [...new TextEncoder().encode(label)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .padEnd(64, "0");
+  return `uploads/${digest}.jpg`;
+}
 
 type Upload = {
   id: string;
@@ -28,7 +41,7 @@ async function insertUploads(db: Database, uploads: readonly Upload[]) {
 function upload(id: string, uploaderApId = OWNER): Upload {
   return {
     id,
-    r2Key: `uploads/${id}.jpg`,
+    r2Key: canonicalKey(id),
     uploaderApId,
     contentType: "image/jpeg",
     size: 1,
@@ -41,6 +54,26 @@ function deferred<T = void>() {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+
+async function expectCauseMessage(
+  pending: Promise<unknown>,
+  expected: string,
+): Promise<void> {
+  let failure: unknown;
+  try {
+    await pending;
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toBeInstanceOf(Error);
+  const messages: string[] = [];
+  let current = failure;
+  while (current instanceof Error) {
+    messages.push(current.message);
+    current = current.cause;
+  }
+  expect(messages.join("\n")).toContain(expected);
 }
 
 function objectStore(
@@ -80,13 +113,13 @@ test("purge removes only snapshotted rows after storage deletion", async () => {
       expect.objectContaining({ id: concurrent.id, r2Key: concurrent.r2Key }),
       expect.objectContaining({
         id: "snapshot-other",
-        r2Key: "uploads/snapshot-other.jpg",
+        r2Key: canonicalKey("snapshot-other"),
       }),
     ],
   );
 });
 
-test("purge preserves a selected id whose key changed during storage deletion", async () => {
+test("claim permanently fences the key and retains its retry job until ack", async () => {
   const { db } = await createTestDb();
   const selected = upload("snapshot-replaced");
   await insertUploads(db, [selected]);
@@ -99,11 +132,19 @@ test("purge preserves a selected id whose key changed during storage deletion", 
 
   const purging = purgeActorMediaUploads(db, store, OWNER);
   await enteredDelete.promise;
-  const replacementKey = "uploads/snapshot-replaced-new-version.jpg";
-  await db
-    .update(mediaUploads)
-    .set({ r2Key: replacementKey })
-    .where(eq(mediaUploads.id, selected.id));
+  await expectCauseMessage(
+    db
+      .insert(mediaUploads)
+      .values({ ...selected, id: "snapshot-replacement" })
+      .execute(),
+    "staged media deleted",
+  );
+  expect(
+    await db
+      .select()
+      .from(mediaBlobDeletionJobs)
+      .where(eq(mediaBlobDeletionJobs.r2Key, selected.r2Key)),
+  ).toHaveLength(1);
   finishDelete.resolve();
   await purging;
 
@@ -112,12 +153,16 @@ test("purge preserves a selected id whose key changed during storage deletion", 
       .select()
       .from(mediaUploads)
       .where(eq(mediaUploads.id, selected.id)),
-  ).toEqual([
-    expect.objectContaining({ id: selected.id, r2Key: replacementKey }),
-  ]);
+  ).toHaveLength(0);
+  expect(
+    await db
+      .select()
+      .from(mediaBlobDeletionClaims)
+      .where(eq(mediaBlobDeletionClaims.r2Key, selected.r2Key)),
+  ).toHaveLength(1);
 });
 
-test("R2 failure keeps selected metadata for a successful retry", async () => {
+test("R2 failure keeps the claimed retry job", async () => {
   const { db } = await createTestDb();
   const selected = upload("retry-r2");
   await insertUploads(db, [selected]);
@@ -134,6 +179,18 @@ test("R2 failure keeps selected metadata for a successful retry", async () => {
       .select()
       .from(mediaUploads)
       .where(eq(mediaUploads.id, selected.id)),
+  ).toHaveLength(0);
+  expect(
+    await db
+      .select()
+      .from(mediaBlobDeletionJobs)
+      .where(eq(mediaBlobDeletionJobs.r2Key, selected.r2Key)),
+  ).toHaveLength(1);
+  expect(
+    await db
+      .select()
+      .from(mediaBlobDeletionClaims)
+      .where(eq(mediaBlobDeletionClaims.r2Key, selected.r2Key)),
   ).toHaveLength(1);
 
   const retried: string[][] = [];
@@ -151,18 +208,24 @@ test("R2 failure keeps selected metadata for a successful retry", async () => {
       .from(mediaUploads)
       .where(eq(mediaUploads.id, selected.id)),
   ).toHaveLength(0);
+  expect(
+    await db
+      .select()
+      .from(mediaBlobDeletionJobs)
+      .where(eq(mediaBlobDeletionJobs.r2Key, selected.r2Key)),
+  ).toHaveLength(0);
 });
 
-test("database failure after R2 deletion keeps metadata and can be retried", async () => {
+test("job-ack failure after R2 deletion keeps retry intent", async () => {
   const { db } = await createTestDb();
   const selected = upload("retry-database");
   await insertUploads(db, [selected]);
   await db.run(
     sql.raw(`
     CREATE TRIGGER reject_account_media_delete
-    BEFORE DELETE ON media_uploads
+    BEFORE DELETE ON media_blob_deletion_jobs
     BEGIN
-      SELECT RAISE(ABORT, 'simulated media metadata failure');
+      SELECT RAISE(ABORT, 'simulated job acknowledgment failure');
     END
   `),
   );
@@ -177,6 +240,12 @@ test("database failure after R2 deletion keeps metadata and can be retried", asy
       .select()
       .from(mediaUploads)
       .where(eq(mediaUploads.id, selected.id)),
+  ).toHaveLength(0);
+  expect(
+    await db
+      .select()
+      .from(mediaBlobDeletionJobs)
+      .where(eq(mediaBlobDeletionJobs.r2Key, selected.r2Key)),
   ).toHaveLength(1);
   await db.run(sql.raw("DROP TRIGGER reject_account_media_delete"));
   await purgeActorMediaUploads(db, store, OWNER);
@@ -188,9 +257,10 @@ test("database failure after R2 deletion keeps metadata and can be retried", asy
       .from(mediaUploads)
       .where(eq(mediaUploads.id, selected.id)),
   ).toHaveLength(0);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
 });
 
-test("later metadata failure preserves outstanding rows after partial acknowledgement", async () => {
+test("later job-ack failure preserves outstanding keys after partial acknowledgement", async () => {
   const { db } = await createTestDb();
   const selected = Array.from({ length: 100 }, (_, index) =>
     upload(`partial-${String(index).padStart(3, "0")}`),
@@ -199,7 +269,7 @@ test("later metadata failure preserves outstanding rows after partial acknowledg
   await db.run(
     sql.raw(`
     CREATE TRIGGER reject_later_media_delete
-    BEFORE DELETE ON media_uploads WHEN OLD.id = 'partial-050'
+    BEFORE DELETE ON media_blob_deletion_jobs WHEN OLD.r2_key = '${canonicalKey("partial-095")}'
     BEGIN SELECT RAISE(ABORT, 'later acknowledgement failed'); END
   `),
   );
@@ -209,33 +279,83 @@ test("later metadata failure preserves outstanding rows after partial acknowledg
   });
 
   await expect(purgeActorMediaUploads(db, store, OWNER)).rejects.toThrow();
-  const remaining = await db.select().from(mediaUploads);
-  // Some successful independent acknowledgements may commit. Every row
-  // still present retains its original key for retry, with no new key minted.
+  const remaining = await db.select().from(mediaBlobDeletionJobs);
+  // The first 90 job acknowledgments commit; the final page remains durable.
   expect(remaining.length).toBeGreaterThan(0);
   expect(remaining.length).toBeLessThan(selected.length);
   expect(requests[0]?.sort()).toEqual(selected.map((row) => row.r2Key).sort());
-  expect(remaining.every((row) => row.r2Key === `uploads/${row.id}.jpg`)).toBe(
-    true,
+  expect(remaining.map((row) => row.r2Key).sort()).toEqual(
+    selected
+      .slice(90)
+      .map((row) => row.r2Key)
+      .sort(),
   );
   await db.run(sql.raw("DROP TRIGGER reject_later_media_delete"));
   await purgeActorMediaUploads(db, store, OWNER);
   expect(requests[1]?.sort()).toEqual(remaining.map((row) => row.r2Key).sort());
   expect(await db.select().from(mediaUploads)).toHaveLength(0);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
 });
 
-test("without MEDIA, purge removes only the selected uploader rows", async () => {
+test("unsupported legacy key preserves metadata and account retry intent", async () => {
+  const { db } = await createTestDb();
+  const legacy = upload("legacy-arbitrary-key");
+  legacy.r2Key = "uploads/legacy arbitrary.jpg";
+  await insertUploads(db, [legacy]);
+  let deleteCalls = 0;
+
+  await expect(
+    purgeActorMediaUploads(
+      db,
+      objectStore(async () => {
+        deleteCalls += 1;
+      }),
+      OWNER,
+    ),
+  ).rejects.toThrow("legacy-key reconciliation");
+
+  expect(deleteCalls).toBe(0);
+  expect(
+    await db
+      .select()
+      .from(mediaUploads)
+      .where(eq(mediaUploads.r2Key, legacy.r2Key)),
+  ).toHaveLength(1);
+  expect(
+    await db
+      .select()
+      .from(mediaBlobDeletionJobs)
+      .where(eq(mediaBlobDeletionJobs.r2Key, legacy.r2Key)),
+  ).toHaveLength(1);
+});
+
+test("without MEDIA, purge retains claimed job for a successful retry", async () => {
   const { db } = await createTestDb();
   await insertUploads(db, [
     upload("no-media-owner"),
     upload("no-media-other", OTHER),
   ]);
 
-  await purgeActorMediaUploads(db, undefined, OWNER);
+  await expect(purgeActorMediaUploads(db, undefined, OWNER)).rejects.toThrow(
+    "requires MEDIA",
+  );
 
   expect(await db.select().from(mediaUploads)).toEqual([
     expect.objectContaining({ id: "no-media-other", uploaderApId: OTHER }),
   ]);
+  expect(await db.select().from(mediaBlobDeletionClaims)).toHaveLength(1);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(1);
+
+  const retried: string[][] = [];
+  await purgeActorMediaUploads(
+    db,
+    objectStore(async (keys) => {
+      retried.push([...keys]);
+    }),
+    OWNER,
+  );
+  expect(retried).toEqual([[canonicalKey("no-media-owner")]]);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
 });
 
 test("empty snapshot skips object-store deletion", async () => {
@@ -300,4 +420,6 @@ test("large purge respects R2 chunks and keeps uploads added during a later chun
       .from(mediaUploads)
       .where(eq(mediaUploads.uploaderApId, OTHER)),
   ).toHaveLength(1);
+  expect(await db.select().from(mediaBlobDeletionClaims)).toHaveLength(1001);
+  expect(await db.select().from(mediaBlobDeletionJobs)).toHaveLength(0);
 });

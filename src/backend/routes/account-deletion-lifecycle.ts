@@ -18,7 +18,7 @@ import {
   isAccountDeletionWriteConflict,
 } from "../lib/errors.ts";
 import { reconcileActorUploadAttempts } from "../lib/media-upload-lifecycle.ts";
-import { teardownActor } from "./account-teardown.ts";
+import { purgeActorMediaUploads, teardownActor } from "./account-teardown.ts";
 
 // A lease is an execution fence, never the lifetime of a deletion reservation.
 // Expired operations remain in account_deletions and are acquired by a new
@@ -238,6 +238,18 @@ function guardedOperationDb(
                   AND pending.cascade_complete = 0
               )
                 AND NOT EXISTS (
+                  SELECT 1 FROM media_uploads AS retained_media
+                  JOIN account_deletion_targets AS planned
+                    ON planned.actor_ap_id=retained_media.uploader_ap_id
+                  WHERE planned.operation_id=${operation.id}
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM media_blob_deletion_jobs AS pending_media
+                  JOIN account_deletion_targets AS planned
+                    ON planned.actor_ap_id=pending_media.uploader_ap_id
+                  WHERE planned.operation_id=${operation.id}
+                )
+                AND NOT EXISTS (
                   SELECT 1 FROM media_upload_attempts AS uploading
                   JOIN account_deletion_targets AS planned
                     ON planned.actor_ap_id = uploading.uploader_ap_id
@@ -319,14 +331,16 @@ async function runOperation(
   }
 
   // A PUT started before reservation may outlive an earlier teardown attempt.
-  // Check completed targets again before the final actor/session batch; the
-  // SQL assertion above repeats this condition at commit time.
+  // Pre-0035 completed targets can also retain failed physical deletion jobs
+  // whose metadata was already removed. Reconcile both under their operation
+  // guard rather than stranding them behind cascadeComplete forever.
+  // The final SQL assertion repeats the absence proof at commit time.
   for (const target of targets) {
     await renewLease(db, operation);
-    await reconcileActorUploadAttempts(
-      guardedOperationDb(db, operation, target),
-      env,
-      target.actorApId,
+    const guardedDb = guardedOperationDb(db, operation, target);
+    await reconcileActorUploadAttempts(guardedDb, env, target.actorApId);
+    await purgeActorMediaUploads(guardedDb, env.MEDIA, target.actorApId, () =>
+      renewLease(db, operation),
     );
   }
   await renewLease(db, operation);
