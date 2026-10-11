@@ -24,6 +24,11 @@ recommendations.get("/users", async (c) => {
   const myApId = actor.ap_id;
 
   try {
+    // Hide deleted and private/locked local accounts, matching search and
+    // other actor-discovery surfaces. Remote actor_cache candidates retain
+    // their existing scope. Keep explanations outside this raw SELECT so
+    // request admission can reject multiple SQL statements without parsing
+    // comment punctuation as SQL syntax.
     const candidates = await db.all<{ ap_id: string; mutual_count: number }>(
       sql`
         SELECT f2.following_ap_id AS ap_id, COUNT(DISTINCT f2.follower_ap_id) AS mutual_count
@@ -43,13 +48,6 @@ recommendations.get("/users", async (c) => {
             SELECT muted_ap_id FROM mutes WHERE muter_ap_id = ${myApId}
           )
           AND f2.following_ap_id NOT IN (
-            -- Hide deleted AND private/locked (is_private = 1) accounts. A locked
-            -- account opted out of discovery (discoverable:false), and every other
-            -- actor-discovery surface (search.actors, takos-tools searchUsers /
-            -- getUserProfile) excludes is_private = 1 — this friends-of-friends
-            -- panel must match or it leaks the locked account's handle/name/icon.
-            -- is_private lives only on the LOCAL actors table; remote candidates
-            -- (actorCache) are unaffected, same scope as the other surfaces.
             SELECT ap_id FROM actors WHERE deleted_at IS NOT NULL OR is_private = 1
           )
           AND ${operatorActorNotBlockedSql(sql.raw("f2.following_ap_id"))}
