@@ -3,6 +3,7 @@
 // Threading via conversation field
 
 import { Hono } from "hono";
+import { mediaReferenceError } from "../../lib/errors.ts";
 import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
@@ -596,6 +597,8 @@ dm.post("/user/:encodedApId/messages", async (c) => {
   try {
     await (db as unknown as Batchable).batch(batchOps);
   } catch (e) {
+    const mediaError = mediaReferenceError(e);
+    if (mediaError) throw mediaError;
     log.error("Failed to insert message", {
       event: "dm.message.insert_failed",
       actor: actor.ap_id,

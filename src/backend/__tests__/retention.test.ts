@@ -23,6 +23,7 @@ test("one bounded retention pass reuses the canonical empty-ledger cleanup paths
   ).resolves.toEqual({
     resumedAccountDeletions: 0,
     drainedMediaUploadAttempts: 0,
+    claimedStagedMedia: 0,
     expiredStories: 0,
     reapedTombstones: 0,
     reapedRemoteActorFetchFailures: 0,

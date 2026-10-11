@@ -79,9 +79,13 @@ export function validateFile(file: File): void {
  * @throws FileValidationError if validation fails
  * @throws Error if upload fails
  */
-export async function uploadMedia(
-  file: File,
-): Promise<{ url: string; r2_key: string; content_type: string }> {
+export async function uploadMedia(file: File): Promise<{
+  url: string;
+  r2_key: string;
+  content_type: string;
+  /** Seven-day attachment deadline; absent on older servers. */
+  expires_at?: string;
+}> {
   // Validate file before upload
   validateFile(file);
 
