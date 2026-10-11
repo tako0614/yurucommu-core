@@ -60,6 +60,11 @@ bun run build:api  # build @takosjp/yurucommu-api
 bun run pack:api   # npm pack --dry-run for the API package
 ```
 
+`bun run check` は両 package を実際に pack し、一時 consumer から manifest に宣言された
+public export をすべて import します。Core の `client-api` と独立した API package の browser
+bundle、Core の Worker bundle も検査します。依存はインストール済みのローカル module を
+使うため registry への接続は不要です。公開後の registry readback は deploy の別検証です。
+
 ### core → product の release 順序
 
 新しい API 契約 (例: ブラウザ通知の public API と `0019_notification_push_delivery.sql`、core / API `3.1.0` から)

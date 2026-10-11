@@ -106,7 +106,7 @@ try {
   );
   await writeFile(
     join(consumerRoot, "verify.mjs"),
-    `import { existsSync } from "node:fs";
+    `import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import {
@@ -132,6 +132,52 @@ import { applyMigrations } from "@takosjp/yurucommu-core/migrations";
 
 const coreEntry = Bun.resolveSync("@takosjp/yurucommu-core", import.meta.dir);
 const coreRoot = dirname(dirname(dirname(coreEntry)));
+const apiEntry = Bun.resolveSync("@takosjp/yurucommu-api", import.meta.dir);
+const apiRoot = dirname(dirname(apiEntry));
+const publicModules = new Map();
+for (const [name, root] of [
+  ["@takosjp/yurucommu-core", coreRoot],
+  ["@takosjp/yurucommu-api", apiRoot],
+]) {
+  const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const subpaths = Object.keys(manifest.exports ?? {});
+  if (subpaths.length === 0) throw new Error(name + " declares no public exports");
+  for (const subpath of subpaths) {
+    if (subpath !== "." && (!subpath.startsWith("./") || subpath.includes("*"))) {
+      throw new Error("packed consumer cannot qualify export " + name + "/" + subpath);
+    }
+    const specifier = name + (subpath === "." ? "" : subpath.slice(1));
+    publicModules.set(specifier, await import(specifier));
+  }
+}
+const coreServer = publicModules.get("@takosjp/yurucommu-core/server");
+if (publicModules.get("@takosjp/yurucommu-core").default !== yurucommuCoreWorker) {
+  throw new Error("packed root and server exports disagree");
+}
+if (
+  publicModules.get("@takosjp/yurucommu-core/plugins").YURUCOMMU_BACKEND_PLUGIN_API_VERSION !==
+  coreServer.YURUCOMMU_BACKEND_PLUGIN_API_VERSION
+) {
+  throw new Error("packed plugin API version disagrees with server");
+}
+const clientSpecifiers = [
+  "@takosjp/yurucommu-core/client-api",
+  "@takosjp/yurucommu-api",
+];
+for (const specifier of clientSpecifiers) {
+  const client = publicModules.get(specifier);
+  for (const name of ["createRealtimeClient", "CallClient", "fetchTimeline", "InvalidApiResponseError"]) {
+    if (typeof client[name] !== "function") {
+      throw new Error(specifier + " does not export " + name);
+    }
+  }
+  const realtime = client.createRealtimeClient();
+  for (const name of ["start", "stop", "on"]) {
+    if (typeof realtime[name] !== "function") {
+      throw new Error(specifier + " realtime client has no " + name);
+    }
+  }
+}
 if (!existsSync(join(coreRoot, "migrations/0019_notification_push_delivery.sql"))) {
   throw new Error("packed core is missing migration 0019_notification_push_delivery.sql");
 }
@@ -203,7 +249,19 @@ for (const match of workerBundle.matchAll(
     );
   }
 }
-console.log("packed core/API consumer verified");
+for (const [index, specifier] of clientSpecifiers.entries()) {
+  const clientEntry = join(import.meta.dir, "client-entry-" + index + ".ts");
+  await writeFile(clientEntry, "export * from " + JSON.stringify(specifier) + ";\\n");
+  const builtClient = await Bun.build({
+    entrypoints: [clientEntry],
+    target: "browser",
+    format: "esm",
+  });
+  if (!builtClient.success || builtClient.outputs.length !== 1) {
+    throw new Error("packed browser client did not bundle: " + specifier);
+  }
+}
+console.log("packed core/API consumer verified: " + publicModules.size + " declared exports, Worker and both browser clients");
 `,
   );
 
