@@ -67,6 +67,11 @@ export const deliveryQueue = sqliteTable(
     inboxUrl: text("inbox_url").notNull(),
     status: text("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
+    // Legacy rows have unknown in-band history: migration 0033 exhausts their
+    // reconcile budget. Only the new-job producer explicitly starts at zero.
+    reconcileAttempt: integer("reconcile_attempt").notNull().default(5),
+    dlqPending: integer("dlq_pending").notNull().default(0),
+    processingToken: text("processing_token"),
     lastAttemptAt: text("last_attempt_at"),
     processingStartedAt: text("processing_started_at"),
     nextAttemptAt: text("next_attempt_at").notNull().$defaultFn(nowIso),

@@ -25,6 +25,7 @@ async function freshDb(): Promise<Database> {
     "0001_init.sql",
     "0027_remote_actor_tombstones.sql",
     "0029_delivery_endpoint_recipients.sql",
+    "0033_delivery_reconciliation.sql",
   ]) {
     await client.executeMultiple(
       await readFile(new URL(migration, root), "utf8"),

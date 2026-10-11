@@ -72,6 +72,7 @@ test("the nextAttemptAt defer re-enqueue preserves the reconcile-cycle count", a
     inboxUrl: "https://remote.test/inbox",
     status: "pending",
     attempts: 0,
+    reconcileAttempt: 3,
     nextAttemptAt: new Date(Date.now() + 60_000).toISOString(),
     createdAt: new Date().toISOString(),
   });
@@ -102,6 +103,7 @@ test("the stale-processing re-poll re-enqueue preserves the reconcile-cycle coun
     inboxUrl: "https://remote.test/inbox",
     status: "processing",
     attempts: 1,
+    reconcileAttempt: 4,
     processingStartedAt: new Date(Date.now() - 1000).toISOString(),
     nextAttemptAt: new Date(Date.now() - 1000).toISOString(),
     createdAt: new Date().toISOString(),

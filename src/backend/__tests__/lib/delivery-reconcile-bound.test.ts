@@ -23,8 +23,8 @@ import type {
 // condition — handleDeliveryDlqBatch always seeded reconcile(1) and
 // processReconcileJob never advanced the count, so a permanently-dead endpoint
 // churned dead_letter -> reconcile -> dead_letter forever. The count is now
-// carried in-band (deliver_endpoint -> dlq -> reconcile_job -> deliver_endpoint)
-// and the loop terminates after MAX_RECONCILE_ATTEMPTS.
+// persisted in the endpoint row; messages carry compatibility hints only.
+// The loop terminates after MAX_RECONCILE_ATTEMPTS even after sweeping.
 
 const ISO = "2026-01-01T00:00:00.000Z";
 
@@ -35,6 +35,7 @@ async function freshDb(): Promise<Database> {
     "0001_init.sql",
     "0027_remote_actor_tombstones.sql",
     "0029_delivery_endpoint_recipients.sql",
+    "0033_delivery_reconciliation.sql",
   ]) {
     await client.executeMultiple(
       await readFile(new URL(migration, root), "utf8"),
@@ -168,6 +169,8 @@ test("processReconcileJob revives the job and carries the generation into the ne
     activityApId: "a1",
     inboxUrl: "https://dead.example/inbox",
     status: "dead_letter",
+    reconcileAttempt: 2,
+    dlqPending: 1,
     attempts: 8,
     nextAttemptAt: ISO,
     createdAt: ISO,

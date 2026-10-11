@@ -226,7 +226,7 @@ export async function sendDlqMessage(
 ): Promise<void> {
   if (!queueAvailable(env)) {
     reportProducerUnavailable("sendDlqMessage");
-    return;
+    throw new Error("DELIVERY_QUEUE and DELIVERY_DLQ bindings are required");
   }
   producerUnavailableReported = false;
   await env.DELIVERY_DLQ.send(payload);
@@ -238,6 +238,7 @@ export async function sendDlqMessage(
 // queue forever. Exported so the DLQ consumer (handleDeliveryDlqBatch) and the
 // reconcile worker (processReconcileJob) share one source of truth.
 export const MAX_RECONCILE_ATTEMPTS = 5;
+export const DELIVERY_RECONCILE_DELAY_SECONDS = 6 * 60 * 60;
 
 // Cloudflare puts the raw MAIN-queue body onto the DLQ after transport/runtime
 // retries are exhausted. Redrive idempotent delivery work a few times so one
@@ -322,6 +323,7 @@ export async function upsertDeliveryJob(
         inboxUrl: endpoint,
         activityApId: activityId,
         attempts: 0,
+        reconcileAttempt: 0,
         nextAttemptAt: now,
         status: "pending",
         recipientAttributionComplete: 1,
@@ -395,6 +397,7 @@ export async function purgeTerminalDeliveryEndpointJobs(
     .where(
       and(
         inArray(deliveryQueue.status, [...TERMINAL_DELIVERY_STATUSES]),
+        eq(deliveryQueue.dlqPending, 0),
         lte(deliveryQueue.createdAt, cutoff),
       ),
     )
@@ -408,6 +411,7 @@ export async function purgeTerminalDeliveryEndpointJobs(
         rows.map((row) => row.id),
       ),
       inArray(deliveryQueue.status, [...TERMINAL_DELIVERY_STATUSES]),
+      eq(deliveryQueue.dlqPending, 0),
       lte(deliveryQueue.createdAt, cutoff),
     ),
   );
@@ -433,7 +437,36 @@ export async function enqueuePendingDeliveryEndpointJobs(
   const staleBefore = new Date(
     nowDate.getTime() - STALE_DELIVERY_PROCESSING_MS,
   ).toISOString();
-  const rows = await env.DB_INSTANCE.select({ id: deliveryQueue.id })
+  // A successful Queue send is not a durable receipt in the local runtime.
+  // Scan repair intents separately so 500 active jobs cannot starve recovery.
+  // Keep the intent until processReconcileJob actually consumes it atomically.
+  const repairs = await env.DB_INSTANCE.select({
+    id: deliveryQueue.id,
+    reconcileAttempt: deliveryQueue.reconcileAttempt,
+  })
+    .from(deliveryQueue)
+    .where(
+      and(
+        eq(deliveryQueue.status, "dead_letter"),
+        eq(deliveryQueue.dlqPending, 1),
+        lt(deliveryQueue.reconcileAttempt, MAX_RECONCILE_ATTEMPTS),
+        lte(deliveryQueue.nextAttemptAt, now),
+      ),
+    )
+    .orderBy(asc(deliveryQueue.nextAttemptAt), asc(deliveryQueue.id))
+    .limit(50);
+  if (repairs.length) {
+    await env.DELIVERY_QUEUE.sendBatch(
+      repairs.map((row) => ({
+        body: buildReconcileJobMessage(row.id, row.reconcileAttempt + 1),
+      })),
+    );
+  }
+
+  const rows = await env.DB_INSTANCE.select({
+    id: deliveryQueue.id,
+    reconcileAttempt: deliveryQueue.reconcileAttempt,
+  })
     .from(deliveryQueue)
     .where(
       or(
@@ -459,11 +492,11 @@ export async function enqueuePendingDeliveryEndpointJobs(
   for (let offset = 0; offset < rows.length; offset += 100) {
     await env.DELIVERY_QUEUE.sendBatch(
       rows.slice(offset, offset + 100).map((row) => ({
-        body: buildDeliverEndpointMessage(row.id),
+        body: buildDeliverEndpointMessage(row.id, row.reconcileAttempt),
       })),
     );
   }
-  return rows.length;
+  return rows.length + repairs.length;
 }
 
 export async function enqueueResolveForEndpointActors(
@@ -941,12 +974,9 @@ export async function handleDeliveryDlqBatch(
       deadLetteredAt: body.deadLetteredAt,
     });
 
-    // Phase 3: periodic reconciliation (best-effort), BOUNDED. The job's
-    // reconcile-cycle count is carried in-band on the dead-lettered
-    // deliver_endpoint message (default 0 for the first dead-letter). Once it
-    // reaches the cap, stop reconciling and leave the job terminally dead_letter
-    // — otherwise a permanently-dead endpoint loops dead_letter -> reconcile ->
-    // dead_letter forever. The next cycle carries count+1.
+    // This envelope is a compatibility wakeup, not retry authority. The
+    // reconcile worker checks the retained DB intent, exact successor and due
+    // time atomically. The durable sweep also recovers lost DLQ/MAIN signals.
     const reconcileAttempt = body.reconcileAttempt ?? 0;
     if (reconcileAttempt >= MAX_RECONCILE_ATTEMPTS) {
       log.warn("Delivery job exhausted reconciliation budget; giving up", {
@@ -962,7 +992,7 @@ export async function handleDeliveryDlqBatch(
       await sendQueueMessageRequired(
         env,
         buildReconcileJobMessage(body.jobId, reconcileAttempt + 1),
-        6 * 60 * 60,
+        DELIVERY_RECONCILE_DELAY_SECONDS,
       );
     } catch (e) {
       log.warn("Failed to schedule DLQ reconciliation", {

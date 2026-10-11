@@ -60,10 +60,8 @@ export type DeliveryDeliverEndpointMessageV1 = DeliveryAutoDlqStateV1 & {
   version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
   type: "deliver_endpoint";
   jobId: string;
-  // How many reconcile cycles this job has already been through. Carried in-band
-  // (deliver_endpoint -> dlq -> reconcile_job -> deliver_endpoint) so the
-  // reconcile loop has a DURABLE-across-attempts terminal condition without a DB
-  // column. Absent on the initial delivery (treated as 0).
+  // Compatibility hint only. delivery_queue.reconcile_attempt is authoritative
+  // even when an older or swept wakeup carries zero/omits this field.
   reconcileAttempt?: number;
   scheduledAt: string; // ISO8601 UTC
 };
@@ -103,8 +101,8 @@ export type DeliveryDlqMessageV1 = {
   endpoint: string;
   attempts: number;
   lastError: string | null;
-  // The reconcile-cycle count carried from the deliver_endpoint that
-  // dead-lettered, so the DLQ consumer can stop reconciling once it hits the cap.
+  // Compatibility hint from the dead-lettered row. Reconciliation checks the
+  // durable generation and repair intent before changing any job state.
   reconcileAttempt?: number;
   deadLetteredAt: string; // ISO8601 UTC
 };
@@ -154,6 +152,8 @@ export function isDeliveryQueueMessageV1(
       return (
         typeof v.jobId === "string" &&
         typeof v.reconcileAttempt === "number" &&
+        Number.isSafeInteger(v.reconcileAttempt) &&
+        v.reconcileAttempt >= 0 &&
         typeof v.scheduledAt === "string"
       );
     case "notification_push":

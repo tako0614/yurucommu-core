@@ -16,6 +16,13 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration 0033 makes endpoint reconciliation generations and repair intents
+durable without rebuilding tables. Legacy jobs retain their current series but
+receive no inferred additional reconciliation budget. Apply it with delivery
+writers/consumers closed before serving its engine. See [durable delivery
+reconciliation](../docs/design/delivery-reconciliation.md) for the conservative
+legacy policy, notification-loss recovery and rollback limitations.
+
 Migration 0032 adds atomic public-outbox revocation for deleted-object Activity
 history without rebuilding tables or rewriting ledger rows. Apply it before
 serving its engine. It cannot classify pre-existing absent targets; exact

@@ -6,9 +6,10 @@
 import type { Env } from "../../types.ts";
 import type { IQueueMessage } from "../../runtime/queue.ts";
 import type { Database } from "../../../db/index.ts";
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, lte, or, sql } from "drizzle-orm";
 import {
   activities,
+  affectedRowCount,
   actorCache,
   communityMembers,
   deliveryQueue,
@@ -819,7 +820,11 @@ export async function processReconcileJob(
 ): Promise<void> {
   if (!requireQueue(env, "reconcile", message)) return;
 
-  if (msg.reconcileAttempt > MAX_RECONCILE_ATTEMPTS) {
+  if (
+    !Number.isSafeInteger(msg.reconcileAttempt) ||
+    msg.reconcileAttempt < 1 ||
+    msg.reconcileAttempt > MAX_RECONCILE_ATTEMPTS
+  ) {
     message.ack();
     return;
   }
@@ -828,37 +833,78 @@ export async function processReconcileJob(
     .select({
       id: deliveryQueue.id,
       status: deliveryQueue.status,
+      reconcileAttempt: deliveryQueue.reconcileAttempt,
+      dlqPending: deliveryQueue.dlqPending,
+      nextAttemptAt: deliveryQueue.nextAttemptAt,
     })
     .from(deliveryQueue)
     .where(eq(deliveryQueue.id, msg.jobId))
     .get();
 
-  if (!job || job.status === "delivered") {
+  // Only the exact successor may consume a retained repair intent. Duplicate,
+  // stale, future, failed, delivered and deleted jobs cannot mint a new budget.
+  if (
+    !job ||
+    job.status !== "dead_letter" ||
+    job.dlqPending !== 1 ||
+    msg.reconcileAttempt !== job.reconcileAttempt + 1
+  ) {
+    message.ack();
+    return;
+  }
+  const now = nowIso();
+  const dueMs = safeParseIsoTimeMs(job.nextAttemptAt);
+  if (dueMs === null) {
+    // Invalid durable scheduling needs operator repair; a message cannot grant
+    // authority to revive it early. Keep the intent, rather than resetting it.
+    message.ack();
+    return;
+  }
+  if (dueMs > Date.now()) {
+    await sendQueueMessage(
+      env,
+      msg,
+      Math.max(
+        1,
+        Math.min(12 * 60 * 60, Math.ceil((dueMs - Date.now()) / 1000)),
+      ),
+    );
     message.ack();
     return;
   }
 
-  await db
+  const revived = await db
     .update(deliveryQueue)
     .set({
       status: "pending",
-      // Reset the attempt budget: a reconciled (dead-lettered) job still carries
-      // attempts at its max, so without this its first retryable failure would
-      // immediately re-dead-letter it with no real retry budget.
+      reconcileAttempt: msg.reconcileAttempt,
+      dlqPending: 0,
       attempts: 0,
       error: null,
       lastAttemptAt: null,
       processingStartedAt: null,
-      nextAttemptAt: nowIso(),
+      processingToken: null,
+      nextAttemptAt: now,
     })
-    .where(eq(deliveryQueue.id, msg.jobId));
+    .where(
+      and(
+        eq(deliveryQueue.id, job.id),
+        eq(deliveryQueue.status, "dead_letter"),
+        eq(deliveryQueue.dlqPending, 1),
+        eq(deliveryQueue.reconcileAttempt, msg.reconcileAttempt - 1),
+        lte(deliveryQueue.nextAttemptAt, now),
+      ),
+    );
+  if (affectedRowCount(revived) === 0) {
+    message.ack();
+    return;
+  }
 
-  // Carry the reconcile-cycle count forward on the revived delivery so that, if
-  // it dead-letters again, the next DLQ message advances the budget (and the
-  // loop terminates after MAX_RECONCILE_ATTEMPTS) instead of resetting to 1.
+  // Failed or accepted-but-lost sends leave a pending row; endpoint sweeping
+  // recovers it with the same durable generation and never resets attempts.
   await sendQueueMessage(
     env,
-    buildDeliverEndpointMessage(msg.jobId, msg.reconcileAttempt),
+    buildDeliverEndpointMessage(job.id, msg.reconcileAttempt),
   );
   message.ack();
 }

@@ -6,7 +6,17 @@
 import type { IQueueMessage } from "../../runtime/queue.ts";
 import type { Env } from "../../types.ts";
 import type { Database } from "../../../db/index.ts";
-import { and, eq, lt, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  isNull,
+  lt,
+  lte,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import {
   activities,
   affectedRowCount,
@@ -42,6 +52,8 @@ import {
 } from "./transformers.ts";
 import {
   buildDeliverEndpointMessage,
+  DELIVERY_RECONCILE_DELAY_SECONDS,
+  MAX_RECONCILE_ATTEMPTS,
   type Bulkhead,
   enqueueResolveForEndpointActors,
   nowIso,
@@ -194,6 +206,7 @@ async function failJob(
   jobId: string,
   error: string,
   message: IQueueMessage<DeliveryQueueMessageV1>,
+  fence: SQL | undefined = undefined,
 ): Promise<void> {
   await db
     .update(deliveryQueue)
@@ -202,25 +215,24 @@ async function failJob(
       error,
       lastAttemptAt: nowIso(),
       processingStartedAt: null,
+      processingToken: null,
+      dlqPending: 0,
     })
-    .where(eq(deliveryQueue.id, jobId));
+    .where(and(eq(deliveryQueue.id, jobId), fence));
   message.ack();
 }
 
 async function incrementDeliveryAttempts(
   db: Database,
-  jobId: string,
-): Promise<number> {
-  await db
+  fence: SQL,
+): Promise<number | null> {
+  const updated = await db
     .update(deliveryQueue)
     .set({ attempts: sql`${deliveryQueue.attempts} + 1` })
-    .where(eq(deliveryQueue.id, jobId));
-  const updated = await db
-    .select({ attempts: deliveryQueue.attempts })
-    .from(deliveryQueue)
-    .where(eq(deliveryQueue.id, jobId))
+    .where(fence)
+    .returning({ attempts: deliveryQueue.attempts })
     .get();
-  return updated?.attempts ?? 0;
+  return updated?.attempts ?? null;
 }
 
 async function maybeShadowProbeInbox(
@@ -311,8 +323,13 @@ export async function processDeliverEndpoint(
       inboxUrl: deliveryQueue.inboxUrl,
       attempts: deliveryQueue.attempts,
       status: deliveryQueue.status,
+      reconcileAttempt: deliveryQueue.reconcileAttempt,
+      dlqPending: deliveryQueue.dlqPending,
+      error: deliveryQueue.error,
+      lastAttemptAt: deliveryQueue.lastAttemptAt,
       nextAttemptAt: deliveryQueue.nextAttemptAt,
       processingStartedAt: deliveryQueue.processingStartedAt,
+      processingToken: deliveryQueue.processingToken,
     })
     .from(deliveryQueue)
     .where(eq(deliveryQueue.id, msg.jobId))
@@ -325,9 +342,26 @@ export async function processDeliverEndpoint(
   ];
 
   if (!job || TERMINAL_JOB_STATUSES.includes(job.status)) {
+    // Re-delivery after a failed initial DLQ send retries the signal, never the
+    // HTTP POST. The repair intent also survives accepted-but-lost Queue sends;
+    // due-time sweeping is independent of successful DLQ publication.
+    if (job?.status === "dead_letter" && job.dlqPending === 1) {
+      await sendDlqMessage(env, {
+        version: 1,
+        type: "dlq",
+        jobId: job.id,
+        activityId: job.activityApId,
+        endpoint: job.inboxUrl,
+        attempts: job.attempts,
+        lastError: job.error,
+        reconcileAttempt: job.reconcileAttempt,
+        deadLetteredAt: job.lastAttemptAt ?? nowIso(),
+      });
+    }
     message.ack();
     return;
   }
+  const generation = job.reconcileAttempt;
 
   // Queue lag metric
   const scheduledMs = safeParseIsoTimeMs(msg.scheduledAt);
@@ -350,10 +384,8 @@ export async function processDeliverEndpoint(
     );
     await sendQueueMessage(
       env,
-      // Preserve the reconcile-cycle count across the re-enqueue — dropping it
-      // resets the budget to 0 every cycle, so a permanently-dead endpoint
-      // would reconcile forever (#6).
-      buildDeliverEndpointMessage(job.id, msg.reconcileAttempt ?? 0),
+      // The row owns the generation, including stale zero-generation wakeups.
+      buildDeliverEndpointMessage(job.id, generation),
       deferSeconds,
     );
     message.ack();
@@ -365,7 +397,7 @@ export async function processDeliverEndpoint(
     if (startedMs !== null && Date.now() - startedMs < STALE_PROCESSING_MS) {
       await sendQueueMessage(
         env,
-        buildDeliverEndpointMessage(job.id, msg.reconcileAttempt ?? 0),
+        buildDeliverEndpointMessage(job.id, generation),
         30,
       );
       message.ack();
@@ -376,7 +408,21 @@ export async function processDeliverEndpoint(
   const endpoint = job.inboxUrl;
   const host = safeEndpointHost(endpoint);
   if (!host) {
-    await failJob(db, job.id, "invalid_endpoint", message);
+    await failJob(
+      db,
+      job.id,
+      "invalid_endpoint",
+      message,
+      and(
+        eq(deliveryQueue.reconcileAttempt, generation),
+        eq(deliveryQueue.status, job.status),
+        eq(deliveryQueue.inboxUrl, job.inboxUrl),
+        eq(deliveryQueue.activityApId, job.activityApId),
+        job.processingToken === null
+          ? isNull(deliveryQueue.processingToken)
+          : eq(deliveryQueue.processingToken, job.processingToken),
+      ),
+    );
     return;
   }
 
@@ -386,7 +432,7 @@ export async function processDeliverEndpoint(
     emitMetric("delivery_circuit_open_count", 1, { endpoint_host: host });
     await sendQueueMessage(
       env,
-      buildDeliverEndpointMessage(job.id, msg.reconcileAttempt ?? 0),
+      buildDeliverEndpointMessage(job.id, generation),
       circuit.deferSeconds,
     );
     message.ack();
@@ -394,6 +440,13 @@ export async function processDeliverEndpoint(
   }
 
   await bulkhead.acquire(host);
+  const processingToken = crypto.randomUUID();
+  const ownership = and(
+    eq(deliveryQueue.id, job.id),
+    eq(deliveryQueue.reconcileAttempt, generation),
+    eq(deliveryQueue.status, "processing"),
+    eq(deliveryQueue.processingToken, processingToken),
+  )!;
   try {
     // Mark processing — VERIFIED CAS. Cloudflare Queues is at-least-once and the
     // SELECT above ran BEFORE bulkhead.acquire (the bulkhead is keyed by host,
@@ -411,10 +464,15 @@ export async function processDeliverEndpoint(
       .set({
         status: "processing",
         processingStartedAt: nowIso(),
+        processingToken,
       })
       .where(
         and(
           eq(deliveryQueue.id, job.id),
+          eq(deliveryQueue.reconcileAttempt, generation),
+          eq(deliveryQueue.inboxUrl, endpoint),
+          eq(deliveryQueue.activityApId, job.activityApId),
+          lte(deliveryQueue.nextAttemptAt, nowIso()),
           or(
             notInArray(deliveryQueue.status, [
               "processing",
@@ -441,13 +499,13 @@ export async function processDeliverEndpoint(
       .where(eq(activities.apId, job.activityApId))
       .get();
     if (!activity) {
-      await failJob(db, job.id, "activity_not_found", message);
+      await failJob(db, job.id, "activity_not_found", message, ownership);
       return;
     }
 
     const sender = await resolveSigningActor(db, activity.actorApId);
     if (!sender) {
-      await failJob(db, job.id, "signing_actor_not_found", message);
+      await failJob(db, job.id, "signing_actor_not_found", message, ownership);
       return;
     }
 
@@ -482,8 +540,9 @@ export async function processDeliverEndpoint(
       // The remote POST already succeeded. From here on the message MUST be
       // acked even if the bookkeeping DB writes fail: re-running the batch
       // would re-POST the same activity and produce a duplicate delivery. A
-      // stale 'processing' row left behind by a failed update is harmless
-      // (it gets reaped/retried only via reconcile, which re-checks state).
+      // A stale processing row may later be retried: delivery is at-least-once.
+      // This ACK avoids an immediate duplicate POST; it cannot prove exactly-
+      // once remote acceptance after ambiguous bookkeeping.
       const now = nowIso();
       try {
         await db
@@ -494,8 +553,10 @@ export async function processDeliverEndpoint(
             error: null,
             lastAttemptAt: now,
             processingStartedAt: null,
+            processingToken: null,
+            dlqPending: 0,
           })
-          .where(eq(deliveryQueue.id, job.id));
+          .where(ownership);
         await recordCircuitSuccess(db, endpoint);
       } catch (e) {
         log.error("Post-delivery bookkeeping failed; acking to avoid re-POST", {
@@ -580,7 +641,7 @@ export async function processDeliverEndpoint(
     // retried. See isPermanentDeliveryFailure for the classification rationale.
     const nonRetryable = isPermanentDeliveryFailure(status);
     if (nonRetryable) {
-      await failJob(db, job.id, errorMessage, message);
+      await failJob(db, job.id, errorMessage, message, ownership);
       emitMetric("delivery_success", 0, {
         endpoint_host: host,
         non_retryable: true,
@@ -597,20 +658,33 @@ export async function processDeliverEndpoint(
     }
 
     // Retryable failure — this DOES reflect endpoint health, so feed the circuit.
-    const nextAttempts = await incrementDeliveryAttempts(db, job.id);
+    const nextAttempts = await incrementDeliveryAttempts(db, ownership);
+    if (nextAttempts === null) {
+      message.ack();
+      return;
+    }
     await recordCircuitFailure(db, endpoint);
 
     if (nextAttempts >= DELIVERY_MAX_ATTEMPTS) {
       const now = nowIso();
-      await db
+      const deadLettered = await db
         .update(deliveryQueue)
         .set({
           status: "dead_letter",
           error: errorMessage,
           lastAttemptAt: now,
           processingStartedAt: null,
+          processingToken: null,
+          dlqPending: generation < MAX_RECONCILE_ATTEMPTS ? 1 : 0,
+          nextAttemptAt: new Date(
+            Date.now() + DELIVERY_RECONCILE_DELAY_SECONDS * 1000,
+          ).toISOString(),
         })
-        .where(eq(deliveryQueue.id, job.id));
+        .where(ownership);
+      if (affectedRowCount(deadLettered) === 0) {
+        message.ack();
+        return;
+      }
       emitMetric("delivery_dead_letter", 1, { endpoint_host: host });
 
       await sendDlqMessage(env, {
@@ -623,7 +697,7 @@ export async function processDeliverEndpoint(
         lastError: errorMessage,
         // Carry the job's reconcile-cycle count so the DLQ consumer can advance
         // (and ultimately terminate) the reconciliation budget.
-        reconcileAttempt: msg.reconcileAttempt ?? 0,
+        reconcileAttempt: generation,
         deadLetteredAt: now,
       });
 
@@ -643,9 +717,10 @@ export async function processDeliverEndpoint(
         error: errorMessage,
         lastAttemptAt: nowIso(),
         processingStartedAt: null,
+        processingToken: null,
         nextAttemptAt: nextAttemptAtStr,
       })
-      .where(eq(deliveryQueue.id, job.id));
+      .where(ownership);
 
     emitMetric("delivery_success", 0, {
       endpoint_host: host,
@@ -653,7 +728,7 @@ export async function processDeliverEndpoint(
     });
     await sendQueueMessage(
       env,
-      buildDeliverEndpointMessage(job.id, msg.reconcileAttempt ?? 0),
+      buildDeliverEndpointMessage(job.id, generation),
       delaySeconds,
     );
     message.ack();
