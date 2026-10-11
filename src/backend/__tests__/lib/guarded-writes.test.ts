@@ -417,6 +417,17 @@ test("more than 48 payloads are refused before either guard or payload executes"
   expect(await db.select().from(fence)).toHaveLength(1);
 });
 
+test("raw read methods reject a second SQL statement without changing rows", async () => {
+  const { db, guarded } = await fixture();
+  const query = sql.raw(
+    "SELECT witness FROM test_write_fence; DELETE FROM test_write_fence",
+  );
+  expect(() => guarded.all(query)).toThrow("bypasses the write guard");
+  expect(() => guarded.get(query)).toThrow("bypasses the write guard");
+  expect(() => guarded.values(query)).toThrow("bypasses the write guard");
+  expect(await counter(db)).toBe(0);
+});
+
 test("prepare and raw write/driver escape paths fail closed; raw SELECT stays readable", async () => {
   const { db, guarded } = await fixture();
   const mutation = guarded

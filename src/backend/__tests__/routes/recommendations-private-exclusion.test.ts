@@ -9,6 +9,8 @@ import type { Database } from "../../../db/index.ts";
 import { actorCache, actors, follows } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import { blockDomain } from "../../lib/blocklist.ts";
+import { admitSessionRequest } from "../../lib/account-deletion-admission.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import recommendationsRoute from "../../routes/recommendations.ts";
 
 // Audit #8 finding #5 (privacy parity): the friends-of-friends recommendation
@@ -98,6 +100,51 @@ test("recommendations exclude private/locked accounts but keep public ones", asy
   const ids = body.users.map((u) => u.ap_id);
   expect(ids).toContain(pub);
   expect(ids).not.toContain(locked);
+});
+
+test("session-admitted recommendations keep public candidates and exclude private and operator-blocked actors", async () => {
+  const { db } = await createTestDb();
+  const viewer = await insertActor(db, "guarded-viewer");
+  const mid = await insertActor(db, "guarded-mid");
+  const pub = await insertActor(db, "guarded-public");
+  const locked = await insertActor(db, "guarded-private", 1);
+  const remote = "https://allowed.example/users/public";
+  const blocked = "https://blocked.example/users/hidden";
+  for (const apId of [remote, blocked]) {
+    await db.insert(actorCache).values({
+      apId,
+      preferredUsername: "remote",
+      name: "Remote candidate",
+      inbox: `${apId}/inbox`,
+      rawJson: JSON.stringify({ id: apId, type: "Person" }),
+    });
+  }
+  await follow(db, viewer, mid);
+  for (const candidate of [pub, locked, remote, blocked]) {
+    await follow(db, mid, candidate);
+  }
+  await blockDomain(db, "blocked.example", "defederated");
+
+  const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+  app.use("*", async (c, next) => {
+    c.set("db", db);
+    c.set("actor", viewerActor(viewer));
+    await admitSessionRequest(c, next);
+  });
+  app.route("/api/recommendations", recommendationsRoute);
+
+  const res = await app.fetch(
+    new Request(`${APP_URL}/api/recommendations/users`),
+    { APP_URL, DB_INSTANCE: db } as unknown as Env,
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as {
+    users: Array<{ ap_id: string; mutual_count: number }>;
+  };
+  expect(body.users.map((user) => user.ap_id).sort()).toEqual(
+    [pub, remote].sort(),
+  );
+  expect(body.users.every((user) => user.mutual_count === 1)).toBe(true);
 });
 
 test("recommendations exclude an actor on an operator-blocked domain", async () => {
