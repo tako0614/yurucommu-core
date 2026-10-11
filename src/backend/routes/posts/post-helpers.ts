@@ -8,6 +8,7 @@
  * - validateEditFields: content/summary validation for PATCH
  */
 
+import { admissionGuard } from "../../lib/account-deletion-admission.ts";
 import {
   activities,
   actorCache,
@@ -381,6 +382,18 @@ export function preparePostInsertStatements(
     }
   }
 
+  if (params.inReplyTo && isLocal(params.inReplyTo, params.baseUrl)) {
+    const guard = admissionGuard(
+      db,
+      sql`EXISTS (
+      SELECT 1 FROM objects WHERE ap_id = ${params.inReplyTo}
+        AND deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM account_deletion_targets
+          WHERE actor_ap_id = objects.attributed_to)
+    )`,
+    );
+    return [guard.before, ...statements, guard.after];
+  }
   return statements as [D1Statement, ...D1Statement[]];
 }
 

@@ -1,11 +1,8 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import { actors, communities, communityMembers } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import dmRoutes from "../../routes/dm/messages.ts";
@@ -22,26 +19,8 @@ import communityMessageRoutes from "../../routes/communities/messages.ts";
 
 const APP_URL = "https://yuru.test";
 
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0004_blocklist.sql",
-  "0006_dm_community_read_status.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-  // 0010 drops the (wrong) object_recipients FK to actors so a community apId
-  // is a valid audience recipient — the community chat send relies on it.
-  "0010_object_recipients_drop_actor_fk.sql",
-  "0019_notification_push_delivery.sql",
-];
-
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    await client.executeMultiple(await readFile(new URL(file, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function localApId(username: string): string {

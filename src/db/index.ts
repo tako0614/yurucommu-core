@@ -111,6 +111,7 @@ export {
   notInSubquery,
   replaceSet,
   runBatch,
+  rawBatchStatement,
   unsafeUnchunkedStatement,
   type D1Statement,
 } from "./d1-write.ts";

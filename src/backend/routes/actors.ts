@@ -16,6 +16,7 @@ import {
 } from "drizzle-orm";
 import {
   activities,
+  accountDeletionTargets,
   actorCache,
   actors,
   blocks,
@@ -56,10 +57,7 @@ import {
   personalActorIsBlockedBy,
   resolveRetainedPersonalMuteTarget,
 } from "../lib/personal-actor-moderation.ts";
-import {
-  finalizeActorDeletionAndSessions,
-  teardownActor,
-} from "./account-teardown.ts";
+import { deleteLocalAccount } from "./account-deletion-lifecycle.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 import {
   type AppContext,
@@ -85,6 +83,7 @@ import { isActorBlockedStrict } from "../lib/blocklist.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../lib/feed-cursor.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
 import { logger } from "../lib/logger.ts";
+import { isAccountDeletionWriteConflict } from "../lib/errors.ts";
 import { excludeModeratedActors } from "../lib/feed-exclude.ts";
 import {
   activityDeleteCascadeStatements,
@@ -213,15 +212,24 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
   const cutoff = new Date(Date.now() - TOMBSTONE_REAP_AFTER_MS).toISOString();
 
   const candidates = await db
-    .select({ apId: actors.apId })
+    .select({
+      apId: actors.apId,
+      publicKeyPem: actors.publicKeyPem,
+      deletedAt: actors.deletedAt,
+    })
     .from(actors)
     .where(
-      and(sql`${actors.deletedAt} IS NOT NULL`, lt(actors.deletedAt, cutoff)),
+      and(
+        sql`${actors.deletedAt} IS NOT NULL`,
+        lt(actors.deletedAt, cutoff),
+        sql`NOT EXISTS (SELECT 1 FROM ${accountDeletionTargets}
+          WHERE ${accountDeletionTargets.actorApId} = ${actors.apId})`,
+      ),
     )
     .limit(100);
 
   let reaped = 0;
-  for (const { apId } of candidates) {
+  for (const { apId, publicKeyPem, deletedAt } of candidates) {
     // Check the delivery authority on every statement in ONE batch. A
     // resolution worker can materialize an endpoint while cleanup is starting;
     // an unguarded cascade would delete that new job and then the signing key.
@@ -231,28 +239,49 @@ export async function reapDrainedTombstones(db: Database): Promise<number> {
       eq(activities.actorApId, apId),
       eq(activities.type, "Delete"),
     )!;
-    const drainedGuard = activityDeliveryDrainedGuard(db, deleteActivityWhere);
-    await runBatch(db, [
+    const incarnationStillReapable = sql`EXISTS (
+      SELECT 1 FROM actors AS current_actor
+      WHERE current_actor.ap_id = ${apId}
+        AND current_actor.public_key_pem = ${publicKeyPem}
+        AND current_actor.deleted_at = ${deletedAt}
+        AND current_actor.deleted_at < ${cutoff}
+        AND NOT EXISTS (
+          SELECT 1 FROM account_deletion_targets AS reserved
+          WHERE reserved.actor_ap_id = current_actor.ap_id
+        )
+    )`;
+    const drainedGuard = and(
+      activityDeliveryDrainedGuard(db, deleteActivityWhere),
+      incarnationStillReapable,
+    )!;
+    const actorDelete = db
+      .delete(actors)
+      .where(
+        and(
+          eq(actors.apId, apId),
+          eq(actors.publicKeyPem, publicKeyPem),
+          eq(actors.deletedAt, deletedAt!),
+          isNotNull(actors.deletedAt),
+          lt(actors.deletedAt, cutoff),
+          drainedGuard,
+        ),
+      )
+      .returning({ apId: actors.apId }) as D1Statement;
+    const statements = [
       ...activityDeleteCascadeStatements(db, deleteActivityWhere, {
         guard: drainedGuard,
       }),
-      db
-        .delete(actors)
-        .where(
-          and(
-            eq(actors.apId, apId),
-            isNotNull(actors.deletedAt),
-            lt(actors.deletedAt, cutoff),
-            drainedGuard,
-          ),
-        ) as D1Statement,
-    ]);
-    const actorRemains = await db
-      .select({ apId: actors.apId })
-      .from(actors)
-      .where(eq(actors.apId, apId))
-      .get();
-    if (!actorRemains) reaped += 1;
+      actorDelete,
+    ] as [D1Statement, ...D1Statement[]];
+    const results = await (
+      db as unknown as {
+        batch(
+          items: readonly [D1Statement, ...D1Statement[]],
+        ): Promise<unknown[]>;
+      }
+    ).batch(statements);
+    const deletedRows = results[results.length - 1];
+    if (Array.isArray(deletedRows)) reaped += deletedRows.length;
   }
 
   // A retired Group cannot be hard-deleted: its community row is the durable
@@ -543,52 +572,42 @@ actorsRoute.post("/me/delete", async (c) => {
 
   const actorApIdVal = actor.ap_id;
   const db = c.get("db");
-  const baseUrl = c.env.APP_URL;
-
   try {
-    // Gather the owner's SUB-ACCOUNTS (profiles minted via /accounts + /switch)
-    // BEFORE the owner's own teardown. A sub-account is a first-class actor that
-    // can post / follow / like / join+own communities, so it needs the FULL
-    // cascade, not a mere tombstone. They are keyed by ownerActorApId === the
-    // owner's apId, which the owner teardown does NOT change (it only nulls the
-    // owner's own ownerActorApId field), so gathering them here is order-safe.
-    const subAccounts = await db
-      .select({ apId: actors.apId, followersUrl: actors.followersUrl })
+    // The requested actor is the authority root. A child actor may delete
+    // itself, but cannot turn its owner's entire account into a deletion plan.
+    const actorOwnership = await db
+      .select({
+        ownerActorApId: actors.ownerActorApId,
+        publicKeyPem: actors.publicKeyPem,
+        takosUserId: actors.takosUserId,
+      })
       .from(actors)
-      .where(eq(actors.ownerActorApId, actorApIdVal));
-
-    // Full owner teardown through the SINGLE shared cascade: it federates a
-    // Delete(Actor) (snapshotting follower inboxes before the graph is dropped),
-    // reconciles every counterparty's denormalized counters, deletes the actor's
-    // edges / interactions / memberships / media / DM state, hands off sole-owned
-    // communities to an heir, and hard-deletes its authored objects. The owner
-    // tombstone is finalized below after all sub-accounts succeed. This is the
-    // EXACT cascade teardownActor applies to each sub-account below — one
-    // chokepoint instead of a ~440-line hand-rolled copy that had to be kept in
-    // sync.
-    // Defer the owner's tombstone until every sub-account has completed. If a
-    // later media/DB step fails, the owner row and session remain live so the
-    // same authenticated request can retry the incomplete cascade.
-    await teardownActor(db, c.env, baseUrl, actorApIdVal, actor.followers_url, {
-      finalizeActor: false,
-    });
-    // Now fully tear down each sub-account (same cascade the owner just received)
-    // so no "deleted" sub-account content / edge / counter / membership / sole
-    // ownership survives, and each federates its own Delete(Actor).
-    for (const sub of subAccounts) {
-      await teardownActor(db, c.env, baseUrl, sub.apId, sub.followersUrl);
+      .where(eq(actors.apId, actorApIdVal))
+      .get();
+    if (
+      !actorOwnership ||
+      actorOwnership.publicKeyPem !== actor.public_key_pem ||
+      actorOwnership.takosUserId !== actor.takos_user_id
+    ) {
+      return c.json({ error: "Account changed during deletion" }, 409);
     }
-
-    // Finalize the owner only after all owner/sub-account teardown work has
-    // succeeded. Sessions are removed last so a failure above cannot discard
-    // the retry authority. Tombstoned actors fail closed in session-actor.ts.
-    const sessionActorIds = [actorApIdVal, ...subAccounts.map((s) => s.apId)];
-    await finalizeActorDeletionAndSessions(db, actorApIdVal, sessionActorIds);
+    const result = await deleteLocalAccount(db, c.env, actorApIdVal, {
+      cascadeOwnedAccounts: actorOwnership.ownerActorApId == null,
+      expectedPublicKeyPem: actor.public_key_pem,
+      expectedTakosUserId: actor.takos_user_id,
+      expectedOwnerActorApId: actorOwnership.ownerActorApId,
+    });
+    if (result === "busy") {
+      return c.json({ error: "Account deletion already in progress" }, 409);
+    }
 
     deleteCookie(c, "session");
 
     return c.json({ success: true });
   } catch (error) {
+    if (isAccountDeletionWriteConflict(error)) {
+      return c.json({ error: "Account deletion worker was superseded" }, 409);
+    }
     log.error("Account deletion failed", {
       event: "actors.account.delete_failed",
       actor: actorApIdVal,

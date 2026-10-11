@@ -1,3 +1,4 @@
+import { guardObjectWrites } from "../../lib/account-deletion-admission.ts";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env, Variables } from "../../types.ts";
@@ -237,7 +238,7 @@ posts.post("/:id/repost", async (c) => {
   const post = await findPost(c);
   if (!post) return c.json({ error: "Post not found" }, 404);
 
-  const db = c.get("db");
+  let db = c.get("db");
   const baseUrl = c.env.APP_URL;
 
   // Repost has a public-reach gate rather than the canonical read gate below,
@@ -271,6 +272,8 @@ posts.post("/:id/repost", async (c) => {
   if (await actorIsBlockedBy(db, post.attributedTo, actor.ap_id)) {
     return c.json({ error: "Post not found" }, 404);
   }
+
+  db = guardObjectWrites(db, post.apId, post.attributedTo);
 
   const existingRepost = await db
     .select({ actorApId: announces.actorApId })
@@ -484,7 +487,7 @@ posts.post("/:id/bookmark", async (c) => {
   const post = await findPost(c);
   if (!post) return c.json({ error: "Post not found" }, 404);
 
-  const db = c.get("db");
+  const db = guardObjectWrites(c.get("db"), post.apId, post.attributedTo);
 
   // 404 (not 403) so existence is not revealed, mirroring the like/repost gate.
   if (!(await canViewerReadObjectFull(db, post, actor.ap_id))) {

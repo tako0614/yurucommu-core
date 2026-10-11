@@ -35,19 +35,19 @@ export async function banMember(
     `,
     bannedApId,
   );
-  await db.run(sql`
-    INSERT INTO ${communityBans} (
-      community_ap_id, banned_ap_id, created_at
-    )
+  await db
+    .insert(communityBans)
+    .select(
+      sql`
     SELECT ${communityApIdVal}, ${bannedApId}, ${new Date().toISOString()}
     WHERE NOT EXISTS (
-      SELECT 1
-      FROM ${communityBans}
+      SELECT 1 FROM ${communityBans}
       WHERE ${communityBans.communityApId} = ${communityApIdVal}
         AND ${communityBans.bannedApId} IN (${retainedBans})
     )
-    ON CONFLICT DO NOTHING
-  `);
+  `,
+    )
+    .onConflictDoNothing();
 }
 
 /**

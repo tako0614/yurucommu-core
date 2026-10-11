@@ -48,6 +48,64 @@ export const D1_MAX_BATCH_STATEMENTS = 50;
 /** A driver-executable statement, as accepted by `db.batch([...])`. */
 export type D1Statement = BatchItem<"sqlite">;
 
+type RawBatchAction = "run" | "all" | "get" | "values";
+
+/**
+ * Construct a lazy raw SQL batch item for the trusted engine writer. Drizzle
+ * 0.45.2's `db.run(sql)` is a SQLiteRaw item: its `_prepare()` returns itself.
+ * D1's batch driver needs a real prepared statement when parameters are bound,
+ * while libsql/sqlite-proxy accept SQLiteRaw directly. Prepare through the
+ * owning session, but keep SQLiteRaw's per-driver batch result mapping.
+ *
+ * This requires the original database, not a guarded request facade. The
+ * facade does not expose `session`, so callers cannot use this as a raw write
+ * escape. The returned item performs no SQL before its containing batch.
+ */
+export function rawBatchStatement(
+  db: Database,
+  query: SQL,
+  action: RawBatchAction = "run",
+): D1Statement {
+  const owner = db as unknown as {
+    session?: {
+      prepareQuery(
+        query: { sql: string; params: unknown[] },
+        fields: undefined,
+        method: "run" | "all" | "get",
+        isResponseInArrayMode: boolean,
+      ): { stmt?: unknown };
+    };
+  };
+  // Accessing `session` on a guarded facade throws before a raw item exists.
+  const session = owner.session;
+  if (!session || typeof session.prepareQuery !== "function") {
+    throw new D1BatchUnsupportedError(
+      "raw batch statements require the owning Drizzle session",
+    );
+  }
+  const raw = Reflect.apply(db[action], db, [query]) as unknown as {
+    getQuery(): { sql: string; params: unknown[]; method: RawBatchAction };
+    mapResult(result: unknown, isFromBatch: boolean): unknown;
+  };
+  return {
+    _prepare() {
+      const built = raw.getQuery();
+      const prepared = session.prepareQuery(
+        built,
+        undefined,
+        action === "values" ? "all" : action,
+        false,
+      );
+      return {
+        stmt: prepared.stmt,
+        getQuery: () => built,
+        mapResult: (result: unknown, isFromBatch: boolean) =>
+          raw.mapResult(result, isFromBatch),
+      };
+    },
+  } as unknown as D1Statement;
+}
+
 /** The row shape or the caller's usage cannot be expressed within D1's limits. */
 export class D1WriteShapeError extends Error {
   constructor(message: string) {

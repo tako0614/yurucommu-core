@@ -16,6 +16,12 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration 0031 adds durable account-deletion reservations and upload-attempt
+coordination without rebuilding existing tables. Its runtime and recovery
+limits are documented in [durable account deletion](../docs/design/durable-account-deletion.md).
+Apply it before serving the corresponding engine. A retained `putting` upload
+must not be removed by time-based cleanup or by a database restore shortcut.
+
 Files use a zero-padded 4-digit prefix:
 
 ```

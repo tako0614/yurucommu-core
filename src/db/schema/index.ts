@@ -7,6 +7,7 @@
 export { nowIso } from "./date-utils.ts";
 
 export * from "./actors.ts";
+export * from "./account-deletions.ts";
 export * from "./posts.ts";
 export * from "./social.ts";
 export * from "./reports.ts";

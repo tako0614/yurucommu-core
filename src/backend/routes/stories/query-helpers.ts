@@ -321,7 +321,13 @@ export async function cleanupExpiredStories(
   const expiredStories = await db
     .select({ apId: objects.apId, attributedTo: objects.attributedTo })
     .from(objects)
-    .where(and(eq(objects.type, "Story"), lt(objects.endTime, now)))
+    .where(
+      and(
+        eq(objects.type, "Story"),
+        lt(objects.endTime, now),
+        sql`NOT EXISTS (SELECT 1 FROM account_deletion_targets WHERE actor_ap_id = ${objects.attributedTo})`,
+      ),
+    )
     .limit(STORY_CLEANUP_BATCH);
 
   if (expiredStories.length === 0) return 0;

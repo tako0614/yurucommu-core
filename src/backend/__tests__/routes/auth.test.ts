@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { assertSpyCalls, spy, stub } from "#test/mock";
 import { FakeTime } from "#test/time";
 import authRoutes from "../../routes/auth.ts";
 import { LOGIN_LOCKOUT_CONFIG } from "../../lib/auth-lockout.ts";
 import { hashPassword } from "../../lib/crypto.ts";
-import { actors } from "../../../db/index.ts";
+import { actors, sessions } from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 class MockKVNamespace {
   private store = new Map<string, { value: string; expiration?: number }>();
@@ -66,7 +66,7 @@ async function request(
   return { res, body: json };
 }
 
-function createAuthTestApp(
+async function createAuthTestApp(
   hashedPassword: string,
   envOverrides: Record<string, unknown> = {},
   options: { existingOwner?: boolean } = {},
@@ -78,79 +78,42 @@ function createAuthTestApp(
     ...envOverrides,
   };
 
-  const app = new Hono();
-  app.use("/api/auth/*", async (c, next) => {
-    const actorData = {
-      apId: "https://test.yurucommu.com/ap/users/tako",
+  const { db } = await createTestDb();
+  if (options.existingOwner !== false) {
+    const apId = "https://test.yurucommu.com/ap/users/tako";
+    await db.insert(actors).values({
+      apId,
       type: "Person",
       preferredUsername: "tako",
       name: "tako",
-      iconUrl: null,
+      inbox: `${apId}/inbox`,
+      outbox: `${apId}/outbox`,
+      followersUrl: `${apId}/followers`,
+      followingUrl: `${apId}/following`,
+      publicKeyPem: "test-public-key",
+      privateKeyPem: "test-private-key",
       role: "owner",
       takosUserId: "password:owner",
-    };
-
-    const mockOwnerGet = spy(() =>
-      Promise.resolve(options.existingOwner === false ? null : actorData),
+    });
+  }
+  const app = new Hono();
+  app.use("/api/auth/*", async (c, next) => {
+    (c as unknown as { set: (key: string, value: unknown) => void }).set(
+      "db",
+      db,
     );
-    const mockGet = spy(() => Promise.resolve(actorData));
-    const mockWhere = spy(() => ({ get: mockGet }));
-    const mockActorWhere = spy(() => ({ get: mockOwnerGet }));
-    const mockFrom = spy((table?: unknown) => {
-      if (table === actors) return { where: mockActorWhere, get: mockGet };
-      return { where: mockWhere, get: mockGet };
-    });
-    const mockSelect = spy(() => ({ from: mockFrom }));
-
-    type ThenResolve = ((value: unknown) => unknown) | null | undefined;
-
-    const capturedInserts = (
-      env as { _capturedInserts?: Array<Record<string, unknown>> }
-    )._capturedInserts;
-    const mockInsertValues = spy((values?: Record<string, unknown>) => {
-      if (capturedInserts && values) capturedInserts.push(values);
-      return {
-        returning: spy(() => ({
-          get: spy(() => Promise.resolve(actorData)),
-        })),
-        then: (resolve: ThenResolve) =>
-          Promise.resolve(undefined).then(resolve),
-      };
-    });
-    const mockInsert = spy(() => ({ values: mockInsertValues }));
-
-    const capturedDeleteCount = (
-      env as { _capturedDeleteCount?: { value: number } }
-    )._capturedDeleteCount;
-    const mockDeleteWhere = spy(() => {
-      if (capturedDeleteCount) capturedDeleteCount.value += 1;
-      return {
-        then: (resolve: ThenResolve) =>
-          Promise.resolve(undefined).then(resolve),
-      };
-    });
-    const mockDelete = spy(() => ({
-      where: mockDeleteWhere,
-      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
-    }));
-
-    (c as unknown as { set: (key: string, value: unknown) => void }).set("db", {
-      select: mockSelect,
-      insert: mockInsert,
-      delete: mockDelete,
-    });
     await next();
   });
   app.route("/api/auth", authRoutes);
 
-  return { app, env };
+  return { app, env, db };
 }
 
 test("auth login lockout - locks out after 5 failed login attempts", async () => {
   const hashedPassword = await hashPassword("correct-password");
   const time = new FakeTime(new Date("2026-02-18T00:00:00.000Z"));
   try {
-    const { app, env } = createAuthTestApp(hashedPassword);
+    const { app, env } = await createAuthTestApp(hashedPassword);
     const headers = { "CF-Connecting-IP": "198.51.100.24" };
 
     for (let i = 0; i < 4; i++) {
@@ -197,7 +160,7 @@ test("auth login lockout - clears lockout state after successful login", async (
   const hashedPassword = await hashPassword("correct-password");
   const time = new FakeTime(new Date("2026-02-18T00:00:00.000Z"));
   try {
-    const { app, env } = createAuthTestApp(hashedPassword);
+    const { app, env } = await createAuthTestApp(hashedPassword);
     const headers = { "CF-Connecting-IP": "198.51.100.25" };
 
     for (let i = 0; i < 4; i++) {
@@ -243,7 +206,7 @@ test("auth login lockout - allows retries again after lockout window passes", as
   const hashedPassword = await hashPassword("correct-password");
   const time = new FakeTime(new Date("2026-02-18T00:00:00.000Z"));
   try {
-    const { app, env } = createAuthTestApp(hashedPassword);
+    const { app, env } = await createAuthTestApp(hashedPassword);
     const headers = { "CF-Connecting-IP": "198.51.100.26" };
 
     for (let i = 0; i < LOGIN_LOCKOUT_CONFIG.maxFailedAttempts; i++) {
@@ -286,7 +249,7 @@ test("auth login lockout - allows retries again after lockout window passes", as
 
 test("password login first run creates the fixed owner actor", async () => {
   const hashedPassword = await hashPassword("correct-password");
-  const { app, env } = createAuthTestApp(
+  const { app, env, db } = await createAuthTestApp(
     hashedPassword,
     {},
     {
@@ -306,14 +269,13 @@ test("password login first run creates the fixed owner actor", async () => {
 
   expect(res.status).toEqual(200);
   expect(body).toEqual({ success: true });
+  expect(await db.select().from(actors)).toHaveLength(1);
 });
 
 test("password login - stores a hashed session id and sets SameSite=Strict cookie", async () => {
   const hashedPassword = await hashPassword("correct-password");
-  const inserted: Array<Record<string, unknown>> = [];
-  const { app, env } = createAuthTestApp(hashedPassword, {
+  const { app, env, db } = await createAuthTestApp(hashedPassword, {
     YURUCOMMU_SESSION_HASH_SALT: "test-salt",
-    _capturedInserts: inserted,
   });
 
   const { res } = await request(
@@ -329,6 +291,7 @@ test("password login - stores a hashed session id and sets SameSite=Strict cooki
   expect(res.status).toEqual(200);
 
   // The persisted session-row key must be the salted SHA-256, never the raw id.
+  const inserted = await db.select().from(sessions);
   expect(inserted.length).toEqual(1);
   const storedId = inserted[0].id;
   if (typeof storedId !== "string") {
@@ -349,10 +312,8 @@ test("password login - stores a hashed session id and sets SameSite=Strict cooki
 
 test("mobile password login returns a host bearer and does not set a cookie", async () => {
   const hashedPassword = await hashPassword("correct-password");
-  const inserted: Array<Record<string, unknown>> = [];
-  const { app, env } = createAuthTestApp(hashedPassword, {
+  const { app, env, db } = await createAuthTestApp(hashedPassword, {
     YURUCOMMU_SESSION_HASH_SALT: "test-salt",
-    _capturedInserts: inserted,
   });
 
   const { res, body } = await request(
@@ -372,13 +333,13 @@ test("mobile password login returns a host bearer and does not set a cookie", as
   const token = (body as { access_token?: unknown }).access_token;
   expect(typeof token).toEqual("string");
   expect((token as string).startsWith("sha256:")).toEqual(false);
-  expect(inserted[0]?.id).not.toEqual(token);
+  expect((await db.select().from(sessions))[0]?.id).not.toEqual(token);
 });
 
 test("mobile password login preserves leading and trailing whitespace", async () => {
   const password = " correct password ";
   const hashedPassword = await hashPassword(password);
-  const { app, env } = createAuthTestApp(hashedPassword);
+  const { app, env } = await createAuthTestApp(hashedPassword);
 
   const { res } = await request(
     app,
@@ -393,10 +354,7 @@ test("mobile password login preserves leading and trailing whitespace", async ()
 
 test("mobile bearer logout revokes the host session", async () => {
   const hashedPassword = await hashPassword("correct-password");
-  const deleteCount = { value: 0 };
-  const { app, env } = createAuthTestApp(hashedPassword, {
-    _capturedDeleteCount: deleteCount,
-  });
+  const { app, env, db } = await createAuthTestApp(hashedPassword);
   const login = await request(
     app,
     env,
@@ -405,6 +363,7 @@ test("mobile bearer logout revokes the host session", async () => {
     { "CF-Connecting-IP": "198.51.100.43" },
   );
   const token = (login.body as { access_token: string }).access_token;
+  expect(await db.select().from(sessions)).toHaveLength(1);
 
   const logout = await request(
     app,
@@ -416,7 +375,7 @@ test("mobile bearer logout revokes the host session", async () => {
 
   expect(logout.res.status).toBe(200);
   expect(logout.body).toEqual({ success: true });
-  expect(deleteCount.value).toBe(1);
+  expect(await db.select().from(sessions)).toHaveLength(0);
 });
 
 /** Helper: assert value is not null */
