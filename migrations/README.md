@@ -16,6 +16,17 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration 0036 repairs notification push tables created by the published Core
+3.2.0 version of 0019, whose actor foreign keys remain when a filename-only
+ledger skips the current 0019. It also preserves fresh current installations.
+It retains every registration/job state column, global device uniqueness, inbox
+insert/delete triggers, and durable account-deletion guards. Apply with all writers and
+push consumers closed, in one atomic file including its ledger mark; do not
+split statements into independently committed requests. See
+[historical push schema repair](../docs/design/historical-notification-push-schema.md)
+for executor requirements, target preflight, failure handling and qualification.
+
+
 Migration0035 adds permanent published-media deletion claims, keeping metadata
 until complete reference proof and preserving unsupported legacy identities.
 Apply with writers closed; no existing upload/job is automatically claimed.

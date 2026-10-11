@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -213,7 +213,7 @@ test("app activation treats wrangler JSON failures as SQL failures", async () =>
   }
 });
 
-test("app activation retries transient D1 schema failures", async () => {
+test("app activation surfaces migration failures without replaying SQL", async () => {
   const dir = await mkdtemp(join(tmpdir(), "yurucommu-app-activate-"));
   try {
     const statePath = join(dir, "calls.json");
@@ -238,20 +238,18 @@ test("app activation retries transient D1 schema failures", async () => {
       ].join("\n"),
     );
 
-    const result = await applyMigrations({
-      resource: "database",
-      migrationsDir: dir,
-      sqlCommandTemplate: ["bun", commandPath, "{sql_file}"],
-      retryAttempts: 2,
-      retryDelayMs: 0,
-      batchPendingMigrations: false,
-      wrapTransactions: false,
-    });
-
-    expect(result).toEqual({
-      applied: ["0001_plain.sql"],
-      skipped: [],
-    });
+    await expect(
+      applyMigrations({
+        resource: "database",
+        migrationsDir: dir,
+        sqlCommandTemplate: ["bun", commandPath, "{sql_file}"],
+        retryAttempts: 2,
+        retryDelayMs: 0,
+        batchPendingMigrations: false,
+        wrapTransactions: false,
+      }),
+    ).rejects.toThrow(/no such table: actors/);
+    expect(JSON.parse(await readFile(statePath, "utf8"))).toBe(3);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
