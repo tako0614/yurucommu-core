@@ -217,6 +217,10 @@ async function getMedia(
   );
 }
 
+function expectPrivateNoStore(response: Response) {
+  expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+}
+
 test("public media attached to a public post is served to anonymous viewers", async () => {
   const db = await freshDb();
   const env = envFor(db);
@@ -273,10 +277,11 @@ test("private (followers-only) media is served to an accepted follower and to th
   const follower = fakeActor(followerApId, "bob");
   const followerRes = await getMedia(db, env, follower);
   expect(followerRes.status).toEqual(200);
-  expect(followerRes.headers.get("Cache-Control")).toContain("private");
+  expectPrivateNoStore(followerRes);
 
   const authorRes = await getMedia(db, env, fakeActor(author, "alice"));
   expect(authorRes.status).toEqual(200);
+  expectPrivateNoStore(authorRes);
 });
 
 test("direct media is served to a hidden bto/bcc recipient without to/cc disclosure", async () => {
@@ -302,7 +307,7 @@ test("direct media is served to a hidden bto/bcc recipient without to/cc disclos
 
   const allowed = await getMedia(db, env, fakeActor(recipient, "bob"));
   expect(allowed.status).toBe(200);
-  expect(allowed.headers.get("Cache-Control")).toContain("private");
+  expectPrivateNoStore(allowed);
   expect((await getMedia(db, env, fakeActor(stranger, "mallory"))).status).toBe(
     403,
   );
@@ -362,11 +367,11 @@ test("PRIVATE-community story media is members-only (stored visibility=public is
   // A member is served — privately, so the blob is never shared-cached.
   const memberRes = await getMedia(db, env, fakeActor(member, "bob"));
   expect(memberRes.status).toEqual(200);
-  expect(memberRes.headers.get("Cache-Control")).toContain("private");
+  expectPrivateNoStore(memberRes);
   // The author is served.
-  expect((await getMedia(db, env, fakeActor(author, "alice"))).status).toEqual(
-    200,
-  );
+  const authorRes = await getMedia(db, env, fakeActor(author, "alice"));
+  expect(authorRes.status).toEqual(200);
+  expectPrivateNoStore(authorRes);
 });
 
 test("PUBLIC-community story media stays viewable (served, not gated)", async () => {
@@ -442,9 +447,9 @@ test("an EXPIRED personal Story's media is DENIED to a follower but still served
     (await getMedia(db, env, fakeActor(followerApId, "bob"))).status,
   ).toEqual(403);
   // The author can still access their own blob.
-  expect((await getMedia(db, env, fakeActor(author, "alice"))).status).toEqual(
-    200,
-  );
+  const authorRes = await getMedia(db, env, fakeActor(author, "alice"));
+  expect(authorRes.status).toEqual(200);
+  expectPrivateNoStore(authorRes);
 });
 
 test("direct media is served only to addressed recipients", async () => {
@@ -468,6 +473,7 @@ test("direct media is served only to addressed recipients", async () => {
     fakeActor(recipientApId, "carol"),
   );
   expect(recipientRes.status).toEqual(200);
+  expectPrivateNoStore(recipientRes);
 
   const outsiderRes = await getMedia(
     db,
@@ -487,7 +493,7 @@ test("unattached media is served only to its uploader; others denied/unauthorize
 
   const uploaderRes = await getMedia(db, env, fakeActor(uploader, "alice"));
   expect(uploaderRes.status).toEqual(200);
-  expect(uploaderRes.headers.get("Cache-Control")).toContain("private");
+  expectPrivateNoStore(uploaderRes);
 
   const otherRes = await getMedia(
     db,
@@ -616,7 +622,7 @@ test("PRIVATE community icon stays members-only", async () => {
   // A member is served, privately (never shared-cached).
   const memberRes = await getMedia(db, env, fakeActor(member, "bob"));
   expect(memberRes.status).toEqual(200);
-  expect(memberRes.headers.get("Cache-Control")).toContain("private");
+  expectPrivateNoStore(memberRes);
 });
 
 test("no full-table LIKE scan path remains in media authorization", async () => {
@@ -673,12 +679,12 @@ test("PERSONAL story media (stored visibility=public, reach=followers) is follow
   // auth-required included).
   expect((await getMedia(db, env, null)).status).toEqual(403);
   // Accepted follower + author: allowed.
-  expect(
-    (await getMedia(db, env, fakeActor(followerApId, "bob"))).status,
-  ).toEqual(200);
-  expect((await getMedia(db, env, fakeActor(author, "alice"))).status).toEqual(
-    200,
-  );
+  const followerRes = await getMedia(db, env, fakeActor(followerApId, "bob"));
+  expect(followerRes.status).toEqual(200);
+  expectPrivateNoStore(followerRes);
+  const authorRes = await getMedia(db, env, fakeActor(author, "alice"));
+  expect(authorRes.status).toEqual(200);
+  expectPrivateNoStore(authorRes);
 });
 
 test("followers-visibility media in a PUBLIC community is DENIED to a non-follower member", async () => {

@@ -224,6 +224,15 @@ app code はそのまま compile し、そのまま動きます。
   media route はこの判定を authorization gate の **後**で行います。`*` はどんな
   representation にも match するので、先に 304 を返すと private object の存在が
   漏れるからです。
+- **認可に依存する media response は `private, no-store`** です。`private` だけでは
+  browser の private cache に保存され、同じ URL を logout / viewer 切替後に読んでも
+  origin の認可判定へ届かないためです。followers / direct / community / Story / 未添付
+  upload 等で `ALLOW_PRIVATE` となる response に適用し、body 付き・body 無しの 200 と
+  304 で同じ方針を返します。public object の author 向け response もこの分岐です。
+  `ALLOW_PUBLIC` の image は一年、video は一週間の `public, max-age` と ETag を維持します。
+  この変更は既に browser に保存された fresh response を遡って失効させません。
+  旧 response の cache 消去 / URL 切替や、以前 public だった bytes の ACL 変更は別の
+  revocation 対応が必要です。
 - custom metadata はありません。core の provider-neutral な `ObjectStore` も
   `contentType` しか運ばないので、両者はここで一致しています。`ObjectStore`
   （`wrapEdgeObjects` / `env.MEDIA`）は今も故意に R2 より狭い port で、R2 の member

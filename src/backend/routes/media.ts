@@ -569,7 +569,7 @@ async function checkMediaAuthorization(
   }
 
   // Only ordinary world-readable objects may use shared/public caching.
-  // Community content and Stories remain private-cache responses even when the
+  // Community content and Stories remain non-cacheable even when the
   // canonical gate admits the current viewer.
   if (
     !obj.communityApId &&
@@ -619,11 +619,16 @@ async function serveMediaByR2Key(c: MediaContext, r2Key: string) {
     if (!object) return c.notFound();
 
     const contentType = object.contentType || "application/octet-stream";
-    const cacheScope = authResult.isPublic ? "public" : "private";
     const maxAge = contentType.startsWith("video/")
       ? CACHE_MAX_AGE_VIDEO
       : CACHE_MAX_AGE_IMAGE;
-    const cacheControl = `${cacheScope}, max-age=${maxAge}`;
+    // `private` alone still permits a browser to reuse the same URL after a
+    // viewer/session change, bypassing the origin authorization gate. Keep
+    // restricted bytes out of both browser and shared caches. This policy is
+    // also sent on bodyless and conditional responses below.
+    const cacheControl = authResult.isPublic
+      ? `public, max-age=${maxAge}`
+      : "private, no-store";
     // The HEADER form, not `object.etag`. An `ETag` field value is an
     // entity-tag and an entity-tag's opaque-tag is always quoted (RFC 9110
     // §8.8.3); the port's `etag` is the backend's verbatim spelling, which on
