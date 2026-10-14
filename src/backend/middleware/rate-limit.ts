@@ -246,6 +246,17 @@ export const RateLimitConfigs = {
 } as const satisfies Record<string, RateLimitConfig>;
 
 /**
+ * Read-only unread-count endpoints polled every 30s by the client badges
+ * (useUnreadPolling / DM nav). Each limiter hit costs a KV get+put, so polling
+ * alone exceeded the Cloudflare free-tier KV write quota (1000/day). These are
+ * cheap authenticated GETs, so they skip the KV-backed limiter entirely.
+ */
+export const KV_RATE_LIMIT_EXEMPT_GET_PATHS: ReadonlySet<string> = new Set([
+  "/api/notifications/unread/count",
+  "/api/dm/unread/count",
+]);
+
+/**
  * Create a rate limiting middleware
  */
 export function rateLimit(config: RateLimitConfig) {
@@ -253,6 +264,14 @@ export function rateLimit(config: RateLimitConfig) {
     c: Context<{ Bindings: Env; Variables: Variables }>,
     next: Next,
   ) => {
+    if (
+      (c.req.method === "GET" || c.req.method === "HEAD") &&
+      KV_RATE_LIMIT_EXEMPT_GET_PATHS.has(c.req.path)
+    ) {
+      await next();
+      return;
+    }
+
     // Get client identifier (IP or authenticated actor)
     const actor = c.get("actor");
     const ip = getClientIP(c);

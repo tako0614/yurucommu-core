@@ -76,3 +76,46 @@ test("rateLimit middleware - hardens auth limit to 20 requests per minute", () =
   expect(RateLimitConfigs.auth.maxRequests).toEqual(20);
   expect(RateLimitConfigs.auth.windowMs).toEqual(60_000);
 });
+
+test("rateLimit middleware - unread-count polling endpoints skip KV entirely", async () => {
+  const kv = new MockKVNamespace();
+  let gets = 0;
+  let puts = 0;
+  const env = {
+    KV: {
+      get: (k: string) => (gets++, kv.get(k)),
+      put: (k: string, v: string, o?: { expirationTtl?: number }) => (
+        puts++,
+        kv.put(k, v, o)
+      ),
+      delete: (k: string) => kv.delete(k),
+    },
+  };
+  const headers = { "CF-Connecting-IP": "203.0.113.20" };
+  const app = new Hono();
+  app.use("/api/*", rateLimit({ windowMs: 60_000, maxRequests: 1 }));
+  app.use("/api/dm/*", rateLimit(RateLimitConfigs.dm));
+  app.get("/api/notifications/unread/count", (c) => c.json({ count: 0 }));
+  app.get("/api/dm/unread/count", (c) => c.json({ count: 0 }));
+  app.get("/api/other", (c) => c.json({ ok: true }));
+
+  for (let i = 0; i < 5; i++) {
+    const n = await request(
+      app,
+      env,
+      "/api/notifications/unread/count",
+      headers,
+    );
+    expect(n.status).toEqual(200);
+    expect(n.headers.get("X-RateLimit-Limit")).toEqual(null);
+    const d = await request(app, env, "/api/dm/unread/count", headers);
+    expect(d.status).toEqual(200);
+  }
+  expect(gets).toEqual(0);
+  expect(puts).toEqual(0);
+
+  // Non-exempt routes are still limited through KV.
+  expect((await request(app, env, "/api/other", headers)).status).toEqual(200);
+  expect((await request(app, env, "/api/other", headers)).status).toEqual(429);
+  expect(puts).toEqual(2);
+});
