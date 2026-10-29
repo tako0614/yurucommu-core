@@ -12,9 +12,12 @@ import {
   deleteNotificationPusher,
   isNotificationGatewayAllowed,
   isWebPushEndpointAllowed,
+  NotificationPusherConflictError,
   registerNotificationPusher,
 } from "../lib/notification-push.ts";
 import { getInstanceVapidKeyPair } from "../lib/web-push/vapid.ts";
+import { rawSessionCredential } from "../lib/session-actor.ts";
+import { hashSessionIdForEnv } from "../lib/crypto.ts";
 
 const pushers = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -35,7 +38,16 @@ pushers.get("/config", async (c) => {
 
   return c.json({
     gateway_url: gatewayUrl,
-    web_push_public_key: vapid?.publicKeyBase64Url ?? null,
+    // Gateway-era field (SDK < 4.2.0 subscribed with it and registered `http`
+    // pushers through the gateway). Always null now: an old SDK still running
+    // in an open tab compares it with the browser's subscription and, on a
+    // mismatch, deletes the registration and unsubscribes. Null leaves it
+    // "unconfigured", which touches nothing; its existing `http` rows keep
+    // being delivered through the gateway until the new SDK migrates them.
+    web_push_public_key: null,
+    // The instance's own key: SDK >= 4.2.0 subscribes with it and registers
+    // `kind: "webpush"`.
+    web_push_instance_public_key: vapid?.publicKeyBase64Url ?? null,
   });
 });
 
@@ -79,12 +91,31 @@ pushers.post("/", async (c) => {
       400,
     );
   }
-  const pusher = await registerNotificationPusher(
-    c.get("db"),
-    actor,
-    parsed.value,
-  );
-  return c.json({ pusher });
+  // `webpush` rows are bound to the session that registers them, so the
+  // subscription stops receiving when that session ends.
+  let sessionKey: string | null = null;
+  if (parsed.value.pusher.kind === "webpush") {
+    const rawSession = rawSessionCredential(c);
+    if (!rawSession) return c.json({ error: "Unauthorized" }, 401);
+    sessionKey = await hashSessionIdForEnv(c.env, rawSession);
+  }
+  try {
+    const pusher = await registerNotificationPusher(
+      c.get("db"),
+      actor,
+      parsed.value,
+      { sessionKey },
+    );
+    return c.json({ pusher });
+  } catch (error) {
+    if (error instanceof NotificationPusherConflictError) {
+      return c.json(
+        { code: "CONFLICT", error: error.message, field: "pusher.pushkey" },
+        409,
+      );
+    }
+    throw error;
+  }
 });
 
 pushers.delete("/", async (c) => {

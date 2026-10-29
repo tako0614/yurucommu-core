@@ -33,6 +33,12 @@ export {
   type WebPushUrgency,
 } from "./send.ts";
 export {
+  computeWebPushTopic,
+  deriveWebPushTopicKey,
+  instanceWebPushTopic,
+  WEB_PUSH_TOPIC_KEY_LABEL,
+} from "./topic.ts";
+export {
   clearVapidJwtCache,
   deriveVapidKeyPair,
   deriveVapidPrivateScalar,

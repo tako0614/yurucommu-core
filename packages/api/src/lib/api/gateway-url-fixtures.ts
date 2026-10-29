@@ -64,6 +64,36 @@ export const GATEWAY_URL_CASES: readonly GatewayUrlCase[] = [
     note: ".internal suffix",
   },
   { url: "https://singlelabel/notify", valid: false, note: "no dot in host" },
+  {
+    url: "https://localhost./notify",
+    valid: false,
+    note: "trailing-dot localhost",
+  },
+  {
+    url: "https://foo.local./notify",
+    valid: false,
+    note: "trailing-dot .local",
+  },
+  {
+    url: "https://metadata.google.internal./computeMetadata",
+    valid: false,
+    note: "trailing-dot .internal",
+  },
+  {
+    url: "https://intranet./notify",
+    valid: false,
+    note: "trailing-dot single label",
+  },
+  {
+    url: "https://push.example./notify",
+    valid: false,
+    note: "trailing dot on a public name",
+  },
+  {
+    url: "http://localhost./notify",
+    valid: false,
+    note: "trailing-dot loopback http",
+  },
   { url: "ftp://push.example/notify", valid: false, note: "wrong scheme" },
   { url: "not a url", valid: false, note: "unparseable" },
 ];

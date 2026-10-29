@@ -249,7 +249,10 @@ test("authenticated runtime config exposes only an allowed gateway and the insta
   const body = await response.json();
   expect(body).toEqual({
     gateway_url: GATEWAY_URL,
-    web_push_public_key: derived.publicKeyBase64Url,
+    // The gateway-era field stays null so a pre-4.2 SDK in an open tab does
+    // not delete the browser's subscription (see web-push-legacy-sdk.test).
+    web_push_public_key: null,
+    web_push_instance_public_key: derived.publicKeyBase64Url,
   });
   expect(JSON.stringify(body)).not.toContain("must-not-leak");
   expect(JSON.stringify(body)).not.toContain(encryptionKey);
@@ -266,6 +269,7 @@ test("authenticated runtime config exposes only an allowed gateway and the insta
   expect(await failClosed.json()).toEqual({
     gateway_url: null,
     web_push_public_key: null,
+    web_push_instance_public_key: null,
   });
 
   const anonymous = new Hono<{ Bindings: Env; Variables: Variables }>();

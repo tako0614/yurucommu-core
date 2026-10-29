@@ -1,4 +1,5 @@
-import { beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createHash, createHmac, hkdfSync } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
@@ -14,14 +15,18 @@ import {
   notificationPushJobs,
   objectRecipients,
   objects,
+  sessions,
   type Database,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import pusherRoutes from "../../routes/notification-pushers.ts";
 import {
+  deleteSessionWebPushers,
   enqueuePendingNotificationPushJobs,
   processNotificationPushJob,
+  setWebPushEndpointResolverForTests,
 } from "../../lib/notification-push.ts";
+import { hashSessionIdForEnv } from "../../lib/crypto.ts";
 import type {
   DeliveryNotificationPushMessageV1,
   DeliveryQueueMessageV1,
@@ -43,7 +48,14 @@ const ENCRYPTION_KEY = "5e".repeat(32);
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/device-token-1";
 const GATEWAY_URL = "https://push.example/_matrix/push/v1/notify";
 
-beforeEach(() => clearVapidJwtCache());
+// Delivery resolves the endpoint host before sending (Bun/Node). Tests answer
+// with a public address unless they install their own resolver.
+const PUBLIC_IP = "142.250.196.106";
+beforeEach(() => {
+  clearVapidJwtCache();
+  setWebPushEndpointResolverForTests(async () => [PUBLIC_IP]);
+});
+afterEach(() => setWebPushEndpointResolverForTests(undefined));
 
 async function freshDb(): Promise<Database> {
   const client = createClient({ url: ":memory:" });
@@ -84,6 +96,31 @@ function actor(username: string, name: string | null = username): Actor {
   };
 }
 
+function rawSessionFor(value: Actor): string {
+  return `raw-session-${value.preferred_username}`;
+}
+
+async function sessionKeyFor(raw: string): Promise<string> {
+  return hashSessionIdForEnv({}, raw);
+}
+
+/** A live session row; registrations bind `webpush` rows to it. */
+async function seedSession(
+  db: Database,
+  value: Actor,
+  raw: string = rawSessionFor(value),
+  expiresAt: string = new Date(Date.now() + 86_400_000).toISOString(),
+): Promise<string> {
+  const key = await sessionKeyFor(raw);
+  await db.insert(sessions).values({
+    id: key,
+    memberId: value.ap_id,
+    accessToken: key,
+    expiresAt,
+  });
+  return key;
+}
+
 async function seedActor(db: Database, value: Actor): Promise<void> {
   await db.insert(actors).values({
     apId: value.ap_id,
@@ -107,13 +144,22 @@ async function seedActor(db: Database, value: Actor): Promise<void> {
     role: value.role,
     createdAt: value.created_at,
   });
+  await seedSession(db, value);
 }
 
 function baseEnv(extra: Record<string, unknown> = {}): Env {
   return { APP_URL, ENCRYPTION_KEY, ...extra } as unknown as Env;
 }
 
-function appFor(db: Database, current: Actor) {
+/**
+ * The pusher routes as a signed-in client reaches them: the actor is resolved
+ * by the session middleware, and the request carries that session's cookie.
+ */
+function appFor(
+  db: Database,
+  current: Actor,
+  rawSession: string | null = rawSessionFor(current),
+) {
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();
   app.use("*", async (c, next) => {
     c.set("db", db);
@@ -121,7 +167,13 @@ function appFor(db: Database, current: Actor) {
     await next();
   });
   app.route("/api/notifications/pushers", pusherRoutes);
-  return app;
+  return {
+    fetch(request: Request, env: Env) {
+      const headers = new Headers(request.headers);
+      if (rawSession) headers.set("Cookie", `session=${rawSession}`);
+      return app.fetch(new Request(request, { headers }), env);
+    },
+  };
 }
 
 function webPushBody(
@@ -283,6 +335,31 @@ async function runJob(
   return { requests, retries, acked };
 }
 
+/** Independent computation of the Topic rule with node:crypto. */
+function expectedTopic(
+  encryptionKeyHex: string,
+  recipient: string,
+  conversation: string,
+): string {
+  const key = Buffer.from(
+    hkdfSync(
+      "sha256",
+      Buffer.from(encryptionKeyHex, "hex"),
+      Buffer.alloc(0),
+      Buffer.from("yurucommu/web-push/topic/v1"),
+      32,
+    ),
+  );
+  const recipientBytes = Buffer.from(recipient, "utf8");
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(recipientBytes.byteLength);
+  return createHmac("sha256", key)
+    .update(Buffer.concat([length, recipientBytes, Buffer.from(conversation)]))
+    .digest()
+    .subarray(0, 24)
+    .toString("base64url");
+}
+
 async function decodePayload(request: CapturedRequest, agent: TestUserAgent) {
   return JSON.parse(
     new TextDecoder().decode(await decryptWebPushBody(request.body, agent)),
@@ -318,7 +395,11 @@ test("webpush registration takes MSC4174's layout, skips the gateway allowlist a
     pushkey: agent.p256dhBase64Url,
     gatewayUrl: ENDPOINT,
   });
-  expect(JSON.parse(rows[0]!.dataJson)).toEqual({ auth: agent.authBase64Url });
+  // The row remembers the registering session (server-side only).
+  expect(JSON.parse(rows[0]!.dataJson)).toEqual({
+    auth: agent.authBase64Url,
+    session: await sessionKeyFor(rawSessionFor(alice)),
+  });
 
   // Re-registering the same subscription with a moved endpoint updates the row.
   const moved = await post(
@@ -372,6 +453,11 @@ test("webpush endpoints must be public https: private, loopback and link-local t
     "https://metadata.internal/push/abc",
     "https://router.lan/push/abc",
     "https://push/abc",
+    "https://localhost./push/abc",
+    "https://foo.local./push/abc",
+    "https://metadata.google.internal./computeMetadata/v1",
+    "https://intranet./push/abc",
+    "https://fcm.googleapis.com./fcm/send/abc",
     "https://push.example.net:8443/push/abc",
     "https://user:pass@push.example.net/push/abc",
     "https://push.example.net/push/abc#fragment",
@@ -542,6 +628,20 @@ test("a direct message goes to the yurume subscription with high urgency and a p
   expect(request.headers.get("Urgency")).toBe("high");
   const topic = request.headers.get("Topic");
   expect(topic).toMatch(/^[A-Za-z0-9_-]{32}$/);
+  // Topic is visible to the push service: it is the keyed MAC for this
+  // recipient, not anything computable from the public conversation id.
+  const conversation = `${APP_URL}/conversations/bob-alice`;
+  expect(topic).toBe(expectedTopic(ENCRYPTION_KEY, alice.ap_id, conversation));
+  expect(topic).not.toBe(
+    expectedTopic(ENCRYPTION_KEY, bob.ap_id, conversation),
+  );
+  expect(topic).not.toBe(
+    createHash("sha256")
+      .update(conversation)
+      .digest()
+      .subarray(0, 24)
+      .toString("base64url"),
+  );
   const payload = await decodePayload(request, yurume);
   expect(payload.notification).toMatchObject({
     title: "Yurumeet",
@@ -748,4 +848,396 @@ test("without a valid ENCRYPTION_KEY delivery records a failure and keeps the su
   )[0]!;
   expect(job.status).toBe("delivered");
   expect(job.lastError).toContain("ENCRYPTION_KEY");
+});
+
+async function registeredPushers(db: Database) {
+  return db.select().from(notificationPushers);
+}
+
+async function onlyJob(db: Database) {
+  return (await db.select().from(notificationPushJobs))[0]!;
+}
+
+test("a webpush subscription stops when the session that registered it ends", async () => {
+  const scenarios: Array<{
+    name: string;
+    end: (db: Database, alice: Actor) => Promise<void>;
+  }> = [
+    {
+      name: "session deleted (logout, rotation, revocation, teardown)",
+      end: async (db, alice) => {
+        await db
+          .delete(sessions)
+          .where(eq(sessions.id, await sessionKeyFor(rawSessionFor(alice))));
+      },
+    },
+    {
+      name: "session expired",
+      end: async (db, alice) => {
+        await db
+          .update(sessions)
+          .set({ expiresAt: new Date(Date.now() - 1000).toISOString() })
+          .where(eq(sessions.id, await sessionKeyFor(rawSessionFor(alice))));
+      },
+    },
+    {
+      name: "row without a session binding",
+      end: async (db) => {
+        const [row] = await registeredPushers(db);
+        const { auth } = JSON.parse(row!.dataJson) as { auth: string };
+        await db
+          .update(notificationPushers)
+          .set({ dataJson: JSON.stringify({ auth }) });
+      },
+    },
+    {
+      name: "binding names another member's session",
+      end: async (db, alice) => {
+        const [row] = await registeredPushers(db);
+        const { auth } = JSON.parse(row!.dataJson) as { auth: string };
+        void alice;
+        await db.update(notificationPushers).set({
+          dataJson: JSON.stringify({
+            auth,
+            session: await sessionKeyFor(rawSessionFor(actor("bob"))),
+          }),
+        });
+      },
+    },
+  ];
+  for (const scenario of scenarios) {
+    const db = await freshDb();
+    const alice = actor("alice");
+    const bob = actor("bob");
+    await seedActor(db, alice);
+    await seedActor(db, bob);
+    const agent = await createTestUserAgent();
+    expect((await post(appFor(db, alice), webPushBody(agent))).status).toBe(
+      200,
+    );
+    await scenario.end(db, alice);
+    await seedNotification(db, alice, bob, "public");
+    const { sent, env } = queueEnv(db);
+    await enqueuePendingNotificationPushJobs(env);
+    const { requests, retries } = await runJob(env, sent[0]!, () => {
+      throw new Error("must not be called");
+    });
+    const label = scenario.name;
+    expect({ label, requests: requests.length }).toEqual({
+      label,
+      requests: 0,
+    });
+    expect({ label, retries: retries.length }).toEqual({ label, retries: 0 });
+    expect({ label, rows: (await registeredPushers(db)).length }).toEqual({
+      label,
+      rows: 0,
+    });
+    const job = await onlyJob(db);
+    expect({ label, status: job.status, lastError: job.lastError }).toEqual({
+      label,
+      status: "delivered",
+      lastError: null,
+    });
+  }
+});
+
+test("logout cleanup removes only the subscriptions that session registered", async () => {
+  const db = await freshDb();
+  const alice = actor("alice");
+  await seedActor(db, alice);
+  const otherKey = await seedSession(db, alice, "raw-session-alice-phone");
+  const laptop = await createTestUserAgent();
+  const phone = await createTestUserAgent();
+  expect((await post(appFor(db, alice), webPushBody(laptop))).status).toBe(200);
+  expect(
+    (
+      await post(
+        appFor(db, alice, "raw-session-alice-phone"),
+        webPushBody(phone, {
+          endpoint: "https://updates.push.services.mozilla.com/wpush/v2/p",
+        }),
+      )
+    ).status,
+  ).toBe(200);
+
+  expect(await deleteSessionWebPushers(db, alice.ap_id, otherKey)).toBe(1);
+  const rows = await registeredPushers(db);
+  expect(rows.map((row) => row.pushkey)).toEqual([laptop.p256dhBase64Url]);
+});
+
+test("webpush registration needs the request's session credential", async () => {
+  const db = await freshDb();
+  const alice = actor("alice");
+  await seedActor(db, alice);
+  const agent = await createTestUserAgent();
+  const response = await post(appFor(db, alice, null), webPushBody(agent));
+  expect(response.status).toBe(401);
+  expect(await registeredPushers(db)).toHaveLength(0);
+});
+
+test("another account cannot take over a subscription row by registering its p256dh", async () => {
+  const db = await freshDb();
+  const alice = actor("alice");
+  const mallory = actor("mallory");
+  await seedActor(db, alice);
+  await seedActor(db, mallory);
+  const agent = await createTestUserAgent();
+  expect((await post(appFor(db, alice), webPushBody(agent))).status).toBe(200);
+
+  const otherAuth = Buffer.alloc(16, 9).toString("base64url");
+  for (const overrides of [
+    { endpoint: "https://fcm.googleapis.com/fcm/send/mallory" },
+    { auth: otherAuth },
+    {
+      endpoint: "https://fcm.googleapis.com/fcm/send/mallory",
+      auth: otherAuth,
+    },
+  ]) {
+    const response = await post(
+      appFor(db, mallory),
+      webPushBody(agent, overrides),
+    );
+    expect({ overrides, status: response.status }).toEqual({
+      overrides,
+      status: 409,
+    });
+  }
+  const kept = await registeredPushers(db);
+  expect(kept).toHaveLength(1);
+  expect(kept[0]).toMatchObject({
+    actorApId: alice.ap_id,
+    gatewayUrl: ENDPOINT,
+  });
+  expect(JSON.parse(kept[0]!.dataJson).auth).toBe(agent.authBase64Url);
+
+  // The same browser signing in to another account presents the same
+  // endpoint and auth secret; the row then moves to that account.
+  const handoff = await post(appFor(db, mallory), webPushBody(agent));
+  expect(handoff.status).toBe(200);
+  const moved = await registeredPushers(db);
+  expect(moved).toHaveLength(1);
+  expect(moved[0]?.actorApId).toBe(mallory.ap_id);
+  expect(JSON.parse(moved[0]!.dataJson).session).toBe(
+    await sessionKeyFor(rawSessionFor(mallory)),
+  );
+});
+
+test("delivery refuses endpoints whose host resolves to a non-public address and retries failed lookups", async () => {
+  const cases: Array<{
+    name: string;
+    resolver: (hostname: string) => Promise<string[]>;
+    status: "delivered" | "retry_wait";
+    error: string;
+  }> = [
+    {
+      name: "loopback answer (e.g. 127.0.0.1.nip.io)",
+      resolver: async () => ["127.0.0.1"],
+      status: "delivered",
+      error: "non-public",
+    },
+    {
+      name: "one private answer among public ones",
+      resolver: async () => [PUBLIC_IP, "10.0.0.8"],
+      status: "delivered",
+      error: "non-public",
+    },
+    {
+      name: "IPv4-mapped loopback",
+      resolver: async () => ["::ffff:127.0.0.1"],
+      status: "delivered",
+      error: "non-public",
+    },
+    {
+      name: "lookup failure",
+      resolver: async () => {
+        throw new Error("getaddrinfo ENOTFOUND");
+      },
+      status: "retry_wait",
+      error: "DNS lookup failed",
+    },
+    {
+      name: "empty answer",
+      resolver: async () => [],
+      status: "retry_wait",
+      error: "DNS lookup failed",
+    },
+  ];
+  for (const testCase of cases) {
+    const db = await freshDb();
+    const alice = actor("alice");
+    await seedActor(db, alice);
+    await seedActor(db, actor("bob"));
+    const agent = await createTestUserAgent();
+    await post(appFor(db, alice), webPushBody(agent));
+    await seedNotification(db, alice, actor("bob"), "public");
+    const { sent, env } = queueEnv(db);
+    await enqueuePendingNotificationPushJobs(env);
+    const looked: string[] = [];
+    setWebPushEndpointResolverForTests(async (hostname) => {
+      looked.push(hostname);
+      return testCase.resolver(hostname);
+    });
+    const { requests } = await runJob(env, sent[0]!, () => {
+      throw new Error("must not be called");
+    });
+    const label = testCase.name;
+    expect({ label, looked }).toEqual({
+      label,
+      looked: ["fcm.googleapis.com"],
+    });
+    expect({ label, requests: requests.length }).toEqual({
+      label,
+      requests: 0,
+    });
+    expect({ label, rows: (await registeredPushers(db)).length }).toEqual({
+      label,
+      rows: 1,
+    });
+    const job = await onlyJob(db);
+    expect({ label, status: job.status }).toEqual({
+      label,
+      status: testCase.status,
+    });
+    expect(job.lastError).toContain(testCase.error);
+    // The endpoint path is the device's push token; it never reaches logs.
+    expect(job.lastError).not.toContain("device-token");
+  }
+});
+
+/** A Database whose update()/delete() can be made to throw on demand. */
+function faultyDb(
+  db: Database,
+  shouldThrow: (method: "update" | "delete", table: unknown) => boolean,
+): Database {
+  return new Proxy(db, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver) as unknown;
+      if (property === "update" || property === "delete") {
+        return (table: unknown) => {
+          if (shouldThrow(property, table)) {
+            throw new Error(`injected ${property} failure`);
+          }
+          return (value as (table: unknown) => unknown).call(target, table);
+        };
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as Database;
+}
+
+async function twoSubscriptions(db: Database, alice: Actor) {
+  const fcm = await createTestUserAgent();
+  const mozilla = await createTestUserAgent();
+  const mozillaEndpoint =
+    "https://updates.push.services.mozilla.com/wpush/v2/m";
+  await post(appFor(db, alice), webPushBody(fcm));
+  await post(
+    appFor(db, alice),
+    webPushBody(mozilla, { endpoint: mozillaEndpoint }),
+  );
+  const rows = await registeredPushers(db);
+  const idOf = (endpoint: string) =>
+    rows.find((row) => row.gatewayUrl === endpoint)!.id;
+  return {
+    fcmId: idOf(ENDPOINT),
+    mozillaId: idOf(mozillaEndpoint),
+    mozillaEndpoint,
+  };
+}
+
+async function makeJobDue(db: Database): Promise<void> {
+  await db
+    .update(notificationPushJobs)
+    .set({ nextAttemptAt: new Date(Date.now() - 1000).toISOString() });
+}
+
+test("an exception while handling one subscription retries only that subscription", async () => {
+  const db = await freshDb();
+  const alice = actor("alice");
+  await seedActor(db, alice);
+  await seedActor(db, actor("bob"));
+  const { fcmId, mozillaEndpoint } = await twoSubscriptions(db, alice);
+  await seedNotification(db, alice, actor("bob"), "public");
+  let failDelete = true;
+  const { sent, env } = queueEnv(
+    faultyDb(db, (method, table) => {
+      if (method !== "delete" || table !== notificationPushers) return false;
+      if (!failDelete) return false;
+      failDelete = false;
+      return true;
+    }),
+  );
+  await enqueuePendingNotificationPushJobs(env);
+
+  // FCM answers 410 and removing the row throws; Mozilla takes the message.
+  const first = await runJob(env, sent[0]!, (request) =>
+    request.url === ENDPOINT
+      ? new Response(null, { status: 410 })
+      : new Response(null, { status: 201 }),
+  );
+  expect(first.requests.map((request) => request.url).sort()).toEqual(
+    [ENDPOINT, mozillaEndpoint].sort(),
+  );
+  expect(first.retries).toHaveLength(1);
+  const job = await onlyJob(db);
+  expect(job.status).toBe("retry_wait");
+  expect(JSON.parse(job.pendingPusherIdsJson!)).toEqual([fcmId]);
+  expect(job.lastError).toContain("injected delete failure");
+
+  // The retry goes to FCM only; Mozilla already has the notification.
+  await makeJobDue(db);
+  const second = await runJob(
+    env,
+    sent[0]!,
+    () => new Response(null, { status: 410 }),
+  );
+  expect(second.requests.map((request) => request.url)).toEqual([ENDPOINT]);
+  expect((await registeredPushers(db)).map((row) => row.gatewayUrl)).toEqual([
+    mozillaEndpoint,
+  ]);
+  expect((await onlyJob(db)).status).toBe("delivered");
+});
+
+test("an exception after some subscriptions were delivered narrows the retry to the rest", async () => {
+  const db = await freshDb();
+  const alice = actor("alice");
+  await seedActor(db, alice);
+  await seedActor(db, actor("bob"));
+  const { fcmId, mozillaId, mozillaEndpoint } = await twoSubscriptions(
+    db,
+    alice,
+  );
+  await seedNotification(db, alice, actor("bob"), "public");
+  let failNextJobUpdate = false;
+  const { sent, env } = queueEnv(
+    faultyDb(db, (method, table) => {
+      if (method !== "update" || table !== notificationPushJobs) return false;
+      if (!failNextJobUpdate) return false;
+      failNextJobUpdate = false;
+      return true;
+    }),
+  );
+  await enqueuePendingNotificationPushJobs(env);
+
+  // The first send succeeds; the lease refresh before the second throws.
+  const first = await runJob(env, sent[0]!, () => {
+    failNextJobUpdate = true;
+    return new Response(null, { status: 201 });
+  });
+  expect(first.requests).toHaveLength(1);
+  const deliveredUrl = first.requests[0]!.url;
+  const remainingId = deliveredUrl === ENDPOINT ? mozillaId : fcmId;
+  const remainingUrl = deliveredUrl === ENDPOINT ? mozillaEndpoint : ENDPOINT;
+  const job = await onlyJob(db);
+  expect(job.status).toBe("retry_wait");
+  expect(JSON.parse(job.pendingPusherIdsJson!)).toEqual([remainingId]);
+
+  await makeJobDue(db);
+  const second = await runJob(
+    env,
+    sent[0]!,
+    () => new Response(null, { status: 201 }),
+  );
+  expect(second.requests.map((request) => request.url)).toEqual([remainingUrl]);
+  expect((await onlyJob(db)).status).toBe("delivered");
 });

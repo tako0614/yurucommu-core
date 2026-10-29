@@ -46,6 +46,7 @@ import {
 } from "./auth-helpers.ts";
 import { logger } from "../lib/logger.ts";
 import { rawSessionCredential } from "../lib/session-actor.ts";
+import { deleteSessionWebPushers } from "../lib/notification-push.ts";
 
 const log = logger.child({ component: "auth" });
 
@@ -510,6 +511,22 @@ auth.get("/callback/:provider", async (c) => {
 auth.post("/logout", async (c) => {
   const sessionId = rawSessionCredential(c);
   if (sessionId) {
+    const actor = c.get("actor");
+    if (actor) {
+      // Stop this session's browser push subscriptions now. Best effort:
+      // delivery also refuses rows whose session no longer exists.
+      try {
+        await deleteSessionWebPushers(
+          c.get("db"),
+          actor.ap_id,
+          await hashSessionIdForEnv(c.env, sessionId),
+        );
+      } catch {
+        log.warn("Failed to remove the session's web push subscriptions", {
+          event: "auth.logout.webpush_cleanup_failed",
+        });
+      }
+    }
     await deleteSessionSafely(c.get("db"), c.env, sessionId, "logout");
     deleteCookie(c, "session");
   }

@@ -413,6 +413,10 @@ function isLoopbackHostname(hostname: string): boolean {
 
 function isPublicHttpsHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  // A trailing dot is the same DNS name as without it, so `localhost.`,
+  // `metadata.google.internal.` or `intranet.` would slip past the suffix and
+  // single-label checks below. Refuse empty labels outright.
+  if (normalized.split(".").some((label) => label === "")) return false;
   if (
     !normalized.includes(".") ||
     normalized.endsWith(".localhost") ||

@@ -1,5 +1,5 @@
 import type { IQueueMessage } from "../runtime/queue.ts";
-import { and, asc, eq, exists, inArray, lte, ne, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, lte, ne, or, sql } from "drizzle-orm";
 
 import {
   activities,
@@ -12,6 +12,7 @@ import {
   notificationPushJobs,
   objectRecipients,
   objects,
+  sessions,
   type Database,
 } from "../../db/index.ts";
 import type { Actor, Env } from "../types.ts";
@@ -36,13 +37,10 @@ import {
 import { yurumeUnreadCounts } from "./unread-counts.ts";
 import { logger } from "./logger.ts";
 import { generateId } from "./oauth-utils.ts";
-import {
-  base64UrlDecode,
-  base64UrlEncode,
-  toArrayBuffer,
-  utf8,
-} from "./web-push/bytes.ts";
+import { base64UrlDecode } from "./web-push/bytes.ts";
 import { getInstanceVapidKeyPair } from "./web-push/vapid.ts";
+import { instanceWebPushTopic } from "./web-push/topic.ts";
+import { assertSafeRemoteUrlResolved, nodeLookupAll } from "./ssrf.ts";
 import {
   DEFAULT_WEB_PUSH_TTL_SECONDS,
   sendWebPush,
@@ -163,13 +161,45 @@ export function isWebPushEndpointAllowed(env: Env, value: string): boolean {
   return new URL(normalized).protocol === "https:";
 }
 
+/**
+ * A `webpush` registration names a subscription (p256dh) already registered
+ * to another account, without presenting that subscription's endpoint and
+ * auth secret. The route answers 409.
+ */
+export class NotificationPusherConflictError extends Error {
+  override name = "NotificationPusherConflictError";
+  constructor() {
+    super("This push subscription is registered to another account");
+  }
+}
+
+export interface NotificationPusherRegistrationContext {
+  /**
+   * Stored key of the session making the request (`sessions.id`). Required
+   * for `webpush`: the subscription stops receiving when that session ends.
+   */
+  readonly sessionKey?: string | null;
+}
+
 export async function registerNotificationPusher(
   db: Database,
   actor: Actor,
   input: ParsedNotificationPusherSetRequest,
+  context: NotificationPusherRegistrationContext = {},
 ): Promise<NotificationPusherRegistrationResponse> {
   const now = new Date().toISOString();
   const pushkeyHash = await sha256Hex(input.pusher.pushkey);
+  const webPush = input.pusher.kind === "webpush";
+  const webPushAuth =
+    input.pusher.kind === "webpush" ? input.pusher.data.auth : null;
+  if (webPush && !context.sessionKey) {
+    throw new Error("A webpush pusher must be registered from a session");
+  }
+  // `webpush` rows remember the registering session (server-owned data_json;
+  // never echoed) so delivery stops once that session ends.
+  const storedData: JsonObject = webPush
+    ? { ...input.storedData, session: context.sessionKey! }
+    : input.storedData;
 
   // The device key is globally unique inside product+app. Reassigning that row
   // is one atomic upsert, so concurrent logins cannot leave duplicate owners.
@@ -177,6 +207,9 @@ export async function registerNotificationPusher(
     .select({
       id: notificationPushers.id,
       actorApId: notificationPushers.actorApId,
+      kind: notificationPushers.kind,
+      gatewayUrl: notificationPushers.gatewayUrl,
+      dataJson: notificationPushers.dataJson,
     })
     .from(notificationPushers)
     .where(
@@ -189,6 +222,24 @@ export async function registerNotificationPusher(
     .get();
 
   const sameActor = existing?.actorApId === actor.ap_id;
+  // For `webpush` the pushkey is the subscription's p256dh, which is not a
+  // bearer secret the way a native device token is. Another account may take
+  // the row over only by presenting the same subscription — its endpoint and
+  // auth secret — which is what the same browser signing in to a different
+  // account does. Anything else would let one account silence another's
+  // device by registering its p256dh.
+  if (
+    webPush &&
+    existing &&
+    !sameActor &&
+    !(
+      existing.kind === "webpush" &&
+      existing.gatewayUrl === input.gatewayUrl &&
+      parseStoredData(existing.dataJson).auth === webPushAuth
+    )
+  ) {
+    throw new NotificationPusherConflictError();
+  }
   if (!sameActor) {
     await enforcePusherQuota(
       db,
@@ -214,7 +265,7 @@ export async function registerNotificationPusher(
       deviceDisplayName: input.pusher.device_display_name ?? null,
       profileTag: input.pusher.profile_tag ?? null,
       lang: input.pusher.lang ?? null,
-      dataJson: JSON.stringify(input.storedData),
+      dataJson: JSON.stringify(storedData),
       gatewayUrl: input.gatewayUrl,
       createdAt: now,
       updatedAt: now,
@@ -226,6 +277,20 @@ export async function registerNotificationPusher(
         notificationPushers.appId,
         notificationPushers.pushkeyHash,
       ],
+      // The same rule inside the upsert, so a concurrent registration cannot
+      // slip a different subscription under the check above.
+      ...(webPush
+        ? {
+            setWhere: or(
+              eq(notificationPushers.actorApId, actor.ap_id),
+              and(
+                eq(notificationPushers.kind, "webpush"),
+                eq(notificationPushers.gatewayUrl, input.gatewayUrl),
+                sql`CASE WHEN json_valid(${notificationPushers.dataJson}) THEN json_extract(${notificationPushers.dataJson}, '$.auth') ELSE NULL END = ${webPushAuth}`,
+              ),
+            ),
+          }
+        : {}),
       set: {
         id: registrationId,
         actorApId: actor.ap_id,
@@ -236,7 +301,7 @@ export async function registerNotificationPusher(
         deviceDisplayName: input.pusher.device_display_name ?? null,
         profileTag: input.pusher.profile_tag ?? null,
         lang: input.pusher.lang ?? null,
-        dataJson: JSON.stringify(input.storedData),
+        dataJson: JSON.stringify(storedData),
         gatewayUrl: input.gatewayUrl,
         ...(sameActor ? {} : { createdAt: now }),
         updatedAt: now,
@@ -256,7 +321,10 @@ export async function registerNotificationPusher(
       ),
     )
     .get();
-  if (!row) throw new Error("Failed to register notification pusher");
+  if (!row) {
+    if (webPush) throw new NotificationPusherConflictError();
+    throw new Error("Failed to register notification pusher");
+  }
   const common: NotificationPusherRegistrationCommon = {
     id: row.id,
     app_id: row.appId,
@@ -280,6 +348,28 @@ export async function registerNotificationPusher(
     data: parseStoredData(row.dataJson),
     gateway_url: row.gatewayUrl,
   };
+}
+
+/**
+ * Remove the `webpush` subscriptions one session registered. Logout calls it
+ * so the device stops at once; delivery independently skips and removes rows
+ * whose session has ended (rotation, revocation, expiry, teardown).
+ */
+export async function deleteSessionWebPushers(
+  db: Database,
+  actorApId: string,
+  sessionKey: string,
+): Promise<number> {
+  const deleted = await db
+    .delete(notificationPushers)
+    .where(
+      and(
+        eq(notificationPushers.actorApId, actorApId),
+        eq(notificationPushers.kind, "webpush"),
+        sql`CASE WHEN json_valid(${notificationPushers.dataJson}) THEN json_extract(${notificationPushers.dataJson}, '$.session') ELSE NULL END = ${sessionKey}`,
+      ),
+    );
+  return affectedRowCount(deleted);
 }
 
 export async function deleteNotificationPusher(
@@ -623,6 +713,11 @@ export async function processNotificationPushJob(
     return;
   }
   const lease: ProcessingLease = { jobId: job.id, processingToken };
+  // Pushers of this job that reached a final answer (delivered, removed, or a
+  // permanent failure). If the job throws part-way, the retry is narrowed to
+  // the rest so nobody gets the same notification twice.
+  const settledIds = new Set<string>();
+  let dispatchIds: string[] | null = null;
 
   try {
     const explicitProduct =
@@ -677,6 +772,7 @@ export async function processNotificationPushJob(
       }
     }
 
+    dispatchIds = pendingIds;
     if (pendingIds.length === 0) {
       await finishJob(db, lease, null);
       message.ack();
@@ -715,31 +811,63 @@ export async function processNotificationPushJob(
     const grouped = groupByGatewayAndFormat(
       pushers.filter((row) => row.kind !== "webpush"),
     );
+    // A pending id whose row no longer loads (deleted since) is settled; so is
+    // every pusher whose attempt below reaches a final answer.
+    const loadedIds = new Set(pushers.map((row) => row.id));
+    for (const id of pendingIds) {
+      if (!loadedIds.has(id)) settledIds.add(id);
+    }
     const retryIds: string[] = [];
     let retryAfterSeconds = 0;
     const errors: string[] = [];
-    if (webPushers.length > 0) {
-      const content = await buildWebPushContent(
-        db,
-        env,
-        product,
-        event,
-        unread,
+    const record = (ids: readonly string[], outcome: GatewayResult) => {
+      const retry = new Set(outcome.retryIds);
+      for (const id of ids) {
+        if (!retry.has(id)) settledIds.add(id);
+      }
+      retryIds.push(...outcome.retryIds);
+      retryAfterSeconds = Math.max(
+        retryAfterSeconds,
+        outcome.retryAfterSeconds,
       );
-      for (const row of webPushers) {
+      if (outcome.error) errors.push(outcome.error);
+    };
+    // An exception while handling one pusher must not make the job resend to
+    // pushers that already got the message: it retries only that pusher.
+    const thrown = (ids: readonly string[], error: unknown): GatewayResult => ({
+      retryIds: [...ids],
+      retryAfterSeconds: 0,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    if (webPushers.length > 0) {
+      let content: WebPushContent | null = null;
+      try {
+        content = await buildWebPushContent(
+          db,
+          env,
+          job.actorApId,
+          product,
+          event,
+          unread,
+        );
+      } catch (error) {
+        const ids = webPushers.map((row) => row.id);
+        record(ids, thrown(ids, error));
+      }
+      for (const row of content ? webPushers : []) {
         // Same lease heartbeat as the gateway fanout: one bounded network
         // call per subscription.
         if (!(await refreshProcessingLease(db, lease))) {
           message.ack();
           return;
         }
-        const outcome = await deliverWebPushPusher(env, db, row, content);
-        retryIds.push(...outcome.retryIds);
-        retryAfterSeconds = Math.max(
-          retryAfterSeconds,
-          outcome.retryAfterSeconds,
-        );
-        if (outcome.error) errors.push(outcome.error);
+        let outcome: GatewayResult;
+        try {
+          outcome = await deliverWebPushPusher(env, db, row, content!);
+        } catch (error) {
+          outcome = thrown([row.id], error);
+        }
+        record([row.id], outcome);
       }
     }
     for (const group of grouped.values()) {
@@ -750,26 +878,28 @@ export async function processNotificationPushJob(
         message.ack();
         return;
       }
-      const outcome = await deliverGatewayGroup(
-        env,
-        db,
-        group.gatewayUrl,
-        group.pushers,
-        group.format,
-        {
-          id: event.activityApId,
-          type: event.visibility === "direct" ? "dm" : event.type.toLowerCase(),
-          sender: event.actorApId,
-          scopeId: event.objectApId,
-          unread,
-        },
-      );
-      retryIds.push(...outcome.retryIds);
-      retryAfterSeconds = Math.max(
-        retryAfterSeconds,
-        outcome.retryAfterSeconds,
-      );
-      if (outcome.error) errors.push(outcome.error);
+      const ids = group.pushers.map((row) => row.id);
+      let outcome: GatewayResult;
+      try {
+        outcome = await deliverGatewayGroup(
+          env,
+          db,
+          group.gatewayUrl,
+          group.pushers,
+          group.format,
+          {
+            id: event.activityApId,
+            type:
+              event.visibility === "direct" ? "dm" : event.type.toLowerCase(),
+            sender: event.actorApId,
+            scopeId: event.objectApId,
+            unread,
+          },
+        );
+      } catch (error) {
+        outcome = thrown(ids, error);
+      }
+      record(ids, outcome);
     }
 
     if (retryIds.length === 0) {
@@ -833,6 +963,14 @@ export async function processNotificationPushJob(
   } catch (error) {
     const attempts = job.attempts + 1;
     const errorText = error instanceof Error ? error.message : String(error);
+    const remaining =
+      dispatchIds && settledIds.size > 0
+        ? {
+            pendingPusherIdsJson: JSON.stringify(
+              dispatchIds.filter((id) => !settledIds.has(id)),
+            ),
+          }
+        : {};
     if (attempts >= MAX_NOTIFICATION_PUSH_ATTEMPTS) {
       const failed = await db
         .update(notificationPushJobs)
@@ -840,6 +978,7 @@ export async function processNotificationPushJob(
           status: "failed",
           processingToken: null,
           attempts,
+          ...remaining,
           lastError: errorText.slice(0, 1024),
           updatedAt: new Date().toISOString(),
         })
@@ -858,6 +997,7 @@ export async function processNotificationPushJob(
         status: "retry_wait",
         processingToken: null,
         attempts,
+        ...remaining,
         nextAttemptAt: new Date(Date.now() + delaySeconds * 1000).toISOString(),
         lastError: errorText.slice(0, 1024),
         updatedAt: new Date().toISOString(),
@@ -1057,6 +1197,7 @@ const WEB_PUSH_TITLES: Record<SocialNotificationProduct, string> = {
 async function buildWebPushContent(
   db: Database,
   env: Env,
+  recipientApId: string,
   product: SocialNotificationProduct,
   event: PushEvent,
   unread: number,
@@ -1068,13 +1209,21 @@ async function buildWebPushContent(
   const conversation = direct
     ? (event.conversation ?? event.objectApId ?? event.activityApId)
     : null;
-  const topic = conversation ? await webPushTopic(conversation) : undefined;
+  // Topic is visible to the push service (and a relay's collapse key), so it
+  // is a keyed MAC over (recipient, conversation), never a plain hash of the
+  // guessable conversation id. See web-push/topic.ts.
+  const topic = conversation
+    ? ((await instanceWebPushTopic(env, recipientApId, conversation)) ??
+      undefined)
+    : undefined;
   return {
     appOrigin,
     title: WEB_PUSH_TITLES[product],
     navigate: product === "yurume" ? "/" : "/notifications",
-    tag: topic
-      ? `dm-${topic}`
+    tag: direct
+      ? topic
+        ? `dm-${topic}`
+        : "dm"
       : product === "yurume"
         ? "talk"
         : "notifications",
@@ -1160,14 +1309,6 @@ async function senderDisplayName(
   return display ? [...display].slice(0, 64).join("") : null;
 }
 
-/** Topic: 24 bytes of SHA-256(conversation) → 32 base64url characters. */
-async function webPushTopic(conversation: string): Promise<string> {
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", toArrayBuffer(utf8(conversation))),
-  );
-  return base64UrlEncode(digest.subarray(0, 24));
-}
-
 function webPushAppOrigin(env: Env): string | null {
   try {
     const url = new URL(env.APP_URL);
@@ -1204,10 +1345,28 @@ async function deliverWebPushPusher(
   if (!isWebPushEndpointAllowed(env, row.gatewayUrl)) {
     return failed("web push endpoint is no longer allowed");
   }
+  const stored = parseStoredData(row.dataJson);
+  // A browser subscription belongs to the session that registered it: the
+  // message names the sender on a lock screen, so a signed-out or expired
+  // session must stop receiving. Logout, session rotation, revocation,
+  // expiry and account teardown all end here without separate hooks.
+  if (!(await webPushSessionIsLive(db, row, stored))) {
+    await deletePusherRow(db, row);
+    log.info("Removed a web push subscription whose session has ended", {
+      event: "notification.push.webpush_session_ended",
+    });
+    return { retryIds: [], retryAfterSeconds: 0, error: null };
+  }
   const p256dh = base64UrlDecode(row.pushkey);
-  const authText = parseStoredData(row.dataJson).auth;
-  const auth = typeof authText === "string" ? base64UrlDecode(authText) : null;
+  const auth =
+    typeof stored.auth === "string" ? base64UrlDecode(stored.auth) : null;
   if (!p256dh || !auth) return failed("web push subscription keys are invalid");
+  const resolved = await checkWebPushEndpointResolved(env, row.gatewayUrl);
+  if (!resolved.ok) {
+    return resolved.retry
+      ? { retryIds: [row.id], retryAfterSeconds: 0, error: resolved.error }
+      : failed(resolved.error);
+  }
 
   const { bytes } = buildDeclarativeWebPushMessage({
     appOrigin: content.appOrigin,
@@ -1238,17 +1397,7 @@ async function deliverWebPushPusher(
     case "delivered":
       return { retryIds: [], retryAfterSeconds: 0, error: null };
     case "gone":
-      await db
-        .delete(notificationPushers)
-        .where(
-          and(
-            eq(notificationPushers.id, row.id),
-            eq(notificationPushers.actorApId, row.actorApId),
-            eq(notificationPushers.product, row.product),
-            eq(notificationPushers.pushkeyHash, row.pushkeyHash),
-            eq(notificationPushers.pushkey, row.pushkey),
-          ),
-        );
+      await deletePusherRow(db, row);
       return { retryIds: [], retryAfterSeconds: 0, error: null };
     case "retry":
       return {
@@ -1263,6 +1412,153 @@ async function deliverWebPushPusher(
         endpointOrigin: new URL(row.gatewayUrl).origin,
       });
       return failed(`web push: ${outcome.error}`);
+  }
+}
+
+/** Delete exactly this stored pusher row (no-op if it changed owner since). */
+async function deletePusherRow(db: Database, row: StoredPusher): Promise<void> {
+  await db
+    .delete(notificationPushers)
+    .where(
+      and(
+        eq(notificationPushers.id, row.id),
+        eq(notificationPushers.actorApId, row.actorApId),
+        eq(notificationPushers.product, row.product),
+        eq(notificationPushers.pushkeyHash, row.pushkeyHash),
+        eq(notificationPushers.pushkey, row.pushkey),
+      ),
+    );
+}
+
+/**
+ * The session a `webpush` row is bound to (`data_json.session`, the session's
+ * stored key) still exists for the same member and has not expired. A row
+ * without a binding is treated as ended: every registration stores one.
+ */
+async function webPushSessionIsLive(
+  db: Database,
+  row: StoredPusher,
+  stored: JsonObject,
+): Promise<boolean> {
+  const sessionKey = typeof stored.session === "string" ? stored.session : "";
+  if (!sessionKey) return false;
+  const session = await db
+    .select({ expiresAt: sessions.expiresAt })
+    .from(sessions)
+    .where(
+      and(eq(sessions.id, sessionKey), eq(sessions.memberId, row.actorApId)),
+    )
+    .get();
+  if (!session) return false;
+  const expiresMs = Date.parse(session.expiresAt);
+  return Number.isFinite(expiresMs) && expiresMs > Date.now();
+}
+
+type HostResolver = (hostname: string) => Promise<string[]>;
+
+let webPushEndpointResolverOverride: HostResolver | null | undefined;
+
+/**
+ * Test hook for the send-time DNS check: a resolver to use instead of the
+ * runtime's, null to skip the check, undefined to restore the default.
+ */
+export function setWebPushEndpointResolverForTests(
+  resolver: HostResolver | null | undefined,
+): void {
+  webPushEndpointResolverOverride = resolver;
+}
+
+/**
+ * The resolver the send-time check uses. On Bun/Node (self-host) it is the
+ * host resolver that `fetch` itself uses, so a name such as
+ * `127.0.0.1.nip.io` that points into private address space is refused. On
+ * Cloudflare Workers there is no host resolver to compare with and `fetch`
+ * cannot connect to private address space, so the check is skipped there.
+ * The connection is not pinned to the checked addresses; a record that flips
+ * between the check and the request is outside this check (as for federation).
+ */
+function webPushEndpointResolver(): HostResolver | null {
+  if (webPushEndpointResolverOverride !== undefined) {
+    return webPushEndpointResolverOverride;
+  }
+  if (
+    (globalThis as { navigator?: { userAgent?: string } }).navigator
+      ?.userAgent === "Cloudflare-Workers"
+  ) {
+    return null;
+  }
+  return (globalThis as { process?: unknown }).process ? nodeLookupAll : null;
+}
+
+class WebPushEndpointLookupError extends Error {
+  override name = "WebPushEndpointLookupError";
+}
+
+type EndpointResolution =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly retry: boolean; readonly error: string };
+
+/**
+ * Resolve the endpoint's host and refuse private, loopback, link-local and
+ * other non-public addresses (`assertSafeRemoteUrlResolved`). A lookup that
+ * fails or times out is retried later; a non-public answer is a permanent
+ * failure for this attempt. Messages never include the endpoint URL, whose
+ * path is the device's push token.
+ */
+async function checkWebPushEndpointResolved(
+  env: Env,
+  endpoint: string,
+): Promise<EndpointResolution> {
+  // Plain-HTTP loopback endpoints exist only behind the development flag,
+  // which isWebPushEndpointAllowed has already checked.
+  if (isLoopbackGatewayUrl(endpoint)) return { ok: true };
+  const resolver = webPushEndpointResolver();
+  if (!resolver) return { ok: true };
+  const timeoutMs = parseTimeout(
+    env.YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TIMEOUT_MS,
+  );
+  try {
+    await assertSafeRemoteUrlResolved(endpoint, {
+      allowLocalSubstrateRemoteFetches: false,
+      remoteResolver: async (hostname) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            resolver(hostname),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error("DNS lookup timed out")),
+                timeoutMs,
+              );
+            }),
+          ]);
+        } catch (error) {
+          throw new WebPushEndpointLookupError(
+            error instanceof Error ? error.message : String(error),
+          );
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+        }
+      },
+    });
+    return { ok: true };
+  } catch (error) {
+    if (
+      error instanceof WebPushEndpointLookupError ||
+      (error instanceof Error &&
+        error.message.startsWith("Failed to resolve hostname"))
+    ) {
+      return {
+        ok: false,
+        retry: true,
+        error: "web push endpoint DNS lookup failed",
+      };
+    }
+    return {
+      ok: false,
+      retry: false,
+      error: "web push endpoint resolves to a non-public address",
+    };
   }
 }
 

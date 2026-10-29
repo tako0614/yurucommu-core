@@ -21,10 +21,17 @@ export interface BrowserPushClientIdentity {
   readonly lang?: string;
 }
 
-/** Non-secret runtime push values, from a fetch or build-time fallback. */
+/**
+ * @deprecated Build-time push values are ignored since 4.2.0. The instance
+ * derives its VAPID key from its own secret and serves it only through
+ * GET /api/notifications/pushers/config; a key baked into a build is the
+ * gateway-era key, and subscribing or comparing with it would make the SDK
+ * retire a working subscription.
+ */
 export interface BrowserPushRuntimeValues {
   /** @deprecated Ignored; browser push no longer goes through a gateway. */
   readonly gatewayUrl?: string | null;
+  /** @deprecated Ignored; only the server's runtime key is used. */
   readonly vapidPublicKey?: string | null;
 }
 
@@ -37,19 +44,23 @@ export interface BrowserPushConfigResolverOptions {
    */
   readonly resolveServerOrigin: () => string | null;
   /**
-   * Build-time fallback used only when the server's runtime config cannot be
-   * fetched; a responding runtime config always wins.
+   * @deprecated Ignored since 4.2.0 (see BrowserPushRuntimeValues). Accepted
+   * so existing callers keep compiling.
    */
   readonly buildTimeValues?: () => BrowserPushRuntimeValues | null;
 }
 
 export interface BrowserPushConfigResolver {
-  /** Build config from build-time values only (no network). */
+  /**
+   * @deprecated Always null since 4.2.0: the instance's key is known only at
+   * runtime. Use `resolveConfig`.
+   */
   readonly buildTimeConfig: () => BrowserNotificationPushConfig | null;
   /**
-   * Resolve config from the server's runtime pusher config (the instance's
-   * own VAPID key), falling back to build-time values only if the server is
-   * unreachable. A server without a key has Web Push disabled.
+   * Resolve config from the server's runtime pusher config
+   * (`web_push_instance_public_key`). Null when the server has no key, is
+   * older than 4.2.0, or cannot be reached — "unconfigured", which never
+   * touches an existing subscription.
    */
   readonly resolveConfig: () => Promise<BrowserNotificationPushConfig | null>;
   /**
@@ -68,12 +79,12 @@ export interface BrowserPushConfigResolver {
 export function createBrowserPushConfigResolver(
   options: BrowserPushConfigResolverOptions,
 ): BrowserPushConfigResolver {
-  const { identity, resolveServerOrigin, buildTimeValues } = options;
+  const { identity, resolveServerOrigin } = options;
 
   const build = (
-    values: BrowserPushRuntimeValues | null | undefined,
+    instancePublicKey: string | null | undefined,
   ): BrowserNotificationPushConfig | null => {
-    const vapidPublicKey = values?.vapidPublicKey?.trim();
+    const vapidPublicKey = instancePublicKey?.trim();
     if (!vapidPublicKey) return null;
     const serverOrigin = resolveServerOrigin();
     if (!serverOrigin) return null;
@@ -89,20 +100,18 @@ export function createBrowserPushConfigResolver(
     };
   };
 
-  const buildTimeConfig = (): BrowserNotificationPushConfig | null =>
-    build(buildTimeValues?.() ?? null);
+  const buildTimeConfig = (): BrowserNotificationPushConfig | null => null;
 
   const resolveConfig =
     async (): Promise<BrowserNotificationPushConfig | null> => {
       try {
         const runtime = await fetchNotificationPusherPublicConfig();
-        if (!runtime.enabled || !runtime.web_push_public_key) return null;
-        return build({ vapidPublicKey: runtime.web_push_public_key });
+        if (!runtime.enabled) return null;
+        return build(runtime.web_push_instance_public_key);
       } catch {
-        // Compatibility with older servers while they roll forward. Build-time
-        // public values are a fallback only; a responding runtime config is the
-        // deployment authority.
-        return buildTimeConfig();
+        // No fallback key: a stale build-time key would make refresh retire
+        // the browser's working subscription. Unconfigured touches nothing.
+        return null;
       }
     };
 

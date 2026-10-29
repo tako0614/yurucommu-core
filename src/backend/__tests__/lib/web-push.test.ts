@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash, createHmac, hkdfSync } from "node:crypto";
 
 import {
   base64UrlDecode,
@@ -10,7 +11,9 @@ import {
   deriveVapidPrivateScalar,
   encryptWebPushPayload,
   getInstanceVapidKeyPair,
+  instanceWebPushTopic,
   isP256UncompressedPoint,
+  isValidTopic,
   MAX_WEB_PUSH_PLAINTEXT_BYTES,
   p256PublicKeyFromPrivate,
   parseVapidDerivationSecret,
@@ -18,6 +21,7 @@ import {
   vapidAuthorization,
   VAPID_JWT_LIFETIME_SECONDS,
   VAPID_KEY_LABEL,
+  WEB_PUSH_TOPIC_KEY_LABEL,
 } from "../../lib/web-push/index.ts";
 import {
   createTestUserAgent,
@@ -512,5 +516,118 @@ describe("Declarative Web Push payload", () => {
     expect(message.notification.body?.endsWith("…")).toBe(true);
     expect(message.notification).not.toHaveProperty("lang");
     expect(message.notification).not.toHaveProperty("app_badge");
+  });
+});
+
+describe("DM Topic", () => {
+  const key = "5e".repeat(32);
+  const alice = "https://yuru.test/ap/users/alice";
+  const bob = "https://yuru.test/ap/users/bob";
+  // Conversation ids are derived from the two public actor ids, so anyone can
+  // compute them; the Topic must not be a function of this value alone.
+  const conversation = `https://yuru.test/ap/conversations/${Buffer.from(
+    [alice, bob].sort().join("\n"),
+  ).toString("base64url")}`;
+
+  function independent(secretHex: string, recipient: string): string {
+    const macKey = Buffer.from(
+      hkdfSync(
+        "sha256",
+        Buffer.from(secretHex, "hex"),
+        Buffer.alloc(0),
+        Buffer.from("yurucommu/web-push/topic/v1"),
+        32,
+      ),
+    );
+    const recipientBytes = Buffer.from(recipient, "utf8");
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(recipientBytes.byteLength);
+    return createHmac("sha256", macKey)
+      .update(
+        Buffer.concat([length, recipientBytes, Buffer.from(conversation)]),
+      )
+      .digest()
+      .subarray(0, 24)
+      .toString("base64url");
+  }
+
+  test("is HMAC(HKDF(ENCRYPTION_KEY, label), recipient || conversation), 24 bytes", async () => {
+    expect(WEB_PUSH_TOPIC_KEY_LABEL).toBe("yurucommu/web-push/topic/v1");
+    const topic = await instanceWebPushTopic(
+      { ENCRYPTION_KEY: key },
+      alice,
+      conversation,
+    );
+    expect(topic).toBe(independent(key, alice));
+    expect(topic).toHaveLength(32);
+    expect(isValidTopic(topic!)).toBe(true);
+    // Stable across calls (collapse needs the same value every time).
+    expect(
+      await instanceWebPushTopic({ ENCRYPTION_KEY: key }, alice, conversation),
+    ).toBe(topic);
+  });
+
+  test("differs per recipient, so the two devices of one DM are not linked", async () => {
+    const forAlice = await instanceWebPushTopic(
+      { ENCRYPTION_KEY: key },
+      alice,
+      conversation,
+    );
+    const forBob = await instanceWebPushTopic(
+      { ENCRYPTION_KEY: key },
+      bob,
+      conversation,
+    );
+    expect(forAlice).not.toBe(forBob);
+  });
+
+  test("cannot be reproduced without ENCRYPTION_KEY", async () => {
+    const topic = await instanceWebPushTopic(
+      { ENCRYPTION_KEY: key },
+      alice,
+      conversation,
+    );
+    // Not a plain hash of public values...
+    for (const guess of [
+      conversation,
+      `${alice}${conversation}`,
+      `${alice}\n${conversation}`,
+    ]) {
+      expect(
+        createHash("sha256")
+          .update(guess)
+          .digest()
+          .subarray(0, 24)
+          .toString("base64url"),
+      ).not.toBe(topic);
+    }
+    // ...and another instance secret gives an unrelated value.
+    expect(
+      await instanceWebPushTopic(
+        { ENCRYPTION_KEY: "a7".repeat(32) },
+        alice,
+        conversation,
+      ),
+    ).not.toBe(topic);
+    // Without a valid key there is no Topic at all.
+    expect(
+      await instanceWebPushTopic({ ENCRYPTION_KEY: "" }, alice, conversation),
+    ).toBeNull();
+    expect(await instanceWebPushTopic({}, alice, conversation)).toBeNull();
+  });
+
+  test("keeps the recipient and conversation fields unambiguous", async () => {
+    // Moving bytes across the boundary must change the MAC input.
+    const a = await instanceWebPushTopic(
+      { ENCRYPTION_KEY: key },
+      "https://yuru.test/a",
+      "bc",
+    );
+    const b = await instanceWebPushTopic(
+      { ENCRYPTION_KEY: key },
+      "https://yuru.test/ab",
+      "c",
+    );
+    expect(a).not.toBe(b);
   });
 });
