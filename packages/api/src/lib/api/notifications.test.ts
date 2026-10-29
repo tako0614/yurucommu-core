@@ -112,25 +112,60 @@ test("markNotificationsRead sends the operation promised by its optional ids arg
   ]);
 });
 
-test("notification pusher public config derives enabled only from both public values", async () => {
+test("browser Web Push is enabled by the instance VAPID key alone; the gateway is for native pushers", async () => {
   const configured = await withMockFetch(
     {
       gateway_url: "https://push.example/_matrix/push/v1/notify",
-      web_push_public_key: "public-vapid-key",
+      web_push_public_key: null,
+      web_push_instance_public_key: "instance-vapid-key",
     },
     fetchNotificationPusherPublicConfig,
   );
   expect(configured).toEqual({
     enabled: true,
     gateway_url: "https://push.example/_matrix/push/v1/notify",
-    web_push_public_key: "public-vapid-key",
+    web_push_instance_public_key: "instance-vapid-key",
+    web_push_public_key: null,
   });
 
+  const withoutGateway = await withMockFetch(
+    {
+      gateway_url: null,
+      web_push_public_key: null,
+      web_push_instance_public_key: "instance-vapid-key",
+    },
+    fetchNotificationPusherPublicConfig,
+  );
+  expect(withoutGateway.enabled).toBe(true);
+
   const disabled = await withMockFetch(
-    { gateway_url: null, web_push_public_key: "public-vapid-key" },
+    {
+      gateway_url: "https://push.example/_matrix/push/v1/notify",
+      web_push_public_key: null,
+      web_push_instance_public_key: null,
+    },
     fetchNotificationPusherPublicConfig,
   );
   expect(disabled.enabled).toBe(false);
+});
+
+test("a pre-4.2 server's gateway-era key does not enable instance Web Push", async () => {
+  // Servers before 4.2.0 sent only the gateway's key in web_push_public_key.
+  // Subscribing with it and registering `webpush` would fail on that server
+  // and, worse, retire the browser's gateway subscription.
+  const legacy = await withMockFetch(
+    {
+      gateway_url: "https://push.example/_matrix/push/v1/notify",
+      web_push_public_key: "gateway-vapid-key",
+    },
+    fetchNotificationPusherPublicConfig,
+  );
+  expect(legacy).toEqual({
+    enabled: false,
+    gateway_url: "https://push.example/_matrix/push/v1/notify",
+    web_push_instance_public_key: null,
+    web_push_public_key: "gateway-vapid-key",
+  });
 });
 
 test("notification pusher helpers use the shared POST/DELETE wire shape", async () => {

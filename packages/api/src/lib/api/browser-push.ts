@@ -7,6 +7,17 @@ import {
   unregisterNotificationPusher,
 } from "./notifications.ts";
 
+/**
+ * Browser / home-screen web app notifications through standard Web Push.
+ *
+ * The page subscribes with the instance's own VAPID public key (from
+ * GET /api/notifications/pushers/config) and registers the subscription with
+ * the instance as a `webpush` pusher in MSC4174's layout: pushkey = p256dh,
+ * data.url = endpoint, data.auth. The instance encrypts and sends the push
+ * itself; no gateway is involved. The same code path works in Safari, Chrome,
+ * Firefox and in a browser-like shell that implements the Push API.
+ */
+
 export type BrowserNotificationPushState =
   "unsupported" | "unconfigured" | "denied" | "disabled" | "enabled";
 
@@ -16,9 +27,13 @@ export interface BrowserNotificationPushConfig {
   readonly appDisplayName: string;
   /** Origin of the yurucommu-compatible API that owns this registration. */
   readonly serverOrigin: string;
-  /** Public stateless gateway notify endpoint. */
-  readonly gatewayUrl: string;
-  /** Public uncompressed P-256 VAPID key, base64url encoded. */
+  /**
+   * @deprecated Ignored. Browser push no longer goes through a gateway; the
+   * instance sends standard Web Push itself. Gateways remain for store native
+   * apps that register `http` pushers.
+   */
+  readonly gatewayUrl?: string | null;
+  /** The instance's public uncompressed P-256 VAPID key, base64url encoded. */
   readonly vapidPublicKey: string;
   readonly serviceWorkerPath: string;
   readonly scope?: string;
@@ -29,6 +44,12 @@ interface BrowserPushSubscriptionLike {
   readonly endpoint: string;
   readonly options?: {
     readonly applicationServerKey: ArrayBuffer | null;
+  };
+  /** Standard PushSubscription accessors; either one is enough to register. */
+  getKey?(name: "p256dh" | "auth"): ArrayBuffer | null;
+  toJSON?(): {
+    readonly endpoint?: string | null;
+    readonly keys?: Readonly<Record<string, string>>;
   };
   unsubscribe(): Promise<boolean>;
 }
@@ -41,8 +62,18 @@ interface BrowserPushManagerLike {
   }): Promise<BrowserPushSubscriptionLike>;
 }
 
+interface BrowserServiceWorkerLike {
+  readonly state: string;
+  addEventListener(type: "statechange", listener: () => void): void;
+  removeEventListener(type: "statechange", listener: () => void): void;
+}
+
 interface BrowserServiceWorkerRegistrationLike {
   readonly pushManager: BrowserPushManagerLike;
+  /** Standard registration workers; absent in minimal runtimes and wrappers. */
+  readonly active?: BrowserServiceWorkerLike | null;
+  readonly installing?: BrowserServiceWorkerLike | null;
+  readonly waiting?: BrowserServiceWorkerLike | null;
 }
 
 interface BrowserServiceWorkerContainerLike {
@@ -111,6 +142,7 @@ export async function enableBrowserNotificationPush(
     normalized.serviceWorkerPath,
     { scope: "/" },
   );
+  await waitForActiveWorker(serviceWorker);
   let existing = await serviceWorker.pushManager.getSubscription();
   if (existing && !subscriptionMatchesConfig(normalized, existing, runtime)) {
     await retireBrowserSubscription(normalized, existing, runtime);
@@ -122,17 +154,15 @@ export async function enableBrowserNotificationPush(
       userVisibleOnly: true,
       applicationServerKey: normalized.applicationServerKey,
     }));
-  const registration = await registerBrowserSubscription(
-    normalized,
-    subscription,
-  );
-  storeBrowserPushBinding(normalized, subscription, runtime);
+  const registration = await registerAndBind(normalized, subscription, runtime);
   return { state: "enabled", registration };
 }
 
 /**
- * Rebind an existing browser subscription to the current signed-in actor.
- * This never requests permission and never creates a new subscription.
+ * Rebind this browser's subscription to the current signed-in actor and keep
+ * it fresh. Never asks for permission. It subscribes again only for a server
+ * this browser already enabled (a stored binding for the same server origin):
+ * after a VAPID key rotation, or when the browser dropped the subscription.
  */
 export async function refreshBrowserNotificationPush(
   config: BrowserNotificationPushConfig | null | undefined,
@@ -148,14 +178,25 @@ export async function refreshBrowserNotificationPush(
     normalized.serviceWorkerPath,
     { scope: "/" },
   );
-  const subscription = await serviceWorker.pushManager.getSubscription();
-  if (!subscription) return "disabled";
-  if (!subscriptionMatchesConfig(normalized, subscription, runtime)) {
+  await waitForActiveWorker(serviceWorker);
+  const binding = readBrowserPushBinding(normalized, runtime);
+  const enabledHere = binding?.serverOrigin === normalized.serverOrigin;
+  let subscription = await serviceWorker.pushManager.getSubscription();
+  if (
+    subscription &&
+    !subscriptionMatchesConfig(normalized, subscription, runtime)
+  ) {
     await retireBrowserSubscription(normalized, subscription, runtime);
-    return "disabled";
+    subscription = null;
   }
-  await registerBrowserSubscription(normalized, subscription);
-  storeBrowserPushBinding(normalized, subscription, runtime);
+  if (!subscription) {
+    if (!enabledHere) return "disabled";
+    subscription = await serviceWorker.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: normalized.applicationServerKey,
+    });
+  }
+  await registerAndBind(normalized, subscription, runtime, binding);
   return "enabled";
 }
 
@@ -173,8 +214,8 @@ export async function disableBrowserNotificationPush(
   }
 
   // Explicit disable is privacy-first: always invalidate the local endpoint,
-  // even when the host cannot remove its row. The next rejected delivery lets
-  // the host clean that stale row.
+  // even when the host cannot remove its row. The next 404/410 from the push
+  // service lets the host clean that stale row.
   await retireBrowserSubscription(normalized, subscription, runtime, true);
   return "disabled";
 }
@@ -197,6 +238,37 @@ export async function clearBrowserNotificationPush(
   if (subscription) await subscription.unsubscribe();
   clearBrowserPushBindingForIdentity(identity, runtime);
   return "disabled";
+}
+
+const SERVICE_WORKER_ACTIVATION_TIMEOUT_MS = 10_000;
+
+/**
+ * `pushManager.subscribe()` needs an active worker; right after the first
+ * `register()` the worker is still installing and browsers reject with
+ * "no active Service Worker". Wait (bounded) until it activates.
+ */
+async function waitForActiveWorker(
+  registration: BrowserServiceWorkerRegistrationLike,
+): Promise<void> {
+  if (registration.active) return;
+  const worker = registration.installing ?? registration.waiting;
+  if (!worker) return;
+  await new Promise<void>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      worker.removeEventListener("statechange", check);
+      resolve();
+    };
+    const check = () => {
+      if (worker.state === "activated" || worker.state === "redundant") {
+        finish();
+      }
+    };
+    timer = setTimeout(finish, SERVICE_WORKER_ACTIVATION_TIMEOUT_MS);
+    worker.addEventListener("statechange", check);
+    check();
+  });
 }
 
 function browserPushRuntime(): BrowserNotificationPushRuntime {
@@ -235,7 +307,7 @@ function requireBrowserPushConfig(
   const normalized = normalizeBrowserPushConfig(config);
   if (!normalized) {
     throw new Error(
-      "Browser notification push requires a valid HTTPS gateway URL, VAPID public key, app id, and root-relative service worker path.",
+      "Browser notification push requires a VAPID public key, a server origin, an app id, and a root-relative service worker path.",
     );
   }
   return normalized;
@@ -248,7 +320,6 @@ function normalizeBrowserPushConfig(
   const appId = config.appId.trim();
   const appDisplayName = config.appDisplayName.trim();
   const serverOrigin = normalizeServerOrigin(config.serverOrigin);
-  const gatewayUrl = normalizeGatewayUrl(config.gatewayUrl);
   const vapidPublicKey = config.vapidPublicKey.trim();
   const applicationServerKey = decodeVapidPublicKey(vapidPublicKey);
   const serviceWorkerPath = config.serviceWorkerPath.trim();
@@ -257,7 +328,6 @@ function normalizeBrowserPushConfig(
     !appDisplayName ||
     appDisplayName.length > 255 ||
     !serverOrigin ||
-    !gatewayUrl ||
     !applicationServerKey ||
     !serviceWorkerPath.startsWith("/") ||
     serviceWorkerPath.startsWith("//") ||
@@ -270,7 +340,6 @@ function normalizeBrowserPushConfig(
     appId,
     appDisplayName,
     serverOrigin,
-    gatewayUrl,
     vapidPublicKey,
     serviceWorkerPath,
     applicationServerKey,
@@ -295,11 +364,11 @@ function normalizeServerOrigin(value: string): string | null {
 }
 
 /**
- * Client-side gateway URL policy. MUST stay behaviorally equivalent to the
+ * Client-side push URL policy (gateway URLs for native `http` pushers and
+ * Web Push endpoints alike). MUST stay behaviorally equivalent to the
  * server's `normalizeGatewayUrl` in the notification pusher contract — a
  * client-accepted / server-rejected URL yields a confusing "registers but
  * 400s" failure. The equivalence is pinned by a shared-fixture drift test.
- * Exported for that test; app code calls the higher-level helpers above.
  */
 export function normalizeBrowserPushGatewayUrl(value: string): string | null {
   return normalizeGatewayUrl(value);
@@ -344,6 +413,10 @@ function isLoopbackHostname(hostname: string): boolean {
 
 function isPublicHttpsHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  // A trailing dot is the same DNS name as without it, so `localhost.`,
+  // `metadata.google.internal.` or `intranet.` would slip past the suffix and
+  // single-label checks below. Refuse empty labels outright.
+  if (normalized.split(".").some((label) => label === "")) return false;
   if (
     !normalized.includes(".") ||
     normalized.endsWith(".localhost") ||
@@ -364,44 +437,118 @@ function isPublicHttpsHostname(hostname: string): boolean {
   return !normalized.includes(":");
 }
 
-function decodeVapidPublicKey(value: string): BufferSource | null {
+function decodeBase64Url(
+  value: string,
+  maxLength = 256,
+): Uint8Array<ArrayBuffer> | null {
   const normalized = value.trim().replace(/-/g, "+").replace(/_/g, "/");
-  if (!normalized || normalized.length > 256) return null;
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  if (!normalized || normalized.length > maxLength) return null;
+  const unpadded = normalized.replace(/=+$/, "");
+  const padded = unpadded.padEnd(Math.ceil(unpadded.length / 4) * 4, "=");
   try {
     const binary = globalThis.atob(padded);
-    const bytes = Uint8Array.from(binary, (character) =>
-      character.charCodeAt(0),
-    );
-    // Web Push uses an uncompressed P-256 public key.
-    return bytes.byteLength === 65 && bytes[0] === 0x04 ? bytes : null;
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
   } catch {
     return null;
   }
 }
 
-async function registerBrowserSubscription(
+function encodeBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return globalThis
+    .btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function decodeVapidPublicKey(value: string): BufferSource | null {
+  const bytes = decodeBase64Url(value);
+  // Web Push uses an uncompressed P-256 public key.
+  return bytes && bytes.byteLength === 65 && bytes[0] === 0x04 ? bytes : null;
+}
+
+type SubscriptionKeys = { readonly p256dh: string; readonly auth: string };
+
+/**
+ * The subscription's p256dh and auth in canonical unpadded base64url, from
+ * `toJSON()` or `getKey()`. Null when the runtime exposes neither.
+ */
+function readSubscriptionKeys(
+  subscription: BrowserPushSubscriptionLike,
+): SubscriptionKeys | null {
+  let p256dh: Uint8Array | null = null;
+  let auth: Uint8Array | null = null;
+  try {
+    const keys = subscription.toJSON?.()?.keys;
+    if (typeof keys?.p256dh === "string") p256dh = decodeBase64Url(keys.p256dh);
+    if (typeof keys?.auth === "string") auth = decodeBase64Url(keys.auth);
+  } catch {
+    // fall back to getKey
+  }
+  try {
+    if (!p256dh) {
+      const raw = subscription.getKey?.("p256dh");
+      if (raw) p256dh = new Uint8Array(raw);
+    }
+    if (!auth) {
+      const raw = subscription.getKey?.("auth");
+      if (raw) auth = new Uint8Array(raw);
+    }
+  } catch {
+    // treated as missing below
+  }
+  if (
+    !p256dh ||
+    p256dh.byteLength !== 65 ||
+    p256dh[0] !== 0x04 ||
+    !auth ||
+    auth.byteLength !== 16
+  ) {
+    return null;
+  }
+  return { p256dh: encodeBase64Url(p256dh), auth: encodeBase64Url(auth) };
+}
+
+async function registerAndBind(
   config: NormalizedBrowserPushConfig,
   subscription: BrowserPushSubscriptionLike,
+  runtime: BrowserNotificationPushRuntime,
+  previous: StoredBrowserPushBinding | null = readBrowserPushBinding(
+    config,
+    runtime,
+  ),
 ): Promise<NotificationPusherRegistration> {
+  const keys = readSubscriptionKeys(subscription);
+  if (!keys) {
+    throw new Error(
+      "This browser's push subscription does not expose its p256dh/auth keys.",
+    );
+  }
   const registration = await registerNotificationPusher({
     product: config.product,
     ...(config.scope ? { scope: config.scope } : {}),
     pusher: {
-      kind: "http",
+      kind: "webpush",
       app_id: config.appId,
       app_display_name: config.appDisplayName,
-      pushkey: subscription.endpoint,
+      pushkey: keys.p256dh,
       ...(config.lang ? { lang: config.lang } : {}),
-      data: {
-        url: config.gatewayUrl,
-        format: "event_id_only",
-        provider: "webpush",
-        ttl: 60,
-        urgency: "normal",
-      },
+      data: { url: subscription.endpoint, auth: keys.auth },
     },
   });
+  storeBrowserPushBinding(config, subscription, keys.p256dh, runtime);
+  // A subscription registered before Web Push moved into the instance is an
+  // `http` pusher keyed by its endpoint. Remove that row so the same browser
+  // is not notified twice once a gateway is configured again.
+  if (
+    previous &&
+    previous.kind !== "webpush" &&
+    previous.serverOrigin === config.serverOrigin
+  ) {
+    await unregisterQuietly(config, previous.endpoint);
+  }
   return registration;
 }
 
@@ -409,6 +556,10 @@ type StoredBrowserPushBinding = {
   readonly endpoint: string;
   readonly serverOrigin: string;
   readonly vapidPublicKey: string;
+  /** Absent on bindings written before Web Push moved into the instance. */
+  readonly kind?: "webpush";
+  /** p256dh: the server-side pushkey of a `webpush` registration. */
+  readonly pushkey?: string;
 };
 
 function browserPushBindingKey(
@@ -425,15 +576,21 @@ function readBrowserPushBinding(
     const value = runtime.storage?.getItem(browserPushBindingKey(config));
     if (!value || value.length > 4096) return null;
     const parsed = JSON.parse(value) as Partial<StoredBrowserPushBinding>;
-    return typeof parsed.endpoint === "string" &&
-      typeof parsed.serverOrigin === "string" &&
-      typeof parsed.vapidPublicKey === "string"
-      ? {
-          endpoint: parsed.endpoint,
-          serverOrigin: parsed.serverOrigin,
-          vapidPublicKey: parsed.vapidPublicKey,
-        }
-      : null;
+    if (
+      typeof parsed.endpoint !== "string" ||
+      typeof parsed.serverOrigin !== "string" ||
+      typeof parsed.vapidPublicKey !== "string"
+    ) {
+      return null;
+    }
+    return {
+      endpoint: parsed.endpoint,
+      serverOrigin: parsed.serverOrigin,
+      vapidPublicKey: parsed.vapidPublicKey,
+      ...(parsed.kind === "webpush" && typeof parsed.pushkey === "string"
+        ? { kind: "webpush" as const, pushkey: parsed.pushkey }
+        : {}),
+    };
   } catch {
     return null;
   }
@@ -442,6 +599,7 @@ function readBrowserPushBinding(
 function storeBrowserPushBinding(
   config: NormalizedBrowserPushConfig,
   subscription: BrowserPushSubscriptionLike,
+  pushkey: string,
   runtime: BrowserNotificationPushRuntime,
 ): void {
   try {
@@ -451,6 +609,8 @@ function storeBrowserPushBinding(
         endpoint: subscription.endpoint,
         serverOrigin: config.serverOrigin,
         vapidPublicKey: config.vapidPublicKey,
+        kind: "webpush",
+        pushkey,
       } satisfies StoredBrowserPushBinding),
     );
   } catch {
@@ -513,6 +673,23 @@ function bufferSourceBytes(value: BufferSource): Uint8Array {
     : new Uint8Array(value);
 }
 
+async function unregisterQuietly(
+  config: NormalizedBrowserPushConfig,
+  pushkey: string,
+): Promise<void> {
+  try {
+    await unregisterNotificationPusher({
+      product: config.product,
+      ...(config.scope ? { scope: config.scope } : {}),
+      app_id: config.appId,
+      pushkey,
+    });
+  } catch {
+    // Local invalidation is the privacy boundary. A 404/410 from the push
+    // service lets the server remove a stale row when it next delivers.
+  }
+}
+
 async function retireBrowserSubscription(
   config: NormalizedBrowserPushConfig,
   subscription: BrowserPushSubscriptionLike,
@@ -525,17 +702,18 @@ async function retireBrowserSubscription(
     !binding ||
     binding.serverOrigin === config.serverOrigin;
   if (canUnregisterCurrentServer) {
-    try {
-      await unregisterNotificationPusher({
-        product: config.product,
-        ...(config.scope ? { scope: config.scope } : {}),
-        app_id: config.appId,
-        pushkey: subscription.endpoint,
-      });
-    } catch {
-      // Local invalidation below is the privacy boundary. A rejected delivery
-      // lets the old server remove a stale row when it becomes reachable.
+    // The server row is keyed by p256dh for `webpush` and by the endpoint for
+    // a registration from before Web Push moved into the instance. Remove
+    // whichever this browser may have; deleting a missing row is a no-op.
+    const pushkeys = new Set<string>();
+    if (binding?.kind === "webpush" && binding.pushkey) {
+      pushkeys.add(binding.pushkey);
+    } else {
+      pushkeys.add(subscription.endpoint);
     }
+    const keys = readSubscriptionKeys(subscription);
+    if (keys) pushkeys.add(keys.p256dh);
+    for (const pushkey of pushkeys) await unregisterQuietly(config, pushkey);
   }
   try {
     await subscription.unsubscribe();

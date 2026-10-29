@@ -91,8 +91,12 @@ export interface EnvVars {
   YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TOKEN?: string;
   YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TIMEOUT_MS?: string;
   YURUCOMMU_NOTIFICATION_PUSH_ALLOW_INSECURE_LOOPBACK?: string;
-  // Public VAPID application-server key exposed to authenticated browser
-  // clients. The corresponding private key remains gateway-owned.
+  /**
+   * @deprecated Ignored since Web Push moved into the instance: the public
+   * VAPID key served by GET /api/notifications/pushers/config is derived from
+   * ENCRYPTION_KEY (HKDF label "yurucommu/web-push/vapid/v1"). Kept so older
+   * deployment configuration that still passes it keeps type-checking.
+   */
   YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY?: string;
 
   // CSRF allowed origins (comma-separated). APP_URL の origin に加えて

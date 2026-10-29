@@ -93,8 +93,25 @@ export async function unregisterNotificationPusher(input: {
 }
 
 export interface NotificationPusherPublicConfig {
+  /**
+   * Browser Web Push is available: the instance serves its own VAPID key in
+   * `web_push_instance_public_key`.
+   */
   readonly enabled: boolean;
+  /** Gateway for native `http` pushers; unrelated to browser Web Push. */
   readonly gateway_url: string | null;
+  /**
+   * The instance's own VAPID public key (applicationServerKey). Browsers
+   * subscribe with it and register `kind: "webpush"`. Null on servers before
+   * 4.2.0, which do not send Web Push themselves.
+   */
+  readonly web_push_instance_public_key: string | null;
+  /**
+   * @deprecated Gateway-era key (SDK < 4.2.0 subscribed with it and
+   * registered `http` pushers through a gateway). Servers since 4.2.0 always
+   * send null so that an old SDK still open in a tab stays "unconfigured"
+   * instead of deleting the browser's current subscription. Not used here.
+   */
   readonly web_push_public_key: string | null;
 }
 
@@ -102,16 +119,16 @@ export interface NotificationPusherPublicConfig {
 export async function fetchNotificationPusherPublicConfig(): Promise<NotificationPusherPublicConfig> {
   const res = await apiFetch("/api/notifications/pushers/config");
   await assertOk(res, "Failed to load notification pusher configuration");
-  const value = (await res.json()) as Partial<NotificationPusherPublicConfig>;
-  const gatewayUrl =
-    typeof value.gateway_url === "string" ? value.gateway_url : null;
-  const publicKey =
-    typeof value.web_push_public_key === "string"
-      ? value.web_push_public_key
-      : null;
+  const value = (await res.json()) as Partial<
+    Record<keyof NotificationPusherPublicConfig, unknown>
+  >;
+  const text = (field: unknown): string | null =>
+    typeof field === "string" && field.trim() ? field : null;
+  const instanceKey = text(value.web_push_instance_public_key);
   return {
-    enabled: Boolean(gatewayUrl && publicKey),
-    gateway_url: gatewayUrl,
-    web_push_public_key: publicKey,
+    enabled: instanceKey !== null,
+    gateway_url: text(value.gateway_url),
+    web_push_instance_public_key: instanceKey,
+    web_push_public_key: text(value.web_push_public_key),
   };
 }
