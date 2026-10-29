@@ -8,8 +8,8 @@ import { fetchNotificationPusherPublicConfig } from "./notifications.ts";
 
 /**
  * Stable identity of a browser/PWA push client. Everything here is a per-app
- * constant; only the gateway URL, VAPID key, and server origin are resolved at
- * runtime.
+ * constant; only the instance's VAPID key and the server origin are resolved
+ * at runtime.
  */
 export interface BrowserPushClientIdentity {
   readonly product: NotificationPusherProduct;
@@ -21,8 +21,9 @@ export interface BrowserPushClientIdentity {
   readonly lang?: string;
 }
 
-/** Non-secret runtime gateway values, from a fetch or build-time fallback. */
+/** Non-secret runtime push values, from a fetch or build-time fallback. */
 export interface BrowserPushRuntimeValues {
+  /** @deprecated Ignored; browser push no longer goes through a gateway. */
   readonly gatewayUrl?: string | null;
   readonly vapidPublicKey?: string | null;
 }
@@ -36,8 +37,8 @@ export interface BrowserPushConfigResolverOptions {
    */
   readonly resolveServerOrigin: () => string | null;
   /**
-   * Build-time fallback used only while a server rolls forward to 3.2.0; a
-   * responding runtime config always wins.
+   * Build-time fallback used only when the server's runtime config cannot be
+   * fetched; a responding runtime config always wins.
    */
   readonly buildTimeValues?: () => BrowserPushRuntimeValues | null;
 }
@@ -46,8 +47,9 @@ export interface BrowserPushConfigResolver {
   /** Build config from build-time values only (no network). */
   readonly buildTimeConfig: () => BrowserNotificationPushConfig | null;
   /**
-   * Resolve config from the server's runtime pusher config, falling back to
-   * build-time values if the server is unreachable or has push disabled.
+   * Resolve config from the server's runtime pusher config (the instance's
+   * own VAPID key), falling back to build-time values only if the server is
+   * unreachable. A server without a key has Web Push disabled.
    */
   readonly resolveConfig: () => Promise<BrowserNotificationPushConfig | null>;
   /**
@@ -71,9 +73,8 @@ export function createBrowserPushConfigResolver(
   const build = (
     values: BrowserPushRuntimeValues | null | undefined,
   ): BrowserNotificationPushConfig | null => {
-    const gatewayUrl = values?.gatewayUrl?.trim();
     const vapidPublicKey = values?.vapidPublicKey?.trim();
-    if (!gatewayUrl || !vapidPublicKey) return null;
+    if (!vapidPublicKey) return null;
     const serverOrigin = resolveServerOrigin();
     if (!serverOrigin) return null;
     return {
@@ -81,7 +82,6 @@ export function createBrowserPushConfigResolver(
       appId: identity.appId,
       appDisplayName: identity.appDisplayName,
       serverOrigin,
-      gatewayUrl,
       vapidPublicKey,
       serviceWorkerPath: identity.serviceWorkerPath,
       ...(identity.scope ? { scope: identity.scope } : {}),
@@ -96,17 +96,8 @@ export function createBrowserPushConfigResolver(
     async (): Promise<BrowserNotificationPushConfig | null> => {
       try {
         const runtime = await fetchNotificationPusherPublicConfig();
-        if (
-          !runtime.enabled ||
-          !runtime.gateway_url ||
-          !runtime.web_push_public_key
-        ) {
-          return null;
-        }
-        return build({
-          gatewayUrl: runtime.gateway_url,
-          vapidPublicKey: runtime.web_push_public_key,
-        });
+        if (!runtime.enabled || !runtime.web_push_public_key) return null;
+        return build({ vapidPublicKey: runtime.web_push_public_key });
       } catch {
         // Compatibility with older servers while they roll forward. Build-time
         // public values are a fallback only; a responding runtime config is the

@@ -3,6 +3,8 @@ import { and, asc, eq, exists, inArray, lte, ne, sql } from "drizzle-orm";
 
 import {
   activities,
+  actorCache,
+  actors,
   affectedRowCount,
   communityMembers,
   inbox,
@@ -34,6 +36,19 @@ import {
 import { yurumeUnreadCounts } from "./unread-counts.ts";
 import { logger } from "./logger.ts";
 import { generateId } from "./oauth-utils.ts";
+import {
+  base64UrlDecode,
+  base64UrlEncode,
+  toArrayBuffer,
+  utf8,
+} from "./web-push/bytes.ts";
+import { getInstanceVapidKeyPair } from "./web-push/vapid.ts";
+import {
+  DEFAULT_WEB_PUSH_TTL_SECONDS,
+  sendWebPush,
+  type WebPushUrgency,
+} from "./web-push/send.ts";
+import { buildDeclarativeWebPushMessage } from "./web-push/payload.ts";
 
 const log = logger.child({ component: "notification.push" });
 
@@ -60,29 +75,40 @@ const STALE_PROCESSING_MS = 2 * 60 * 1000;
 // within minutes.
 const STALE_INFLIGHT_RECLAIM_MS = 15 * 60 * 1000;
 
-export interface NotificationPusherRegistrationResponse {
+interface NotificationPusherRegistrationCommon {
   readonly id: string;
-  readonly kind: "http";
   readonly app_id: string;
   readonly app_display_name?: string;
   readonly device_display_name?: string;
   readonly profile_tag?: string;
   readonly lang?: string;
-  readonly data: JsonObject;
-  readonly gateway_url: string;
   readonly product: SocialNotificationProduct;
   readonly scope: string | null;
   readonly registered_at: string;
   readonly last_seen_at: string;
 }
 
+export type NotificationPusherRegistrationResponse =
+  | (NotificationPusherRegistrationCommon & {
+      readonly kind: "http";
+      readonly data: JsonObject;
+      readonly gateway_url: string;
+    })
+  | (NotificationPusherRegistrationCommon & {
+      readonly kind: "webpush";
+      /** The endpoint only; the auth secret is never echoed. */
+      readonly data: { readonly url: string };
+    });
+
 type StoredPusher = {
   id: string;
   actorApId: string;
   product: string;
+  kind: string;
   appId: string;
   pushkey: string;
   pushkeyHash: string;
+  lang: string | null;
   dataJson: string;
   gatewayUrl: string;
 };
@@ -120,6 +146,21 @@ export function isNotificationGatewayAllowed(env: Env, value: string): boolean {
       .filter(Boolean),
   );
   return allowed.has(host);
+}
+
+/**
+ * A `webpush` endpoint is any public HTTPS push service (FCM, Mozilla, Apple,
+ * a relay) — the gateway host allowlist does not apply. The URL rule is the
+ * gateway one (no IP literals or private/loopback names, port 443); plain
+ * HTTP loopback is accepted only behind the explicit development flag.
+ */
+export function isWebPushEndpointAllowed(env: Env, value: string): boolean {
+  const normalized = normalizeGatewayUrl(value);
+  if (!normalized) return false;
+  if (isLoopbackGatewayUrl(normalized)) {
+    return isTruthy(env.YURUCOMMU_NOTIFICATION_PUSH_ALLOW_INSECURE_LOOPBACK);
+  }
+  return new URL(normalized).protocol === "https:";
 }
 
 export async function registerNotificationPusher(
@@ -165,7 +206,7 @@ export async function registerNotificationPusher(
       actorApId: actor.ap_id,
       product: input.product,
       scope: input.scope,
-      kind: "http",
+      kind: input.pusher.kind,
       appId: input.pusher.app_id,
       pushkey: input.pusher.pushkey,
       pushkeyHash,
@@ -188,7 +229,7 @@ export async function registerNotificationPusher(
       set: {
         id: registrationId,
         actorApId: actor.ap_id,
-        kind: "http",
+        kind: input.pusher.kind,
         pushkey: input.pusher.pushkey,
         scope: input.scope,
         appDisplayName: input.pusher.app_display_name ?? null,
@@ -216,9 +257,8 @@ export async function registerNotificationPusher(
     )
     .get();
   if (!row) throw new Error("Failed to register notification pusher");
-  return {
+  const common: NotificationPusherRegistrationCommon = {
     id: row.id,
-    kind: "http",
     app_id: row.appId,
     ...(row.appDisplayName ? { app_display_name: row.appDisplayName } : {}),
     ...(row.deviceDisplayName
@@ -226,12 +266,19 @@ export async function registerNotificationPusher(
       : {}),
     ...(row.profileTag ? { profile_tag: row.profileTag } : {}),
     ...(row.lang ? { lang: row.lang } : {}),
-    data: parseStoredData(row.dataJson),
-    gateway_url: row.gatewayUrl,
     product: input.product,
     scope: row.scope,
     registered_at: row.createdAt,
     last_seen_at: row.lastSeenAt,
+  };
+  if (row.kind === "webpush") {
+    return { ...common, kind: "webpush", data: { url: row.gatewayUrl } };
+  }
+  return {
+    ...common,
+    kind: "http",
+    data: parseStoredData(row.dataJson),
+    gateway_url: row.gatewayUrl,
   };
 }
 
@@ -641,9 +688,11 @@ export async function processNotificationPushJob(
         id: notificationPushers.id,
         actorApId: notificationPushers.actorApId,
         product: notificationPushers.product,
+        kind: notificationPushers.kind,
         appId: notificationPushers.appId,
         pushkey: notificationPushers.pushkey,
         pushkeyHash: notificationPushers.pushkeyHash,
+        lang: notificationPushers.lang,
         dataJson: notificationPushers.dataJson,
         gatewayUrl: notificationPushers.gatewayUrl,
       })
@@ -662,10 +711,37 @@ export async function processNotificationPushJob(
     }
 
     const unread = await unreadCountForProduct(db, job.actorApId, product);
-    const grouped = groupByGatewayAndFormat(pushers);
+    const webPushers = pushers.filter((row) => row.kind === "webpush");
+    const grouped = groupByGatewayAndFormat(
+      pushers.filter((row) => row.kind !== "webpush"),
+    );
     const retryIds: string[] = [];
     let retryAfterSeconds = 0;
     const errors: string[] = [];
+    if (webPushers.length > 0) {
+      const content = await buildWebPushContent(
+        db,
+        env,
+        product,
+        event,
+        unread,
+      );
+      for (const row of webPushers) {
+        // Same lease heartbeat as the gateway fanout: one bounded network
+        // call per subscription.
+        if (!(await refreshProcessingLease(db, lease))) {
+          message.ack();
+          return;
+        }
+        const outcome = await deliverWebPushPusher(env, db, row, content);
+        retryIds.push(...outcome.retryIds);
+        retryAfterSeconds = Math.max(
+          retryAfterSeconds,
+          outcome.retryAfterSeconds,
+        );
+        if (outcome.error) errors.push(outcome.error);
+      }
+    }
     for (const group of grouped.values()) {
       // A job can fan out to sixteen different gateways. Refresh the durable
       // lease before each bounded network call so a healthy worker cannot age
@@ -950,6 +1026,244 @@ async function deliverGatewayGroup(
     retryAfterSeconds: parseRetryAfter(response.headers.get("Retry-After")),
     error: failed.length > 0 ? "gateway reported permanent failures" : null,
   };
+}
+
+type PushEvent = NonNullable<Awaited<ReturnType<typeof loadPushEvent>>>;
+
+interface WebPushContent {
+  readonly appOrigin: string | null;
+  readonly title: string;
+  readonly navigate: string;
+  readonly tag: string;
+  readonly topic?: string;
+  readonly urgency: WebPushUrgency;
+  readonly ttlSeconds: number;
+  readonly unread: number;
+  /** Body per language family ("ja" | "en"). */
+  readonly body: (lang: string | null) => string;
+}
+
+const WEB_PUSH_TITLES: Record<SocialNotificationProduct, string> = {
+  yurucommu: "Yurucommu",
+  yurume: "Yurumeet",
+};
+
+/**
+ * Declarative Web Push content for one event. The message is end-to-end
+ * encrypted to the subscribing device, so it may carry the sender's name; it
+ * never carries the post or message text, which may be long or sensitive on a
+ * lock screen.
+ */
+async function buildWebPushContent(
+  db: Database,
+  env: Env,
+  product: SocialNotificationProduct,
+  event: PushEvent,
+  unread: number,
+): Promise<WebPushContent> {
+  const appOrigin = webPushAppOrigin(env);
+  const sender = await senderDisplayName(db, event.actorApId);
+  const direct = event.visibility === "direct";
+  const talk = product === "yurume" && !direct;
+  const conversation = direct
+    ? (event.conversation ?? event.objectApId ?? event.activityApId)
+    : null;
+  const topic = conversation ? await webPushTopic(conversation) : undefined;
+  return {
+    appOrigin,
+    title: WEB_PUSH_TITLES[product],
+    navigate: product === "yurume" ? "/" : "/notifications",
+    tag: topic
+      ? `dm-${topic}`
+      : product === "yurume"
+        ? "talk"
+        : "notifications",
+    ...(topic ? { topic } : {}),
+    urgency: direct || talk ? "high" : "normal",
+    ttlSeconds: DEFAULT_WEB_PUSH_TTL_SECONDS,
+    unread,
+    body: (lang) =>
+      webPushBody(event.type, direct, talk, sender, languageFamily(lang)),
+  };
+}
+
+function webPushBody(
+  activityType: string,
+  direct: boolean,
+  talk: boolean,
+  sender: string | null,
+  lang: "ja" | "en",
+): string {
+  const ja = lang === "ja";
+  if (!sender) {
+    if (direct || talk) {
+      return ja ? "新しいメッセージがあります" : "You have a new message";
+    }
+    return ja ? "新しい通知があります" : "You have a new notification";
+  }
+  if (direct) {
+    return ja ? `${sender}さんからメッセージ` : `Message from ${sender}`;
+  }
+  if (talk) {
+    return ja
+      ? `${sender}さんがトークに投稿しました`
+      : `${sender} posted in a talk`;
+  }
+  switch (activityType) {
+    case "Follow":
+      return ja
+        ? `${sender}さんがあなたをフォローしました`
+        : `${sender} followed you`;
+    case "Like":
+      return ja
+        ? `${sender}さんがあなたの投稿にいいねしました`
+        : `${sender} liked your post`;
+    case "Announce":
+      return ja
+        ? `${sender}さんがあなたの投稿をリポストしました`
+        : `${sender} reposted your post`;
+    default:
+      return ja
+        ? `${sender}さんがあなた宛てに投稿しました`
+        : `${sender} posted to you`;
+  }
+}
+
+function languageFamily(lang: string | null): "ja" | "en" {
+  if (!lang) return "ja";
+  return lang.trim().toLowerCase().startsWith("ja") ? "ja" : "en";
+}
+
+async function senderDisplayName(
+  db: Database,
+  actorApId: string,
+): Promise<string | null> {
+  const local = await db
+    .select({ name: actors.name, username: actors.preferredUsername })
+    .from(actors)
+    .where(eq(actors.apId, actorApId))
+    .get();
+  const remote = local
+    ? undefined
+    : await db
+        .select({
+          name: actorCache.name,
+          username: actorCache.preferredUsername,
+        })
+        .from(actorCache)
+        .where(eq(actorCache.apId, actorApId))
+        .get();
+  const row = local ?? remote;
+  const name = (row?.name ?? "").replace(/\s+/g, " ").trim();
+  const username = (row?.username ?? "").trim();
+  const display = name || username;
+  return display ? [...display].slice(0, 64).join("") : null;
+}
+
+/** Topic: 24 bytes of SHA-256(conversation) → 32 base64url characters. */
+async function webPushTopic(conversation: string): Promise<string> {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", toArrayBuffer(utf8(conversation))),
+  );
+  return base64UrlEncode(digest.subarray(0, 24));
+}
+
+function webPushAppOrigin(env: Env): string | null {
+  try {
+    const url = new URL(env.APP_URL);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.origin
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Send one Declarative Web Push message to one `webpush` pusher and map the
+ * push service's answer onto the outbox channels: 2xx done; 404/410 delete
+ * the registration; timeout/408/429/5xx retry (Retry-After honored);
+ * 3xx and other 4xx (403 included) recorded as failed, kept, not retried.
+ */
+async function deliverWebPushPusher(
+  env: Env,
+  db: Database,
+  row: StoredPusher,
+  content: WebPushContent,
+): Promise<GatewayResult> {
+  const failed = (error: string): GatewayResult => ({
+    retryIds: [],
+    retryAfterSeconds: 0,
+    error,
+  });
+  if (!content.appOrigin) return failed("web push needs a valid APP_URL");
+  const vapid = await getInstanceVapidKeyPair(env);
+  if (!vapid) {
+    return failed("web push is unavailable: ENCRYPTION_KEY is not valid");
+  }
+  if (!isWebPushEndpointAllowed(env, row.gatewayUrl)) {
+    return failed("web push endpoint is no longer allowed");
+  }
+  const p256dh = base64UrlDecode(row.pushkey);
+  const authText = parseStoredData(row.dataJson).auth;
+  const auth = typeof authText === "string" ? base64UrlDecode(authText) : null;
+  if (!p256dh || !auth) return failed("web push subscription keys are invalid");
+
+  const { bytes } = buildDeclarativeWebPushMessage({
+    appOrigin: content.appOrigin,
+    title: content.title,
+    body: content.body(row.lang),
+    navigate: content.navigate,
+    tag: content.tag,
+    appBadge: content.unread,
+    ...(row.lang ? { lang: row.lang } : {}),
+  });
+  const outcome = await sendWebPush(
+    { endpoint: row.gatewayUrl, p256dh, auth },
+    {
+      payload: bytes,
+      ttlSeconds: content.ttlSeconds,
+      urgency: content.urgency,
+      ...(content.topic ? { topic: content.topic } : {}),
+    },
+    {
+      vapid,
+      subject: content.appOrigin,
+      timeoutMs: parseTimeout(
+        env.YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TIMEOUT_MS,
+      ),
+    },
+  );
+  switch (outcome.kind) {
+    case "delivered":
+      return { retryIds: [], retryAfterSeconds: 0, error: null };
+    case "gone":
+      await db
+        .delete(notificationPushers)
+        .where(
+          and(
+            eq(notificationPushers.id, row.id),
+            eq(notificationPushers.actorApId, row.actorApId),
+            eq(notificationPushers.product, row.product),
+            eq(notificationPushers.pushkeyHash, row.pushkeyHash),
+            eq(notificationPushers.pushkey, row.pushkey),
+          ),
+        );
+      return { retryIds: [], retryAfterSeconds: 0, error: null };
+    case "retry":
+      return {
+        retryIds: [row.id],
+        retryAfterSeconds: outcome.retryAfterSeconds,
+        error: `web push: ${outcome.error}`,
+      };
+    case "failed":
+      log.warn("Web push delivery failed permanently for this attempt", {
+        event: "notification.push.webpush_failed",
+        status: outcome.status,
+        endpointOrigin: new URL(row.gatewayUrl).origin,
+      });
+      return failed(`web push: ${outcome.error}`);
+  }
 }
 
 async function loadPushEvent(

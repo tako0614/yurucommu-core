@@ -32,6 +32,10 @@ import {
   recoverDeadLetteredNotificationPushJob,
 } from "../../lib/notification-push.ts";
 import { handleDeliveryDlqBatch } from "../../lib/delivery/queue.ts";
+import {
+  deriveVapidKeyPair,
+  parseVapidDerivationSecret,
+} from "../../lib/web-push/vapid.ts";
 import type {
   DeliveryNotificationPushMessageV1,
   DeliveryQueueMessageV1,
@@ -216,21 +220,28 @@ test("pusher registration defaults an omitted format to event_id_only", async ()
   expect(JSON.parse(rows[0]?.dataJson ?? "{}").format).toBe("event_id_only");
 });
 
-test("authenticated runtime config exposes only an allowed gateway and public Web Push key", async () => {
+test("authenticated runtime config exposes only an allowed gateway and the instance-derived Web Push key", async () => {
   const db = await freshDb();
   const alice = actor("alice");
   await seedActor(db, alice);
-  const publicKeyBytes = new Uint8Array(65).fill(7);
-  publicKeyBytes[0] = 0x04;
-  const publicKey = Buffer.from(publicKeyBytes).toString("base64url");
+  const encryptionKey = "c3".repeat(32);
+  const derived = await deriveVapidKeyPair(
+    parseVapidDerivationSecret(encryptionKey)!,
+  );
+  const manualKeyBytes = new Uint8Array(65).fill(7);
+  manualKeyBytes[0] = 0x04;
+  const manualKey = Buffer.from(manualKeyBytes).toString("base64url");
   const response = await appFor(db, alice).fetch(
     new Request(`${APP_URL}/api/notifications/pushers/config`),
     {
       APP_URL,
+      ENCRYPTION_KEY: encryptionKey,
       YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_ALLOWED_HOSTS: "push.example",
       YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_URL: GATEWAY_URL,
       YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TOKEN: "must-not-leak",
-      YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY: `  ${publicKey}  `,
+      // The old hand-entered key is ignored: the instance sends Web Push
+      // itself with the key it derives.
+      YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY: manualKey,
     } as unknown as Env,
   );
 
@@ -238,9 +249,10 @@ test("authenticated runtime config exposes only an allowed gateway and public We
   const body = await response.json();
   expect(body).toEqual({
     gateway_url: GATEWAY_URL,
-    web_push_public_key: publicKey,
+    web_push_public_key: derived.publicKeyBase64Url,
   });
   expect(JSON.stringify(body)).not.toContain("must-not-leak");
+  expect(JSON.stringify(body)).not.toContain(encryptionKey);
 
   const failClosed = await appFor(db, alice).fetch(
     new Request(`${APP_URL}/api/notifications/pushers/config`),
@@ -248,8 +260,7 @@ test("authenticated runtime config exposes only an allowed gateway and public We
       APP_URL,
       YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_ALLOWED_HOSTS: "",
       YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_URL: GATEWAY_URL,
-      YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY:
-        "invalid key with spaces",
+      YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY: manualKey,
     } as unknown as Env,
   );
   expect(await failClosed.json()).toEqual({

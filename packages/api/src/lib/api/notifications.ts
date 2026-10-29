@@ -93,8 +93,11 @@ export async function unregisterNotificationPusher(input: {
 }
 
 export interface NotificationPusherPublicConfig {
+  /** Browser Web Push is available: the instance has a VAPID key. */
   readonly enabled: boolean;
+  /** Gateway for native `http` pushers; unrelated to browser Web Push. */
   readonly gateway_url: string | null;
+  /** The instance's own VAPID public key (applicationServerKey). */
   readonly web_push_public_key: string | null;
 }
 
@@ -110,7 +113,7 @@ export async function fetchNotificationPusherPublicConfig(): Promise<Notificatio
       ? value.web_push_public_key
       : null;
   return {
-    enabled: Boolean(gatewayUrl && publicKey),
+    enabled: Boolean(publicKey),
     gateway_url: gatewayUrl,
     web_push_public_key: publicKey,
   };

@@ -25,9 +25,9 @@ function mockConfig(body: unknown): void {
     })) as unknown as typeof fetch;
 }
 
-test("resolveConfig builds from the server's runtime pusher config", async () => {
+test("resolveConfig builds from the instance's VAPID key, with or without a gateway", async () => {
   mockConfig({
-    gateway_url: "https://push.example/notify",
+    gateway_url: null,
     web_push_public_key: "vapid-key",
   });
   const resolver = createBrowserPushConfigResolver({
@@ -40,14 +40,16 @@ test("resolveConfig builds from the server's runtime pusher config", async () =>
     appId: "jp.takos.yurucommu.web",
     appDisplayName: "Yurucommu",
     serverOrigin: "https://yurucommu.example",
-    gatewayUrl: "https://push.example/notify",
     vapidPublicKey: "vapid-key",
     serviceWorkerPath: "/notification-push-sw.js",
   });
 });
 
-test("resolveConfig returns null when push is disabled server-side", async () => {
-  mockConfig({ gateway_url: null, web_push_public_key: null });
+test("resolveConfig returns null when the server has no VAPID key", async () => {
+  mockConfig({
+    gateway_url: "https://push.example/notify",
+    web_push_public_key: null,
+  });
   const resolver = createBrowserPushConfigResolver({
     identity,
     resolveServerOrigin: () => "https://yurucommu.example",
@@ -69,8 +71,8 @@ test("resolveConfig falls back to build-time values when the server errors", asy
     }),
   });
   const config = await resolver.resolveConfig();
-  expect(config?.gatewayUrl).toBe("https://fallback.example/notify");
   expect(config?.vapidPublicKey).toBe("fallback-key");
+  expect(config).not.toHaveProperty("gatewayUrl");
 });
 
 test("config resolution yields null without a server origin", async () => {

@@ -112,7 +112,7 @@ test("markNotificationsRead sends the operation promised by its optional ids arg
   ]);
 });
 
-test("notification pusher public config derives enabled only from both public values", async () => {
+test("browser Web Push is enabled by the instance VAPID key alone; the gateway is for native pushers", async () => {
   const configured = await withMockFetch(
     {
       gateway_url: "https://push.example/_matrix/push/v1/notify",
@@ -126,8 +126,17 @@ test("notification pusher public config derives enabled only from both public va
     web_push_public_key: "public-vapid-key",
   });
 
-  const disabled = await withMockFetch(
+  const withoutGateway = await withMockFetch(
     { gateway_url: null, web_push_public_key: "public-vapid-key" },
+    fetchNotificationPusherPublicConfig,
+  );
+  expect(withoutGateway.enabled).toBe(true);
+
+  const disabled = await withMockFetch(
+    {
+      gateway_url: "https://push.example/_matrix/push/v1/notify",
+      web_push_public_key: null,
+    },
     fetchNotificationPusherPublicConfig,
   );
   expect(disabled.enabled).toBe(false);

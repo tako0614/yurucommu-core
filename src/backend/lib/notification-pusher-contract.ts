@@ -1,8 +1,19 @@
 /**
- * Wire-compatible subset of Takosumi's product-neutral notification pusher
- * contract. This package is independently published, so it intentionally does
- * not import Takosumi source at runtime.
+ * Notification pusher registration for yurucommu-family hosts.
+ *
+ * - `http` is the wire-compatible subset of the product-neutral v1 pusher
+ *   contract: the host posts a Matrix Push Gateway envelope to a gateway that
+ *   owns provider credentials (store native apps).
+ * - `webpush` is a standard Web Push subscription in MSC4174's field layout
+ *   (`pushkey` = p256dh, `data.url` = push resource, `data.auth`). The host
+ *   sends RFC 8291 messages itself with its own VAPID key. No activation step.
+ *
+ * This package is independently published, so it intentionally does not
+ * import Takosumi source at runtime.
  */
+
+import { base64UrlDecode } from "./web-push/bytes.ts";
+import { isP256UncompressedPoint } from "./web-push/p256.ts";
 
 export const NOTIFICATION_PUSHER_REGISTRATION_PATH =
   "/api/notifications/pushers" as const;
@@ -18,25 +29,48 @@ export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-export interface NotificationPusher {
-  readonly kind: "http";
+export const NOTIFICATION_PUSHER_KINDS = ["http", "webpush"] as const;
+export type NotificationPusherKind = (typeof NOTIFICATION_PUSHER_KINDS)[number];
+
+interface NotificationPusherCommon {
   readonly app_id: string;
   readonly pushkey: string;
   readonly app_display_name?: string;
   readonly device_display_name?: string;
   readonly profile_tag?: string;
   readonly lang?: string;
+}
+
+export interface HttpNotificationPusher extends NotificationPusherCommon {
+  readonly kind: "http";
   readonly data: JsonObject & {
     readonly url: string;
     readonly format?: "event_id_only" | "full";
   };
 }
 
+/** MSC4174 layout: pushkey = p256dh, data.url = push resource, data.auth. */
+export interface WebPushNotificationPusher extends NotificationPusherCommon {
+  readonly kind: "webpush";
+  readonly data: {
+    readonly url: string;
+    readonly auth: string;
+  };
+}
+
+export type NotificationPusher =
+  HttpNotificationPusher | WebPushNotificationPusher;
+
 export interface ParsedNotificationPusherSetRequest {
   readonly product: SocialNotificationProduct;
   readonly scope: string | null;
   readonly pusher: NotificationPusher;
+  /**
+   * The delivery URL stored in `gateway_url`: the gateway notify URL for
+   * `http`, the subscription endpoint (push resource) for `webpush`.
+   */
   readonly gatewayUrl: string;
+  /** `data` without `url`. For `webpush` exactly `{auth}`. */
   readonly storedData: JsonObject;
 }
 
@@ -70,12 +104,17 @@ export function parseNotificationPusherSetRequest(
   if (scope === undefined) return bad("scope is invalid", "scope");
   if (!isRecord(body.pusher)) return bad("pusher must be an object", "pusher");
   const pusher = body.pusher;
-  if (pusher.kind !== "http") {
-    return bad("pusher.kind must be http", "pusher.kind");
+  if (pusher.kind !== "http" && pusher.kind !== "webpush") {
+    return bad("pusher.kind must be http or webpush", "pusher.kind");
   }
   const appId = parseBoundedString(pusher.app_id, 255);
   if (!appId || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(appId)) {
     return bad("pusher.app_id is invalid", "pusher.app_id");
+  }
+  const optional = parseOptionalPusherFields(pusher);
+  if (!optional.ok) return optional;
+  if (pusher.kind === "webpush") {
+    return parseWebPushPusher(product, scope, appId, pusher, optional.value);
   }
   const pushkey = parseBoundedString(pusher.pushkey, 4096);
   if (!pushkey) return bad("pusher.pushkey is invalid", "pusher.pushkey");
@@ -114,6 +153,32 @@ export function parseNotificationPusherSetRequest(
     );
   }
 
+  return {
+    ok: true,
+    value: {
+      product,
+      scope,
+      gatewayUrl,
+      storedData,
+      pusher: {
+        kind: "http",
+        app_id: appId,
+        pushkey,
+        ...optional.value,
+        data: { ...storedData, url: gatewayUrl },
+      },
+    },
+  };
+}
+
+type OptionalPusherFields = Pick<
+  NotificationPusherCommon,
+  "app_display_name" | "device_display_name" | "profile_tag" | "lang"
+>;
+
+function parseOptionalPusherFields(
+  pusher: Record<string, unknown>,
+): NotificationPusherParseResult<OptionalPusherFields> {
   const optional = {
     app_display_name: parseOptionalBoundedString(pusher.app_display_name, 255),
     device_display_name: parseOptionalBoundedString(
@@ -127,27 +192,76 @@ export function parseNotificationPusherSetRequest(
     if (value === undefined)
       return bad(`pusher.${key} is invalid`, `pusher.${key}`);
   }
+  return {
+    ok: true,
+    value: {
+      ...(optional.app_display_name
+        ? { app_display_name: optional.app_display_name }
+        : {}),
+      ...(optional.device_display_name
+        ? { device_display_name: optional.device_display_name }
+        : {}),
+      ...(optional.profile_tag ? { profile_tag: optional.profile_tag } : {}),
+      ...(optional.lang ? { lang: optional.lang } : {}),
+    },
+  };
+}
 
+/**
+ * `webpush`: pushkey is the subscription's p256dh (canonical base64url of an
+ * uncompressed P-256 point on the curve), data.url its endpoint (the same
+ * public-HTTPS rule as a gateway URL: no IP literals, no private or loopback
+ * names, port 443 only; plain-HTTP loopback is gated by the route), and
+ * data.auth its 16-byte secret. Only `auth` is persisted besides the URL.
+ */
+function parseWebPushPusher(
+  product: SocialNotificationProduct,
+  scope: string | null,
+  appId: string,
+  pusher: Record<string, unknown>,
+  optional: OptionalPusherFields,
+): NotificationPusherParseResult<ParsedNotificationPusherSetRequest> {
+  const pushkey = typeof pusher.pushkey === "string" ? pusher.pushkey : "";
+  const p256dh = pushkey.length <= 128 ? base64UrlDecode(pushkey) : null;
+  if (!p256dh || !isP256UncompressedPoint(p256dh)) {
+    return bad(
+      "pusher.pushkey must be the subscription p256dh key (base64url, uncompressed P-256)",
+      "pusher.pushkey",
+    );
+  }
+  if (!isRecord(pusher.data)) {
+    return bad("pusher.data must be an object", "pusher.data");
+  }
+  const endpoint = normalizeGatewayUrl(pusher.data.url);
+  if (!endpoint) {
+    return bad(
+      "pusher.data.url must be a public https push endpoint",
+      "pusher.data.url",
+    );
+  }
+  const auth =
+    typeof pusher.data.auth === "string" && pusher.data.auth.length <= 64
+      ? pusher.data.auth
+      : "";
+  if (base64UrlDecode(auth)?.byteLength !== 16) {
+    return bad(
+      "pusher.data.auth must be the 16-byte subscription auth secret (base64url)",
+      "pusher.data.auth",
+    );
+  }
   return {
     ok: true,
     value: {
       product,
       scope,
-      gatewayUrl,
-      storedData,
+      gatewayUrl: endpoint,
+      storedData: { auth },
       pusher: {
-        kind: "http",
+        kind: "webpush",
         app_id: appId,
         pushkey,
-        ...(optional.app_display_name
-          ? { app_display_name: optional.app_display_name }
-          : {}),
-        ...(optional.device_display_name
-          ? { device_display_name: optional.device_display_name }
-          : {}),
-        ...(optional.profile_tag ? { profile_tag: optional.profile_tag } : {}),
-        ...(optional.lang ? { lang: optional.lang } : {}),
-        data: { ...storedData, url: gatewayUrl },
+        ...optional,
+        data: { url: endpoint, auth },
       },
     },
   };

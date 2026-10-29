@@ -150,14 +150,18 @@ export type NotificationTargetKind =
 
 export type NotificationPusherProduct = "yurucommu" | "yurume";
 
-export interface NotificationPusherInput {
-  kind: "http";
+interface NotificationPusherInputCommon {
   app_id: string;
   pushkey: string;
   app_display_name?: string;
   device_display_name?: string;
   profile_tag?: string;
   lang?: string;
+}
+
+/** A gateway pusher (store native apps): the host posts to `data.url`. */
+export interface HttpNotificationPusherInput extends NotificationPusherInputCommon {
+  kind: "http";
   data: {
     url: string;
     format?: "event_id_only" | "full";
@@ -165,21 +169,46 @@ export interface NotificationPusherInput {
   };
 }
 
-export interface NotificationPusherRegistration {
+/**
+ * A standard Web Push subscription in MSC4174's layout: `pushkey` is the
+ * subscription's p256dh, `data.url` its endpoint, `data.auth` its auth secret
+ * (both keys base64url). The host sends RFC 8291 messages itself.
+ */
+export interface WebPushNotificationPusherInput extends NotificationPusherInputCommon {
+  kind: "webpush";
+  data: {
+    url: string;
+    auth: string;
+  };
+}
+
+export type NotificationPusherInput =
+  HttpNotificationPusherInput | WebPushNotificationPusherInput;
+
+interface NotificationPusherRegistrationCommon {
   id: string;
-  kind: "http";
   app_id: string;
   app_display_name?: string;
   device_display_name?: string;
   profile_tag?: string;
   lang?: string;
-  data: Record<string, unknown>;
-  gateway_url: string;
   product: NotificationPusherProduct;
   scope: string | null;
   registered_at: string;
   last_seen_at: string;
 }
+
+export type NotificationPusherRegistration =
+  | (NotificationPusherRegistrationCommon & {
+      kind: "http";
+      data: Record<string, unknown>;
+      gateway_url: string;
+    })
+  | (NotificationPusherRegistrationCommon & {
+      kind: "webpush";
+      /** The endpoint only; the server never echoes the auth secret. */
+      data: { url: string };
+    });
 
 // Story attachment (image or video)
 export interface StoryAttachment {
