@@ -54,9 +54,12 @@ import {
   isAccountDeletionWriteConflict,
 } from "../lib/errors.ts";
 import { activityDeleteCascadeStatements } from "../lib/activity-delete-cascade.ts";
-import type { VerifiedTakosumiWorkspaceGrant } from "../lib/oidc-id-token.ts";
+import {
+  takosumiGrantIsAppOwner,
+  type VerifiedTakosumiAppGrant,
+} from "../lib/oidc-id-token.ts";
 
-export type { VerifiedTakosumiWorkspaceGrant } from "../lib/oidc-id-token.ts";
+export type { VerifiedTakosumiAppGrant } from "../lib/oidc-id-token.ts";
 
 /**
  * Bound + validate an OAuth/OIDC provider's `name` / `picture` before they are
@@ -670,7 +673,7 @@ export async function createActorFromOAuth(
     username?: string;
   },
   providerUserId: string,
-  verifiedTakosumiGrant?: VerifiedTakosumiWorkspaceGrant,
+  verifiedTakosumiGrant?: VerifiedTakosumiAppGrant,
 ) {
   const baseUsername =
     userInfo.username ||
@@ -701,6 +704,12 @@ export async function createActorFromOAuth(
     const ownerSub =
       parseNonEmptyString(env.OIDC_OWNER_SUB) ??
       parseNonEmptyString(env.TAKOSUMI_ACCOUNTS_OWNER_SUB);
+    // Only a Takosumi Accounts subject can carry a Takosumi app grant. The
+    // grant is the signed `takosumi` claim: `app_role === "owner"`, or (compat,
+    // no app_role) the legacy Workspace owner role.
+    const verifiedTakosumiOwner =
+      providerUserId.startsWith("takos:") &&
+      takosumiGrantIsAppOwner(verifiedTakosumiGrant);
     if (ownerSub) {
       if (!configuredSubjectMatches(ownerSub, providerUserId)) {
         log.warn(
@@ -709,19 +718,16 @@ export async function createActorFromOAuth(
         return null;
       }
     } else if (
-      !(
-        providerUserId.startsWith("takos:") &&
-        verifiedTakosumiGrant?.role === "owner"
-      ) &&
+      !verifiedTakosumiOwner &&
       !isExplicitlyEnabled(env.ALLOW_UNPINNED_OWNER_CLAIM)
     ) {
       log.warn(
         "refused OAuth owner creation: no owner subject pin, verified " +
-          "Takosumi Workspace owner grant, or explicit " +
+          "Takosumi app owner grant, or explicit " +
           "ALLOW_UNPINNED_OWNER_CLAIM bootstrap opt-in is configured",
       );
       return null;
-    } else if (verifiedTakosumiGrant?.role !== "owner") {
+    } else if (!verifiedTakosumiOwner) {
       log.warn(
         "explicit unpinned OAuth bootstrap is taking the owner slot; " +
           "pin OIDC_OWNER_SUB and clear ALLOW_UNPINNED_OWNER_CLAIM after login",
@@ -872,7 +878,7 @@ export async function findOrCreateOAuthActor(
     picture?: string;
     username?: string;
   },
-  verifiedTakosumiGrant?: VerifiedTakosumiWorkspaceGrant,
+  verifiedTakosumiGrant?: VerifiedTakosumiAppGrant,
 ) {
   // Namespace EVERY provider's subject by its provider id (`takos:<sub>`,
   // `google:<id>`, `x:<id>`). Previously the `takos` subject was stored verbatim

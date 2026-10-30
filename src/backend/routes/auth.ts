@@ -11,7 +11,7 @@ import {
   getProvider,
 } from "../lib/oauth-providers.ts";
 import {
-  readVerifiedTakosumiWorkspaceGrant,
+  readVerifiedTakosumiAppGrant,
   verifyOidcIdToken,
 } from "../lib/oidc-id-token.ts";
 import {
@@ -307,7 +307,7 @@ auth.post("/mobile/oidc", async (c) => {
       email: claims.email,
       username: claims.preferred_username,
     },
-    readVerifiedTakosumiWorkspaceGrant(claims),
+    readVerifiedTakosumiAppGrant(claims),
   );
   if (!actorData) return c.json({ error: "actor_creation_failed" }, 403);
   const sessionId = await rotateSession(
@@ -450,7 +450,7 @@ auth.get("/callback/:provider", async (c) => {
   // simply omits it must NOT fall through to unverified userinfo (that would skip
   // the aud + nonce binding the rest of this flow enforces). Fail closed.
   let verifiedTakosumiGrant:
-    ReturnType<typeof readVerifiedTakosumiWorkspaceGrant> | undefined;
+    ReturnType<typeof readVerifiedTakosumiAppGrant> | undefined;
   if (provider.issuer && provider.jwksUrl) {
     if (!tokens.id_token) {
       log.error("OIDC provider returned no id_token", {
@@ -467,7 +467,7 @@ auth.get("/callback/:provider", async (c) => {
         jwksUrl: provider.jwksUrl,
         expectedNonce: storedState.nonce,
       });
-      verifiedTakosumiGrant = readVerifiedTakosumiWorkspaceGrant(claims);
+      verifiedTakosumiGrant = readVerifiedTakosumiAppGrant(claims);
       userInfo = {
         ...userInfo,
         id: claims.sub || userInfo.id,

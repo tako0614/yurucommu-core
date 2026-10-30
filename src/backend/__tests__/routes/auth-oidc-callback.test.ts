@@ -368,3 +368,165 @@ for (const mobile of [false, true]) {
     expect(await db.select().from(sessions).all()).toEqual(before);
   });
 }
+
+// --- Takosumi `takosumi` claim shapes (per-app claims since 2026-10-29) ---
+//
+// Takosumi Accounts now adds `app_role` (and, for owned apps, may drop the
+// Workspace pair) in the signed `takosumi` object. A fresh instance must still
+// boot its first owner from that claim, through both login entry points.
+
+async function signInWith(
+  db: Database,
+  kv: MockKV,
+  takosumi: unknown,
+  options: { mobile?: boolean; sub?: string; label: string },
+) {
+  const nonce = `nonce-${options.label}`;
+  const state = `state-${options.label}`;
+  const { privateKey, jwks } = await makeKeyAndJwks();
+  const claims = {
+    ...validClaims(nonce),
+    ...(options.sub ? { sub: options.sub } : {}),
+    takosumi,
+  };
+  const idToken = await signIdToken(privateKey, "k1", claims);
+  await saveOAuthState(kv as unknown as IKeyValueStore, state, {
+    provider: "takos",
+    codeVerifier: "verifier",
+    createdAt: Date.now(),
+    nonce,
+  });
+  const request = options.mobile
+    ? new Request(`${APP_URL}/api/auth/mobile/oidc`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id_token: idToken }),
+      })
+    : callbackRequest(state, nonce);
+  return withStubbedFetch(idToken, jwks, async () =>
+    appFor(db).fetch(request, envWith(db, kv)),
+  );
+}
+
+const NEW_OWNER_CLAIM = {
+  capsule_id: "cap_yurucommu",
+  workspace_id: "ws_yurucommu",
+  role: "owner",
+  app_role: "owner",
+};
+
+for (const mobile of [false, true]) {
+  const entry = mobile ? "mobile OIDC" : "OAuth callback";
+  const succeeded = (res: Response) =>
+    mobile ? res.status === 200 : res.headers.get("location") === "/";
+  const refused = async (res: Response) =>
+    mobile
+      ? res.status === 403 &&
+        (await res.json()).error === "actor_creation_failed"
+      : res.headers.get("location") === "/?error=actor_creation_failed";
+
+  for (const [label, takosumi] of [
+    ["new per-app claim with Workspace claims", NEW_OWNER_CLAIM],
+    ["per-app claim only", { capsule_id: "cap_yurucommu", app_role: "owner" }],
+    [
+      "per-app claim with unknown extra keys",
+      { ...NEW_OWNER_CLAIM, interface_id: "if_1", future: { a: 1 } },
+    ],
+    [
+      "legacy three-key Workspace claim",
+      {
+        capsule_id: "cap_yurucommu",
+        workspace_id: "ws_yurucommu",
+        role: "owner",
+      },
+    ],
+  ] as const) {
+    test(`${entry}: fresh instance boots the first owner from the ${label}`, async () => {
+      const db = await freshDb();
+      const kv = new MockKV();
+      const res = await signInWith(db, kv, takosumi, {
+        mobile,
+        label: `boot-${mobile}-${label}`,
+      });
+      expect(succeeded(res)).toBe(true);
+      const all = await db.select().from(actors).all();
+      expect(all).toHaveLength(1);
+      expect(all[0]?.takosUserId).toBe("takos:takos-sub-1");
+      expect(all[0]?.role).toBe("owner");
+    });
+  }
+
+  for (const [label, takosumi] of [
+    ["app_role member", { capsule_id: "cap_yurucommu", app_role: "member" }],
+    [
+      "app_role member over a Workspace owner role",
+      { ...NEW_OWNER_CLAIM, app_role: "member" },
+    ],
+    ["capsule_id only", { capsule_id: "cap_yurucommu" }],
+    ["malformed app_role", { ...NEW_OWNER_CLAIM, app_role: "admin" }],
+    ["non-string app_role", { ...NEW_OWNER_CLAIM, app_role: true }],
+    ["missing capsule_id", { app_role: "owner" }],
+    [
+      "incomplete Workspace pair",
+      { capsule_id: "cap_yurucommu", app_role: "owner", role: "owner" },
+    ],
+    [
+      "unknown owner-looking keys only",
+      { capsule_id: "cap_yurucommu", owner: true, is_owner: "owner" },
+    ],
+  ] as const) {
+    test(`${entry}: fresh instance refuses the first owner for ${label}`, async () => {
+      const db = await freshDb();
+      const kv = new MockKV();
+      const res = await signInWith(db, kv, takosumi, {
+        mobile,
+        label: `refuse-${mobile}-${label}`,
+      });
+      expect(await refused(res)).toBe(true);
+      expect(await db.select().from(actors).all()).toHaveLength(0);
+      expect(await db.select().from(sessions).all()).toHaveLength(0);
+    });
+  }
+
+  test(`${entry}: an existing owner keeps signing in with any claim shape and no new owner appears`, async () => {
+    const db = await freshDb();
+    const kv = new MockKV();
+    const first = await signInWith(db, kv, NEW_OWNER_CLAIM, {
+      mobile,
+      label: `existing-a-${mobile}`,
+    });
+    expect(succeeded(first)).toBe(true);
+    const [owner] = await db.select().from(actors).all();
+    expect(owner?.role).toBe("owner");
+
+    // Re-login resolves by subject; the claim is not consulted again.
+    for (const [index, takosumi] of [
+      { capsule_id: "cap_yurucommu", app_role: "member" },
+      {
+        capsule_id: "cap_yurucommu",
+        workspace_id: "ws_yurucommu",
+        role: "owner",
+      },
+      undefined,
+    ].entries()) {
+      const again = await signInWith(db, kv, takosumi, {
+        mobile,
+        label: `existing-b-${mobile}-${index}`,
+      });
+      expect(succeeded(again)).toBe(true);
+    }
+    const after = await db.select().from(actors).all();
+    expect(after).toHaveLength(1);
+    expect(after[0]?.apId).toBe(owner!.apId);
+    expect(after[0]?.role).toBe("owner");
+
+    // A different subject with a per-app owner claim cannot join or take over.
+    const intruder = await signInWith(db, kv, NEW_OWNER_CLAIM, {
+      mobile,
+      sub: "takos-sub-2",
+      label: `existing-c-${mobile}`,
+    });
+    expect(await refused(intruder)).toBe(true);
+    expect(await db.select().from(actors).all()).toHaveLength(1);
+  });
+}

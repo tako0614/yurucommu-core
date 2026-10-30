@@ -18,8 +18,9 @@ import type { Env } from "../../types.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 import {
   createActorFromOAuth,
-  type VerifiedTakosumiWorkspaceGrant,
+  type VerifiedTakosumiAppGrant,
 } from "../../routes/auth-helpers.ts";
+import type { TakosumiWorkspaceRole } from "../../lib/oidc-id-token.ts";
 
 const APP_URL = "https://yuru.test";
 async function freshDb(): Promise<Database> {
@@ -36,12 +37,24 @@ const userInfo = (id: string) => ({
   username: "operator",
 });
 
+// Legacy (compat) grant: only the Workspace claims, no per-app role.
 const takosumiGrant = (
-  role: VerifiedTakosumiWorkspaceGrant["role"],
-): VerifiedTakosumiWorkspaceGrant => ({
-  workspaceId: "ws_yurucommu",
+  role: TakosumiWorkspaceRole,
+): VerifiedTakosumiAppGrant => ({
   capsuleId: "cap_yurucommu",
-  role,
+  workspace: { workspaceId: "ws_yurucommu", role },
+});
+
+// Grant shape Takosumi Accounts emits since the 2026-10-29 per-app rollout.
+const takosumiAppGrant = (
+  appRole: VerifiedTakosumiAppGrant["appRole"],
+  workspaceRole?: TakosumiWorkspaceRole,
+): VerifiedTakosumiAppGrant => ({
+  capsuleId: "cap_yurucommu",
+  ...(appRole ? { appRole } : {}),
+  ...(workspaceRole
+    ? { workspace: { workspaceId: "ws_yurucommu", role: workspaceRole } }
+    : {}),
 });
 
 test("no owner pin and no bootstrap opt-in: first OAuth login is refused", async () => {
@@ -94,6 +107,99 @@ test.each(["admin", "member", "viewer"] as const)(
     expect(await db.select().from(actors).all()).toHaveLength(0);
   },
 );
+
+test.each([
+  ["app_role owner with Workspace claims", takosumiAppGrant("owner", "owner")],
+  ["app_role owner without Workspace claims", takosumiAppGrant("owner")],
+  [
+    "app_role owner with a non-owner Workspace role",
+    takosumiAppGrant("owner", "member"),
+  ],
+] as const)(
+  "a verified Takosumi %s takes the owner slot on a fresh instance",
+  async (_label, grant) => {
+    const db = await freshDb();
+    const actor = await createActorFromOAuth(
+      db,
+      envWith({}),
+      userInfo("issuer-app-owner"),
+      "takos:issuer-app-owner",
+      grant,
+    );
+    expect(actor?.role).toBe("owner");
+    expect(await db.select().from(actors).all()).toHaveLength(1);
+  },
+);
+
+test.each([
+  ["app_role member", takosumiAppGrant("member")],
+  [
+    "app_role member with a Workspace owner role",
+    takosumiAppGrant("member", "owner"),
+  ],
+  ["capsule_id only (not an app member)", takosumiAppGrant(undefined)],
+] as const)(
+  "a verified Takosumi %s cannot take the app owner slot",
+  async (_label, grant) => {
+    const db = await freshDb();
+    const actor = await createActorFromOAuth(
+      db,
+      envWith({}),
+      userInfo("issuer-app-member"),
+      "takos:issuer-app-member",
+      grant,
+    );
+    expect(actor).toBeNull();
+    expect(await db.select().from(actors).all()).toHaveLength(0);
+  },
+);
+
+test("a per-app owner claim cannot authorize another OAuth provider", async () => {
+  const db = await freshDb();
+  const actor = await createActorFromOAuth(
+    db,
+    envWith({}),
+    userInfo("google-owner"),
+    "google:google-owner",
+    takosumiAppGrant("owner"),
+  );
+  expect(actor).toBeNull();
+  expect(await db.select().from(actors).all()).toHaveLength(0);
+});
+
+test("a per-app owner claim cannot override a non-matching OIDC_OWNER_SUB pin", async () => {
+  const db = await freshDb();
+  const actor = await createActorFromOAuth(
+    db,
+    envWith({ OIDC_OWNER_SUB: "pinned-operator" }),
+    userInfo("someone-else"),
+    "takos:someone-else",
+    takosumiAppGrant("owner"),
+  );
+  expect(actor).toBeNull();
+  expect(await db.select().from(actors).all()).toHaveLength(0);
+});
+
+test("a per-app owner claim does not open member provisioning once an owner exists", async () => {
+  const db = await freshDb();
+  const owner = await createActorFromOAuth(
+    db,
+    envWith({}),
+    userInfo("first-owner"),
+    "takos:first-owner",
+    takosumiAppGrant("owner"),
+  );
+  expect(owner?.role).toBe("owner");
+  const second = await createActorFromOAuth(
+    db,
+    envWith({}),
+    userInfo("second-owner-claim"),
+    "takos:second-owner-claim",
+    takosumiAppGrant("owner"),
+  );
+  expect(second).toBeNull();
+  expect(await db.select().from(actors).all()).toHaveLength(1);
+});
 
 test("a Takosumi-shaped claim cannot authorize another OAuth provider", async () => {
   const db = await freshDb();

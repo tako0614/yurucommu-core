@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
-  readVerifiedTakosumiWorkspaceGrant,
+  readVerifiedTakosumiAppGrant,
+  takosumiGrantIsAppOwner,
   verifyOidcIdToken,
 } from "../../lib/oidc-id-token.ts";
 
@@ -88,37 +89,155 @@ test("verifies a valid ES256 id_token and returns its identity claims", async ()
   });
 });
 
-test("reads only the exact Takosumi Workspace authority claim shape", () => {
-  expect(
-    readVerifiedTakosumiWorkspaceGrant({
-      sub: "subject-abc",
-      takosumi: {
-        workspace_id: "ws_yurucommu",
-        capsule_id: "cap_yurucommu",
-        role: "owner",
-      },
-    }),
-  ).toEqual({
-    workspaceId: "ws_yurucommu",
-    capsuleId: "cap_yurucommu",
+const grantOf = (takosumi: unknown) =>
+  readVerifiedTakosumiAppGrant({ sub: "subject-abc", takosumi });
+
+test("reads the legacy three-key Takosumi Workspace claim (compat)", () => {
+  const grant = grantOf({
+    workspace_id: "ws_yurucommu",
+    capsule_id: "cap_yurucommu",
     role: "owner",
   });
+  expect(grant).toEqual({
+    capsuleId: "cap_yurucommu",
+    workspace: { workspaceId: "ws_yurucommu", role: "owner" },
+  });
+  expect(takosumiGrantIsAppOwner(grant)).toBe(true);
+  for (const role of ["admin", "member", "viewer"] as const) {
+    const nonOwner = grantOf({
+      workspace_id: "ws_yurucommu",
+      capsule_id: "cap_yurucommu",
+      role,
+    });
+    expect(nonOwner?.workspace?.role).toBe(role);
+    expect(takosumiGrantIsAppOwner(nonOwner)).toBe(false);
+  }
+});
+
+test("reads the per-app claim alongside the Workspace claims Takosumi emits since 2026-10-29", () => {
+  const grant = grantOf({
+    capsule_id: "cap_yurucommu",
+    workspace_id: "ws_yurucommu",
+    role: "owner",
+    app_role: "owner",
+  });
+  expect(grant).toEqual({
+    capsuleId: "cap_yurucommu",
+    appRole: "owner",
+    workspace: { workspaceId: "ws_yurucommu", role: "owner" },
+  });
+  expect(takosumiGrantIsAppOwner(grant)).toBe(true);
+});
+
+test("reads the per-app claim without any Workspace claims", () => {
+  const owner = grantOf({ capsule_id: "cap_yurucommu", app_role: "owner" });
+  expect(owner).toEqual({ capsuleId: "cap_yurucommu", appRole: "owner" });
+  expect(takosumiGrantIsAppOwner(owner)).toBe(true);
+
+  const member = grantOf({ capsule_id: "cap_yurucommu", app_role: "member" });
+  expect(member).toEqual({ capsuleId: "cap_yurucommu", appRole: "member" });
+  expect(takosumiGrantIsAppOwner(member)).toBe(false);
+});
+
+test("app_role is authoritative over the legacy Workspace role when both are present", () => {
+  // A Workspace owner who is only a member of this app is not its owner.
+  const grant = grantOf({
+    capsule_id: "cap_yurucommu",
+    workspace_id: "ws_yurucommu",
+    role: "owner",
+    app_role: "member",
+  });
+  expect(grant?.appRole).toBe("member");
+  expect(grant?.workspace?.role).toBe("owner");
+  expect(takosumiGrantIsAppOwner(grant)).toBe(false);
+});
+
+test("a non-member of an owned app (capsule_id only) gets a grant without authority", () => {
+  const grant = grantOf({ capsule_id: "cap_yurucommu" });
+  expect(grant).toEqual({ capsuleId: "cap_yurucommu" });
+  expect(takosumiGrantIsAppOwner(grant)).toBe(false);
+});
+
+test("ignores unknown extra keys and never surfaces them", () => {
+  const grant = grantOf({
+    capsule_id: "cap_yurucommu",
+    app_role: "owner",
+    workspace_id: "ws_yurucommu",
+    role: "owner",
+    interface_id: "if_1",
+    future_claim: { owner: true },
+    is_owner: true,
+    token: "x",
+  });
+  expect(grant).toEqual({
+    capsuleId: "cap_yurucommu",
+    appRole: "owner",
+    workspace: { workspaceId: "ws_yurucommu", role: "owner" },
+  });
+  // An unknown key can never confer authority on its own.
+  const unknownOnly = grantOf({
+    capsule_id: "cap_yurucommu",
+    owner: true,
+    appRole: "owner",
+    app_roles: ["owner"],
+  });
+  expect(unknownOnly).toEqual({ capsuleId: "cap_yurucommu" });
+  expect(takosumiGrantIsAppOwner(unknownOnly)).toBe(false);
+});
+
+test("an inherited property is never read as a claim", () => {
+  const inherited = Object.create({ app_role: "owner", role: "owner" });
+  inherited.capsule_id = "cap_yurucommu";
+  const grant = grantOf(inherited);
+  expect(grant).toEqual({ capsuleId: "cap_yurucommu" });
+  expect(takosumiGrantIsAppOwner(grant)).toBe(false);
+  // A JSON `__proto__` key is an own data property, not a prototype swap.
+  const parsed = JSON.parse(
+    '{"capsule_id":"cap_yurucommu","__proto__":{"app_role":"owner"}}',
+  );
+  expect(takosumiGrantIsAppOwner(grantOf(parsed))).toBe(false);
+});
+
+test("refuses the whole grant when a known key is malformed", () => {
   for (const takosumi of [
     undefined,
     null,
+    "owner",
+    ["owner"],
     {},
+    // capsule_id is required and bounded
+    { app_role: "owner" },
+    { workspace_id: "ws", role: "owner" },
+    { capsule_id: "", app_role: "owner" },
+    { capsule_id: " cap", app_role: "owner" },
+    { capsule_id: "cap 1", app_role: "owner" },
+    { capsule_id: "c".repeat(513), app_role: "owner" },
+    { capsule_id: 42, app_role: "owner" },
+    { capsule_id: null, app_role: "owner" },
+    // app_role must be exactly "owner" | "member"
+    { capsule_id: "cap", app_role: "admin" },
+    { capsule_id: "cap", app_role: "Owner" },
+    { capsule_id: "cap", app_role: "" },
+    { capsule_id: "cap", app_role: null },
+    { capsule_id: "cap", app_role: true },
+    { capsule_id: "cap", app_role: ["owner"] },
+    { capsule_id: "cap", app_role: { role: "owner" } },
+    // legacy pair must be complete and valid
     { workspace_id: "ws", capsule_id: "cap", role: "root" },
     { workspace_id: "", capsule_id: "cap", role: "owner" },
     { workspace_id: "ws", capsule_id: "", role: "owner" },
-    { workspace_id: "ws", capsule_id: "cap", role: "owner", token: "x" },
+    { capsule_id: "cap", role: "owner" },
+    { capsule_id: "cap", workspace_id: "ws" },
+    { capsule_id: "cap", workspace_id: "ws", role: null },
+    { capsule_id: "cap", workspace_id: null, role: "owner" },
+    // a malformed legacy pair is not rescued by a valid app_role, nor vice versa
+    { capsule_id: "cap", app_role: "owner", role: "owner" },
+    { capsule_id: "cap", app_role: "owner", workspace_id: "ws", role: "root" },
+    { capsule_id: "cap", app_role: "root", workspace_id: "ws", role: "owner" },
   ]) {
-    expect(
-      readVerifiedTakosumiWorkspaceGrant({
-        sub: "subject-abc",
-        takosumi,
-      }),
-    ).toBeUndefined();
+    expect(grantOf(takosumi)).toBeUndefined();
   }
+  expect(takosumiGrantIsAppOwner(undefined)).toBe(false);
 });
 
 test("accepts an issuer with a trailing slash mismatch", async () => {
