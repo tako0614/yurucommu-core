@@ -11,7 +11,9 @@ import {
   getProvider,
 } from "../lib/oauth-providers.ts";
 import {
-  readVerifiedTakosumiWorkspaceGrant,
+  parseTakosumiAppGrant,
+  type OidcIdTokenClaims,
+  type VerifiedTakosumiAppGrant,
   verifyOidcIdToken,
 } from "../lib/oidc-id-token.ts";
 import {
@@ -68,6 +70,35 @@ const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Maximum number of sub-accounts a single instance owner may mint, capping
 // abuse even from the legitimate owner session (#23).
 const MAX_SUB_ACCOUNTS = 20;
+
+/**
+ * Read the Takosumi app grant from verified ID-token claims. A present but
+ * refused claim is logged with the failing key name only (never values), so a
+ * drift between the issuer and this parser is visible instead of surfacing
+ * only as a refused first-owner login.
+ */
+function takosumiGrantFromVerifiedClaims(
+  claims: OidcIdTokenClaims,
+  entry: "oauth_callback" | "mobile_oidc",
+): VerifiedTakosumiAppGrant | undefined {
+  const result = parseTakosumiAppGrant(claims);
+  if (result.status === "rejected") {
+    log.warn("Takosumi claim refused; it grants nothing", {
+      event: "auth.oidc.takosumi_claim_rejected",
+      entry,
+      reason: result.reason,
+    });
+    return undefined;
+  }
+  if (result.status === "absent") return undefined;
+  if (result.ignoredWorkspacePair) {
+    log.warn("Malformed legacy Takosumi Workspace claim ignored", {
+      event: "auth.oidc.takosumi_workspace_pair_ignored",
+      entry,
+    });
+  }
+  return result.grant;
+}
 
 function parsePassword(value: unknown): string | null {
   // Passwords are opaque credentials. Trimming changes a valid secret and can
@@ -307,7 +338,7 @@ auth.post("/mobile/oidc", async (c) => {
       email: claims.email,
       username: claims.preferred_username,
     },
-    readVerifiedTakosumiWorkspaceGrant(claims),
+    takosumiGrantFromVerifiedClaims(claims, "mobile_oidc"),
   );
   if (!actorData) return c.json({ error: "actor_creation_failed" }, 403);
   const sessionId = await rotateSession(
@@ -449,8 +480,7 @@ auth.get("/callback/:provider", async (c) => {
   // a provider the id_token MUST be present and valid — a token response that
   // simply omits it must NOT fall through to unverified userinfo (that would skip
   // the aud + nonce binding the rest of this flow enforces). Fail closed.
-  let verifiedTakosumiGrant:
-    ReturnType<typeof readVerifiedTakosumiWorkspaceGrant> | undefined;
+  let verifiedTakosumiGrant: VerifiedTakosumiAppGrant | undefined;
   if (provider.issuer && provider.jwksUrl) {
     if (!tokens.id_token) {
       log.error("OIDC provider returned no id_token", {
@@ -467,7 +497,10 @@ auth.get("/callback/:provider", async (c) => {
         jwksUrl: provider.jwksUrl,
         expectedNonce: storedState.nonce,
       });
-      verifiedTakosumiGrant = readVerifiedTakosumiWorkspaceGrant(claims);
+      verifiedTakosumiGrant = takosumiGrantFromVerifiedClaims(
+        claims,
+        "oauth_callback",
+      );
       userInfo = {
         ...userInfo,
         id: claims.sub || userInfo.id,
