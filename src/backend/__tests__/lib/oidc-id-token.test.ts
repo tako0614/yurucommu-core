@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  parseTakosumiAppGrant,
   readVerifiedTakosumiAppGrant,
   takosumiGrantIsAppOwner,
   verifyOidcIdToken,
@@ -230,14 +231,137 @@ test("refuses the whole grant when a known key is malformed", () => {
     { capsule_id: "cap", workspace_id: "ws" },
     { capsule_id: "cap", workspace_id: "ws", role: null },
     { capsule_id: "cap", workspace_id: null, role: "owner" },
-    // a malformed legacy pair is not rescued by a valid app_role, nor vice versa
-    { capsule_id: "cap", app_role: "owner", role: "owner" },
-    { capsule_id: "cap", app_role: "owner", workspace_id: "ws", role: "root" },
+    // a valid legacy pair never rescues a malformed app_role
     { capsule_id: "cap", app_role: "root", workspace_id: "ws", role: "owner" },
   ]) {
     expect(grantOf(takosumi)).toBeUndefined();
   }
   expect(takosumiGrantIsAppOwner(undefined)).toBe(false);
+});
+
+test("reports which known key refused the claim, never its value", () => {
+  const reason = (takosumi: unknown) =>
+    parseTakosumiAppGrant({ sub: "subject-abc", takosumi });
+  expect(parseTakosumiAppGrant({ sub: "subject-abc" })).toEqual({
+    status: "absent",
+  });
+  expect(reason(undefined)).toEqual({ status: "absent" });
+  expect(reason(null)).toEqual({ status: "rejected", reason: "not_object" });
+  expect(reason(["x"])).toEqual({ status: "rejected", reason: "not_object" });
+  expect(reason({ app_role: "owner" })).toEqual({
+    status: "rejected",
+    reason: "capsule_id",
+  });
+  expect(reason({ capsule_id: "cap", app_role: "admin" })).toEqual({
+    status: "rejected",
+    reason: "app_role",
+  });
+  expect(reason({ capsule_id: "cap", role: "owner" })).toEqual({
+    status: "rejected",
+    reason: "workspace_pair",
+  });
+  expect(
+    reason({ capsule_id: "cap", app_role: "owner", workspace_id: "ws" }),
+  ).toEqual({
+    status: "granted",
+    grant: { capsuleId: "cap", appRole: "owner" },
+    ignoredWorkspacePair: true,
+  });
+});
+
+test("a valid app_role survives a malformed legacy Workspace pair, which is dropped", () => {
+  // The pair cannot decide anything once app_role is present, so a staged
+  // removal of Workspace claims or a new Workspace role must not break
+  // first-owner bootstrap again.
+  for (const takosumi of [
+    { capsule_id: "cap", app_role: "owner", role: "owner" },
+    { capsule_id: "cap", app_role: "owner", workspace_id: "ws" },
+    { capsule_id: "cap", app_role: "owner", workspace_id: "ws", role: "root" },
+    { capsule_id: "cap", app_role: "owner", workspace_id: "", role: "owner" },
+  ]) {
+    const grant = grantOf(takosumi);
+    expect(grant).toEqual({ capsuleId: "cap", appRole: "owner" });
+    expect(takosumiGrantIsAppOwner(grant)).toBe(true);
+  }
+  const member = grantOf({
+    capsule_id: "cap",
+    app_role: "member",
+    workspace_id: "ws",
+    role: "superowner",
+  });
+  expect(member).toEqual({ capsuleId: "cap", appRole: "member" });
+  expect(takosumiGrantIsAppOwner(member)).toBe(false);
+});
+
+test("the legacy owner claim with unknown extra keys grants during compat", () => {
+  // The previous exact-key parser refused this; the compat fallback now
+  // accepts it because no app_role is present.
+  const grant = grantOf({
+    capsule_id: "cap_yurucommu",
+    workspace_id: "ws_yurucommu",
+    role: "owner",
+    interface_id: "if_1",
+  });
+  expect(grant).toEqual({
+    capsuleId: "cap_yurucommu",
+    workspace: { workspaceId: "ws_yurucommu", role: "owner" },
+  });
+  expect(takosumiGrantIsAppOwner(grant)).toBe(true);
+});
+
+test("issuer fixtures: exact shapes Takosumi Accounts emits decide ownership as intended", () => {
+  // Mirrors takosumi accounts/service oidc-live-grant + oidc-routes output.
+  const cases: Array<[string, unknown, boolean]> = [
+    [
+      "owned app, owner with Workspace role",
+      {
+        capsule_id: "cap",
+        workspace_id: "ws",
+        role: "owner",
+        app_role: "owner",
+      },
+      true,
+    ],
+    [
+      "owned app, owner without Workspace role",
+      { capsule_id: "cap", app_role: "owner" },
+      true,
+    ],
+    [
+      "owned app, member who is a Workspace owner",
+      {
+        capsule_id: "cap",
+        workspace_id: "ws",
+        role: "owner",
+        app_role: "member",
+      },
+      false,
+    ],
+    [
+      "owned app, member who is a Workspace admin",
+      {
+        capsule_id: "cap",
+        workspace_id: "ws",
+        role: "admin",
+        app_role: "member",
+      },
+      false,
+    ],
+    ["owned app, non-member", { capsule_id: "cap" }, false],
+    [
+      "legacy unowned app, Workspace owner",
+      { capsule_id: "cap", workspace_id: "ws", role: "owner" },
+      true,
+    ],
+    [
+      "legacy unowned app, Workspace admin",
+      { capsule_id: "cap", workspace_id: "ws", role: "admin" },
+      false,
+    ],
+  ];
+  for (const [, takosumi, owner] of cases) {
+    expect(takosumiGrantIsAppOwner(grantOf(takosumi))).toBe(owner);
+  }
 });
 
 test("accepts an issuer with a trailing slash mismatch", async () => {

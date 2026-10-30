@@ -725,6 +725,10 @@ export async function createActorFromOAuth(
         "refused OAuth owner creation: no owner subject pin, verified " +
           "Takosumi app owner grant, or explicit " +
           "ALLOW_UNPINNED_OWNER_CLAIM bootstrap opt-in is configured",
+        {
+          event: "auth.oauth.owner_bootstrap_refused",
+          takosumiGrant: verifiedTakosumiGrant ? "present_not_owner" : "absent",
+        },
       );
       return null;
     } else if (!verifiedTakosumiOwner) {

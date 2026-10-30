@@ -48,48 +48,88 @@ export type VerifiedTakosumiAppGrant = {
   workspace?: { workspaceId: string; role: TakosumiWorkspaceRole };
 };
 
+/** Which known `takosumi` claim key made the parser refuse the grant. */
+export type TakosumiClaimRejection =
+  "not_object" | "capsule_id" | "app_role" | "workspace_pair";
+
+export type TakosumiAppGrantResult =
+  | { status: "absent" }
+  | { status: "rejected"; reason: TakosumiClaimRejection }
+  | {
+      status: "granted";
+      grant: VerifiedTakosumiAppGrant;
+      /**
+       * True when a malformed legacy Workspace pair was dropped because a
+       * valid, authoritative `app_role` was present.
+       */
+      ignoredWorkspacePair: boolean;
+    };
+
 /**
- * Read the app authority Takosumi Accounts placed in a verified ID token.
+ * Parse the app authority Takosumi Accounts placed in a verified ID token.
  * Call this only after `verifyOidcIdToken`: this parser validates the claim
  * shape, while the signature/issuer/audience checks establish who said it.
+ * The token is bound to this app by `aud` (the per-Capsule OIDC client id
+ * checked in `verifyOidcIdToken`), which is why `capsule_id` is required
+ * but not compared with a locally configured value.
  *
  * Accepted `takosumi` object (all other keys are ignored and never read):
  *   - `capsule_id`  required, bounded identifier
- *   - `app_role`    optional, "owner" | "member"
+ *   - `app_role`    optional, "owner" | "member" (authoritative when present)
  *   - `workspace_id` + `role` optional legacy pair; both or neither, with a
  *     bounded identifier and a known Workspace role
- * A malformed value for any of these keys refuses the whole grant: a token
- * that disagrees with the published claim contract grants nothing.
+ * A malformed `capsule_id` or `app_role` refuses the whole grant. A malformed
+ * legacy pair refuses the grant only when there is no `app_role`; with a valid
+ * `app_role` the pair cannot decide anything, so it is dropped instead.
  */
-export function readVerifiedTakosumiAppGrant(
+export function parseTakosumiAppGrant(
   claims: OidcIdTokenClaims,
-): VerifiedTakosumiAppGrant | undefined {
+): TakosumiAppGrantResult {
+  if (!Object.hasOwn(claims, "takosumi") || claims.takosumi === undefined) {
+    return { status: "absent" };
+  }
   const value = claims.takosumi;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
+    return { status: "rejected", reason: "not_object" };
   }
   const record = value as Record<string, unknown>;
   const capsuleId = ownValue(record, "capsule_id");
-  if (!boundedIdentifier(capsuleId)) return undefined;
+  if (!boundedIdentifier(capsuleId)) {
+    return { status: "rejected", reason: "capsule_id" };
+  }
 
   const grant: VerifiedTakosumiAppGrant = { capsuleId };
 
   if (Object.hasOwn(record, "app_role")) {
     const appRole = ownValue(record, "app_role");
-    if (!isTakosumiAppRole(appRole)) return undefined;
+    if (!isTakosumiAppRole(appRole)) {
+      return { status: "rejected", reason: "app_role" };
+    }
     grant.appRole = appRole;
   }
 
+  let ignoredWorkspacePair = false;
   if (Object.hasOwn(record, "workspace_id") || Object.hasOwn(record, "role")) {
     const workspaceId = ownValue(record, "workspace_id");
     const role = ownValue(record, "role");
-    if (!boundedIdentifier(workspaceId) || !isTakosumiWorkspaceRole(role)) {
-      return undefined;
+    if (boundedIdentifier(workspaceId) && isTakosumiWorkspaceRole(role)) {
+      grant.workspace = { workspaceId, role };
+    } else if (grant.appRole === undefined) {
+      return { status: "rejected", reason: "workspace_pair" };
+    } else {
+      ignoredWorkspacePair = true;
     }
-    grant.workspace = { workspaceId, role };
   }
 
-  return grant;
+  return { status: "granted", grant, ignoredWorkspacePair };
+}
+
+/** The verified grant, or undefined when the claim is absent or refused. */
+export function readVerifiedTakosumiAppGrant(
+  claims: OidcIdTokenClaims,
+): VerifiedTakosumiAppGrant | undefined {
+  const result = parseTakosumiAppGrant(claims);
+  return result.status === "granted" ? result.grant : undefined;
 }
 
 /**
@@ -97,6 +137,10 @@ export function readVerifiedTakosumiAppGrant(
  * `app_role` is authoritative whenever present (a Workspace owner who is only
  * an app member is NOT the app owner). Without `app_role`, the legacy
  * Workspace owner role is accepted during the compat period.
+ *
+ * TODO(TASK-0118 Phase 9): remove the legacy Workspace fallback when
+ * Takosumi stops emitting Workspace claims; then only
+ * `app_role === "owner"` grants ownership.
  */
 export function takosumiGrantIsAppOwner(
   grant: VerifiedTakosumiAppGrant | undefined,

@@ -440,6 +440,10 @@ for (const mobile of [false, true]) {
         role: "owner",
       },
     ],
+    [
+      "per-app claim with an incomplete legacy Workspace pair",
+      { capsule_id: "cap_yurucommu", app_role: "owner", role: "owner" },
+    ],
   ] as const) {
     test(`${entry}: fresh instance boots the first owner from the ${label}`, async () => {
       const db = await freshDb();
@@ -467,8 +471,8 @@ for (const mobile of [false, true]) {
     ["non-string app_role", { ...NEW_OWNER_CLAIM, app_role: true }],
     ["missing capsule_id", { app_role: "owner" }],
     [
-      "incomplete Workspace pair",
-      { capsule_id: "cap_yurucommu", app_role: "owner", role: "owner" },
+      "an incomplete Workspace pair without app_role",
+      { capsule_id: "cap_yurucommu", role: "owner" },
     ],
     [
       "unknown owner-looking keys only",
@@ -487,6 +491,41 @@ for (const mobile of [false, true]) {
       expect(await db.select().from(sessions).all()).toHaveLength(0);
     });
   }
+
+  test(`${entry}: a refused Takosumi claim is logged with the failing key only`, async () => {
+    const db = await freshDb();
+    const kv = new MockKV();
+    const lines: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      const res = await signInWith(
+        db,
+        kv,
+        { capsule_id: "cap_secretish_value", app_role: "superuser" },
+        { mobile, label: `log-${mobile}` },
+      );
+      expect(await refused(res)).toBe(true);
+    } finally {
+      console.warn = original;
+    }
+    const rejected = lines.find((line) =>
+      line.includes("auth.oidc.takosumi_claim_rejected"),
+    );
+    expect(rejected).toBeTruthy();
+    expect(rejected).toContain('"reason":"app_role"');
+    expect(rejected).toContain(
+      mobile ? '"entry":"mobile_oidc"' : '"entry":"oauth_callback"',
+    );
+    expect(rejected).not.toContain("superuser");
+    expect(rejected).not.toContain("cap_secretish_value");
+    const refusal = lines.find((line) =>
+      line.includes("auth.oauth.owner_bootstrap_refused"),
+    );
+    expect(refusal).toContain('"takosumiGrant":"absent"');
+  });
 
   test(`${entry}: an existing owner keeps signing in with any claim shape and no new owner appears`, async () => {
     const db = await freshDb();
