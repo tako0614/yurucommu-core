@@ -111,6 +111,7 @@ export type PostRow = {
   published: string;
   updated?: string | null;
   liked?: number | boolean;
+  bookmarked?: number | boolean;
 };
 
 export type FormattedPost = {
@@ -135,6 +136,7 @@ export type FormattedPost = {
   published: string;
   edited_at: string | null;
   liked: boolean;
+  bookmarked?: boolean;
 };
 
 const MENTION_REGEX = /@([a-zA-Z0-9_]+(?:@[a-zA-Z0-9.-]+)?)/g;
@@ -189,6 +191,11 @@ export function formatPost(
     // Surfaced only when the post was actually edited (see timeline.formatPost).
     edited_at: p.updated && p.updated !== p.published ? p.updated : null,
     liked: currentActorApId ? !!p.liked : false,
+    // Detail queries load this viewer-bound flag. Do not invent an unsaved
+    // state for other projections which have not loaded it (for example replies).
+    ...(p.bookmarked === undefined
+      ? {}
+      : { bookmarked: currentActorApId ? !!p.bookmarked : false }),
   };
 }
 
