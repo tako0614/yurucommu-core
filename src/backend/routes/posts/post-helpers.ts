@@ -478,6 +478,22 @@ async function resolveMentionActorRows(
   return { localActors, cachedActors };
 }
 
+// Create and edit must resolve the same explicit handle to the same tag.
+function partitionMentions(mentions: string[], baseUrl: string) {
+  const localHost = new URL(baseUrl).host.toLowerCase();
+  const localNames = new Map<string, string>();
+  for (const mention of mentions) {
+    const [username, host] = mention.split("@");
+    if (host === undefined || host.toLowerCase() === localHost)
+      localNames.set(mention, username!);
+  }
+  return {
+    localNames,
+    localMentions: [...new Set(localNames.values())],
+    remoteMentions: mentions.filter((mention) => !localNames.has(mention)),
+  };
+}
+
 export async function resolvePostMentions(
   db: Database,
   params: {
@@ -514,8 +530,10 @@ export async function resolvePostMentions(
 
   if (mentions.length === 0) return result;
 
-  const localMentions = mentions.filter((m) => !m.includes("@"));
-  const remoteMentions = mentions.filter((m) => m.includes("@"));
+  const { localNames, localMentions, remoteMentions } = partitionMentions(
+    mentions,
+    params.baseUrl,
+  );
 
   const { localActors, cachedActors } = await resolveMentionActorRows(
     db,
@@ -540,9 +558,9 @@ export async function resolvePostMentions(
 
   for (const mention of mentions) {
     try {
-      const mentionedActorApId = mention.includes("@")
-        ? remoteActorMap.get(mention) || null
-        : localActorMap.get(mention) || null;
+      const mentionedActorApId = localNames.has(mention)
+        ? localActorMap.get(localNames.get(mention)!) || null
+        : remoteActorMap.get(mention) || null;
 
       if (!mentionedActorApId || mentionedActorApId === params.actorApId) {
         continue;
@@ -712,8 +730,10 @@ export async function deriveContentTags(
   const mentions = extractMentions(content);
   if (mentions.length === 0) return tags;
 
-  const localMentions = mentions.filter((m) => !m.includes("@"));
-  const remoteMentions = mentions.filter((m) => m.includes("@"));
+  const { localNames, localMentions, remoteMentions } = partitionMentions(
+    mentions,
+    baseUrl,
+  );
 
   const { localActors, cachedActors } = await resolveMentionActorRows(
     db,
@@ -735,9 +755,9 @@ export async function deriveContentTags(
 
   const seen = new Set<string>();
   for (const mention of mentions) {
-    const apId = mention.includes("@")
-      ? remoteActorMap.get(mention) || null
-      : localActorMap.get(mention) || null;
+    const apId = localNames.has(mention)
+      ? localActorMap.get(localNames.get(mention)!) || null
+      : remoteActorMap.get(mention) || null;
     if (!apId || apId === actorApId || seen.has(apId)) continue;
     seen.add(apId);
     tags.push({
