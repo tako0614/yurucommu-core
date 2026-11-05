@@ -23,10 +23,12 @@ import {
   objectRecipients,
   objects,
   insertMany,
+  runBatch,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import type { ObjectStore } from "../../runtime/types.ts";
 import dmRoutes from "../../routes/dm/conversations.ts";
+import dmMessages from "../../routes/dm/messages.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
 const APP_URL = "https://yuru.test";
@@ -149,6 +151,7 @@ function appWith(db: Database, actor: Actor) {
     await next();
   });
   app.route("/", dmRoutes);
+  app.route("/", dmMessages);
   return app;
 }
 
@@ -215,6 +218,242 @@ test("GET /requests returns one row per conversation — a high-volume sender ca
   // The flooder's single row carries its LATEST message (max published).
   const floodRow = body.requests.find((r) => r.conversation === "conv-flood");
   expect(floodRow?.content).toEqual("f24");
+});
+
+test("request list keeps two pending senders with the same legacy conversation ID", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+  const carol = await insertLocalActor(db, "carol");
+  const conversation = "legacy-shared-requests";
+  await insertDm(
+    db,
+    bob,
+    alice,
+    conversation,
+    "bob-request",
+    "2026-06-20T10:00:00.000Z",
+  );
+  await insertDm(
+    db,
+    carol,
+    alice,
+    conversation,
+    "carol-request",
+    "2026-06-20T10:01:00.000Z",
+  );
+  const app = appWith(db, fakeActor(alice, "alice"));
+  const contacts = await app.fetch(
+    new Request(`${APP_URL}/contacts`),
+    envFor(db),
+  );
+  expect(contacts.status).toBe(200);
+  expect(
+    ((await contacts.json()) as { request_count: number }).request_count,
+  ).toBe(2);
+  const response = await app.fetch(
+    new Request(`${APP_URL}/requests`),
+    envFor(db),
+  );
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as {
+    requests: { sender: { ap_id: string } }[];
+  };
+  expect(body.requests.map((row) => row.sender.ap_id).sort()).toEqual([
+    bob,
+    carol,
+  ]);
+});
+
+test("replying to one legacy peer leaves the other peer's request pending", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+  const carol = await insertLocalActor(db, "carol");
+  const conversation = "legacy-replied-request";
+  await insertDm(
+    db,
+    bob,
+    alice,
+    conversation,
+    "bob-incoming",
+    "2026-06-20T10:00:00.000Z",
+  );
+  await insertDm(
+    db,
+    carol,
+    alice,
+    conversation,
+    "carol-incoming",
+    "2026-06-20T10:01:00.000Z",
+  );
+  await insertDm(
+    db,
+    alice,
+    bob,
+    conversation,
+    "reply-to-bob",
+    "2026-06-20T10:02:00.000Z",
+  );
+  const app = appWith(db, fakeActor(alice, "alice"));
+  const contacts = await app.fetch(
+    new Request(`${APP_URL}/contacts`),
+    envFor(db),
+  );
+  expect(contacts.status).toBe(200);
+  expect(
+    ((await contacts.json()) as { request_count: number }).request_count,
+  ).toBe(1);
+  const response = await app.fetch(
+    new Request(`${APP_URL}/requests`),
+    envFor(db),
+  );
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as {
+    requests: { sender: { ap_id: string } }[];
+  };
+  expect(body.requests.map((row) => row.sender.ap_id)).toEqual([carol]);
+});
+
+test("replied threads cannot fill the request cap and hide an older pending peer", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+  const carol = await insertLocalActor(db, "carol");
+  await insertDm(
+    db,
+    carol,
+    alice,
+    "quiet-pending",
+    "quiet-pending",
+    "2026-06-19T10:00:00.000Z",
+  );
+  for (let index = 0; index < 501; index++) {
+    const conversation = `replied-${index}`;
+    await insertDm(
+      db,
+      bob,
+      alice,
+      conversation,
+      `incoming-${index}`,
+      "2026-06-20T10:00:00.000Z",
+    );
+    await insertDm(
+      db,
+      alice,
+      bob,
+      conversation,
+      `reply-${index}`,
+      "2026-06-20T11:00:00.000Z",
+    );
+  }
+  expect(await db.select({ id: objects.apId }).from(objects)).toHaveLength(
+    1003,
+  );
+  const response = await appWith(db, fakeActor(alice, "alice")).fetch(
+    new Request(`${APP_URL}/requests`),
+    envFor(db),
+  );
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as {
+    requests: { id: string; sender: { ap_id: string } }[];
+  };
+  expect(body.requests.map((row) => [row.id, row.sender.ap_id])).toEqual([
+    [`${APP_URL}/ap/objects/quiet-pending`, carol],
+  ]);
+});
+
+test("rejecting a request preserves the sender's colliding DM to another recipient", async () => {
+  const db = await freshDb();
+  const alice = await insertLocalActor(db, "alice");
+  const bob = await insertLocalActor(db, "bob");
+  const carol = await insertLocalActor(db, "carol");
+  const conversation = "legacy-shared-thread";
+  const rejected = await insertDm(
+    db,
+    bob,
+    alice,
+    conversation,
+    "rejected",
+    "2026-06-20T10:00:00.000Z",
+  );
+  const survivor = await insertDm(
+    db,
+    bob,
+    carol,
+    conversation,
+    "other-recipient",
+    "2026-06-20T10:01:00.000Z",
+  );
+  await surfaceInbound(db, rejected, bob, alice);
+  const activity = await surfaceInbound(db, survivor, bob, carol);
+  const key = canonicalKey("other-recipient-private");
+  await db
+    .update(objects)
+    .set({
+      attachmentsJson: JSON.stringify([
+        {
+          type: "Document",
+          url: `/media/${key.slice("uploads/".length)}`,
+          r2_key: key,
+        },
+      ]),
+    })
+    .where(eq(objects.apId, survivor));
+  await db.insert(mediaUploads).values({
+    id: "other-recipient-upload",
+    r2Key: key,
+    uploaderApId: bob,
+    contentType: "image/jpeg",
+    size: 123,
+  });
+  const snapshot = async () => ({
+    objects: await db.select().from(objects).where(eq(objects.apId, survivor)),
+    activities: await db
+      .select()
+      .from(activities)
+      .where(eq(activities.apId, activity)),
+    recipients: await db
+      .select()
+      .from(objectRecipients)
+      .where(eq(objectRecipients.objectApId, survivor)),
+    inbox: await db
+      .select()
+      .from(inboxTable)
+      .where(eq(inboxTable.actorApId, carol)),
+    uploads: await db
+      .select()
+      .from(mediaUploads)
+      .where(eq(mediaUploads.r2Key, key)),
+  });
+  const before = await snapshot();
+  const { storage, deleted } = recordingStorage();
+  const readAsCarol = async () => {
+    const response = await appWith(db, fakeActor(carol, "carol")).fetch(
+      new Request(`${APP_URL}/user/${encodeURIComponent(bob)}/messages`),
+      envFor(db, storage),
+    );
+    expect(response.status).toBe(200);
+    return (
+      (await response.json()) as { messages: { id: string }[] }
+    ).messages.map((row) => row.id);
+  };
+  expect(await readAsCarol()).toEqual([survivor]);
+  const response = await appWith(db, fakeActor(alice, "alice")).fetch(
+    new Request(`${APP_URL}/requests/reject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sender_ap_id: bob }),
+    }),
+    envFor(db, storage),
+  );
+  expect(response.status).toBe(200);
+  expect(await readAsCarol()).toEqual([survivor]);
+  expect(await snapshot()).toEqual(before);
+  expect(deleted).toEqual([]);
+  expect(
+    await db.select().from(objects).where(eq(objects.apId, rejected)),
+  ).toHaveLength(0);
 });
 
 test("POST /requests/reject fully reaps only direct messages, including child/media state", async () => {
@@ -350,19 +589,43 @@ test("POST /requests/reject drains more than one D1-safe object page", async () 
   const spammer = await insertLocalActor(db, "paged-spammer");
   const conversation = "conv-paged-spam";
 
-  await insertMany(
-    db,
-    objects,
-    Array.from({ length: 91 }, (_, index) => ({
-      apId: `${APP_URL}/ap/objects/paged-${String(index).padStart(3, "0")}`,
-      type: "Note",
-      attributedTo: spammer,
-      content: `spam ${index}`,
-      visibility: "direct",
-      conversation,
-      isLocal: 0,
-    })),
-  );
+  const rows = Array.from({ length: 91 }, (_, index) => ({
+    apId: `${APP_URL}/ap/objects/paged-${String(index).padStart(3, "0")}`,
+    type: "Note",
+    attributedTo: spammer,
+    content: `spam ${index}`,
+    visibility: "direct",
+    toJson: JSON.stringify([alice]),
+    conversation,
+    isLocal: 0,
+  }));
+  const [first, ...rest] = [
+    ...insertMany(db, objects, rows),
+    ...insertMany(
+      db,
+      objectRecipients,
+      rows.map((row) => ({
+        objectApId: row.apId,
+        recipientApId: alice,
+        type: "to",
+      })),
+    ),
+  ];
+  if (!first) throw new Error("Expected a nonempty paged DM fixture");
+  await runBatch(db, [first, ...rest]);
+
+  expect(
+    await db
+      .select()
+      .from(objects)
+      .where(eq(objects.conversation, conversation)),
+  ).toHaveLength(91);
+  expect(
+    await db
+      .select()
+      .from(objectRecipients)
+      .where(eq(objectRecipients.recipientApId, alice)),
+  ).toHaveLength(91);
 
   const response = await appWith(db, fakeActor(alice, "paged-alice")).fetch(
     new Request(`${APP_URL}/requests/reject`, {

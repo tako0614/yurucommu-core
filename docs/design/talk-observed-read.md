@@ -87,6 +87,11 @@ DM push delivery rechecks the same archive preference, so archiving after
 enqueue suppresses delivery and unarchiving a legacy peer permits it again.
 Incoming requests and their replies also use indexed sender/recipient pairs;
 a reply to one colliding peer does not accept another peer's request.
+The request list groups by stored conversation and sender, and excludes replied
+pairs before its 500-pair cap. An already replied history cannot evict an older
+pending request. Reject cleanup requires the authenticated viewer's indexed
+`to` recipient membership at every selection stage; the same sender and stored
+conversation alone do not authorize deleting a message addressed to someone else.
 The request count is computed by a SQL aggregate over incoming pairs with
 indexed reply existence checks, not a JavaScript list of all sent history.
 
