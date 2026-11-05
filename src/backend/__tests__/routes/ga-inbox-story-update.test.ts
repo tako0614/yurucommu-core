@@ -1347,3 +1347,85 @@ test("terminal Delete keeps a fetched Announce target from rematerializing", asy
     await db.select().from(objects).where(eq(objects.apId, FETCHED_NOTE_ID)),
   ).toHaveLength(0);
 });
+
+test("fetched public Note folds an admitted signed Update before first materialization", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  const context = {
+    ...ctx(db),
+    env: { APP_URL: "https://yuru.test" },
+  } as ActivityContext;
+  await handleUpdate(
+    context,
+    {
+      id: `${ALICE}/activities/early-fetched-edit`,
+      type: "Update",
+      actor: ALICE,
+      object: {
+        id: FETCHED_NOTE_ID,
+        type: "Note",
+        content: "Signed edited body",
+      },
+    },
+    ALICE,
+  );
+  expect(
+    await fetchAndPersistAnnouncedNote(
+      db,
+      FETCHED_NOTE_ID,
+      "https://yuru.test",
+    ),
+  ).toBe(true);
+  expect(
+    (
+      await db
+        .select()
+        .from(objects)
+        .where(eq(objects.apId, FETCHED_NOTE_ID))
+        .get()
+    )?.content,
+  ).toBe("Signed edited body");
+});
+
+test("fetched public snapshot cannot discard a pending signed private reach restriction", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  const context = {
+    ...ctx(db),
+    env: { APP_URL: "https://yuru.test" },
+  } as ActivityContext;
+  await handleUpdate(
+    context,
+    {
+      id: `${ALICE}/activities/early-fetched-private-edit`,
+      type: "Update",
+      actor: ALICE,
+      object: {
+        id: FETCHED_NOTE_ID,
+        type: "Note",
+        content: "Signed private body",
+        to: ["https://yuru.test/ap/users/bob"],
+        cc: [],
+      },
+    },
+    ALICE,
+  );
+  expect(
+    await fetchAndPersistAnnouncedNote(
+      db,
+      FETCHED_NOTE_ID,
+      "https://yuru.test",
+    ),
+  ).toBe(false);
+  expect(
+    await db.select().from(objects).where(eq(objects.apId, FETCHED_NOTE_ID)),
+  ).toHaveLength(0);
+  const { inboundNoteUpdateEvents, inboundNoteUpdateHeads } =
+    await import("../../../db/index.ts");
+  expect(
+    (await db.select().from(inboundNoteUpdateHeads).get())?.appliedSequence,
+  ).toBe(0);
+  expect(
+    (await db.select().from(inboundNoteUpdateEvents).get())?.patchJson,
+  ).not.toBeNull();
+});
