@@ -1,7 +1,13 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 
 import type { Database } from "../../../../db/index.ts";
-import { communities, communityMembers } from "../../../../db/index.ts";
+import {
+  communities,
+  communityBans,
+  communityMembers,
+  follows,
+} from "../../../../db/index.ts";
+import { activityPubActorIdentityMatchesSql } from "../../../lib/activitypub-actor-identity-sql.ts";
 import { communityRequiresMembership } from "../../../lib/community-visibility.ts";
 import { isMemberBanned } from "../../communities/membership-shared.ts";
 import { findFollowByFollowerIdentity } from "./inbox-shared-helpers.ts";
@@ -16,6 +22,62 @@ export type InboundCommunityScope =
   | { allowed: true; communityApId: string | null }
   | { allowed: false; communityApId: null };
 
+/** An ephemeral witness of the actual rows used by the shared posting check. */
+export type InboundCommunityAdmission = InboundCommunityTarget & {
+  actorApId: string;
+  acceptedFollowerApId: string | null;
+  memberActorApId: string | null;
+  memberRole: string | null;
+  membershipRequired: boolean;
+  roleRequired: boolean;
+};
+
+/**
+ * Recheck the admitted community rows inside the projection's atomic batch.
+ * One JSON parameter keeps a bounded fold of different rooms below D1's
+ * variable ceiling; actor aliases use the same SQL normalizer as the ban check.
+ * The witness never grants authority without its current database rows.
+ */
+export function inboundCommunityAdmissionsSql(
+  admissions: readonly InboundCommunityAdmission[],
+  actorApId: string,
+): SQL {
+  if (admissions.length === 0) return sql`1`;
+  const bannedActors = activityPubActorIdentityMatchesSql(
+    sql`SELECT ${communityBans.bannedApId} FROM ${communityBans}
+      WHERE ${communityBans.communityApId} IN (SELECT room FROM posting_admissions)`,
+    actorApId,
+  );
+  return sql`(WITH posting_admissions AS MATERIALIZED (
+    SELECT json_extract(value, '$.apId') AS room,
+      json_extract(value, '$.visibility') AS visibility,
+      json_extract(value, '$.postPolicy') AS policy,
+      json_extract(value, '$.actorApId') AS actor,
+      json_extract(value, '$.memberActorApId') AS member_actor,
+      json_extract(value, '$.acceptedFollowerApId') AS follower,
+      json_extract(value, '$.memberRole') AS role,
+      json_extract(value, '$.membershipRequired') AS needs_member,
+      json_extract(value, '$.roleRequired') AS needs_role
+    FROM json_each(${JSON.stringify(admissions)})
+  ), posting_banned_actors AS MATERIALIZED (${bannedActors})
+  SELECT NOT EXISTS (SELECT 1 FROM posting_admissions AS admitted
+    WHERE NOT EXISTS (SELECT 1 FROM ${communities}
+      WHERE ${communities.apId} = admitted.room AND ${communities.deletedAt} IS NULL
+        AND ${communities.visibility} IS admitted.visibility
+        AND ${communities.postPolicy} IS admitted.policy)
+    OR EXISTS (SELECT 1 FROM ${communityBans}
+      WHERE ${communityBans.communityApId} = admitted.room
+        AND ${communityBans.bannedApId} IN (SELECT * FROM posting_banned_actors))
+    OR (admitted.needs_member AND NOT (
+      EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followingApId} = admitted.room
+        AND ${follows.followerApId} = admitted.follower AND ${follows.status} = 'accepted')
+      OR EXISTS (SELECT 1 FROM ${communityMembers} WHERE ${communityMembers.communityApId} = admitted.room
+        AND ${communityMembers.actorApId} = admitted.member_actor AND ${communityMembers.role} IS admitted.role)))
+    OR (admitted.needs_role AND NOT EXISTS (SELECT 1 FROM ${communityMembers}
+      WHERE ${communityMembers.communityApId} = admitted.room
+        AND ${communityMembers.actorApId} = admitted.member_actor AND ${communityMembers.role} IS admitted.role))))`;
+}
+
 /**
  * Apply the same posting authority to every inbound community projection.
  *
@@ -29,6 +91,7 @@ export async function canActorPostToInboundCommunity(
   db: Database,
   actorApId: string,
   community: InboundCommunityTarget,
+  onAllowed?: (admission: InboundCommunityAdmission) => void,
 ): Promise<boolean> {
   const [banned, memberFollow, memberRow] = await Promise.all([
     isMemberBanned(db, community.apId, actorApId),
@@ -54,6 +117,19 @@ export async function canActorPostToInboundCommunity(
   if (policy !== "anyone" && !isMember) return false;
   if (policy === "mods" && !isManager) return false;
   if (policy === "owners" && role !== "owner") return false;
+  onAllowed?.({
+    apId: community.apId,
+    visibility: community.visibility,
+    postPolicy: community.postPolicy,
+    actorApId,
+    acceptedFollowerApId:
+      memberFollow?.status === "accepted" ? memberFollow.followerApId : null,
+    memberActorApId: memberRow ? actorApId : null,
+    memberRole: role ?? null,
+    membershipRequired:
+      communityRequiresMembership(community.visibility) || policy !== "anyone",
+    roleRequired: policy === "mods" || policy === "owners",
+  });
   return true;
 }
 
@@ -71,6 +147,7 @@ export async function resolveInboundCommunityScope(
   db: Database,
   actorApId: string,
   audience: readonly string[],
+  onAllowed?: (admission: InboundCommunityAdmission) => void,
 ): Promise<InboundCommunityScope> {
   const addresses = [...new Set(audience)].filter(Boolean).slice(0, 64);
   if (addresses.length === 0) {
@@ -114,7 +191,9 @@ export async function resolveInboundCommunityScope(
   }
 
   const community = [...matches.values()][0]!;
-  if (!(await canActorPostToInboundCommunity(db, actorApId, community))) {
+  if (
+    !(await canActorPostToInboundCommunity(db, actorApId, community, onAllowed))
+  ) {
     return { allowed: false, communityApId: null };
   }
   return { allowed: true, communityApId: community.apId };

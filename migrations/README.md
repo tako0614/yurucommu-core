@@ -16,6 +16,15 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration 0039 retains newly admitted Note Update patches in local admission
+order, independently of Activity dispatch completion. Object/reach projection
+and its applied watermark commit together; pending patches are folded before
+Create first exposes content. Historical processed Activities are not imported.
+Apply before serving the corresponding engine with old writers closed. Once
+patches are accepted, an engine that ignores this state is not a safe rollback.
+See [inbound Note update ordering](../docs/design/inbound-note-update-ordering.md)
+for retention, partial updates, policy checks and qualification limits.
+
 Migration 0038 adds actor-bound terminal inbound object deletion receipts.
 It changes no existing data and infers no receipt from historical Activity rows.
 Apply it before serving the corresponding engine, with old writers closed.

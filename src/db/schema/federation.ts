@@ -4,8 +4,41 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { nowIsoUtc } from "./date-utils.ts";
+
+/** Admitted Note patches retain stable receipt order across dispatch retries. */
+export const inboundNoteUpdateEvents = sqliteTable(
+  "inbound_note_update_events",
+  {
+    sequence: integer("sequence").primaryKey({ autoIncrement: true }),
+    activityApId: text("activity_ap_id").notNull(),
+    actorApId: text("actor_ap_id").notNull(),
+    objectApId: text("object_ap_id").notNull(),
+    patchJson: text("patch_json"),
+  },
+  (t) => [
+    uniqueIndex("inbound_note_update_event_activity_idx").on(t.activityApId),
+    index("inbound_note_update_event_object_sequence_idx").on(
+      t.actorApId,
+      t.objectApId,
+      t.sequence,
+    ),
+  ],
+);
+
+/** Advances only in the batch that commits the complete object/reach projection. */
+export const inboundNoteUpdateHeads = sqliteTable(
+  "inbound_note_update_heads",
+  {
+    actorApId: text("actor_ap_id").notNull(),
+    objectApId: text("object_ap_id").notNull(),
+    appliedSequence: integer("applied_sequence").notNull().default(0),
+    creationActivityApId: text("creation_activity_ap_id"),
+  },
+  (t) => [primaryKey({ columns: [t.actorApId, t.objectApId] })],
+);
 
 /** Verified terminal Delete evidence; neither actor nor object lifetime owns it. */
 export const inboundObjectDeletions = sqliteTable(

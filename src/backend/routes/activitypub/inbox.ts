@@ -877,6 +877,9 @@ ap.post("/ap/actor/inbox", async (c) => {
       case "Create":
         await handleGroupCreate(c, activity, instActor, actor, baseUrl);
         break;
+      case "Update":
+        await handleUpdate(c, activity, actor);
+        break;
       case "Delete":
         await handleDelete(c, activity);
         break;

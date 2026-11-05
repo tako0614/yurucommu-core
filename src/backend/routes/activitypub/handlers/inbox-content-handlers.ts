@@ -36,14 +36,17 @@ import {
   storyViews,
   storyVotes,
 } from "../../../../db/index.ts";
-import { insertMany, runBatch } from "../../../../db/d1-write.ts";
+import { runBatch } from "../../../../db/d1-write.ts";
 import {
   addressesPublic,
   collectBoundedInboundAddresses,
 } from "../inbound-addressing.ts";
 import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
-import { resolveInboundCommunityScope } from "./inbound-community-scope.ts";
+import {
+  resolveInboundCommunityScope,
+  type InboundCommunityAdmission,
+} from "./inbound-community-scope.ts";
 import {
   MAX_INBOUND_OBJECT_ID_LENGTH,
   validateInboundObjectIdentity,
@@ -85,8 +88,23 @@ import {
 } from "../../../lib/activitypub-actor-identity.ts";
 import { activityPubActorIdentityMatchesSql } from "../../../lib/activitypub-actor-identity-sql.ts";
 import {
+  admitInboundNoteUpdate,
+  hasTerminalNoteDeletion,
+  InboundNoteUpdateConflict,
+  loadInboundNoteUpdateWindow,
+} from "../../../lib/inbound-note-update-order.ts";
+import {
+  commitNoteProjection,
+  foldAdmittedNoteUpdates,
+  normalizeNoteUpdatePatch,
+  noteAddressList as addressList,
+  noteVisibility as classifyInboundNoteVisibility,
+  readNoteProjection,
+  type NoteProjection,
+} from "./inbound-note-update-projection.ts";
+
+import {
   guardInboundObjectCreation,
-  inboundObjectNotDeletedSql,
   InboundObjectDeletionConflict,
 } from "../../../lib/inbound-object-deletion.ts";
 import { fetchWithTimeout } from "../../../lib/federation-fetch.ts";
@@ -184,41 +202,6 @@ function guardInboundObjectDelete(
       db,
       sql`EXISTS ${current}`,
       () => new InboundDeleteSourceChanged(),
-    ),
-  );
-}
-
-/** An idempotent Create may repair projections only for its retained author. */
-function guardInboundNoteCreate(
-  db: Database,
-  objectId: string,
-  actor: string,
-  allowMissing = true,
-): Database {
-  const retainedAuthors = activityPubActorIdentityMatchesSql(
-    sql`
-    SELECT ${objects.attributedTo} FROM ${objects}
-    WHERE ${objects.apId} = ${objectId}
-  `,
-    actor,
-  );
-  const retained = sql`EXISTS (
-    SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${objectId}
-      AND (${objects.attributedTo} = ${actor}
-        OR ${objects.attributedTo} IN (${retainedAuthors}))
-      AND ${objects.type} = 'Note'
-      AND ${objects.isLocal} = 0 AND ${objects.deletedAt} IS NULL
-  )`;
-  const admissible = allowMissing
-    ? sql`${retained} OR NOT EXISTS (
-    SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${objectId}
-  )`
-    : retained;
-  return createGuardedDatabase(db, () =>
-    admissionGuard(
-      db,
-      sql`(${admissible}) AND ${inboundObjectNotDeletedSql(objectId, actor)}`,
-      () => new InboundNoteIdentityConflict(),
     ),
   );
 }
@@ -364,33 +347,6 @@ function recomputeObjectReplyCount(db: Database, objectId: string) {
 }
 
 /**
- * Recipient-INDEPENDENT visibility classification for an inbound generic Note,
- * mirroring the local outbound addressing contract. CRITICAL invariant: a
- * non-public Note is NEVER classified as "unlisted" (world-readable). Direct
- * addressed Notes are normally diverted before the generic Create insert, but
- * the classifier itself remains total so every caller fails closed:
- *   - "public"    — the Public collection is in `to`;
- *   - "unlisted"  — Public is only in `cc` (Mastodon-style unlisted);
- *   - "followers" — a followers collection is addressed and Public is absent.
- *   - "direct"    — only actor IRIs, or no usable addressing at all. The empty
- *                   case is intentionally unreadable rather than world-readable.
- * Previously this was derived solely from `to.includes(Public)`, so a remote
- * followers-only post (Public absent) was silently downgraded to "unlisted" and
- * became world-readable. */
-function classifyInboundNoteVisibility(
-  addressing: NoteAddressing,
-): "public" | "unlisted" | "followers" | "direct" {
-  const { to, cc, bto, bcc } = addressing;
-  if (addressesPublic(to)) return "public";
-  if (addressesPublic(cc)) return "unlisted";
-  // Hidden fields are still audience authority. They are considered for reach
-  // classification but are never copied into visible addressing projections.
-  if (addressesPublic([...bto, ...bcc])) return "public";
-  if (addressesFollowers([...to, ...cc, ...bto, ...bcc])) return "followers";
-  return "direct";
-}
-
-/**
  * A Note addressed ONLY to specific actors — no Public, no followers collection
  * — i.e. a direct/DM-shaped Note. When such a Note reaches a shared-inbox fan-out
  * recipient it is NOT addressed to, it must NOT be stored as a world-readable
@@ -408,18 +364,6 @@ function isDirectShapedNote(addressing: NoteAddressing): boolean {
 
 function boundAddressJson(value: unknown): string {
   return JSON.stringify(addressList(value));
-}
-
-/**
- * Normalize one already-validated AS2 addressing field (`to` / `cc` /
- * `audience`). The field may be absent, a bare string, or an array mixing
- * strings and embedded objects. Validation happens once for the complete
- * envelope/object projection before any caller derives reach from these lists.
- */
-function addressList(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((a): a is string => typeof a === "string"))];
 }
 
 /**
@@ -504,124 +448,6 @@ function isDirectNote(
  * Notes receive an `objects.conversation` id; multi-recipient delivery keeps
  * recipient authority without pretending that it belongs to a 1:1 thread.
  */
-async function insertDirectNote(
-  db: Database,
-  activity: Activity,
-  object: ActivityObject,
-  objectId: string,
-  actor: string,
-  recipient: ActorRow,
-  baseUrl: string,
-  addressing: NoteAddressing,
-  parentId: string | null,
-): Promise<void> {
-  const sourceDb = db;
-  db = guardInboundNoteCreate(db, objectId, actor);
-  // Derive the conversation. Honour a sender-supplied `object.conversation`
-  // only when it matches the value yurucommu itself would compute for this
-  // (sender, localRecipient) pair — otherwise a remote actor could force a
-  // message into an arbitrary thread (spoof a reply context). Fall back to the
-  // computed id for foreign-origin DMs that carry no/invalid conversation.
-  const directRecipients = specificRecipientAddresses(addressing);
-  const computedConversation =
-    directRecipients.length === 1
-      ? getConversationId(baseUrl, actor, directRecipients[0])
-      : null;
-  const conversationId =
-    computedConversation && object.conversation === computedConversation
-      ? object.conversation
-      : computedConversation;
-
-  const publishedAt = normalizeInboundTimestamp(
-    object.published,
-    new Date().toISOString(),
-  );
-
-  const replyCountStatements = [
-    ...(parentId ? [recomputeObjectReplyCount(db, parentId)] : []),
-    // A direct Note can itself be a late-arriving parent. Recompute even when
-    // the insert conflicts so a peer retry repairs a stale legacy counter.
-    recomputeObjectReplyCount(db, objectId),
-  ];
-
-  // #3 (atomicity + idempotency): the object insert and the author postCount
-  // bump MUST commit together. Previously the row was inserted
-  // (onConflictDoNothing) and postCount bumped in a SEPARATE await; under the
-  // claim/processed re-dispatch model a crash between them left the row present
-  // but the count un-bumped, and a peer retry's no-op insert SKIPPED the bump →
-  // a permanent under-count. Co-commit both in one atomic batch. The postCount
-  // +1 runs BEFORE the insert and is guarded by a correlated NOT-EXISTS(object)
-  // subquery, so it fires only when THIS batch creates the row (mirrors the
-  // edge-absent guard in handleAdd); a duplicate / retry sees the row present →
-  // the guard is false and the insert is a no-op, so the count can neither
-  // double-bump nor under-count.
-  const objectAbsent = sql`NOT EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${objectId})`;
-  await runBatch(db, [
-    db
-      .update(actors)
-      .set({ postCount: sql`${actors.postCount} + 1` })
-      .where(and(eq(actors.apId, actor), objectAbsent)),
-    db
-      .insert(objects)
-      .values({
-        apId: objectId,
-        type: "Note",
-        attributedTo: actor,
-        content: boundInboundContent(object.content),
-        summary: boundInboundSummary(object.summary),
-        attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
-        tagsJson: boundInboundTagsJson(object.tag),
-        inReplyTo: parentId,
-        visibility: "direct",
-        // Only visible audience fields are serialized. Hidden `bto` / `bcc`
-        // recipients live exclusively in object_recipients and must never be
-        // disclosed through object JSON or the post API.
-        toJson: boundAddressJson(addressing.to),
-        ccJson: boundAddressJson(addressing.cc),
-        conversation: conversationId,
-        communityApId: null,
-        published: publishedAt,
-        isLocal: 0,
-      })
-      .onConflictDoNothing(),
-    // The recipient link MUST co-commit with the object. Inbound-DM recipient
-    // membership is resolved EXCLUSIVELY through object_recipients (contacts /
-    // requests / unread-count), so an object that committed WITHOUT its
-    // object_recipients row is a DM permanently invisible to the recipient.
-    // Previously this insert ran as a SEPARATE await after the batch: a crash /
-    // isolate-eviction in that window left exactly that orphan, and the caller's
-    // `if (existing) return` made the re-dispatch skip the repair. In-batch with
-    // onConflictDoNothing it is atomic (never orphaned) AND idempotent (a retry
-    // is a safe no-op). The local-send / community / takos-tools paths already
-    // co-commit this row for the same reason.
-    db
-      .insert(objectRecipients)
-      .values({
-        objectApId: objectId,
-        recipientApId: recipient.apId,
-        type: "to",
-      })
-      .onConflictDoNothing(),
-    ...replyCountStatements,
-  ]);
-
-  // Store the inbound Create and surface it in the recipient's inbox so the DM
-  // appears in the conversation / message-requests view. Both inserts are
-  // idempotent, so every local recipient in a shared-inbox fan-out gets its own
-  // inbox row and a retry repairs a missing side effect safely.
-  db = guardInboundNoteCreate(sourceDb, objectId, actor, false);
-  const activityId = activity.id || activityApId(baseUrl, generateId());
-  await upsertActivityAndNotify(
-    db,
-    activityId,
-    "Create",
-    actor,
-    objectId,
-    activity,
-    recipient.apId,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Create handler
 // ---------------------------------------------------------------------------
@@ -636,6 +462,29 @@ export async function handleCreate(
   try {
     await createInboundObject(c, activity, recipient, actor, baseUrl);
   } catch (error) {
+    const objectId = getActivityObjectId(activity);
+    if (error instanceof InboundNoteUpdateConflict && objectId) {
+      const db = c.get("db");
+      if (await hasTerminalNoteDeletion(db, actor, objectId)) return;
+      const retained = await readNoteProjection(db, objectId);
+      if (
+        retained &&
+        (retained.type !== "Note" ||
+          retained.isLocal !== 0 ||
+          retained.deletedAt !== null ||
+          !isSameActivityPubActor(retained.attributedTo, actor))
+      )
+        return;
+      // This Create really committed once but another writer removed its Note.
+      // Complete that delivery without emitting a ghost or resurrecting it.
+      if (
+        !retained &&
+        activity.id &&
+        (await loadInboundNoteUpdateWindow(db, actor, objectId))
+          .creationActivityId === activity.id
+      )
+        return;
+    }
     if (
       !(error instanceof InboundNoteIdentityConflict) &&
       !(error instanceof InboundObjectDeletionConflict)
@@ -657,318 +506,181 @@ async function createInboundObject(
   actor: string,
   baseUrl: string,
 ) {
-  let db = c.get("db");
-  const object = getActivityObject(activity);
+  const db = c.get("db"),
+    object = getActivityObject(activity);
   if (!object) return;
-
-  // Handle Story type
   if (isStoryType(object.type)) {
     await handleCreateStory(c, activity, actor, baseUrl);
     return;
   }
-
-  // Handle Note type (a remote may send `type` as a string or an array)
   if (!typeIncludes(object.type, "Note")) return;
-
   const identity = validateInboundObjectIdentity(object.id, actor, baseUrl);
-  if (!identity.ok) {
-    log.warn("Create rejected: invalid remote object identity", {
-      event: "ap.create.object_identity_invalid",
-      actor,
-      objectId: object.id,
-      reason: identity.reason,
-    });
+  if (!identity.ok || !collectBoundedInboundAddresses([activity, object]).ok)
     return;
-  }
-
-  const addressingContract = collectBoundedInboundAddresses([activity, object]);
-  if (!addressingContract.ok) {
-    log.warn("Create(Note) rejected: invalid addressing projection", {
-      event: "ap.create.note_addressing_invalid",
-      actor,
-      objectId: identity.objectId,
-      reason: addressingContract.reason,
-    });
-    return;
-  }
-
-  const replyTarget = validateInboundReplyTarget(object.inReplyTo);
-  if (!replyTarget.ok) {
-    log.warn("Create(Note) rejected: invalid reply target", {
-      event: "ap.create.note_reply_target_invalid",
-      actor,
-      objectId: identity.objectId,
-      reason: replyTarget.reason,
-    });
-    return;
-  }
-  const parentId = replyTarget.parentId ?? null;
-
-  // Direct (DM) Note routing: a Note addressed to the local inbox owner that
-  // is neither public nor follower-only belongs in the recipient's DM inbox /
-  // message-request flow rather than the generic public Note insert.
+  const reply = validateInboundReplyTarget(object.inReplyTo);
+  if (!reply.ok) return;
+  const parentId = reply.parentId ?? null;
   const addressing = createNoteAddressing(activity, object);
-
-  const parentObj = parentId
-    ? await db
-        .select({
-          apId: objects.apId,
-          attributedTo: objects.attributedTo,
-          visibility: objects.visibility,
-          toJson: objects.toJson,
-          ccJson: objects.ccJson,
-          audienceJson: objects.audienceJson,
-          communityApId: objects.communityApId,
-          type: objects.type,
-          endTime: objects.endTime,
-        })
-        .from(objects)
-        .where(eq(objects.apId, parentId))
-        .get()
+  if (isDirectShapedNote(addressing) && !isDirectNote(addressing, recipient))
+    return;
+  if (await actorSuppressesInteractionFrom(db, recipient.apId, actor)) return;
+  const parent = parentId
+    ? await db.select().from(objects).where(eq(objects.apId, parentId)).get()
     : null;
-
-  // Inbound replies must pass the canonical read gate for EVERY parent retained
-  // by this instance, including direct Notes and remote-authored objects
-  // delivered to a local recipient. Keeping this check before the direct/generic
-  // routing split prevents either storage path from becoming a restricted-thread
-  // injection bypass. Personal block/mute state remains local-owner state, so
-  // that extra guard applies only when the parent author is local.
-  if (parentId && parentObj) {
-    if (!(await canViewerReadObjectFull(db, parentObj, actor))) return;
-    if (
-      isLocal(parentObj.attributedTo, baseUrl) &&
-      (await actorSuppressesInteractionFrom(db, parentObj.attributedTo, actor))
-    ) {
-      return;
-    }
-  }
-
-  // Root/public/followers/community Notes are still writes into this local
-  // recipient's feed. Apply the same block/mute policy as DM, reply, mention,
-  // Follow, Like, Announce, and Story before any durable projection is created.
-  // The shared inbox invokes this handler once per resolved local recipient, so
-  // the decision remains recipient-specific on that path.
-  if (await actorSuppressesInteractionFrom(db, recipient.apId, actor)) {
-    log.info("Dropped inbound Note from a blocked or muted actor", {
-      event: "ap.create.note_suppressed",
-      actor,
-      recipient: recipient.apId,
-    });
+  if (
+    parent &&
+    (!(await canViewerReadObjectFull(db, parent, actor)) ||
+      (isLocal(parent.attributedTo, baseUrl) &&
+        (await actorSuppressesInteractionFrom(db, parent.attributedTo, actor))))
+  )
     return;
-  }
-
-  if (object.id && isDirectNote(addressing, recipient)) {
-    await insertDirectNote(
-      db,
-      activity,
-      object,
-      object.id,
-      actor,
-      recipient,
-      baseUrl,
-      addressing,
-      parentId,
-    );
-    return;
-  }
-
-  // A direct/DM-shaped Note (addressed only to specific actors, neither Public
-  // nor followers) that is NOT addressed to THIS fan-out recipient: the shared
-  // inbox calls handleCreate once per local follower of the sender, so a DM
-  // addressed to actor A is also dispatched for an unrelated follower B. We must
-  // NOT store it as a world-readable generic Note for B — the addressed actor's
-  // own delivery handles it via insertDirectNote above. Skip it here.
-  if (isDirectShapedNote(addressing)) {
-    log.warn("Skipping direct Note not addressed to this recipient", {
-      event: "ap.create.direct_note_not_addressed",
-      actor,
-      recipient: recipient.apId,
-      objectId: object.id,
-    });
-    return;
-  }
+  const direct = isDirectNote(addressing, recipient);
+  const audience = normalizedObjectAudience(activity, object);
+  const communityAdmissions: InboundCommunityAdmission[] = [];
+  const scope = direct
+    ? { allowed: true, communityApId: null }
+    : await resolveInboundCommunityScope(db, actor, audience, (admission) =>
+        communityAdmissions.push(admission),
+      );
+  if (!scope.allowed) return;
 
   const objectId = identity.objectId;
-
-  // Was the object already present BEFORE this dispatch? This is read ONCE and
-  // used only to gate the one-shot side effects (parent notification) below; it
-  // intentionally does NOT early-return, because the idempotent count batch must
-  // still run on a retry so a parent replyCount left stale by an interrupted
-  // prior attempt CONVERGES (mirrors handleInteraction, which always runs the
-  // recompute batch and uses the pre-read only to gate the notification).
-  const existingBeforeInsert = await db
-    .select({ apId: objects.apId })
-    .from(objects)
-    .where(eq(objects.apId, objectId))
-    .get();
-
-  const audience = normalizedObjectAudience(activity, object);
-  const communityScope = await resolveInboundCommunityScope(
-    db,
-    actor,
-    audience,
-  );
-  if (!communityScope.allowed) return;
-
-  const sourceDb = db;
-  db = guardInboundNoteCreate(db, objectId, actor);
-
-  const publishedAt = normalizeInboundTimestamp(
-    object.published,
-    new Date().toISOString(),
-  );
-
-  const shouldNotifyParent = !!(
-    parentObj && isLocal(parentObj.attributedTo, baseUrl)
-  );
-  const replyActivityId = shouldNotifyParent
-    ? activity.id || activityApId(baseUrl, generateId())
-    : null;
-
-  // #3 (atomicity + idempotency): the object insert, the author postCount bump,
-  // and (for a reply) the parent replyCount bump MUST commit together.
-  // Previously the row was inserted (onConflictDoNothing) and the counts bumped
-  // in SEPARATE awaits; under the claim/processed re-dispatch model a crash
-  // between them left the row present but the counts un-bumped, and a peer
-  // retry's no-op insert SKIPPED the bumps → permanent postCount/replyCount
-  // drift. Co-commit them in one atomic batch:
-  //   - postCount +1 runs BEFORE the insert, guarded by a correlated
-  //     NOT-EXISTS(object) subquery so it fires only when THIS batch creates
-  //     the row (mirrors handleAdd's edge-absent guard); a duplicate / retry
-  //     observes the row present → guard false → no double-bump, no under-count.
-  //   - replyCount is RECOMPUTED from COUNT(*) of the reply edge set AFTER the
-  //     insert (mirrors the object-counter recompute in handleInteraction /
-  //     undoInteraction): exact and idempotent, so a retry after a mid-write
-  //     crash CONVERGES to the true reply count and a duplicate cannot inflate.
-  const objectAbsent = sql`NOT EXISTS (SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${objectId})`;
-  const insertObject = db
-    .insert(objects)
-    .values({
-      apId: objectId,
-      type: "Note",
-      attributedTo: actor,
-      content: boundInboundContent(object.content),
-      summary: boundInboundSummary(object.summary),
-      attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
-      tagsJson: boundInboundTagsJson(object.tag),
-      inReplyTo: parentId,
-      // Recipient-independent classification: a non-public Note is never stored
-      // as world-readable "unlisted". A followers-only post → "followers" (gated
-      // by the accepted-follow edge), preserving the remote author's audience.
-      visibility: classifyInboundNoteVisibility(addressing),
-      // Persist the addressing so the explicit-recipient (mention) gate in
-      // canViewerReadObjectFull / the post-detail route can evaluate.
-      toJson: boundAddressJson(addressing.to),
-      ccJson: boundAddressJson(addressing.cc),
-      audienceJson: JSON.stringify(audience),
-      communityApId: communityScope.communityApId,
-      published: publishedAt,
-      isLocal: 0,
-    })
-    .onConflictDoNothing();
-
-  const bumpPostCount = db
-    .update(actors)
-    .set({ postCount: sql`${actors.postCount} + 1` })
-    .where(and(eq(actors.apId, actor), objectAbsent));
-
-  // Persist hidden bto/bcc recipients as indexed authority projections on the
-  // generic path. Visible to/cc recipients already remain authoritative in the
-  // JSON projection; duplicating them here is unnecessary and would turn an
-  // ordinary remote @mention into a recipient-table dependency. The canonical
-  // read gate combines both representations without revealing hidden reach.
-  const recipientProjectionStatements = insertMany(
-    db,
-    objectRecipients,
-    hiddenRecipientAddresses(addressing).map((recipientApId) => ({
-      objectApId: objectId,
-      recipientApId,
-      type: "to",
-    })),
-    { conflict: "ignore" },
-  );
-
-  if (parentId) {
-    await runBatch(db, [
-      bumpPostCount,
-      insertObject,
-      ...recipientProjectionStatements,
-      recomputeObjectReplyCount(db, parentId),
-      recomputeObjectReplyCount(db, objectId),
-    ]);
-  } else {
-    await runBatch(db, [
-      bumpPostCount,
-      insertObject,
-      ...recipientProjectionStatements,
-      recomputeObjectReplyCount(db, objectId),
-    ]);
-  }
-
-  db = guardInboundNoteCreate(sourceDb, objectId, actor, false);
-  if (existingBeforeInsert) return; // duplicate: no double notification
-
-  if (shouldNotifyParent && parentObj && replyActivityId) {
-    await upsertActivityAndNotify(
-      db,
-      replyActivityId,
-      "Create",
-      actor,
-      objectId,
-      activity,
-      parentObj.attributedTo,
-    );
-  }
-
-  // Notify every LOCAL actor @-mentioned in the post — the federated counterpart
-  // of the local processMentions fan-in. Without this a cross-instance @-mention
-  // produced no notification at all (mention is a first-class notification type
-  // that only ever fired for local-origin posts). Runs once (the duplicate
-  // delivery short-circuits at `existingBeforeInsert` above). Skips the post
-  // author and the parent author (already notified by the reply branch) and
-  // honors the mentioned actor's block/mute of the sender, mirroring the reply
-  // gate.
-  const mentionedLocalApIds = new Set<string>();
-  for (const href of extractMentionHrefs(object.tag)) {
-    if (!isLocal(href, baseUrl)) continue;
-    if (href === actor) continue;
-    if (parentObj && href === parentObj.attributedTo) continue;
-    mentionedLocalApIds.add(href);
-    // Bound attacker-controlled fan-out: stop collecting once the cap is hit so
-    // a tag array full of distinct fake local hrefs cannot drive unbounded work.
-    if (mentionedLocalApIds.size >= MAX_INBOUND_MENTIONS) break;
-  }
-  if (mentionedLocalApIds.size === 0) return;
-
-  // Batch-resolve which of the mentioned hrefs are real local actors in one
-  // chunked query (D1 caps bound params at 100), instead of a serial SELECT per
-  // href. An attacker can pack thousands of distinct fake local hrefs into the
-  // tag array; resolving them one-by-one was an N+1 / subrequest-budget
-  // amplification. The chunked inArray collapses it to ceil(N/90) queries, and
-  // only the resolved (existing) actors are then notified.
-  const existingLocalApIds = (
-    await Promise.all(
-      chunkForInClause([...mentionedLocalApIds]).map((chunk) =>
-        db
-          .select({ apId: actors.apId })
-          .from(actors)
-          .where(inArray(actors.apId, chunk)),
-      ),
+  const window = await loadInboundNoteUpdateWindow(db, actor, objectId);
+  const before = await readNoteProjection(db, objectId);
+  if (!before && activity.id && window.creationActivityId === activity.id)
+    return;
+  if (
+    before &&
+    (before.type !== "Note" ||
+      before.isLocal !== 0 ||
+      before.deletedAt !== null ||
+      !isSameActivityPubActor(before.attributedTo, actor))
+  )
+    throw new InboundNoteIdentityConflict();
+  const directRecipients = specificRecipientAddresses(addressing);
+  const base: NoteProjection = before
+    ? { ...before, recipients: [...before.recipients] }
+    : {
+        apId: objectId,
+        type: "Note",
+        attributedTo: actor,
+        isLocal: 0,
+        deletedAt: null,
+        content: boundInboundContent(object.content),
+        summary: boundInboundSummary(object.summary),
+        attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
+        tagsJson: boundInboundTagsJson(object.tag),
+        inReplyTo: parentId,
+        conversation:
+          direct && directRecipients.length === 1
+            ? getConversationId(baseUrl, actor, directRecipients[0])
+            : null,
+        visibility: direct
+          ? "direct"
+          : classifyInboundNoteVisibility(addressing),
+        toJson: boundAddressJson(addressing.to),
+        ccJson: boundAddressJson(addressing.cc),
+        audienceJson: JSON.stringify(direct ? [] : audience),
+        communityApId: scope.communityApId,
+        published: normalizeInboundTimestamp(
+          object.published,
+          new Date().toISOString(),
+        ),
+        updated: null,
+        endTime: null,
+        // Store the full signed reach before fan-out: the next hidden local
+        // recipient must already pass the canonical read gate on their turn.
+        recipients: (direct
+          ? directRecipients
+          : hiddenRecipientAddresses(addressing)
+        ).map((recipientApId) => ({ recipientApId, type: "to" })),
+      };
+  base.communityAdmissions = communityAdmissions;
+  // An idempotent fan-out may repair this recipient only if the CURRENT Note
+  // still grants them access. Old Create addressing cannot revive revoked reach.
+  if (
+    before &&
+    direct &&
+    base.visibility === "direct" &&
+    (await canViewerReadObjectFull(db, base, recipient.apId)) &&
+    !base.recipients.some(
+      (r) => r.recipientApId === recipient.apId && r.type === "to",
     )
-  ).flat();
-
-  for (const { apId: mentionedApId } of existingLocalApIds) {
-    if (await actorSuppressesInteractionFrom(db, mentionedApId, actor))
-      continue;
-    await upsertActivityAndNotify(
-      db,
-      activityApId(baseUrl, generateId()),
-      "Create",
-      actor,
-      objectId,
-      activity,
-      mentionedApId,
-    );
+  ) {
+    base.recipients.push({ recipientApId: recipient.apId, type: "to" });
+  }
+  const projected = await foldAdmittedNoteUpdates(
+    db,
+    base,
+    window,
+    actor,
+    baseUrl,
+  );
+  const committed = await commitNoteProjection(db, before, projected, window, {
+    activityId: activity.id,
+    countPost: true,
+  });
+  const notifyDb = committed.db,
+    activityId = activity.id || activityApId(baseUrl, generateId());
+  if (projected.visibility === "direct") {
+    if (
+      projected.recipients.some(
+        (r) => r.recipientApId === recipient.apId && r.type === "to",
+      ) &&
+      (await canViewerReadObjectFull(db, projected, recipient.apId))
+    ) {
+      await upsertActivityAndNotify(
+        notifyDb,
+        activityId,
+        "Create",
+        actor,
+        objectId,
+        activity,
+        recipient.apId,
+      );
+    }
+    return;
+  }
+  if (projected.visibility === "group") return;
+  // Creator provenance is committed with the first projection. A failed later
+  // notification can therefore be repaired without inventing historical authority.
+  if (before && (!activity.id || window.creationActivityId !== activity.id))
+    return;
+  const notify = new Set<string>();
+  const finalParent = projected.inReplyTo
+    ? await db
+        .select()
+        .from(objects)
+        .where(eq(objects.apId, projected.inReplyTo))
+        .get()
+    : null;
+  if (finalParent && isLocal(finalParent.attributedTo, baseUrl))
+    notify.add(finalParent.attributedTo);
+  for (const href of extractMentionHrefs(JSON.parse(projected.tagsJson))) {
+    if (isLocal(href, baseUrl) && href !== actor) notify.add(href);
+    if (notify.size >= MAX_INBOUND_MENTIONS) break;
+  }
+  for (const chunk of chunkForInClause([...notify])) {
+    const locals = await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(inArray(actors.apId, chunk));
+    for (const { apId } of locals) {
+      if (
+        (await actorSuppressesInteractionFrom(db, apId, actor)) ||
+        !(await canViewerReadObjectFull(db, projected, apId))
+      )
+        continue;
+      await upsertActivityAndNotify(
+        notifyDb,
+        activityId,
+        "Create",
+        actor,
+        objectId,
+        activity,
+        apId,
+      );
+    }
   }
 }
 
@@ -1246,10 +958,12 @@ export async function fetchAndPersistAnnouncedNote(
   if (visibility !== "public" && visibility !== "unlisted") return false;
 
   const audience = addressList(note.audience);
+  const communityAdmissions: InboundCommunityAdmission[] = [];
   const communityScope = await resolveInboundCommunityScope(
     db,
     attributedTo,
     audience,
+    (admission) => communityAdmissions.push(admission),
   );
   if (!communityScope.allowed) return false;
 
@@ -1312,53 +1026,63 @@ export async function fetchAndPersistAnnouncedNote(
     }
   }
 
-  db = guardInboundObjectCreation(db, objectId, attributedTo);
-  const insertObject = db
-    .insert(objects)
-    .values({
-      apId: objectId,
-      type: "Note",
-      attributedTo,
-      content: boundInboundContent(note.content),
-      summary: boundInboundSummary(note.summary),
-      attachmentsJson: boundInboundNoteAttachmentsJson(note.attachment),
-      tagsJson: boundInboundTagsJson(note.tag),
-      // Stored verbatim and never remotely resolved (depth cap): a boosted
-      // reply keeps its honest thread link even when the parent stays unknown.
-      inReplyTo: parentId,
-      visibility,
-      toJson: boundAddressJson(note.to),
-      ccJson: boundAddressJson(note.cc),
-      audienceJson: JSON.stringify(audience),
-      communityApId: communityScope.communityApId,
-      published: normalizeInboundTimestamp(
-        note.published,
-        new Date().toISOString(),
-      ),
-      isLocal: 0,
-    })
-    .onConflictDoNothing();
-
+  const window = await loadInboundNoteUpdateWindow(db, attributedTo, objectId);
+  const before = await readNoteProjection(db, objectId);
+  if (
+    before &&
+    (before.type !== "Note" ||
+      before.isLocal !== 0 ||
+      before.deletedAt !== null ||
+      !isSameActivityPubActor(before.attributedTo, attributedTo))
+  )
+    return false;
+  const base: NoteProjection = before ?? {
+    apId: objectId,
+    type: "Note",
+    attributedTo,
+    isLocal: 0,
+    deletedAt: null,
+    content: boundInboundContent(note.content),
+    summary: boundInboundSummary(note.summary),
+    attachmentsJson: boundInboundNoteAttachmentsJson(note.attachment),
+    tagsJson: boundInboundTagsJson(note.tag),
+    inReplyTo: parentId,
+    conversation: null,
+    visibility,
+    toJson: boundAddressJson(note.to),
+    ccJson: boundAddressJson(note.cc),
+    audienceJson: JSON.stringify(audience),
+    communityApId: communityScope.communityApId,
+    published: normalizeInboundTimestamp(
+      note.published,
+      new Date().toISOString(),
+    ),
+    updated: null,
+    endTime: null,
+    recipients: [],
+  };
+  base.communityAdmissions = communityAdmissions;
+  const projected = await foldAdmittedNoteUpdates(
+    db,
+    base,
+    window,
+    attributedTo,
+    baseUrl,
+  );
+  // GET is a baseline, not evidence revoking a signed private mutation.
+  // This entrance still cannot materialize private reach or consume its queue.
+  if (projected.visibility !== "public" && projected.visibility !== "unlisted")
+    return false;
   try {
-    if (parentId) {
-      await runBatch(db, [
-        insertObject,
-        recomputeObjectReplyCount(db, parentId),
-        // Unknown Announce targets race normal Create delivery; the no-op insert
-        // plus recompute keeps both arrival paths idempotent and repairable.
-        recomputeObjectReplyCount(db, objectId),
-      ]);
-    } else {
-      await runBatch(db, [
-        insertObject,
-        recomputeObjectReplyCount(db, objectId),
-      ]);
-    }
+    await commitNoteProjection(db, before, projected, window);
   } catch (error) {
-    if (error instanceof InboundObjectDeletionConflict) return false;
+    if (
+      error instanceof InboundNoteUpdateConflict &&
+      (await hasTerminalNoteDeletion(db, attributedTo, objectId))
+    )
+      return false;
     throw error;
   }
-
   return true;
 }
 
@@ -1861,28 +1585,18 @@ export async function handleUpdate(
   }
 
   const existing = await db
-    .select({
-      attributedTo: objects.attributedTo,
-      inReplyTo: objects.inReplyTo,
-      type: objects.type,
-      attachmentsJson: objects.attachmentsJson,
-      published: objects.published,
-      endTime: objects.endTime,
-      communityApId: objects.communityApId,
-    })
+    .select()
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
-  if (!existing || !isSameActivityPubActor(existing.attributedTo, actor)) {
-    return;
-  }
+  if (existing && !isSameActivityPubActor(existing.attributedTo, actor)) return;
 
   // Story is deliberately handled before Note: Yurucommu emits
   // type=["Story","Note"] for interoperability, but its durable projection is
   // not a Note attachment array. The old generic branch rewrote
   // attachments_json/content into the wrong shape and corrupted the Story UI.
-  if (existing.type === "Story" || isStoryType(object.type)) {
-    if (existing.type !== "Story" || !isStoryType(object.type)) {
+  if (existing?.type === "Story" || isStoryType(object.type)) {
+    if (!existing || existing.type !== "Story" || !isStoryType(object.type)) {
       log.warn("Update rejected: object type does not match stored Story", {
         event: "ap.update.story_type_mismatch",
         actor,
@@ -1981,238 +1695,53 @@ export async function handleUpdate(
     return;
   }
 
-  // Update object content
-  if (existing.type === "Note" && typeIncludes(object.type, "Note")) {
-    // Update is instance-dispatched and therefore has no single recipient row.
-    // Yurucommu's default deployment has one local owner, so the same owner-wide
-    // block/mute policy used by Story Update must stop a newly suppressed remote
-    // actor from replacing already-retained Note content or reach.
-    if (await ownerSuppressesInboundActor(db, actor)) return;
-
-    const addressingContract = collectBoundedInboundAddresses([object]);
-    if (!addressingContract.ok) {
-      log.warn("Update(Note) rejected: invalid addressing projection", {
-        event: "ap.update.note_addressing_invalid",
-        actor,
-        objectId,
-        reason: addressingContract.reason,
-      });
-      return;
-    }
-
-    const replyTarget = validateInboundReplyTarget(object.inReplyTo);
-    if (!replyTarget.ok) {
-      log.warn("Update(Note) rejected: invalid reply target", {
-        event: "ap.update.note_reply_target_invalid",
-        actor,
-        objectId,
-        reason: replyTarget.reason,
-      });
-      return;
-    }
-
-    // Content and reach are one authority decision. A remote author can narrow
-    // an existing public Note to followers/direct in the same Update; applying
-    // only its new body would leave that private content readable through the
-    // stale public single-object gate. Treat the presence of either addressing
-    // field as a complete reach update (an omitted counterpart is empty), while
-    // preserving both old fields for peers that send a legacy content-only
-    // partial Update.
-    const hasAddressingUpdate = declaresAddressing(object);
-    const updatedAddressing = hasAddressingUpdate
-      ? noteAddressing(object)
-      : undefined;
-    const hasAudienceUpdate = object.audience !== undefined;
-    const updatedAudience = hasAudienceUpdate
-      ? normalizedObjectAudience(activity, object)
-      : undefined;
-    const communityScope = hasAudienceUpdate
-      ? await resolveInboundCommunityScope(db, actor, updatedAudience ?? [])
-      : existing.communityApId
-        ? await resolveInboundCommunityScope(db, actor, [
-            existing.communityApId,
-          ])
-        : { allowed: true as const, communityApId: null };
+  if (
+    !typeIncludes(object.type, "Note") ||
+    (existing && existing.type !== "Note")
+  )
+    return;
+  if (
+    !existing &&
+    !validateInboundObjectIdentity(objectId, actor, c.env.APP_URL).ok
+  )
+    return;
+  if (await ownerSuppressesInboundActor(db, actor)) return;
+  const patch = normalizeNoteUpdatePatch(object);
+  if (!patch) return;
+  if (!activity.id)
+    throw new Error("Note Update requires its verified dispatch identity");
+  const event = await admitInboundNoteUpdate(
+    db,
+    actor,
+    objectId,
+    activity.id,
+    patch,
+  );
+  if (!event) return;
+  const window = await loadInboundNoteUpdateWindow(db, actor, objectId);
+  const before = await readNoteProjection(db, objectId);
+  if (
+    !before ||
+    before.type !== "Note" ||
+    !isSameActivityPubActor(before.attributedTo, actor)
+  )
+    return;
+  const projected = await foldAdmittedNoteUpdates(
+    db,
+    before,
+    window,
+    actor,
+    c.env.APP_URL,
+  );
+  try {
+    await commitNoteProjection(db, before, projected, window);
+  } catch (error) {
     if (
-      !communityScope.allowed ||
-      (!hasAudienceUpdate &&
-        communityScope.communityApId !== existing.communityApId)
-    ) {
-      log.warn("Update(Note) rejected: actor cannot project into community", {
-        event: "ap.update.note_community_unauthorized",
-        actor,
-        objectId,
-      });
+      error instanceof InboundNoteUpdateConflict &&
+      (await hasTerminalNoteDeletion(db, actor, objectId))
+    )
       return;
-    }
-
-    const hasThreadUpdate = replyTarget.parentId !== undefined;
-    const updatedParentId = replyTarget.parentId;
-    if (updatedParentId === objectId) {
-      log.warn("Update(Note) rejected: object cannot reply to itself", {
-        event: "ap.update.note_self_reply",
-        actor,
-        objectId,
-      });
-      return;
-    }
-    if (updatedParentId) {
-      const parent = await db
-        .select({
-          apId: objects.apId,
-          attributedTo: objects.attributedTo,
-          visibility: objects.visibility,
-          toJson: objects.toJson,
-          ccJson: objects.ccJson,
-          audienceJson: objects.audienceJson,
-          communityApId: objects.communityApId,
-          type: objects.type,
-          endTime: objects.endTime,
-          deletedAt: objects.deletedAt,
-        })
-        .from(objects)
-        .where(eq(objects.apId, updatedParentId))
-        .get();
-      if (
-        parent &&
-        (parent.deletedAt !== null ||
-          !(await canViewerReadObjectFull(db, parent, actor)) ||
-          (isLocal(parent.attributedTo, c.env.APP_URL) &&
-            (await actorSuppressesInteractionFrom(
-              db,
-              parent.attributedTo,
-              actor,
-            ))))
-      ) {
-        log.warn("Update(Note) rejected: reply parent is not readable", {
-          event: "ap.update.note_parent_unreadable",
-          actor,
-          objectId,
-          parentId: updatedParentId,
-        });
-        return;
-      }
-    }
-
-    const updatedVisibility = updatedAddressing
-      ? isDirectShapedNote(updatedAddressing)
-        ? "direct"
-        : classifyInboundNoteVisibility(updatedAddressing)
-      : undefined;
-    const projectedRecipients = updatedAddressing
-      ? specificRecipientAddresses(updatedAddressing)
-      : [];
-    // DM conversation ids are pair authority. Never carry an old recipient's
-    // thread id across a re-address; only a single specific recipient has a
-    // 1:1 conversation in Yurucommu's model. Public/followers/multi-recipient/
-    // empty reach clears the old DM conversation.
-    const updatedConversation = hasAddressingUpdate
-      ? updatedVisibility === "direct" && projectedRecipients.length === 1
-        ? getConversationId(c.env.APP_URL, actor, projectedRecipients[0])
-        : null
-      : undefined;
-    const updateObject = db
-      .update(objects)
-      .set({
-        content:
-          object.content !== undefined
-            ? boundInboundContent(object.content)
-            : undefined,
-        summary:
-          object.summary !== undefined
-            ? boundInboundSummary(object.summary)
-            : undefined,
-        attachmentsJson:
-          object.attachment !== undefined
-            ? boundInboundNoteAttachmentsJson(object.attachment)
-            : undefined,
-        tagsJson:
-          object.tag !== undefined
-            ? boundInboundTagsJson(object.tag)
-            : undefined,
-        visibility: updatedVisibility,
-        // bto/bcc are deliberately absent: their recipients are private and
-        // represented only by the indexed recipient projection below.
-        toJson: updatedAddressing
-          ? boundAddressJson(updatedAddressing.to)
-          : undefined,
-        ccJson: updatedAddressing
-          ? boundAddressJson(updatedAddressing.cc)
-          : undefined,
-        audienceJson: hasAudienceUpdate
-          ? JSON.stringify(updatedAudience)
-          : undefined,
-        communityApId: hasAudienceUpdate
-          ? communityScope.communityApId
-          : undefined,
-        inReplyTo: hasThreadUpdate ? (updatedParentId ?? null) : undefined,
-        conversation: updatedConversation,
-        updated: new Date().toISOString(),
-      })
-      .where(eq(objects.apId, objectId));
-
-    // `object_recipients(type=to)` is the indexed DM-read authority used by
-    // contacts, requests, unread counts, and conversation discovery. Updating
-    // only toJson would revoke canonical object GET while the old recipient
-    // still received the NEW private body in their contact preview. Replace the
-    // projection in the same D1 batch as the object row so neither old nor new
-    // reach can be observed half-applied. insertMany keeps every statement
-    // below D1's parameter ceiling for the bounded 64-address input.
-    const recipientProjectionStatements = hasAddressingUpdate
-      ? [
-          db
-            .delete(objectRecipients)
-            .where(
-              and(
-                eq(objectRecipients.objectApId, objectId),
-                eq(objectRecipients.type, "to"),
-              ),
-            ),
-          ...insertMany(
-            db,
-            objectRecipients,
-            projectedRecipients.map((recipientApId) => ({
-              objectApId: objectId,
-              recipientApId,
-              type: "to",
-            })),
-            { conflict: "ignore" },
-          ),
-        ]
-      : [];
-
-    // A reply edge and both denormalized parent counters are one mutation.
-    // Recompute (rather than increment/decrement) after the child UPDATE so a
-    // duplicate/retry converges without double-counting. The old and new parent
-    // set has at most two entries, keeping the whole projection far below D1's
-    // 50-statement batch ceiling even at the 64-recipient addressing bound.
-    const parentIdsToRecompute = hasThreadUpdate
-      ? [
-          ...new Set(
-            [existing.inReplyTo, updatedParentId ?? null].filter(
-              (id): id is string => typeof id === "string" && id.length > 0,
-            ),
-          ),
-        ]
-      : [];
-    const parentCounterStatements = parentIdsToRecompute.map((parentId) =>
-      db
-        .update(objects)
-        .set({
-          replyCount: sql`(SELECT COUNT(*) FROM ${objects} WHERE ${objects.inReplyTo} = ${parentId})`,
-        })
-        .where(eq(objects.apId, parentId)),
-    );
-
-    const projectionStatements = [
-      ...recipientProjectionStatements,
-      ...parentCounterStatements,
-    ];
-    if (projectionStatements.length === 0) {
-      await updateObject;
-    } else {
-      await runBatch(db, [updateObject, ...projectionStatements]);
-    }
+    throw error;
   }
 }
 

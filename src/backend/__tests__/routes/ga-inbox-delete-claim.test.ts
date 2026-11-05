@@ -209,7 +209,7 @@ for (const replacementActor of [OTHER]) {
   });
 }
 
-test("a signed Update at the cleanup boundary remains intact until Delete retries from the current source", async () => {
+test("an Update arriving after terminal Delete admission cannot change the cleanup source", async () => {
   const f = await fixture();
   const db = f.db as typeof f.db & {
     batch(
@@ -218,9 +218,10 @@ test("a signed Update at the cleanup boundary remains intact until Delete retrie
   };
   const batch = db.batch.bind(db);
   let injected = false;
-  let updated: (typeof objects.$inferSelect)[] = [];
-  let recipients: (typeof objectRecipients.$inferSelect)[] = [];
-  let notifications: (typeof inbox.$inferSelect)[] = [];
+  const observation: { status: number | null; body: string | null } = {
+    status: null,
+    body: null,
+  };
   try {
     expect((await f.request("Create")).status).toBe(202);
     db.batch = async (statements) => {
@@ -231,27 +232,25 @@ test("a signed Update at the cleanup boundary remains intact until Delete retrie
       );
       if (!injected && cleanup) {
         injected = true;
-        expect(
-          (await f.request("Update", false, AUTHOR, "interleaved-update"))
-            .status,
-        ).toBe(202);
-        updated = await db.select().from(objects);
-        recipients = await db.select().from(objectRecipients);
-        notifications = await db.select().from(inbox);
-        expect((await db.select().from(objects).get())?.content).toBe(
-          "Updated while Delete waits",
-        );
+        // Observations only: the handler under test catches database errors.
+        // Assertions inside this callback could be mistaken for an intended503.
+        observation.status = (
+          await f.request("Update", false, AUTHOR, "interleaved-update")
+        ).status;
+        observation.body =
+          (await db.select().from(objects).get())?.content ?? null;
       }
       return batch(statements);
     };
-    expect((await f.request("Delete")).status).toBe(503);
+    const response = await f.request("Delete");
+    expect(response.status).toBe(202);
     expect(injected).toBe(true);
-    expect(await db.select().from(objects)).toEqual(updated);
-    expect(await db.select().from(objectRecipients)).toEqual(recipients);
-    expect(await db.select().from(inbox)).toEqual(notifications);
-    expect((await f.request("Delete")).status).toBe(202);
+    expect(observation.status).toBe(202);
+    expect(observation.body).toBe("Message before deletion");
     expect(await db.select().from(objects)).toHaveLength(0);
     expect(await db.select().from(objectRecipients)).toHaveLength(0);
+    expect(await db.select().from(inbox)).toHaveLength(0);
+    expect((await f.request("Delete")).status).toBe(202);
   } finally {
     db.batch = batch;
     f.client.close();

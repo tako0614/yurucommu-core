@@ -14,9 +14,18 @@ import {
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
 import {
-  guardInboundObjectCreation,
-  InboundObjectDeletionConflict,
-} from "../../../lib/inbound-object-deletion.ts";
+  hasTerminalNoteDeletion,
+  InboundNoteUpdateConflict,
+  loadInboundNoteUpdateWindow,
+} from "../../../lib/inbound-note-update-order.ts";
+import {
+  commitNoteProjection,
+  foldAdmittedNoteUpdates,
+  readNoteProjection,
+  type NoteProjection,
+} from "./inbound-note-update-projection.ts";
+
+import { InboundObjectDeletionConflict } from "../../../lib/inbound-object-deletion.ts";
 import { severFollowDirection } from "../../../lib/follow-edge-mutations.ts";
 import { isMemberBanned } from "../../communities/membership-shared.ts";
 import {
@@ -26,7 +35,10 @@ import {
   boundInboundTagsJson,
 } from "../../posts/transformers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
-import { canActorPostToInboundCommunity } from "./inbound-community-scope.ts";
+import {
+  canActorPostToInboundCommunity,
+  type InboundCommunityAdmission,
+} from "./inbound-community-scope.ts";
 import { validateInboundObjectIdentity } from "./inbound-object-identity.ts";
 import {
   findFollowByActivityId,
@@ -273,93 +285,85 @@ export async function handleGroupCreate(
     .get();
   if (!community) return;
 
-  if (!(await canActorPostToInboundCommunity(db, actorApIdStr, community))) {
+  const communityAdmissions: InboundCommunityAdmission[] = [];
+  if (
+    !(await canActorPostToInboundCommunity(
+      db,
+      actorApIdStr,
+      community,
+      (admission) => communityAdmissions.push(admission),
+    ))
+  ) {
     return;
   }
 
-  const newObjectId = identity.objectId;
+  const objectId = identity.objectId;
+  const window = await loadInboundNoteUpdateWindow(db, actorApIdStr, objectId);
+  const before = await readNoteProjection(db, objectId);
+  if (!before && activity.id && window.creationActivityId === activity.id)
+    return;
   const audienceJson = JSON.stringify([community.apId]);
-  db = guardInboundObjectCreation(db, newObjectId, actorApIdStr);
-
-  // Clamp + normalize the remote-controlled `published` exactly like the other
-  // inbound Note paths (handleCreate / insertDirectNote / handleCreateStory). The
-  // community chat reader sorts + keyset-paginates on `desc(objects.published)`
-  // and the unread count compares against `object_recipients.created_at`, so a
-  // verbatim far-future / malformed value would pin the message atop the chat
-  // forever and corrupt unread baselines.
-  const now = normalizeInboundTimestamp(
-    object.published,
-    new Date().toISOString(),
+  if (
+    before &&
+    (before.type !== "Note" ||
+      before.visibility !== "group" ||
+      before.isLocal !== 0 ||
+      before.deletedAt !== null ||
+      !isSameActivityPubActor(before.attributedTo, actorApIdStr) ||
+      before.audienceJson !== audienceJson ||
+      before.communityApId !== null)
+  )
+    return;
+  const base: NoteProjection = before
+    ? {
+        ...before,
+        recipients: [{ recipientApId: community.apId, type: "audience" }],
+      }
+    : {
+        apId: objectId,
+        type: "Note",
+        attributedTo: actorApIdStr,
+        isLocal: 0,
+        deletedAt: null,
+        content: boundInboundContent(object.content),
+        summary: boundInboundSummary(object.summary),
+        attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
+        tagsJson: boundInboundTagsJson(object.tag),
+        visibility: "group",
+        audienceJson,
+        communityApId: null,
+        toJson: "[]",
+        ccJson: "[]",
+        conversation: null,
+        inReplyTo: null,
+        endTime: null,
+        updated: null,
+        published: normalizeInboundTimestamp(
+          object.published,
+          new Date().toISOString(),
+        ),
+        recipients: [{ recipientApId: community.apId, type: "audience" }],
+      };
+  base.communityAdmissions = communityAdmissions;
+  const projected = await foldAdmittedNoteUpdates(
+    db,
+    base,
+    window,
+    actorApIdStr,
+    baseUrl,
   );
-
-  // This is a federated room (group-CHAT) message, addressed to the community
-  // via the object_recipients audience link below. The chat reader and the
-  // chat unread count (communities/messages.ts, dm/contacts.ts) treat the chat
-  // object-set as audience-linked Notes with `communityApId IS NULL`, disjoint
-  // from the feed object-set (which carries `communityApId`). Leave
-  // `communityApId` NULL here so the message surfaces in the group chat and
-  // unread count rather than being misrouted into the community feed.
-  // The object and its audience membership are one logical message. Commit
-  // them atomically so an isolate failure cannot leave an invisible object;
-  // both statements are idempotent so a retry also repairs partial rows left by
-  // older deployments. Migration 0010 deliberately removed the incorrect
-  // object_recipients -> actors FK, so a community ap_id is valid here.
   try {
-    await runBatch(db, [
-      db
-        .insert(objects)
-        .values({
-          apId: newObjectId,
-          type: "Note",
-          attributedTo: actorApIdStr,
-          content: boundInboundContent(object.content),
-          summary: boundInboundSummary(object.summary),
-          attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
-          tagsJson: boundInboundTagsJson(object.tag),
-          visibility: "group",
-          // Record the community in audienceJson too (not just the
-          // object_recipients row): the canonical single-object read-gate
-          // (canViewerReadObject) keys on audienceJson/communityApId and does NOT
-          // consult object_recipients, so without this a federated chat message in
-          // a PRIVATE community was served to ANY caller via GET /api/posts/:id.
-          audienceJson,
-          communityApId: null,
-          published: now,
-          isLocal: 0,
-        })
-        .onConflictDoNothing(),
-      db
-        .insert(objectRecipients)
-        // Select from the object that ACTUALLY exists after the preceding insert,
-        // rather than trusting the attempted values. This closes the concurrent
-        // id-reuse race: if another community won the object-id insert, its
-        // different audience shape cannot be linked into this room.
-        .select(
-          db
-            .select({
-              objectApId: objects.apId,
-              recipientApId: sql<string>`${community.apId}`.as(
-                "recipient_ap_id",
-              ),
-              type: sql<string>`'audience'`.as("type"),
-              createdAt: sql<string>`${now}`.as("created_at"),
-            })
-            .from(objects)
-            .where(
-              and(
-                eq(objects.apId, newObjectId),
-                eq(objects.type, "Note"),
-                eq(objects.attributedTo, actorApIdStr),
-                eq(objects.visibility, "group"),
-                eq(objects.audienceJson, audienceJson),
-                isNull(objects.communityApId),
-                eq(objects.isLocal, 0),
-              ),
-            ),
-        )
-        .onConflictDoNothing(),
-    ]);
+    await commitNoteProjection(db, before, projected, window, {
+      activityId: activity.id,
+      countPost: false,
+    });
   } catch (error) {
-    if (!(error instanceof InboundObjectDeletionConflict)) throw error;
+    if (
+      (error instanceof InboundNoteUpdateConflict &&
+        (await hasTerminalNoteDeletion(db, actorApIdStr, objectId))) ||
+      error instanceof InboundObjectDeletionConflict
+    )
+      return;
+    throw error;
   }
 }
