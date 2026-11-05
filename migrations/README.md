@@ -16,6 +16,14 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration 0038 adds actor-bound terminal inbound object deletion receipts.
+It changes no existing data and infers no receipt from historical Activity rows.
+Apply it before serving the corresponding engine, with old writers closed.
+Once the new engine has accepted a terminal Delete, an older engine that ignores
+the receipts is not a safe runtime rollback. Preserve receipts and repair forward.
+See [inbound object deletion ordering](../docs/design/inbound-object-deletion-ordering.md)
+for identity, concurrent delivery, retention and qualification limits.
+
 Migration 0037 adds opt-in observed-message read receipts without modifying
 existing messages or timestamp read rows. It does not opt in any account or
 perform a global backfill. The serving engine must have the complete migration
