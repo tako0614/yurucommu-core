@@ -6,6 +6,8 @@ import {
   getTableColumns,
   isNull,
   ne,
+  notInArray,
+  or,
   sql,
   type SQL,
 } from "drizzle-orm";
@@ -18,6 +20,7 @@ import {
   notificationPushJobs,
   objectRecipients,
   objects,
+  type Database,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import {
@@ -30,7 +33,13 @@ import {
   type ChatAttachment,
   validateChatAttachments,
 } from "../../lib/attachments.ts";
-import { communityRequiresMembership } from "../../lib/community-visibility.ts";
+import {
+  communityRequiresMembership,
+  MEMBERSHIP_REQUIRED_VISIBILITIES,
+} from "../../lib/community-visibility.ts";
+import { admissionGuard } from "../../lib/account-deletion-admission.ts";
+import { bytesToHex } from "../../lib/hex.ts";
+import { createGuardedDatabase } from "../../../db/guarded-writes.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import {
   emitRealtimeBestEffort,
@@ -70,7 +79,8 @@ const messagesRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
  * Enforce post policy against the actor's membership and role.
  * Returns an error message string if denied, or null if allowed.
  *
- * This is a WRITE policy and must only gate POST/PATCH. Read access is
+ * This is the new-message WRITE policy. Existing author edits retain their
+ * read-access + authorship contract rather than requiring a new posting role. Read access is
  * governed separately by `checkReadAccess` (membership / `visibility`), so
  * that e.g. a `post_policy: "mods"` community does not lock ordinary members
  * out of reading channels they are entitled to see.
@@ -108,6 +118,210 @@ function checkReadAccess(
   if (!membership) return "Not a community member";
   return null;
 }
+
+/** The same current community membership rule as the chat reader. */
+function groupReadScope(
+  db: Database,
+  communityApId: string,
+  actorApId: string,
+) {
+  const member = db
+    .select({ id: communityMembers.actorApId })
+    .from(communityMembers)
+    .where(memberWhere(communityApId, actorApId));
+  const group = db
+    .select({ id: communities.apId })
+    .from(communities)
+    .where(
+      and(
+        eq(communities.apId, communityApId),
+        isNull(communities.deletedAt),
+        or(
+          isNull(communities.visibility),
+          notInArray(communities.visibility, [
+            ...MEMBERSHIP_REQUIRED_VISIBILITIES,
+          ]),
+          sql`EXISTS ${member}`,
+        ),
+      ),
+    );
+  return sql`EXISTS ${group}`;
+}
+
+function groupMessageScope(
+  db: Database,
+  id: string,
+  communityApId: string,
+  actorApId: string,
+) {
+  const addressed = db
+    .select({ id: objectRecipients.objectApId })
+    .from(objectRecipients)
+    .where(
+      and(
+        eq(objectRecipients.objectApId, objects.apId),
+        eq(objectRecipients.recipientApId, communityApId),
+        eq(objectRecipients.type, "audience"),
+      ),
+    );
+  return and(
+    eq(objects.apId, id),
+    eq(objects.type, "Note"),
+    isNull(objects.communityApId),
+    isNull(objects.deletedAt),
+    sql`EXISTS ${addressed}`,
+    groupReadScope(db, communityApId, actorApId),
+    operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
+  );
+}
+
+type OwnedGroupMessage = typeof objects.$inferSelect;
+class GroupMessageChangedError extends Error {}
+
+async function findOwnedGroupMessage(
+  c: Parameters<typeof fetchCommunityId>[0],
+  identifier: string,
+  id: string,
+  actorApId: string,
+) {
+  const db = c.get("db"),
+    { community } = await fetchCommunityId(c, identifier);
+  if (!community) return { error: "Community not found", status: 404 as const };
+  // Gate the selected payload in its actual SQL read, not only an earlier JS check.
+  const allowed = await db
+    .select({ allowed: groupReadScope(db, community.apId, actorApId) })
+    .from(communities)
+    .where(eq(communities.apId, community.apId))
+    .get();
+  if (!allowed?.allowed)
+    return { error: "Community is not readable", status: 403 as const };
+  const message = await db
+    .select()
+    .from(objects)
+    .where(groupMessageScope(db, id, community.apId, actorApId))
+    .get();
+  if (!message) {
+    const current = await db
+      .select({ allowed: groupReadScope(db, community.apId, actorApId) })
+      .from(communities)
+      .where(eq(communities.apId, community.apId))
+      .get();
+    return current?.allowed
+      ? { error: "owned_group_message_not_found", status: 404 as const }
+      : { error: "Community is not readable", status: 403 as const };
+  }
+  if (message.attributedTo !== actorApId)
+    return {
+      error: "Only the author can edit this message",
+      status: 403 as const,
+    };
+  return { message, communityApId: community.apId };
+}
+
+async function groupMessageRevision(
+  message: OwnedGroupMessage,
+  communityApId: string,
+) {
+  const value = JSON.stringify([
+    communityApId,
+    message.apId,
+    message.attributedTo,
+    message.content,
+    message.published,
+    message.updated,
+    message.attachmentsJson,
+    message.toJson,
+    message.ccJson,
+    message.audienceJson,
+    message.conversation,
+    message.visibility,
+    message.isLocal,
+  ]);
+  return (
+    "group-message-v1:" +
+    bytesToHex(
+      new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
+      ),
+    )
+  );
+}
+
+function guardGroupMessage(
+  db: Database,
+  message: OwnedGroupMessage,
+  communityApId: string,
+  actorApId: string,
+) {
+  const selected = db
+    .select({ id: objects.apId })
+    .from(objects)
+    .where(
+      and(
+        groupMessageScope(db, message.apId, communityApId, actorApId),
+        eq(objects.attributedTo, actorApId),
+        sql`${objects.content} IS ${message.content}`,
+        sql`${objects.published} IS ${message.published}`,
+        sql`${objects.updated} IS ${message.updated}`,
+        eq(objects.attachmentsJson, message.attachmentsJson),
+        eq(objects.toJson, message.toJson),
+        eq(objects.ccJson, message.ccJson),
+        eq(objects.audienceJson, message.audienceJson),
+        sql`${objects.conversation} IS ${message.conversation}`,
+        eq(objects.visibility, message.visibility),
+        eq(objects.isLocal, message.isLocal),
+      ),
+    );
+  return createGuardedDatabase(db, () =>
+    admissionGuard(
+      db,
+      sql`EXISTS ${selected}`,
+      () => new GroupMessageChangedError(),
+    ),
+  );
+}
+
+// Author-only exact readback, including messages outside the latest page.
+messagesRouter.get("/:identifier/messages/:messageId", async (c) => {
+  c.header("cache-control", "no-store");
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const found = await findOwnedGroupMessage(
+    c,
+    c.req.param("identifier"),
+    c.req.param("messageId"),
+    actor.ap_id,
+  );
+  if ("error" in found)
+    return c.json(
+      {
+        error: found.error,
+        ...(found.error === "owned_group_message_not_found"
+          ? { code: found.error }
+          : {}),
+      },
+      found.status,
+    );
+  const { message, communityApId } = found,
+    revision = await groupMessageRevision(message, communityApId);
+  c.header("etag", JSON.stringify(revision));
+  return c.json({
+    revision,
+    community_ap_id: communityApId,
+    message: {
+      id: message.apId,
+      content: message.content,
+      created_at: message.published,
+      attachments: safeJsonParse<ChatAttachment[]>(message.attachmentsJson, []),
+      sender: {
+        ap_id: actor.ap_id,
+        preferred_username: actor.preferred_username,
+        name: actor.name,
+        icon_url: actor.icon_url,
+      },
+    },
+  });
+});
 
 // GET /api/communities/:name/messages - Get chat messages
 messagesRouter.get("/:identifier/messages", async (c) => {
@@ -492,13 +706,8 @@ messagesRouter.patch("/:identifier/messages/:messageId", async (c) => {
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
   const identifier = c.req.param("identifier")!;
-  const messageId = decodeURIComponent(c.req.param("messageId")!);
+  const messageId = c.req.param("messageId")!;
   const db = c.get("db");
-
-  const { community } = await fetchCommunityId(c, identifier);
-  if (!community) {
-    return c.json({ error: "Community not found" }, 404);
-  }
 
   const body = await c.req.json<{ content: string }>();
   // Guard non-string content before .trim() (else TypeError → 500).
@@ -518,58 +727,41 @@ messagesRouter.patch("/:identifier/messages/:messageId", async (c) => {
     );
   }
 
-  // Check message exists and belongs to community (using raw SQL since ObjectRecipient FK expects Actor)
-  const recipientRows = await db.all<{ object_ap_id: string }>(sql`
-    SELECT object_ap_id FROM object_recipients
-    WHERE object_ap_id = ${messageId} AND recipient_ap_id = ${community.apId} AND type = 'audience'
-    LIMIT 1
-  `);
-  if (recipientRows.length === 0) {
-    return c.json({ error: "Message not found" }, 404);
-  }
-
-  const message = await db
-    .select({
-      apId: objects.apId,
-      attributedTo: objects.attributedTo,
-    })
-    .from(objects)
-    .where(eq(objects.apId, messageId))
-    .get();
-  if (!message) {
-    return c.json({ error: "Message not found" }, 404);
-  }
-
-  // Membership / read gate: a kicked or never-member actor must NOT mutate chat
-  // content. The author check below is not sufficient — a removed author keeps
-  // their message id + authorship and could otherwise keep rewriting a private
-  // community's history. Mirrors the GET reader (checkReadAccess) + POST gate.
-  const communityRow = await db
-    .select({ visibility: communities.visibility })
-    .from(communities)
-    .where(eq(communities.apId, community.apId))
-    .get();
-  const membership = await db
-    .select({ role: communityMembers.role })
-    .from(communityMembers)
-    .where(memberWhere(community.apId, actor.ap_id))
-    .get();
-  const readError = checkReadAccess(
-    communityRow?.visibility || "public",
-    membership ?? null,
+  const found = await findOwnedGroupMessage(
+    c,
+    identifier,
+    messageId,
+    actor.ap_id,
   );
-  if (readError) return c.json({ error: readError }, 403);
-
-  if (message.attributedTo !== actor.ap_id) {
-    return c.json({ error: "Only the author can edit this message" }, 403);
+  if ("error" in found) return c.json({ error: found.error }, found.status);
+  const { message, communityApId } = found,
+    revision = await groupMessageRevision(message, communityApId);
+  const header = c.req.header("if-match");
+  if (header !== undefined) {
+    if (!/^"group-message-v1:[a-f0-9]{64}"$/.test(header))
+      return c.json({ error: "Invalid If-Match" }, 400);
+    if (header !== JSON.stringify(revision))
+      return c.json({ error: "message_changed" }, 409);
   }
-
-  await db
-    .update(objects)
-    .set({ content, updated: new Date().toISOString() })
-    .where(eq(objects.apId, messageId));
-
-  return c.json({ success: true });
+  const now = new Date().toISOString();
+  try {
+    await guardGroupMessage(db, message, communityApId, actor.ap_id)
+      .update(objects)
+      .set({ content, updated: now })
+      .where(eq(objects.apId, messageId));
+  } catch (error) {
+    if (!(error instanceof GroupMessageChangedError)) throw error;
+    return c.json({ error: "message_changed" }, 409);
+  }
+  return c.json({
+    success: true,
+    community_ap_id: communityApId,
+    message: { id: messageId, content, updated_at: now },
+    revision: await groupMessageRevision(
+      { ...message, content, updated: now },
+      communityApId,
+    ),
+  });
 });
 
 // DELETE /api/communities/:identifier/messages/:messageId - Delete a message
