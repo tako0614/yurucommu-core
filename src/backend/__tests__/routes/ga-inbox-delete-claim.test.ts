@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 
 import {
+  type D1Statement,
   activities,
   actorCache,
   actors,
@@ -73,13 +74,17 @@ async function fixture() {
   });
   app.route("/", inboxRoutes);
   async function request(
-    type: "Create" | "Delete",
+    type: "Create" | "Update" | "Delete",
     shared = false,
     actor = AUTHOR,
+    wireId: string = type,
+    content = type === "Update"
+      ? "Updated while Delete waits"
+      : "Message before deletion",
   ) {
     const body = JSON.stringify({
       "@context": "https://www.w3.org/ns/activitystreams",
-      id: `${actor}/activities/${type}`,
+      id: `${actor}/activities/${wireId}`,
       type,
       actor,
       to: [LOCAL],
@@ -90,7 +95,7 @@ async function fixture() {
               id: OBJECT,
               type: "Note",
               attributedTo: actor,
-              content: "Message before deletion",
+              content,
               to: [LOCAL],
               cc: [],
               published: "2026-11-05T00:00:00.000Z",
@@ -121,6 +126,126 @@ async function fixture() {
   }
   return { ...f, request, deletion, dbErrors };
 }
+
+for (const replacementActor of [OTHER, AUTHOR]) {
+  test(`a stale signed Delete cannot remove the ${replacementActor === AUTHOR ? "same author changed-content" : "other author"} replacement or its projections`, async () => {
+    const f = await fixture();
+    const db = f.db as typeof f.db & {
+      batch(
+        statements: readonly [D1Statement, ...D1Statement[]],
+      ): Promise<unknown[]>;
+    };
+    const batch = db.batch.bind(db);
+    let injected = false;
+    let replacement: (typeof objects.$inferSelect)[] = [];
+    let recipients: (typeof objectRecipients.$inferSelect)[] = [];
+    let notifications: (typeof inbox.$inferSelect)[] = [];
+    try {
+      expect((await f.request("Create")).status).toBe(202);
+      db.batch = async (statements) => {
+        const cleanup = statements.some((statement) => {
+          const query = (
+            statement as unknown as { toSQL?: () => { sql: string } }
+          ).toSQL?.();
+          return query?.sql.startsWith('delete from "object_recipients"');
+        });
+        if (!injected && cleanup) {
+          injected = true;
+          expect(
+            (await f.request("Delete", false, AUTHOR, "second-delete")).status,
+          ).toBe(202);
+          expect(
+            (
+              await f.request(
+                "Create",
+                false,
+                replacementActor,
+                "replacement",
+                "New incarnation while Delete waits",
+              )
+            ).status,
+          ).toBe(202);
+          replacement = await db.select().from(objects);
+          recipients = await db.select().from(objectRecipients);
+          notifications = await db.select().from(inbox);
+          expect((await db.select().from(objects).get())?.attributedTo).toBe(
+            replacementActor,
+          );
+        }
+        return batch(statements);
+      };
+      const response = await f.request("Delete", false, AUTHOR, "first-delete");
+      expect(injected).toBe(true);
+      expect(replacement).toHaveLength(1);
+      expect(await db.select().from(objects)).toEqual(replacement);
+      expect(await db.select().from(objectRecipients)).toEqual(recipients);
+      expect(await db.select().from(inbox)).toEqual(notifications);
+      expect(response.status).toBe(503); // The competing Delete retired this dispatch's claim.
+      expect(
+        (await f.request("Delete", false, AUTHOR, "first-delete")).status,
+      ).toBe(202);
+      if (replacementActor === AUTHOR) {
+        expect(await db.select().from(objects)).toHaveLength(0);
+        expect(await db.select().from(objectRecipients)).toHaveLength(0);
+      } else {
+        expect(await db.select().from(objects)).toEqual(replacement);
+        expect(await db.select().from(objectRecipients)).toEqual(recipients);
+      }
+    } finally {
+      db.batch = batch;
+      f.client.close();
+    }
+  });
+}
+
+test("a signed Update at the cleanup boundary remains intact until Delete retries from the current source", async () => {
+  const f = await fixture();
+  const db = f.db as typeof f.db & {
+    batch(
+      statements: readonly [D1Statement, ...D1Statement[]],
+    ): Promise<unknown[]>;
+  };
+  const batch = db.batch.bind(db);
+  let injected = false;
+  let updated: (typeof objects.$inferSelect)[] = [];
+  let recipients: (typeof objectRecipients.$inferSelect)[] = [];
+  let notifications: (typeof inbox.$inferSelect)[] = [];
+  try {
+    expect((await f.request("Create")).status).toBe(202);
+    db.batch = async (statements) => {
+      const cleanup = statements.some((statement) =>
+        (statement as unknown as { toSQL?: () => { sql: string } })
+          .toSQL?.()
+          .sql.startsWith('delete from "object_recipients"'),
+      );
+      if (!injected && cleanup) {
+        injected = true;
+        expect(
+          (await f.request("Update", false, AUTHOR, "interleaved-update"))
+            .status,
+        ).toBe(202);
+        updated = await db.select().from(objects);
+        recipients = await db.select().from(objectRecipients);
+        notifications = await db.select().from(inbox);
+        expect((await db.select().from(objects).get())?.content).toBe(
+          "Updated while Delete waits",
+        );
+      }
+      return batch(statements);
+    };
+    expect((await f.request("Delete")).status).toBe(503);
+    expect(injected).toBe(true);
+    expect(await db.select().from(objects)).toEqual(updated);
+    expect(await db.select().from(objectRecipients)).toEqual(recipients);
+    expect(await db.select().from(inbox)).toEqual(notifications);
+    expect((await f.request("Delete")).status).toBe(202);
+    expect(await db.select().from(objects)).toHaveLength(0);
+    expect(await db.select().from(objectRecipients)).toHaveLength(0);
+  } finally {
+    db.batch = batch;
+    f.client.close();
+  }
+});
 
 for (const shared of [false, true]) {
   test(`signed ${shared ? "shared" : "user"} inbox Delete acknowledges its first completed effect and releases its own claim`, async () => {
