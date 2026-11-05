@@ -13,6 +13,7 @@ import {
   inboundNoteUpdateEvents,
   inboundNoteUpdateHeads,
   inbox,
+  mutes,
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
@@ -906,3 +907,340 @@ test("hidden shared-inbox fanout retains every signed recipient without reviving
     f.client.close();
   }
 });
+
+test("a parent reach revocation at the Update batch boundary cannot admit a stale reply", async () => {
+  const f = await fixture();
+  const parentId = HOST + "/ap/objects/actual-parent";
+  const db = f.db as typeof f.db & {
+    batch(
+      statements: readonly [D1Statement, ...D1Statement[]],
+    ): Promise<unknown[]>;
+  };
+  const batch = db.batch.bind(db);
+  let injected = false;
+  try {
+    await db.insert(objects).values({
+      apId: parentId,
+      type: "Note",
+      attributedTo: BOB,
+      isLocal: 1,
+      content: "Local parent",
+      visibility: "public",
+      toJson: JSON.stringify([PUBLIC]),
+    });
+    expect(
+      await canViewerReadObjectFull(
+        db,
+        (await db
+          .select()
+          .from(objects)
+          .where(eq(objects.apId, parentId))
+          .get())!,
+        AUTHOR,
+      ),
+    ).toBe(true);
+    expect((await f.request("Create", { to: [PUBLIC] })).status).toBe(202);
+    const before = await f.projection();
+    db.batch = async (statements) => {
+      const edits = statements.some((statement) => {
+        const query = (
+          statement as unknown as { toSQL?: () => { sql: string } }
+        ).toSQL?.().sql;
+        return (
+          query?.startsWith('update "objects"') && query.includes('"content" =')
+        );
+      });
+      if (!injected && edits) {
+        injected = true;
+        await db
+          .update(objects)
+          .set({ visibility: "direct", toJson: JSON.stringify([BOB]) })
+          .where(eq(objects.apId, parentId));
+      }
+      return batch(statements);
+    };
+    const patch = { inReplyTo: parentId, content: "New reply" };
+    const response = await f.request("Update", patch, "reply-update");
+    expect(injected).toBe(true);
+    expect(
+      await canViewerReadObjectFull(
+        db,
+        (await db
+          .select()
+          .from(objects)
+          .where(eq(objects.apId, parentId))
+          .get())!,
+        AUTHOR,
+      ),
+    ).toBe(false);
+    expect({
+      status: response.status,
+      projection: await f.projection(),
+    }).toEqual({ status: 503, projection: before });
+    expect(
+      (await db.select().from(inboundNoteUpdateHeads).get())?.appliedSequence,
+    ).toBe(0);
+    await db
+      .update(objects)
+      .set({ visibility: "public", toJson: JSON.stringify([PUBLIC]) })
+      .where(eq(objects.apId, parentId));
+    expect((await f.request("Update", patch, "reply-update")).status).toBe(202);
+    expect((await f.projection())?.inReplyTo).toBe(parentId);
+  } finally {
+    db.batch = batch;
+    f.client.close();
+  }
+});
+
+for (const initial of ["public", "missing"] as const) {
+  test(`a new signed reply fences its ${initial} parent until first exposure`, async () => {
+    const f = await fixture();
+    const parentId = HOST + "/ap/objects/create-parent";
+    const db = f.db as typeof f.db & {
+      batch(
+        statements: readonly [D1Statement, ...D1Statement[]],
+      ): Promise<unknown[]>;
+    };
+    const batch = db.batch.bind(db);
+    let injected = false;
+    try {
+      if (initial === "public")
+        await db.insert(objects).values({
+          apId: parentId,
+          type: "Note",
+          attributedTo: BOB,
+          isLocal: 1,
+          visibility: "public",
+        });
+      db.batch = async (statements) => {
+        const creates = statements.some((statement) =>
+          (statement as unknown as { toSQL?: () => { sql: string } })
+            .toSQL?.()
+            .sql.startsWith('insert into "objects"'),
+        );
+        if (!injected && creates) {
+          injected = true;
+          if (initial === "public")
+            await db
+              .update(objects)
+              .set({ visibility: "direct", toJson: JSON.stringify([BOB]) })
+              .where(eq(objects.apId, parentId));
+          else
+            await db.insert(objects).values({
+              apId: parentId,
+              type: "Note",
+              attributedTo: BOB,
+              isLocal: 1,
+              visibility: "direct",
+              toJson: JSON.stringify([BOB]),
+            });
+        }
+        return batch(statements);
+      };
+      const patch = { to: [PUBLIC], inReplyTo: parentId };
+      expect((await f.request("Create", patch, "racing-create")).status).toBe(
+        503,
+      );
+      expect(injected).toBe(true);
+      expect(await f.projection()).toBeNull();
+      expect(await db.select().from(inbox)).toHaveLength(0);
+      await db
+        .update(objects)
+        .set({ visibility: "public", toJson: JSON.stringify([PUBLIC]) })
+        .where(eq(objects.apId, parentId));
+      expect((await f.request("Create", patch, "racing-create")).status).toBe(
+        202,
+      );
+      expect((await f.projection())?.inReplyTo).toBe(parentId);
+    } finally {
+      db.batch = batch;
+      f.client.close();
+    }
+  });
+}
+
+for (const operation of ["Create", "Update"] as const) {
+  test(`a local owner's concurrent mute prevents ${operation} from exposing a stale projection`, async () => {
+    const f = await fixture();
+    const db = f.db as typeof f.db & {
+      batch(
+        statements: readonly [D1Statement, ...D1Statement[]],
+      ): Promise<unknown[]>;
+    };
+    const batch = db.batch.bind(db);
+    let injected = false;
+    try {
+      if (operation === "Update")
+        expect((await f.request("Create", { to: [PUBLIC] })).status).toBe(202);
+      const before = await f.projection();
+      db.batch = async (statements) => {
+        const writes = statements.some((statement) => {
+          const query = (
+            statement as unknown as { toSQL?: () => { sql: string } }
+          ).toSQL?.().sql;
+          return operation === "Create"
+            ? query?.startsWith('insert into "objects"')
+            : query?.startsWith('update "objects"') &&
+                query.includes('"content" =');
+        });
+        if (!injected && writes) {
+          injected = true;
+          await db
+            .insert(mutes)
+            .values({ muterApId: BOB, mutedApId: AUTHOR + "/#retained-alias" });
+        }
+        return batch(statements);
+      };
+      const patch = { to: [PUBLIC], content: "Concurrent write" };
+      expect((await f.request(operation, patch, "racing-mute")).status).toBe(
+        503,
+      );
+      expect(injected).toBe(true);
+      expect(await f.projection()).toEqual(before);
+      await db.delete(mutes);
+      expect((await f.request(operation, patch, "racing-mute")).status).toBe(
+        202,
+      );
+      expect((await f.projection())?.content).toBe("Concurrent write");
+    } finally {
+      db.batch = batch;
+      f.client.close();
+    }
+  });
+}
+
+test("a signed Create cannot attach a new reply to an already-deleted parent", async () => {
+  const f = await fixture();
+  try {
+    const parentId = HOST + "/ap/objects/deleted-parent";
+    await f.db.insert(objects).values({
+      apId: parentId,
+      type: "Note",
+      attributedTo: BOB,
+      isLocal: 1,
+      visibility: "public",
+      deletedAt: new Date().toISOString(),
+    });
+    expect(
+      (await f.request("Create", { to: [PUBLIC], inReplyTo: parentId })).status,
+    ).toBe(202);
+    expect(await f.projection()).toBeNull();
+    expect(await f.db.select().from(inbox)).toHaveLength(0);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("a body-only edit preserves an existing reply after its parent becomes unreadable", async () => {
+  const f = await fixture();
+  const parentId = HOST + "/ap/objects/retained-parent";
+  try {
+    await f.db.insert(objects).values({
+      apId: parentId,
+      type: "Note",
+      attributedTo: BOB,
+      isLocal: 1,
+      visibility: "public",
+    });
+    expect(
+      (await f.request("Create", { to: [PUBLIC], inReplyTo: parentId })).status,
+    ).toBe(202);
+    await f.db
+      .update(objects)
+      .set({ visibility: "direct", toJson: JSON.stringify([BOB]) })
+      .where(eq(objects.apId, parentId));
+    expect(
+      (
+        await f.request(
+          "Update",
+          { content: "Edit my own retained reply" },
+          "body-only",
+        )
+      ).status,
+    ).toBe(202);
+    expect((await f.projection())?.content).toBe("Edit my own retained reply");
+    expect((await f.projection())?.inReplyTo).toBe(parentId);
+    expect(
+      (
+        await f.request(
+          "Update",
+          { inReplyTo: parentId, content: "Must not re-admit the parent" },
+          "select-again",
+        )
+      ).status,
+    ).toBe(202);
+    expect((await f.projection())?.content).toBe("Edit my own retained reply");
+  } finally {
+    f.client.close();
+  }
+});
+
+for (const clear of [false, true]) {
+  test(`pending parent receipts ${clear ? "clear" : "replace across all sixteen updates"} before first exposure`, async () => {
+    const f = await fixture();
+    const db = f.db as typeof f.db & {
+      batch(
+        statements: readonly [D1Statement, ...D1Statement[]],
+      ): Promise<unknown[]>;
+    };
+    const batch = db.batch.bind(db);
+    let injected = false;
+    const parents = Array.from(
+      { length: clear ? 1 : 16 },
+      (_, i) => HOST + "/ap/objects/pending-parent-" + i,
+    );
+    try {
+      for (const [i, parentId] of parents.entries()) {
+        await db.insert(objects).values({
+          apId: parentId,
+          type: "Note",
+          attributedTo: BOB,
+          isLocal: 1,
+          visibility: "public",
+        });
+        expect(
+          (
+            await f.request(
+              "Update",
+              { inReplyTo: parentId, content: "Parent edit " + i },
+              "parent-edit-" + i,
+            )
+          ).status,
+        ).toBe(202);
+      }
+      if (clear)
+        expect(
+          (await f.request("Update", { inReplyTo: null }, "parent-clear"))
+            .status,
+        ).toBe(202);
+      const revoked = clear ? parents : parents.slice(0, -1);
+      db.batch = async (statements) => {
+        const creates = statements.some((statement) =>
+          (statement as unknown as { toSQL?: () => { sql: string } })
+            .toSQL?.()
+            .sql.startsWith('insert into "objects"'),
+        );
+        if (!injected && creates) {
+          injected = true;
+          for (const parentId of revoked)
+            await db
+              .update(objects)
+              .set({ visibility: "direct", toJson: JSON.stringify([BOB]) })
+              .where(eq(objects.apId, parentId));
+        }
+        return batch(statements);
+      };
+      expect((await f.request("Create", { to: [PUBLIC] })).status).toBe(202);
+      expect(injected).toBe(true);
+      expect((await f.projection())?.inReplyTo).toBe(
+        clear ? null : parents.at(-1)!,
+      );
+      expect((await f.projection())?.content).toBe(
+        "Parent edit " + (clear ? 0 : 15),
+      );
+    } finally {
+      db.batch = batch;
+      f.client.close();
+    }
+  });
+}

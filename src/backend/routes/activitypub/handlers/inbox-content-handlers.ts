@@ -43,6 +43,7 @@ import {
 } from "../inbound-addressing.ts";
 import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import { normalizeInboundTimestamp } from "./inbound-timestamp.ts";
+import { readInboundNoteParent } from "./inbound-note-parent-admission.ts";
 import {
   resolveInboundCommunityScope,
   type InboundCommunityAdmission,
@@ -524,16 +525,8 @@ async function createInboundObject(
   if (isDirectShapedNote(addressing) && !isDirectNote(addressing, recipient))
     return;
   if (await actorSuppressesInteractionFrom(db, recipient.apId, actor)) return;
-  const parent = parentId
-    ? await db.select().from(objects).where(eq(objects.apId, parentId)).get()
-    : null;
-  if (
-    parent &&
-    (!(await canViewerReadObjectFull(db, parent, actor)) ||
-      (isLocal(parent.attributedTo, baseUrl) &&
-        (await actorSuppressesInteractionFrom(db, parent.attributedTo, actor))))
-  )
-    return;
+  const parent = await readInboundNoteParent(db, parentId, actor, baseUrl);
+  if (!parent.allowed) return;
   const direct = isDirectNote(addressing, recipient);
   const audience = normalizedObjectAudience(activity, object);
   const communityAdmissions: InboundCommunityAdmission[] = [];
@@ -596,6 +589,8 @@ async function createInboundObject(
         ).map((recipientApId) => ({ recipientApId, type: "to" })),
       };
   base.communityAdmissions = communityAdmissions;
+  if (base.inReplyTo === parentId) base.parentAdmission = parent.admission;
+  base.recipientSuppressionOwner = recipient.apId;
   // An idempotent fan-out may repair this recipient only if the CURRENT Note
   // still grants them access. Old Create addressing cannot revive revoked reach.
   if (
@@ -889,8 +884,8 @@ const ANNOUNCED_OBJECT_FETCH_TIMEOUT_MS = 15_000;
  * single Announce therefore triggers at most one object fetch (plus a
  * best-effort author-profile cache fill), not a thread walk.
  *
- * Best-effort by contract: every failure returns false and the Announce is
- * dropped exactly as it was before this path existed.
+ * Unresolvable or inadmissible fetched documents return false. A persistence
+ * failure remains retryable and propagates to the normal inbox dispatcher.
  */
 export async function fetchAndPersistAnnouncedNote(
   db: Database,
@@ -974,38 +969,13 @@ export async function fetchAndPersistAnnouncedNote(
   // followers-only parent that its author cannot read. An unknown parent stays
   // unresolved (the one-fetch depth cap below); later parent arrival repairs
   // its derived counter through recomputeObjectReplyCount.
-  const parentObj = parentId
-    ? await db
-        .select({
-          apId: objects.apId,
-          attributedTo: objects.attributedTo,
-          visibility: objects.visibility,
-          toJson: objects.toJson,
-          ccJson: objects.ccJson,
-          audienceJson: objects.audienceJson,
-          communityApId: objects.communityApId,
-          type: objects.type,
-          endTime: objects.endTime,
-        })
-        .from(objects)
-        .where(eq(objects.apId, parentId))
-        .get()
-    : null;
-  if (parentId && parentObj) {
-    if (!(await canViewerReadObjectFull(db, parentObj, attributedTo))) {
-      return false;
-    }
-    if (
-      isLocal(parentObj.attributedTo, baseUrl) &&
-      (await actorSuppressesInteractionFrom(
-        db,
-        parentObj.attributedTo,
-        attributedTo,
-      ))
-    ) {
-      return false;
-    }
-  }
+  const parent = await readInboundNoteParent(
+    db,
+    parentId,
+    attributedTo,
+    baseUrl,
+  );
+  if (!parent.allowed) return false;
 
   // Best-effort author profile fill so the surfaced boost renders with the
   // author's name/icon. Cache-when-absent; a failure never blocks the persist.
@@ -1062,6 +1032,7 @@ export async function fetchAndPersistAnnouncedNote(
     recipients: [],
   };
   base.communityAdmissions = communityAdmissions;
+  if (base.inReplyTo === parentId) base.parentAdmission = parent.admission;
   const projected = await foldAdmittedNoteUpdates(
     db,
     base,

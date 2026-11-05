@@ -87,9 +87,29 @@ projection and leaves the event retryable. Witnesses from accepted patches
 are deduplicated per room and passed as one bounded JSON parameter, including
 when all sixteen pending patches select different communities. They are not
 stored in admitted patches and cannot replace actual database authority.
-The existing parent full-read and personal suppression checks still run during
-planning; this change does not serialize those separate policy rows in the
-projection batch. Their pre-existing concurrent-revocation race remains.
+New Note reply admissions retain the actual successful canonical parent read.
+The child batch checks the exact parent read projection, operator block
+absence, community resolution (including previously unknown audience IDs),
+the selected membership/Follow/hidden-recipient grant and non-owner Story
+expiry. A missing parent is admitted with an actual absence witness, so a
+parent appearing before commit forces a fresh decision. Deleted parents are
+rejected by Create as well as Update and fetched Note entrances.
+
+The same canonical identity SQL rechecks the local parent's owner block/mute,
+the routed Create recipient's suppression and the any-owner suppression check
+used by accepted Note edits. A revocation after planning rolls back body,
+reach, counters and the applied head; database errors remain retryable.
+Partial edits retain the currently selected parent receipt, replace it when
+selecting another parent and drop it on explicit clearing. Only the final
+parent is witnessed, rather than accumulating sixteen large read guards.
+The receipt uses one JSON parameter and fails without truncation when its
+serialized bytes exceed the [D1 bound-string limit](https://developers.cloudflare.com/d1/platform/limits/).
+These dependencies are ephemeral and are not minted from historical Activity
+JSON or supplied as external authorization. Existing unrelated parent body or
+counter edits do not invalidate a read grant. Other product writers and Story
+creation are outside this Note-admission batch boundary.
+Editing only the body of an existing reply does not select a new parent or
+reauthorize its historical link; that existing edit contract is unchanged.
 
 An Announce GET is an existence/creation baseline, not a signed instruction
 revoking an already accepted private Update. Matching-author/exact-object
