@@ -272,20 +272,23 @@ test("deleting a DM also removes its delivery activity + recipient inbox row (no
   );
   expect(delRes.status).toEqual(200);
 
-  // Object, delivery activity, AND inbox row are all gone — no orphan that the
+  // Object, old Create activity, AND inbox row are gone — no orphan that the
   // notifications query (LEFT JOIN to the now-missing object) would resurface
   // as a blank "mention" with a dead link.
   expect(
     (await db.select().from(objects).where(eq(objects.apId, dmApId))).length,
   ).toEqual(0);
-  expect(
-    (
-      await db
-        .select()
-        .from(activities)
-        .where(eq(activities.objectApId, dmApId))
-    ).length,
-  ).toEqual(0);
+  const retained = await db
+    .select()
+    .from(activities)
+    .where(eq(activities.objectApId, dmApId));
+  expect(retained.map((row) => row.type)).toEqual(["Delete"]);
+  expect(JSON.parse(retained[0]!.rawJson)).toMatchObject({
+    actor: senderApId,
+    type: "Delete",
+    to: [recipientApId],
+    object: { id: dmApId, type: "Tombstone" },
+  });
   expect(
     (await db.select().from(inbox).where(eq(inbox.actorApId, recipientApId)))
       .length,

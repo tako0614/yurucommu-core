@@ -12,7 +12,14 @@ import {
 import type { ApiReadOptions } from "./fetch.ts";
 import type { DMMessage, MediaAttachment } from "../../types/index.ts";
 import { normalizeActor } from "./normalize.ts";
-import { apiDelete, apiFetch, apiPost, assertOk } from "./fetch.ts";
+import {
+  ApiError,
+  apiDelete,
+  apiFetch,
+  apiPatch,
+  apiPost,
+  assertOk,
+} from "./fetch.ts";
 
 // Contact types for the unified DM view
 export interface DMContact {
@@ -210,6 +217,119 @@ export async function rejectPendingDMRequest(
   if (data.success !== true) {
     throw new InvalidApiResponseError("pending request rejection");
   }
+}
+
+export interface OwnedDMMessage {
+  message: Omit<DMMessage, "content"> & { content: string | null };
+  revision: string;
+}
+
+function ownedDmPath(messageId: string) {
+  if (!notificationTargetId(messageId))
+    throw new TypeError("Invalid owned DM ID");
+  return `/api/dm/messages/${encodeURIComponent(messageId)}`;
+}
+
+function ownedDmRevision(value: unknown): string {
+  if (typeof value !== "string" || !/^dm-v1:[a-f0-9]{64}$/.test(value)) {
+    throw new InvalidApiResponseError("owned DM revision");
+  }
+  return value;
+}
+
+/** Null means the supported owner reader cannot currently expose this DM. */
+export async function fetchOwnedDMMessage(
+  messageId: string,
+  options?: ApiReadOptions,
+): Promise<OwnedDMMessage | null> {
+  const res = await apiFetch(ownedDmPath(messageId), options);
+  try {
+    await assertOk(res, "Failed to read owned DM");
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      error.status === 404 &&
+      error.code === "owned_dm_not_found"
+    )
+      return null;
+    throw error; // An older host's missing route is not proof of deletion.
+  }
+  const data = await readResponseJson(res),
+    item = responseObject(data.message, "message");
+  validateMessage({
+    ...item,
+    content: item.content === null ? "" : item.content,
+  });
+  if (item.id !== messageId)
+    throw new InvalidApiResponseError("owned DM identity");
+  return {
+    message: {
+      ...item,
+      sender: normalizeActor(item.sender as DMMessage["sender"]),
+    } as OwnedDMMessage["message"],
+    revision: ownedDmRevision(data.revision),
+  };
+}
+
+export async function editOwnedDMMessage(
+  messageId: string,
+  content: string,
+  revision: string,
+  options?: ApiReadOptions,
+) {
+  const path = ownedDmPath(messageId);
+  if (
+    typeof content !== "string" ||
+    !content.trim() ||
+    content.trim().length > 5000
+  )
+    throw new TypeError("Invalid owned DM content");
+  const expected = ownedDmRevision(revision);
+  const res = await apiPatch(
+    path,
+    { content },
+    {
+      ...options,
+      headers: {
+        "if-match": JSON.stringify(expected),
+        "content-type": "application/json",
+      },
+    },
+  );
+  await assertOk(res, "Failed to edit owned DM");
+  const data = await readResponseJson(res),
+    message = responseObject(data.message, "message");
+  if (
+    data.success !== true ||
+    message.id !== messageId ||
+    message.content !== content.trim() ||
+    typeof message.updated_at !== "string" ||
+    !Number.isFinite(Date.parse(message.updated_at))
+  ) {
+    throw new InvalidApiResponseError("owned DM edit acknowledgment");
+  }
+  return {
+    id: messageId,
+    content: message.content as string,
+    updated_at: message.updated_at,
+    revision: ownedDmRevision(data.revision),
+  };
+}
+
+export async function deleteOwnedDMMessage(
+  messageId: string,
+  revision: string,
+  options?: ApiReadOptions,
+): Promise<void> {
+  const path = ownedDmPath(messageId),
+    expected = ownedDmRevision(revision);
+  const res = await apiDelete(path, undefined, {
+    ...options,
+    headers: { "if-match": JSON.stringify(expected) },
+  });
+  await assertOk(res, "Failed to delete owned DM");
+  if ((await readResponseJson(res)).success !== true)
+    throw new InvalidApiResponseError("owned DM deletion acknowledgment");
 }
 
 // User-based DM endpoints (no conversation creation needed)
