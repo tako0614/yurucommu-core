@@ -113,6 +113,75 @@ type ActorRow = typeof actors.$inferSelect;
 
 class InboundNoteIdentityConflict extends Error {}
 
+class InboundDeleteSourceChanged extends Error {
+  constructor() {
+    super("Inbound object changed during Delete");
+    this.name = "InboundDeleteSourceChanged";
+  }
+}
+
+type InboundDeleteSource = Pick<
+  typeof objects.$inferSelect,
+  | "apId"
+  | "attributedTo"
+  | "type"
+  | "isLocal"
+  | "content"
+  | "summary"
+  | "attachmentsJson"
+  | "inReplyTo"
+  | "conversation"
+  | "visibility"
+  | "toJson"
+  | "ccJson"
+  | "audienceJson"
+  | "tagsJson"
+  | "communityApId"
+  | "endTime"
+  | "published"
+  | "updated"
+  | "deletedAt"
+>;
+
+function guardInboundObjectDelete(
+  db: Database,
+  source: InboundDeleteSource,
+): Database {
+  const current = db
+    .select({ id: objects.apId })
+    .from(objects)
+    .where(
+      and(
+        eq(objects.apId, source.apId),
+        eq(objects.attributedTo, source.attributedTo),
+        eq(objects.type, source.type),
+        eq(objects.isLocal, source.isLocal),
+        eq(objects.content, source.content),
+        sql`${objects.summary} IS ${source.summary}`,
+        eq(objects.attachmentsJson, source.attachmentsJson),
+        sql`${objects.inReplyTo} IS ${source.inReplyTo}`,
+        sql`${objects.conversation} IS ${source.conversation}`,
+        eq(objects.visibility, source.visibility),
+        eq(objects.toJson, source.toJson),
+        eq(objects.ccJson, source.ccJson),
+        eq(objects.audienceJson, source.audienceJson),
+        eq(objects.tagsJson, source.tagsJson),
+        sql`${objects.communityApId} IS ${source.communityApId}`,
+        sql`${objects.endTime} IS ${source.endTime}`,
+        eq(objects.published, source.published),
+        sql`${objects.updated} IS ${source.updated}`,
+        sql`${objects.deletedAt} IS ${source.deletedAt}`,
+      ),
+    );
+  return createGuardedDatabase(db, () =>
+    admissionGuard(
+      db,
+      sql`EXISTS ${current}`,
+      () => new InboundDeleteSourceChanged(),
+    ),
+  );
+}
+
 /** An idempotent Create may repair projections only for its retained author. */
 function guardInboundNoteCreate(
   db: Database,
@@ -1552,7 +1621,7 @@ async function handleRemoteActorDelete(
 }
 
 export async function handleDelete(c: ActivityContext, activity: Activity) {
-  const db = c.get("db");
+  const sourceDb = c.get("db");
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
@@ -1565,12 +1634,28 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
     return;
   }
 
-  const delObj = await db
+  const delObj = await sourceDb
     .select({
+      apId: objects.apId,
       attributedTo: objects.attributedTo,
       type: objects.type,
+      isLocal: objects.isLocal,
+      content: objects.content,
+      summary: objects.summary,
+      attachmentsJson: objects.attachmentsJson,
       replyCount: objects.replyCount,
       inReplyTo: objects.inReplyTo,
+      conversation: objects.conversation,
+      visibility: objects.visibility,
+      toJson: objects.toJson,
+      ccJson: objects.ccJson,
+      audienceJson: objects.audienceJson,
+      tagsJson: objects.tagsJson,
+      communityApId: objects.communityApId,
+      endTime: objects.endTime,
+      published: objects.published,
+      updated: objects.updated,
+      deletedAt: objects.deletedAt,
     })
     .from(objects)
     .where(eq(objects.apId, objectId))
@@ -1599,6 +1684,8 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
     });
     return;
   }
+
+  const db = guardInboundObjectDelete(sourceDb, delObj);
 
   // Delete every child row keyed by this object before the object row itself.
   // FK ON DELETE CASCADE is not reliably enforced on every runtime/connection
@@ -1652,7 +1739,7 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
   // Irreversible R2 purge LAST — after the objects row is gone. On the queue-
   // backed inbox path a failure here is also self-healing: a Delete retry
   // re-runs, finds no media_uploads rows, and proceeds.
-  await purgeMediaBlobs(db, c.env.MEDIA, mediaKeys);
+  await purgeMediaBlobs(sourceDb, c.env.MEDIA, mediaKeys);
 }
 
 // ---------------------------------------------------------------------------

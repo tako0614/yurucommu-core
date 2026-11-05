@@ -1,4 +1,5 @@
-import { test } from "bun:test";
+import { expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
 
 import { assertSpyCalls, spy } from "#test/mock";
 import {
@@ -9,7 +10,21 @@ import type {
   Activity,
   ActivityContext,
 } from "../../../../routes/activitypub/inbox-types.ts";
-import type { actors } from "../../../../../db/index.ts";
+import {
+  actors,
+  objects,
+  likes,
+  announces,
+  bookmarks,
+  objectRecipients,
+  storyViews,
+  storyVotes,
+  storyShares,
+  activities,
+  inbox,
+  inboundActivityClaims,
+} from "../../../../../db/index.ts";
+import { createTestDb } from "../../../helpers/d1-semantics.ts";
 
 type ActorRow = typeof actors.$inferSelect;
 
@@ -253,48 +268,122 @@ test("userInboxHandlers hardening - handleLike treats unique conflicts as idempo
 });
 
 test("userInboxHandlers hardening - handleDelete performs dependent deletes and counter update", async () => {
-  const { db } = createMockDb({
-    selectResults: [
+  // The atomic owner assertion requires a real batch result, not a mock that
+  // merely counts builder calls. Keep the original child/counter contract and
+  // observe its actual database effects under the owning runtime semantics.
+  const { db, client } = await createTestDb();
+  const origin = "https://example.com",
+    author = origin + "/ap/users/alice",
+    bob = origin + "/ap/users/bob";
+  const id = origin + "/ap/objects/note-3",
+    other = origin + "/ap/objects/unrelated",
+    create = origin + "/ap/activities/create-1";
+  try {
+    for (const apId of [author, bob])
+      await db.insert(actors).values({
+        apId,
+        preferredUsername: apId.split("/").at(-1)!,
+        inbox: apId + "/inbox",
+        outbox: apId + "/outbox",
+        followersUrl: apId + "/followers",
+        followingUrl: apId + "/following",
+        publicKeyPem: "unit-unused",
+        privateKeyPem: "unit-unused",
+        postCount: 1,
+      });
+    await db.insert(objects).values([
       {
-        attributedTo: "https://example.com/ap/users/alice",
+        apId: id,
+        attributedTo: author,
         type: "Note",
-        replyCount: 0,
+        content: "Target",
+        isLocal: 1,
       },
       {
-        apId: "https://example.com/ap/objects/note-3",
-        attributedTo: "https://example.com/ap/users/alice",
-        attachmentsJson: "[]",
+        apId: other,
+        attributedTo: bob,
+        type: "Note",
+        content: "Unrelated",
+        isLocal: 1,
       },
-    ],
-  });
-
-  const context = createMockContext(db);
-
-  const activity: Activity = {
-    id: "https://example.com/ap/activities/delete-1",
-    type: "Delete",
-    actor: "https://example.com/ap/users/alice",
-    object: "https://example.com/ap/objects/note-3",
-  };
-
-  await handleDelete(context, activity);
-
-  // Verify select was called 9 times: once in handleDelete (lookup object
-  // owner/type), once for the cascade's object/attachment snapshot, and eight
-  // Activity-id subqueries for the complete durable projection cleanup
-  // (push/archive/claim/endpoint delivery/resolution/two fanout keys/inbox).
-  assertSpyCalls(db.select, 10);
-  // Verify delete was called for the full object cascade (likes, announces,
-  // bookmarks, object_recipients, story_views, story_votes, story_shares) + the
-  // eight durable Activity projections + the objects row itself = 16. The
-  // cascade now runs for every object type via the shared helper so no child,
-  // stale delivery, or dangling notification rows are orphaned.
-  assertSpyCalls(db.delete, 16);
-  // One batch commits the fifteen child/projection deletes; the handler's
-  // second batch co-commits the object row with its counter transition.
-  assertSpyCalls(db.batch, 2);
-  // Verify update was called (actor postCount decrement)
-  assertSpyCalls(db.update, 1);
+    ]);
+    await db.insert(likes).values([
+      { actorApId: bob, objectApId: id },
+      { actorApId: author, objectApId: other },
+    ]);
+    await db.insert(announces).values({ actorApId: bob, objectApId: id });
+    await db.insert(bookmarks).values({ actorApId: bob, objectApId: id });
+    await db
+      .insert(objectRecipients)
+      .values({ objectApId: id, recipientApId: bob, type: "to" });
+    await db.insert(storyViews).values({ actorApId: bob, storyApId: id });
+    await db
+      .insert(storyVotes)
+      .values({ id: "vote", actorApId: bob, storyApId: id, optionIndex: 0 });
+    await db
+      .insert(storyShares)
+      .values({ id: "share", actorApId: bob, storyApId: id });
+    await db.insert(activities).values({
+      apId: create,
+      type: "Create",
+      actorApId: author,
+      objectApId: id,
+      rawJson: "{}",
+      direction: "inbound",
+      processed: 1,
+    });
+    await db.insert(inbox).values({ actorApId: bob, activityApId: create });
+    await db.insert(inboundActivityClaims).values({ activityApId: create });
+    const untouched = await db
+      .select()
+      .from(objects)
+      .where(eq(objects.apId, other));
+    const context = {
+      get: (key: string) => (key === "db" ? db : null),
+      env: { APP_URL: origin },
+    } as unknown as ActivityContext;
+    await handleDelete(context, {
+      id: origin + "/ap/activities/delete-1",
+      type: "Delete",
+      actor: author,
+      object: id,
+    } as Activity);
+    expect(
+      await db.select().from(objects).where(eq(objects.apId, id)),
+    ).toHaveLength(0);
+    expect(
+      await db.select().from(likes).where(eq(likes.objectApId, id)),
+    ).toHaveLength(0);
+    for (const table of [
+      announces,
+      bookmarks,
+      objectRecipients,
+      storyViews,
+      storyVotes,
+      storyShares,
+      inbox,
+      inboundActivityClaims,
+    ]) {
+      expect(await db.select().from(table)).toHaveLength(0);
+    }
+    expect(
+      (await db.select().from(actors).where(eq(actors.apId, author)).get())
+        ?.postCount,
+    ).toBe(0);
+    expect(
+      (await db.select().from(actors).where(eq(actors.apId, bob)).get())
+        ?.postCount,
+    ).toBe(1);
+    expect(
+      await db.select().from(objects).where(eq(objects.apId, other)),
+    ).toEqual(untouched);
+    expect(
+      await db.select().from(likes).where(eq(likes.objectApId, other)),
+    ).toHaveLength(1);
+    expect(await db.select().from(activities)).toHaveLength(1);
+  } finally {
+    client.close();
+  }
 });
 
 /** Helper: assert a spy was called at least once */
