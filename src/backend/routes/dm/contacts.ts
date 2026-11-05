@@ -103,81 +103,64 @@ contacts.get("/contacts", async (c) => {
     pairKey,
   );
 
-  // Get read status for all conversations
-  const readStatuses = await db
-    .select()
-    .from(dmReadStatus)
-    .where(eq(dmReadStatus.actorApId, actor.ap_id));
-  const readStatusMap = new Map(
-    readStatuses.map((r) => [r.conversationId, r.lastReadAt]),
-  );
-
-  // Calculate unread counts for each conversation using batch query
-  const conversationIds = [
-    ...new Set(
-      [...conversationMap.values()].map((value) => value.conversation),
-    ),
-  ];
+  // Read baselines in the grouped query, not an actor-wide metadata array or
+  // one request for every distinct timestamp. Keep the viewer in the join:
+  // another actor's baseline must never clear this actor's unread count.
+  const selectedPairs = [...conversationMap.values()];
   const unreadCounts = new Map<string, number>();
 
-  if (conversationIds.length > 0) {
-    // Group conversations by their lastReadAt time for efficient querying
-    const lastReadAtMap = new Map<string, string[]>();
-    for (const convId of conversationIds) {
-      const lastReadAt = readStatusMap.get(convId) || "1970-01-01T00:00:00Z";
-      const convIds = lastReadAtMap.get(lastReadAt) || [];
-      convIds.push(convId);
-      lastReadAtMap.set(lastReadAt, convIds);
-    }
-
-    await Promise.all(
-      Array.from(lastReadAtMap.entries()).map(async ([lastReadAt, convIds]) => {
-        // Chunk the IN(...) lookup: the contact list keeps up to 2000
-        // conversations and a single lastReadAt bucket can hold all of them,
-        // while D1 caps a query at 100 bound parameters. Each conversation is in
-        // exactly one bucket and one chunk, so the per-chunk count is complete
-        // and `.set` is collision-free (no summing across chunks).
-        for (const chunk of chunkForInClause(convIds, 75)) {
-          const unreadMessages = await db
-            .select({
-              conversation: objects.conversation,
-              sender: objects.attributedTo,
-              count: count(),
-            })
-            .from(objects)
-            .where(
-              and(
-                inArray(objects.conversation, chunk),
-                eq(objects.visibility, "direct"),
-                eq(objects.type, "Note"),
-                ne(objects.attributedTo, actor.ap_id),
-                inArray(objects.apId, recipientObjectIds(db, actor.ap_id)),
-                unreadTalkObjectSql(
-                  "user",
-                  sql`${actor.ap_id}`,
-                  sql`${objects.attributedTo}`,
-                  sql`${objects.conversation}`,
-                  sql`''`,
-                  sql`${objects.published}`,
-                  sql`${objects.apId}`,
-                  sql`${lastReadAt}`,
-                ),
-                operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
-              ),
-            )
-            .groupBy(objects.conversation, objects.attributedTo);
-
-          for (const msg of unreadMessages) {
-            if (msg.conversation) {
-              unreadCounts.set(
-                pairKey(msg.conversation, msg.sender),
-                msg.count,
-              );
-            }
-          }
-        }
-      }),
+  // One bounded JSON parameter keeps both keys without doubling D1's bind
+  // count. Restrict the aggregate to selected pairs: a legacy ID alone could
+  // materialize every sender sharing it outside the page. IN builds the pair
+  // set once instead of rescanning a shared thread for each JSON peer row.
+  for (const chunk of chunkForInClause(selectedPairs, 75)) {
+    const pairs = JSON.stringify(
+      chunk.map((pair) => [pair.conversation, pair.otherApId]),
     );
+    const unreadMessages = await db
+      .select({
+        conversation: objects.conversation,
+        sender: objects.attributedTo,
+        count: count(),
+      })
+      .from(objects)
+      .leftJoin(
+        dmReadStatus,
+        and(
+          eq(dmReadStatus.actorApId, actor.ap_id),
+          eq(dmReadStatus.conversationId, objects.conversation),
+        ),
+      )
+      .where(
+        and(
+          sql`(${objects.conversation}, ${objects.attributedTo}) IN (
+                  SELECT json_extract(selected_pair.value, '$[0]'), json_extract(selected_pair.value, '$[1]')
+                  FROM json_each(${pairs}) selected_pair
+                )`,
+          eq(objects.visibility, "direct"),
+          eq(objects.type, "Note"),
+          ne(objects.attributedTo, actor.ap_id),
+          inArray(objects.apId, recipientObjectIds(db, actor.ap_id)),
+          unreadTalkObjectSql(
+            "user",
+            sql`${actor.ap_id}`,
+            sql`${objects.attributedTo}`,
+            sql`${objects.conversation}`,
+            sql`''`,
+            sql`${objects.published}`,
+            sql`${objects.apId}`,
+            sql`COALESCE(NULLIF(${dmReadStatus.lastReadAt}, ''), '1970-01-01T00:00:00Z')`,
+          ),
+          operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
+        ),
+      )
+      .groupBy(objects.conversation, objects.attributedTo);
+
+    for (const msg of unreadMessages) {
+      if (msg.conversation) {
+        unreadCounts.set(pairKey(msg.conversation, msg.sender), msg.count);
+      }
+    }
   }
 
   const otherApIds = uniqueValues(conversationMap, (c) => c.otherApId);

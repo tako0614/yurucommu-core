@@ -95,6 +95,17 @@ conversation alone do not authorize deleting a message addressed to someone else
 The request count is computed by a SQL aggregate over incoming pairs with
 indexed reply existence checks, not a JavaScript list of all sent history.
 
+Contact unread counts query only the selected `(conversation, peer)` page in
+chunks of 75 pairs, with one JSON parameter per chunk. The 2,000-pair page
+therefore needs at most 27 unread aggregate queries regardless of how many
+different legacy read timestamps it contains. Each query joins the viewer's
+indexed legacy baseline and retains the exact-mode receipt predicate; another
+actor's baseline cannot affect the count. Orphan read metadata is neither
+materialized nor pruned by GET. Pair-set membership also prevents unrelated
+senders sharing a historical ID from expanding aggregate results beyond the
+page. This bounds round-trips and returned metadata, not production D1 history
+scan time, latency or capacity.
+
 The migration preserves every old conversation-wide archive row unchanged and
 creates no expansion markers. GET remains read-only. On an explicit archive or
 unarchive, a single guarded batch seeds the old marker's currently indexed

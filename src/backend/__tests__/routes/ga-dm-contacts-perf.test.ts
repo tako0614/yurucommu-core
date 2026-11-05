@@ -153,6 +153,263 @@ async function countRows(db: Database, table: string): Promise<number> {
   return row?.c ?? 0;
 }
 
+async function unreadContactWorkload(threads: number, orphanStatuses: number) {
+  const fixture = await createTestDb();
+  const { db } = fixture;
+  const viewer = await insertLocalActor(db, "viewer");
+  const peer = await insertLocalActor(db, "peer");
+  await db.run(sql`
+    INSERT INTO objects (ap_id, type, attributed_to, content, to_json, visibility, conversation, published)
+    WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < ${threads})
+    SELECT ${APP_URL} || '/ap/objects/unread-' || n, 'Note', ${peer}, 'message-' || n,
+      json_array(${viewer}), 'direct', 'thread-' || n, '2024-01-01T00:00:02Z' FROM seq
+  `);
+  await db.run(sql`
+    INSERT INTO object_recipients (object_ap_id, recipient_ap_id, type)
+    SELECT ap_id, ${viewer}, 'to' FROM objects
+  `);
+  await db.run(sql`
+    INSERT INTO dm_read_status (actor_ap_id, conversation_id, last_read_at)
+    WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < ${threads})
+    SELECT ${viewer}, 'thread-' || n,
+      CASE WHEN n % 2 = 0 THEN '2024-01-01T00:00:03.' ELSE '2024-01-01T00:00:01.' END
+        || printf('%06d', n) || 'Z' FROM seq
+  `);
+  // A join that forgets the viewer predicate must not borrow these baselines.
+  await db.run(sql`
+    INSERT INTO dm_read_status (actor_ap_id, conversation_id, last_read_at)
+    SELECT ${peer}, conversation_id, '2099-01-01T00:00:00Z'
+    FROM dm_read_status WHERE actor_ap_id = ${viewer}
+  `);
+  if (orphanStatuses > 0) {
+    await db.run(sql`
+      INSERT INTO dm_read_status (actor_ap_id, conversation_id, last_read_at)
+      WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < ${orphanStatuses})
+      SELECT ${viewer}, 'orphan-' || n, '2099-01-01T00:00:00Z' FROM seq
+    `);
+  }
+  expect(await countRows(db, "objects")).toBe(threads);
+  expect(await countRows(db, "dm_read_status")).toBe(
+    threads * 2 + orphanStatuses,
+  );
+  return { ...fixture, viewer, peer };
+}
+
+async function measuredContacts(
+  fixture: Awaited<ReturnType<typeof unreadContactWorkload>>,
+) {
+  const { db, client, viewer } = fixture;
+  const execute = client.execute,
+    batch = client.batch;
+  const metrics = { statements: 0, rows: 0, readStatusRows: 0, maxParams: 0 };
+  const observe = (
+    statement: InStatement,
+    result: Awaited<ReturnType<typeof execute>>,
+    args?: InArgs,
+  ) => {
+    metrics.statements++;
+    metrics.rows += result.rows.length;
+    metrics.maxParams = Math.max(
+      metrics.maxParams,
+      Object.keys((typeof statement === "string" ? args : statement.args) ?? {})
+        .length,
+    );
+    if (
+      result.columns.includes("last_read_at") &&
+      result.columns.includes("conversation_id")
+    ) {
+      metrics.readStatusRows += result.rows.length;
+    }
+  };
+  client.execute = async (statement: InStatement, args?: InArgs) => {
+    const result =
+      typeof statement === "string"
+        ? await execute(statement, args)
+        : await execute(statement);
+    observe(statement, result, args);
+    return result;
+  };
+  client.batch = async (...args: Parameters<typeof batch>) => {
+    const results = await batch(...args);
+    results.forEach((result, index) => {
+      const statement = args[0][index]!;
+      if (Array.isArray(statement)) observe(statement[0], result, statement[1]);
+      else observe(statement, result);
+    });
+    return results;
+  };
+  try {
+    const response = await getContacts(
+      appWith(db, fakeActor(viewer, "viewer")),
+      db,
+    );
+    return { response, metrics };
+  } finally {
+    client.execute = execute;
+    client.batch = batch;
+  }
+}
+
+test("101 distinct read baselines keep contact queries and returned metadata bounded", async () => {
+  const fixture = await unreadContactWorkload(101, 1000);
+  try {
+    const { response, metrics } = await measuredContacts(fixture);
+    expect(response.mutual_followers).toHaveLength(101);
+    expect(
+      new Set(response.mutual_followers.map((row) => row.conversation_id)).size,
+    ).toBe(101);
+    for (const row of response.mutual_followers) {
+      const index = Number(row.conversation_id.slice("thread-".length));
+      expect(row.unread_count).toBe(index % 2);
+    }
+    expect(
+      response.mutual_followers.reduce(
+        (sum, row) => sum + row.unread_count!,
+        0,
+      ),
+    ).toBe(51);
+    expect(metrics.statements).toBeLessThanOrEqual(20);
+    expect(metrics.readStatusRows).toBeLessThanOrEqual(101);
+    expect(metrics.maxParams).toBeLessThanOrEqual(100);
+    expect(await countRows(fixture.db, "dm_read_status")).toBe(1202);
+  } finally {
+    fixture.client.close();
+  }
+});
+
+test("2000 distinct read baselines stay bounded with 10000 unrelated status rows", async () => {
+  const fixture = await unreadContactWorkload(2000, 10000);
+  try {
+    const { response, metrics } = await measuredContacts(fixture);
+    expect(response.mutual_followers).toHaveLength(2000);
+    expect(
+      new Set(response.mutual_followers.map((row) => row.conversation_id)).size,
+    ).toBe(2000);
+    for (const row of response.mutual_followers) {
+      const index = Number(row.conversation_id.slice("thread-".length));
+      expect(row.unread_count).toBe(index % 2);
+    }
+    expect(
+      response.mutual_followers.reduce(
+        (sum, row) => sum + row.unread_count!,
+        0,
+      ),
+    ).toBe(1000);
+    expect(metrics.statements).toBeLessThanOrEqual(50);
+    expect(metrics.readStatusRows).toBeLessThanOrEqual(2000);
+    expect(metrics.maxParams).toBeLessThanOrEqual(100);
+    expect(await countRows(fixture.db, "dm_read_status")).toBe(14000);
+  } finally {
+    fixture.client.close();
+  }
+});
+
+test("legacy collisions do not materialize unread groups outside the selected contact page", async () => {
+  const fixture = await unreadContactWorkload(1, 0);
+  const { db, viewer } = fixture;
+  try {
+    // Remove only this fixture's initial note; keep the synthetic identities.
+    await db.run(sql`DELETE FROM object_recipients`);
+    await db.run(sql`DELETE FROM objects`);
+    await db.run(sql`
+      INSERT INTO objects (ap_id, type, attributed_to, content, to_json, visibility, conversation, published)
+      WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 6000)
+      SELECT ${APP_URL} || '/ap/objects/collision-' || n, 'Note', 'https://legacy.test/users/peer-' || n,
+        'message-' || n, json_array(${viewer}), 'direct', 'colliding-legacy',
+        '2024-01-01T00:00:02.' || printf('%06d', n) || 'Z' FROM seq
+    `);
+    await db.run(sql`
+      INSERT INTO object_recipients (object_ap_id, recipient_ap_id, type)
+      SELECT ap_id, ${viewer}, 'to' FROM objects
+    `);
+    expect(await countRows(db, "objects")).toBe(6000);
+    const { response, metrics } = await measuredContacts(fixture);
+    expect(response.mutual_followers).toHaveLength(2000);
+    const peers = response.mutual_followers.map((row) => row.ap_id!);
+    expect(new Set(peers).size).toBe(2000);
+    expect(peers).toContain("https://legacy.test/users/peer-6000");
+    expect(peers).toContain("https://legacy.test/users/peer-4001");
+    expect(peers).not.toContain("https://legacy.test/users/peer-4000");
+    for (const row of response.mutual_followers)
+      expect(row.unread_count).toBe(1);
+    expect(metrics.statements).toBeLessThanOrEqual(100);
+    expect(metrics.rows).toBeLessThanOrEqual(4100);
+    expect(metrics.maxParams).toBeLessThanOrEqual(100);
+  } finally {
+    fixture.client.close();
+  }
+});
+
+test("bounded contact counts preserve observed late arrivals and the legacy empty baseline", async () => {
+  const fixture = await unreadContactWorkload(2, 0);
+  const { db, viewer, peer } = fixture;
+  try {
+    await db.run(sql`UPDATE objects SET published = '2024-01-01T00:00:04Z'
+      WHERE ap_id = ${`${APP_URL}/ap/objects/unread-2`}`);
+    await db.run(sql`UPDATE dm_read_status SET last_read_at = ''
+      WHERE actor_ap_id = ${viewer} AND conversation_id = 'thread-1'`);
+    const app = appWith(db, fakeActor(viewer, "viewer"));
+    const path = `${APP_URL}/user/${encodeURIComponent(peer)}/read-observed`;
+    const initialized = await app.fetch(
+      new Request(path + "/init", { method: "POST" }),
+      envFor(db),
+    );
+    expect(initialized.status).toBe(200);
+    const acknowledged = await app.fetch(
+      new Request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message_ids: [`${APP_URL}/ap/objects/unread-2`],
+        }),
+      }),
+      envFor(db),
+    );
+    expect(acknowledged.status).toBe(200);
+    await insertDm(
+      db,
+      peer,
+      viewer,
+      "thread-1",
+      "pre-epoch",
+      "1969-01-01T00:00:00Z",
+    );
+    await insertDm(
+      db,
+      peer,
+      viewer,
+      "thread-2",
+      "late-a",
+      "2024-01-01T00:00:00Z",
+    );
+    await insertDm(
+      db,
+      peer,
+      viewer,
+      "thread-2",
+      "late-b",
+      "2024-01-01T00:00:00Z",
+    );
+    const { response, metrics } = await measuredContacts(fixture);
+    expect(
+      Object.fromEntries(
+        response.mutual_followers.map((row) => [
+          row.conversation_id,
+          row.unread_count,
+        ]),
+      ),
+    ).toEqual({
+      "thread-1": 1,
+      "thread-2": 2,
+    });
+    expect(metrics.statements).toBeLessThanOrEqual(20);
+    expect(metrics.maxParams).toBeLessThanOrEqual(100);
+    expect(await countRows(db, "dm_read_status")).toBe(4);
+  } finally {
+    fixture.client.close();
+  }
+});
+
 test("contacts lists conversations found via the object_recipients index (recipient + author)", async () => {
   const db = await freshDb();
   const viewer = await insertLocalActor(db, "viewer");
