@@ -7,6 +7,10 @@ import { mediaReferenceError } from "../../lib/errors.ts";
 import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
+  hasObservedReads,
+  partnerObservedReadIds,
+} from "../../lib/talk-read-receipts.ts";
+import {
   activities,
   actorCache,
   actors,
@@ -172,6 +176,7 @@ function buildSenderFromActor(actor: {
 async function fetchAuthorizedMessages(
   db: Database,
   actorApId: string,
+  otherApId: string,
   conversationId: string,
   limit: number,
   before: string | undefined,
@@ -186,8 +191,14 @@ async function fetchAuthorizedMessages(
     eq(objects.type, "Note"),
     eq(objects.conversation, conversationId),
     or(
-      eq(objects.attributedTo, actorApId),
-      inArray(objects.apId, recipientObjectIds(db, actorApId)),
+      and(
+        eq(objects.attributedTo, actorApId),
+        inArray(objects.apId, recipientObjectIds(db, otherApId)),
+      ),
+      and(
+        eq(objects.attributedTo, otherApId),
+        inArray(objects.apId, recipientObjectIds(db, actorApId)),
+      ),
     ),
   );
 
@@ -285,6 +296,7 @@ function formatMessages(
 async function fetchAndFormatMessages(
   db: Database,
   actorApId: string,
+  otherApId: string,
   conversationId: string,
   limit: number,
   before: string | undefined,
@@ -292,6 +304,7 @@ async function fetchAndFormatMessages(
   const { rows, hasMore } = await fetchAuthorizedMessages(
     db,
     actorApId,
+    otherApId,
     conversationId,
     limit,
     before,
@@ -393,6 +406,7 @@ dm.get("/user/:encodedApId/messages", async (c) => {
   const { messages, hasMore } = await fetchAndFormatMessages(
     db,
     actor.ap_id,
+    otherApId,
     conversationId,
     limit,
     before,
@@ -413,11 +427,28 @@ dm.get("/user/:encodedApId/messages", async (c) => {
     )
     .get();
 
+  const partnerScope = {
+    viewer: otherApId,
+    kind: "user" as const,
+    target: actor.ap_id,
+    thread: conversationId,
+    epoch: "",
+  };
+  const partnerExact = await hasObservedReads(db, partnerScope);
+
   return c.json({
     messages,
     conversation_id: conversationId,
     has_more: hasMore,
-    partner_last_read_at: partnerRead?.lastReadAt ?? null,
+    partner_last_read_at: partnerExact
+      ? null
+      : (partnerRead?.lastReadAt ?? null),
+    partner_read_message_ids: await partnerObservedReadIds(
+      db,
+      partnerScope,
+      messages.map((message) => message.id),
+    ),
+    read_observed: { version: 1, max_ids: 50 },
   });
 });
 

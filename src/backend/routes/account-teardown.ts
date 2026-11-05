@@ -29,9 +29,13 @@ import {
   communityJoinRequests,
   communityMembers,
   dmArchivedConversations,
+  dmPeerArchivedConversations,
+  dmArchiveExpansions,
   dmCommunityReadStatus,
   dmReadStatus,
   dmTyping,
+  talkReadModes,
+  talkMessageReads,
   follows,
   inbox,
   likes,
@@ -491,6 +495,14 @@ export async function teardownActor(
   await db.delete(storyViews).where(eq(storyViews.actorApId, apId));
 
   // Per-actor DM status metadata (no FK cascade).
+  await db
+    .delete(dmPeerArchivedConversations)
+    .where(eq(dmPeerArchivedConversations.actorApId, apId));
+  await db
+    .delete(dmArchiveExpansions)
+    .where(eq(dmArchiveExpansions.actorApId, apId));
+  await db.delete(talkMessageReads).where(eq(talkMessageReads.actorApId, apId));
+  await db.delete(talkReadModes).where(eq(talkReadModes.actorApId, apId));
   await db.delete(dmReadStatus).where(eq(dmReadStatus.actorApId, apId));
   await db
     .delete(dmCommunityReadStatus)

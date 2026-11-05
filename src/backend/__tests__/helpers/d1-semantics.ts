@@ -347,6 +347,7 @@ function enforceD1Semantics(client: Client): Client {
   // private fields. It is intentionally NOT parameter-checked: a migration
   // script binds no parameters.
   wrapped.executeMultiple = client.executeMultiple.bind(client);
+  wrapped.close = client.close.bind(client);
 
   return wrapped;
 }

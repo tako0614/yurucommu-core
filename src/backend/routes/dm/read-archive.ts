@@ -1,16 +1,37 @@
 // DM read status and archive management
 
 import { Hono } from "hono";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import type { Context } from "hono";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import {
   communities,
   communityMembers,
-  dmArchivedConversations,
   dmCommunityReadStatus,
   dmReadStatus,
   objects,
 } from "../../../db/index.ts";
 import { resolveConversationId } from "./query-helpers.ts";
+import {
+  peerArchivedSql,
+  otherParticipantSql,
+  setPeerArchived,
+} from "../../lib/talk-peer-archives.ts";
+import { isActorBlockedStrict } from "../../lib/blocklist.ts";
+import {
+  BodyTooLargeError,
+  capRequestBodyStream,
+} from "../../middleware/body-limit.ts";
+import {
+  acknowledgeObservedReads,
+  ambiguousLegacyThreadSql,
+  applyLegacyTalkRead,
+  hasObservedReads,
+  initializeObservedReads,
+  MAX_OBSERVED_READ_IDS,
+  ObservedReadConflict,
+  parseObservedReadIds,
+  type TalkReadScope,
+} from "../../lib/talk-read-receipts.ts";
 import {
   emitRealtimeBestEffort,
   emitUnreadSnapshot,
@@ -28,6 +49,110 @@ import {
 } from "./conversations-helpers.ts";
 
 const readArchive = new Hono<HonoEnv>();
+
+async function observedScope(
+  c: Context<HonoEnv>,
+): Promise<TalkReadScope | Response> {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const db = c.get("db");
+  const target = parseOtherApId(c);
+  if (!target) return c.json({ error: "ap_id required" }, 400);
+  const kind = c.req.param("kind");
+  if (kind === "user") {
+    if (await isActorBlockedStrict(db, target))
+      return c.json({ error: "User not found" }, 404);
+    return {
+      viewer: actor.ap_id,
+      kind,
+      target,
+      epoch: "",
+      thread: await resolveConversationId(
+        db,
+        c.env.APP_URL,
+        actor.ap_id,
+        target,
+      ),
+    };
+  }
+  if (kind !== "community") return c.json({ error: "Not found" }, 404);
+  const community = await db
+    .select({ apId: communities.apId })
+    .from(communities)
+    .where(and(eq(communities.apId, target), isNull(communities.deletedAt)))
+    .get();
+  if (!community) return c.json({ error: "Community not found" }, 404);
+  const member = await db
+    .select({ joinedAt: communityMembers.joinedAt })
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.communityApId, target),
+        eq(communityMembers.actorApId, actor.ap_id),
+      ),
+    )
+    .get();
+  if (!member) return c.json({ error: "Not a community member" }, 403);
+  return {
+    viewer: actor.ap_id,
+    kind,
+    target,
+    thread: target,
+    epoch: member.joinedAt,
+  };
+}
+
+readArchive.post("/:kind/:encodedApId/read-observed/init", async (c) => {
+  const scope = await observedScope(c);
+  if (scope instanceof Response) return scope;
+  try {
+    await initializeObservedReads(c.get("db"), scope);
+  } catch (error) {
+    if (error instanceof ObservedReadConflict)
+      return c.json({ error: error.message }, 409);
+    throw error;
+  }
+  return c.json({
+    success: true,
+    read_observed: { version: 1, max_ids: MAX_OBSERVED_READ_IDS },
+  });
+});
+
+readArchive.post("/:kind/:encodedApId/read-observed", async (c) => {
+  const scope = await observedScope(c);
+  if (scope instanceof Response) return scope;
+  let text: string;
+  try {
+    text = await capRequestBodyStream(c.req.raw, 32768).text();
+  } catch (error) {
+    if (error instanceof BodyTooLargeError)
+      return c.json({ error: "Observed read body too large" }, 413);
+    throw error;
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+  const ids = parseObservedReadIds(body);
+  if (!ids)
+    return c.json(
+      { error: `Expected 1-${MAX_OBSERVED_READ_IDS} unique message_ids` },
+      400,
+    );
+  try {
+    await acknowledgeObservedReads(c.get("db"), scope, ids);
+  } catch (error) {
+    if (error instanceof ObservedReadConflict)
+      return c.json({ error: error.message }, 409);
+    throw error;
+  }
+  await runRealtimeAfterResponse(c, () =>
+    emitUnreadSnapshot(c.env, scope.viewer),
+  );
+  return c.json({ success: true, message_ids: ids });
+});
 
 // Mark conversation as read
 readArchive.post("/user/:encodedApId/read", async (c) => {
@@ -47,32 +172,44 @@ readArchive.post("/user/:encodedApId/read", async (c) => {
   );
   const now = new Date().toISOString();
 
-  await db
-    .insert(dmReadStatus)
-    .values({
-      actorApId: actor.ap_id,
-      conversationId,
-      lastReadAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [dmReadStatus.actorApId, dmReadStatus.conversationId],
-      set: { lastReadAt: now },
-    });
+  const scope: TalkReadScope = {
+    viewer: actor.ap_id,
+    kind: "user",
+    target: otherApId,
+    thread: conversationId,
+    epoch: "",
+  };
+  await applyLegacyTalkRead(
+    db,
+    scope,
+    db
+      .insert(dmReadStatus)
+      .select(
+        sql`SELECT ${actor.ap_id}, ${conversationId}, ${now} WHERE NOT ${ambiguousLegacyThreadSql(scope)}`,
+      )
+      .onConflictDoUpdate({
+        target: [dmReadStatus.actorApId, dmReadStatus.conversationId],
+        set: { lastReadAt: now },
+      }),
+    now,
+  );
+  const exact = await hasObservedReads(db, scope);
 
   // Live read receipt for the partner's open thread + refreshed unread badge
   // for the reader's OTHER tabs/devices.
   await runRealtimeAfterResponse(c, async () => {
-    await emitRealtimeBestEffort(c.env, [
-      {
-        actorApId: otherApId,
-        type: "talk.read",
-        data: {
-          other_ap_id: actor.ap_id,
-          conversation_id: conversationId,
-          last_read_at: now,
+    if (!exact)
+      await emitRealtimeBestEffort(c.env, [
+        {
+          actorApId: otherApId,
+          type: "talk.read",
+          data: {
+            other_ap_id: actor.ap_id,
+            conversation_id: conversationId,
+            last_read_at: now,
+          },
         },
-      },
-    ]);
+      ]);
     await emitUnreadSnapshot(c.env, actor.ap_id);
   });
 
@@ -105,7 +242,10 @@ readArchive.post("/community/:encodedApId/read", async (c) => {
   // unread baseline is meaningless for non-members and would let an arbitrary
   // actor write read-status rows for communities they cannot see.
   const membership = await db
-    .select({ actorApId: communityMembers.actorApId })
+    .select({
+      actorApId: communityMembers.actorApId,
+      joinedAt: communityMembers.joinedAt,
+    })
     .from(communityMembers)
     .where(
       and(
@@ -117,27 +257,42 @@ readArchive.post("/community/:encodedApId/read", async (c) => {
   if (!membership) return c.json({ error: "Not a community member" }, 403);
 
   const now = new Date().toISOString();
-  await db
-    .insert(dmCommunityReadStatus)
-    .values({
-      actorApId: actor.ap_id,
-      communityApId,
-      lastReadAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [
-        dmCommunityReadStatus.actorApId,
-        dmCommunityReadStatus.communityApId,
-      ],
-      set: { lastReadAt: now },
-    });
+  const scope: TalkReadScope = {
+    viewer: actor.ap_id,
+    kind: "community",
+    target: communityApId,
+    thread: communityApId,
+    epoch: membership.joinedAt,
+  };
+  await applyLegacyTalkRead(
+    db,
+    scope,
+    db
+      .insert(dmCommunityReadStatus)
+      .values({
+        actorApId: actor.ap_id,
+        communityApId,
+        lastReadAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          dmCommunityReadStatus.actorApId,
+          dmCommunityReadStatus.communityApId,
+        ],
+        set: { lastReadAt: now },
+      }),
+    now,
+  );
 
   // Refresh the reader's unread badge on their other tabs/devices.
   await runRealtimeAfterResponse(c, () =>
     emitUnreadSnapshot(c.env, actor.ap_id),
   );
 
-  return c.json({ success: true, last_read_at: now });
+  return c.json({
+    success: true,
+    last_read_at: now,
+  });
 });
 
 // Archive a conversation (hide from inbox)
@@ -150,9 +305,8 @@ readArchive.post("/user/:encodedApId/archive", async (c) => {
   if (!otherApId) return c.json({ error: "ap_id required" }, 400);
 
   const baseUrl = c.env.APP_URL;
-  // Match the STORED conversation id (legacy- or current-scheme) so archiving a
-  // pre-migration conversation actually hides it (the contacts/unread paths key
-  // on the same stored id) instead of writing a never-matching current-scheme row.
+  // Preserve the stored ID as provenance, while peer identity prevents an old
+  // collision from hiding another participant's conversation.
   const conversationId = await resolveConversationId(
     db,
     baseUrl,
@@ -161,14 +315,24 @@ readArchive.post("/user/:encodedApId/archive", async (c) => {
   );
   const now = new Date().toISOString();
 
-  await db
-    .insert(dmArchivedConversations)
-    .values({
-      actorApId: actor.ap_id,
-      conversationId,
-      archivedAt: now,
-    })
-    .onConflictDoNothing();
+  try {
+    await setPeerArchived(
+      db,
+      {
+        viewer: actor.ap_id,
+        kind: "user",
+        target: otherApId,
+        thread: conversationId,
+        epoch: "",
+      },
+      true,
+      now,
+    );
+  } catch (error) {
+    if (error instanceof ObservedReadConflict)
+      return c.json({ error: error.message }, 409);
+    throw error;
+  }
 
   return c.json({ success: true, archived_at: now });
 });
@@ -190,14 +354,24 @@ readArchive.delete("/user/:encodedApId/archive", async (c) => {
     otherApId,
   );
 
-  await db
-    .delete(dmArchivedConversations)
-    .where(
-      and(
-        eq(dmArchivedConversations.actorApId, actor.ap_id),
-        eq(dmArchivedConversations.conversationId, conversationId),
-      ),
+  try {
+    await setPeerArchived(
+      db,
+      {
+        viewer: actor.ap_id,
+        kind: "user",
+        target: otherApId,
+        thread: conversationId,
+        epoch: "",
+      },
+      false,
+      new Date().toISOString(),
     );
+  } catch (error) {
+    if (error instanceof ObservedReadConflict)
+      return c.json({ error: error.message }, 409);
+    throw error;
+  }
 
   return c.json({ success: true });
 });
@@ -208,36 +382,35 @@ readArchive.get("/archived", async (c) => {
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
 
-  const archivedConversations = await db
-    .select({
-      conversationId: dmArchivedConversations.conversationId,
-      archivedAt: dmArchivedConversations.archivedAt,
-    })
-    .from(dmArchivedConversations)
-    .where(eq(dmArchivedConversations.actorApId, actor.ap_id));
-
-  if (archivedConversations.length === 0) {
-    return c.json({ archived: [] });
-  }
-
-  const archivedSet = new Set(
-    archivedConversations.map((a) => a.conversationId),
-  );
+  const other = otherParticipantSql(sql`${actor.ap_id}`);
 
   const dmObjects = await db
     .select({
       conversation: objects.conversation,
       attributedTo: objects.attributedTo,
       toJson: objects.toJson,
-      published: objects.published,
+      published: sql<string>`MAX(${objects.published})`,
     })
     .from(objects)
-    .where(dmWhereForActor(db, actor.ap_id)!)
-    .orderBy(desc(objects.published))
+    .where(
+      and(
+        dmWhereForActor(db, actor.ap_id),
+        peerArchivedSql(
+          sql`${actor.ap_id}`,
+          other,
+          sql`${objects.conversation}`,
+        ),
+      ),
+    )
+    .groupBy(objects.conversation, other)
+    .orderBy(desc(sql`MAX(${objects.published})`))
     .limit(2000);
 
-  const conversationMap = groupConversations(dmObjects, actor.ap_id, (id) =>
-    archivedSet.has(id),
+  const conversationMap = groupConversations(
+    dmObjects,
+    actor.ap_id,
+    () => true,
+    (id, peer) => JSON.stringify([id, peer]),
   );
 
   const otherApIds = uniqueValues(conversationMap, (c) => c.otherApId);

@@ -237,13 +237,22 @@ messagesRouter.get("/:identifier/messages", async (c) => {
         eq(communityMembers.actorApId, dmCommunityReadStatus.actorApId),
       ),
     )
-    .where(eq(dmCommunityReadStatus.communityApId, community.apId))
+    .where(
+      and(
+        eq(dmCommunityReadStatus.communityApId, community.apId),
+        sql`NOT EXISTS (
+      SELECT 1 FROM talk_read_modes mode WHERE mode.actor_ap_id = ${dmCommunityReadStatus.actorApId}
+        AND mode.kind = 'community' AND mode.target_ap_id = ${community.apId}
+        AND mode.thread_id = ${community.apId} AND mode.epoch = ${communityMembers.joinedAt})`,
+      ),
+    )
     .orderBy(desc(dmCommunityReadStatus.lastReadAt))
     .limit(MAX_COMMUNITY_READ_STATES);
 
   return c.json({
     messages: result,
     has_more: hasMore,
+    read_observed: { version: 1, max_ids: 50 },
     read_states: readStates.map((r) => ({
       actor_ap_id: r.actorApId,
       last_read_at: r.lastReadAt,

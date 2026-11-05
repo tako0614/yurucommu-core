@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { createTestDb } from "../helpers/d1-semantics.ts";
+import type { InArgs, InStatement } from "@libsql/client";
 /**
  * GA #20 regression: GET /dm/contacts must enumerate conversations and count
  * pending requests via the indexed `object_recipients` link (not an unindexable
@@ -15,10 +16,7 @@ import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 
 import { sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actorCache, actors, objects } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -26,23 +24,8 @@ import { blockDomain } from "../../lib/blocklist.ts";
 import dmRoutes from "../../routes/dm/conversations.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0004_blocklist.sql",
-  "0006_dm_community_read_status.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
-
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  await client.execute("PRAGMA foreign_keys = OFF");
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const migration = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(migration);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function localApId(username: string): string {
@@ -215,6 +198,56 @@ test("request_count counts incoming conversations the viewer has not replied to"
   const data = await getContacts(app, db);
 
   expect(data.request_count).toEqual(1);
+});
+
+test("one incoming request does not materialize unrelated outgoing peer pairs", async () => {
+  const { db, client } = await createTestDb();
+  const execute = client.execute;
+  try {
+    const viewer = await insertLocalActor(db, "viewer");
+    const pending = await insertLocalActor(db, "pending");
+    await insertDm(
+      db,
+      pending,
+      viewer,
+      "pending-thread",
+      "incoming",
+      "2024-01-01T00:00:01Z",
+    );
+    await db.run(sql`INSERT INTO objects (ap_id, attributed_to, type, visibility, conversation, to_json, published)
+      WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 128)
+      SELECT 'https://yuru.test/ap/objects/out-' || n, ${viewer}, 'Note', 'direct', 'out-' || n,
+        json_array('https://unrelated.test/users/' || n), '2024-01-01T00:00:00Z' FROM seq`);
+    await db.run(sql`INSERT INTO object_recipients (object_ap_id, recipient_ap_id, type)
+      SELECT ap_id, json_extract(to_json, '$[0]'), 'to' FROM objects WHERE instr(ap_id, 'https://yuru.test/ap/objects/out-') = 1`);
+    let unrelatedPairsReturned = 0;
+    client.execute = async (statement: InStatement, args?: InArgs) => {
+      const result =
+        typeof statement === "string"
+          ? await execute(statement, args)
+          : await execute(statement);
+      // Observe actual driver rows unchanged. Contact rows are legitimate UI
+      // data; an outgoing pair list for request counting is not needed here.
+      if (
+        result.columns.includes("conversation") &&
+        result.columns.includes("recipient_ap_id")
+      ) {
+        unrelatedPairsReturned += result.rows.filter((row) =>
+          String(row.conversation).startsWith("out-"),
+        ).length;
+      }
+      return result;
+    };
+    const response = await getContacts(
+      appWith(db, fakeActor(viewer, "viewer")),
+      db,
+    );
+    expect(response.request_count).toBe(1);
+    expect(unrelatedPairsReturned).toBe(0);
+  } finally {
+    client.execute = execute;
+    client.close();
+  }
 });
 
 test("unread_count reflects messages from others after the read baseline", async () => {

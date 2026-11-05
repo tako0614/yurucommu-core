@@ -16,7 +16,7 @@ import {
   actors,
   announces,
   bookmarks,
-  dmArchivedConversations,
+  dmPeerArchivedConversations,
   inbox as inboxTable,
   likes,
   mediaUploads,
@@ -381,7 +381,7 @@ test("POST /requests/reject drains more than one D1-safe object page", async () 
   ).toHaveLength(0);
 });
 
-test("archive keys on the STORED (legacy-scheme) conversation id, not the recomputed one", async () => {
+test("peer archive retains the STORED legacy conversation id rather than a recomputed one", async () => {
   const db = await freshDb();
   const alice = await insertLocalActor(db, "alice");
   const carol = await insertLocalActor(db, "carol");
@@ -406,17 +406,26 @@ test("archive keys on the STORED (legacy-scheme) conversation id, not the recomp
   );
   expect(res.status).toEqual(200);
 
-  // The archive row matches the STORED legacy conversation, so contacts/unread
-  // (which key on the same stored id) actually hide it.
+  // The peer key isolates collisions, while preserving the STORED legacy
+  // conversation as provenance. It must not substitute a current-scheme ID.
   const archived = await db
     .select()
-    .from(dmArchivedConversations)
+    .from(dmPeerArchivedConversations)
     .where(
       and(
-        eq(dmArchivedConversations.actorApId, alice),
-        eq(dmArchivedConversations.conversationId, legacyConv),
+        eq(dmPeerArchivedConversations.actorApId, alice),
+        eq(dmPeerArchivedConversations.targetApId, carol),
+        eq(dmPeerArchivedConversations.conversationId, legacyConv),
       ),
     )
     .get();
   expect(archived).toBeDefined();
+  const contacts = await appWith(db, fakeActor(alice, "alice")).fetch(
+    new Request(`${APP_URL}/contacts`),
+    envFor(db),
+  );
+  expect(
+    ((await contacts.json()) as { mutual_followers: unknown[] })
+      .mutual_followers,
+  ).toEqual([]);
 });

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 /**
  * Regression tests for the YURU-APP findings fix wave:
  *
@@ -18,10 +18,6 @@ import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
-
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
@@ -46,25 +42,8 @@ import postsAggregator from "../../routes/posts.ts";
 import storyInteractionRoutes from "../../routes/stories/interactions.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0004_blocklist.sql",
-  // The community chat reader returns per-member read positions, so the group
-  // read-status table must exist for the messages routes under test.
-  "0006_dm_community_read_status.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
-
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function localApId(username: string): string {

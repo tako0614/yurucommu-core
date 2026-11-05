@@ -5,6 +5,7 @@
  */
 
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -12,6 +13,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 import { nowIso, nowIsoUtc } from "./date-utils.ts";
 
 // ---------------------------------------------------------------------------
@@ -325,6 +327,59 @@ export const dmCommunityReadStatus = sqliteTable(
   ],
 );
 
+// Exact receipts are opt-in per viewer and peer, rather than keyed solely by
+// legacy conversation IDs (which could collide). A group epoch is joined_at;
+// receipts from a previous membership must never initialize a new membership.
+export const talkReadModes = sqliteTable(
+  "talk_read_modes",
+  {
+    actorApId: text("actor_ap_id").notNull(),
+    kind: text("kind", { enum: ["user", "community"] }).notNull(),
+    targetApId: text("target_ap_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    epoch: text("epoch").notNull(),
+    startedAt: text("started_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.actorApId, t.kind, t.targetApId] })],
+);
+
+export const talkMessageReads = sqliteTable(
+  "talk_message_reads",
+  {
+    actorApId: text("actor_ap_id").notNull(),
+    kind: text("kind", { enum: ["user", "community"] }).notNull(),
+    targetApId: text("target_ap_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    epoch: text("epoch").notNull(),
+    objectApId: text("object_ap_id").notNull(),
+    readAt: text("read_at").notNull(),
+  },
+  (t) => [
+    primaryKey({
+      columns: [
+        t.actorApId,
+        t.kind,
+        t.targetApId,
+        t.threadId,
+        t.epoch,
+        t.objectApId,
+      ],
+    }),
+    index("talk_message_reads_object_idx").on(t.objectApId),
+  ],
+);
+
+// One short-lived SQL CHECK assertion in the same atomic batch as the write.
+// A rejected assertion rolls everything back; successful batches remove it.
+export const talkReadAssertions = sqliteTable(
+  "talk_read_assertions",
+  {
+    id: text("id").primaryKey(),
+    valid: integer("valid").notNull(),
+  },
+  (t) => [check("talk_read_assertion_valid", sql`${t.valid} = 1`)],
+);
+
 // ---------------------------------------------------------------------------
 // DM_ARCHIVED_CONVERSATIONS
 // ---------------------------------------------------------------------------
@@ -340,6 +395,30 @@ export const dmArchivedConversations = sqliteTable(
     primaryKey({ columns: [t.actorApId, t.conversationId] }),
     index("dm_archived_conversations_actor_idx").on(t.actorApId),
   ],
+);
+
+// Peer identity remains unambiguous when historical conversation IDs collide.
+// Original coarse archive rows are retained; an expansion marker selects the
+// peer-specific state only after an explicit authenticated archive operation.
+export const dmPeerArchivedConversations = sqliteTable(
+  "dm_peer_archived_conversations",
+  {
+    actorApId: text("actor_ap_id").notNull(),
+    targetApId: text("target_ap_id").notNull(),
+    conversationId: text("conversation_id").notNull(),
+    archivedAt: text("archived_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.actorApId, t.targetApId] })],
+);
+
+export const dmArchiveExpansions = sqliteTable(
+  "dm_archive_expansions",
+  {
+    actorApId: text("actor_ap_id").notNull(),
+    conversationId: text("conversation_id").notNull(),
+    expandedAt: text("expanded_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.actorApId, t.conversationId] })],
 );
 
 // ---------------------------------------------------------------------------
