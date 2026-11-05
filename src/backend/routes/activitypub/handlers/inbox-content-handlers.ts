@@ -1605,7 +1605,9 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
   // (D1 ignores PRAGMA foreign_keys), so cascade explicitly to avoid orphans.
   // Covers likes/announces/bookmarks/object_recipients/story_* in one place,
   // shared with the local DELETE /posts/:id path.
-  const mediaKeys = await deleteObjectCascade(db, objectId, c.env.MEDIA);
+  const mediaKeys = await deleteObjectCascade(db, objectId, c.env.MEDIA, {
+    preserveInboundClaimActivityApId: activity.id,
+  });
 
   // #3 (atomicity + idempotency): the object-row delete and the counter
   // decrements MUST commit together. Previously the row was deleted and the

@@ -33,7 +33,10 @@ import {
   storyViews,
   storyVotes,
 } from "../../../db/index.ts";
-import { activityProjectionDeleteStatements } from "../../lib/activity-delete-cascade.ts";
+import {
+  activityProjectionDeleteStatements,
+  type ActivityProjectionDeleteOptions,
+} from "../../lib/activity-delete-cascade.ts";
 import {
   claimedMediaDeletionKeys,
   mediaDeletionIntentForKey,
@@ -45,6 +48,11 @@ type CascadeObject = {
   attributedTo: string;
   attachmentsJson: string;
 };
+
+type ObjectDeleteCascadeOptions = Pick<
+  ActivityProjectionDeleteOptions,
+  "preserveInboundClaimActivityApId"
+>;
 
 type MediaBlobDeletionJob = {
   r2Key: string;
@@ -320,8 +328,9 @@ export async function deleteObjectCascade(
   db: Database,
   objectApId: string,
   media?: ObjectStore,
+  options: ObjectDeleteCascadeOptions = {},
 ): Promise<string[]> {
-  return await deleteObjectsCascade(db, [objectApId], media);
+  return await deleteObjectsCascade(db, [objectApId], media, options);
 }
 
 /**
@@ -418,6 +427,7 @@ export async function prepareObjectsDeleteCascade(
   db: Database,
   objectApIds: string[],
   media?: ObjectStore,
+  options: ObjectDeleteCascadeOptions = {},
 ): Promise<{
   objects: CascadeObject[];
   mediaKeys: string[];
@@ -512,6 +522,10 @@ export async function prepareObjectsDeleteCascade(
       ...activityProjectionDeleteStatements(
         db,
         inArray(activities.objectApId, chunk),
+        {
+          preserveInboundClaimActivityApId:
+            options.preserveInboundClaimActivityApId,
+        },
       ),
     ]);
   }
@@ -529,8 +543,14 @@ export async function deleteObjectsCascade(
   db: Database,
   objectApIds: string[],
   media?: ObjectStore,
+  options: ObjectDeleteCascadeOptions = {},
 ): Promise<string[]> {
-  const plan = await prepareObjectsDeleteCascade(db, objectApIds, media);
+  const plan = await prepareObjectsDeleteCascade(
+    db,
+    objectApIds,
+    media,
+    options,
+  );
   await runMediaJobStatements(db, plan.mediaStatements);
   for (const batch of plan.batches) await runBatch(db, batch);
   return plan.mediaKeys;

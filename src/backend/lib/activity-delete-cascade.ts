@@ -1,4 +1,4 @@
-import { and, inArray, notExists, or, type SQL } from "drizzle-orm";
+import { and, inArray, ne, notExists, or, type SQL } from "drizzle-orm";
 
 import {
   activities,
@@ -82,6 +82,12 @@ export function activityDeliveryDrainedGuard(
   )!;
 }
 
+export type ActivityProjectionDeleteOptions = {
+  readonly guard?: SQL;
+  /** Exact current Delete dispatch, released by the inbox after commit. */
+  readonly preserveInboundClaimActivityApId?: string;
+};
+
 /**
  * Build the atomic cleanup unit for every durable projection of matching
  * activities while retaining the activity ledger rows themselves.
@@ -94,7 +100,7 @@ export function activityDeliveryDrainedGuard(
 export function activityProjectionDeleteStatements(
   db: Database,
   activityWhere: SQL,
-  options: { readonly guard?: SQL } = {},
+  options: ActivityProjectionDeleteOptions = {},
 ): readonly [D1Statement, ...D1Statement[]] {
   const targetActivityIds = () =>
     db.select({ apId: activities.apId }).from(activities).where(activityWhere);
@@ -116,13 +122,21 @@ export function activityProjectionDeleteStatements(
           inArray(notificationArchived.activityApId, targetActivityIds()),
         ),
       ) as D1Statement,
-    db
-      .delete(inboundActivityClaims)
-      .where(
-        guarded(
+    db.delete(inboundActivityClaims).where(
+      guarded(
+        // Object cleanup must not revoke the Delete dispatch that owns it.
+        // Every other selected claim keeps the existing cleanup behavior.
+        and(
           inArray(inboundActivityClaims.activityApId, targetActivityIds()),
-        ),
-      ) as D1Statement,
+          options.preserveInboundClaimActivityApId === undefined
+            ? undefined
+            : ne(
+                inboundActivityClaims.activityApId,
+                options.preserveInboundClaimActivityApId,
+              ),
+        )!,
+      ),
+    ) as D1Statement,
     db
       .delete(deliveryQueue)
       .where(
@@ -171,7 +185,9 @@ export function activityDeleteCascadeStatements(
   options: { readonly guard?: SQL } = {},
 ): readonly [D1Statement, ...D1Statement[]] {
   return [
-    ...activityProjectionDeleteStatements(db, activityWhere, options),
+    ...activityProjectionDeleteStatements(db, activityWhere, {
+      guard: options.guard,
+    }),
     db
       .delete(activities)
       .where(
