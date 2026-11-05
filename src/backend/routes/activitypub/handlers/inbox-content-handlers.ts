@@ -1,5 +1,7 @@
 import type { Database } from "../../../../db/index.ts";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { createGuardedDatabase } from "../../../../db/guarded-writes.ts";
+import { admissionGuard } from "../../../lib/account-deletion-admission.ts";
 import {
   and,
   count,
@@ -108,6 +110,39 @@ import {
 const log = logger.child({ component: "activitypub.inbox.content" });
 
 type ActorRow = typeof actors.$inferSelect;
+
+class InboundNoteIdentityConflict extends Error {}
+
+/** An idempotent Create may repair projections only for its retained author. */
+function guardInboundNoteCreate(
+  db: Database,
+  objectId: string,
+  actor: string,
+  allowMissing = true,
+): Database {
+  const retainedAuthors = activityPubActorIdentityMatchesSql(
+    sql`
+    SELECT ${objects.attributedTo} FROM ${objects}
+    WHERE ${objects.apId} = ${objectId}
+  `,
+    actor,
+  );
+  const retained = sql`EXISTS (
+    SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${objectId}
+      AND (${objects.attributedTo} = ${actor}
+        OR ${objects.attributedTo} IN (${retainedAuthors}))
+      AND ${objects.type} = 'Note'
+      AND ${objects.isLocal} = 0 AND ${objects.deletedAt} IS NULL
+  )`;
+  const admissible = allowMissing
+    ? sql`${retained} OR NOT EXISTS (
+    SELECT 1 FROM ${objects} WHERE ${objects.apId} = ${objectId}
+  )`
+    : retained;
+  return createGuardedDatabase(db, () =>
+    admissionGuard(db, admissible, () => new InboundNoteIdentityConflict()),
+  );
+}
 
 // normalizeInboundTimestamp now lives in ./inbound-timestamp.ts (shared with the
 // federated group-chat path) — imported at the top of this file.
@@ -401,6 +436,8 @@ async function insertDirectNote(
   addressing: NoteAddressing,
   parentId: string | null,
 ): Promise<void> {
+  const sourceDb = db;
+  db = guardInboundNoteCreate(db, objectId, actor);
   // Derive the conversation. Honour a sender-supplied `object.conversation`
   // only when it matches the value yurucommu itself would compute for this
   // (sender, localRecipient) pair — otherwise a remote actor could force a
@@ -493,6 +530,7 @@ async function insertDirectNote(
   // appears in the conversation / message-requests view. Both inserts are
   // idempotent, so every local recipient in a shared-inbox fan-out gets its own
   // inbox row and a retry repairs a missing side effect safely.
+  db = guardInboundNoteCreate(sourceDb, objectId, actor, false);
   const activityId = activity.id || activityApId(baseUrl, generateId());
   await upsertActivityAndNotify(
     db,
@@ -516,7 +554,24 @@ export async function handleCreate(
   actor: string,
   baseUrl: string,
 ) {
-  const db = c.get("db");
+  try {
+    await createInboundObject(c, activity, recipient, actor, baseUrl);
+  } catch (error) {
+    if (!(error instanceof InboundNoteIdentityConflict)) throw error;
+    log.warn("Create rejected: retained Note identity conflicts with signer", {
+      event: "ap.create.note_identity_conflict",
+    });
+  }
+}
+
+async function createInboundObject(
+  c: ActivityContext,
+  activity: Activity,
+  recipient: ActorRow,
+  actor: string,
+  baseUrl: string,
+) {
+  let db = c.get("db");
   const object = getActivityObject(activity);
   if (!object) return;
 
@@ -669,6 +724,9 @@ export async function handleCreate(
   );
   if (!communityScope.allowed) return;
 
+  const sourceDb = db;
+  db = guardInboundNoteCreate(db, objectId, actor);
+
   const publishedAt = normalizeInboundTimestamp(
     object.published,
     new Date().toISOString(),
@@ -761,6 +819,7 @@ export async function handleCreate(
     ]);
   }
 
+  db = guardInboundNoteCreate(sourceDb, objectId, actor, false);
   if (existingBeforeInsert) return; // duplicate: no double notification
 
   if (shouldNotifyParent && parentObj && replyActivityId) {

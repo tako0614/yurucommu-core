@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { and, eq } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
+  actorCache,
+  blocks,
   follows,
+  mutes,
   objectRecipients,
   objects,
 } from "../../../db/index.ts";
@@ -42,20 +42,20 @@ const LOCAL_CAROL = `${APP_URL}/ap/users/carol`;
 const PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of [
-    "0001_init.sql",
-    "0004_blocklist.sql",
-    "0008_actor_fields_aka.sql",
-    "0009_object_tags.sql",
-  ]) {
-    await client.executeMultiple(await readFile(new URL(file, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function seedActor(db: Database, apId: string, username: string) {
+  if (!apId.startsWith(APP_URL + "/")) {
+    await db.insert(actorCache).values({
+      apId,
+      type: "Person",
+      preferredUsername: username,
+      inbox: `${apId}/inbox`,
+      rawJson: JSON.stringify({ id: apId, type: "Person" }),
+    });
+    return;
+  }
   await db.insert(actors).values({
     apId,
     type: "Person",
@@ -237,7 +237,7 @@ test("an inbound DM from a BLOCKED actor is dropped (no object row created)", as
   const id = "https://remote.example/objects/dm-blocked";
   // bob has personally blocked the remote sender (e.g. via reject+block).
   await db
-    .insert(schema.blocks)
+    .insert(blocks)
     .values({ blockerApId: LOCAL_BOB, blockedApId: REMOTE });
 
   await handleCreate(
@@ -254,9 +254,7 @@ test("an inbound DM from a BLOCKED actor is dropped (no object row created)", as
 test("[audit#17 targeted mute] an inbound DM from a muted actor is dropped at write time", async () => {
   const db = await setup();
   const id = "https://remote.example/objects/dm-muted";
-  await db
-    .insert(schema.mutes)
-    .values({ muterApId: LOCAL_BOB, mutedApId: REMOTE });
+  await db.insert(mutes).values({ muterApId: LOCAL_BOB, mutedApId: REMOTE });
 
   await handleCreate(
     ctxFor(db),
