@@ -1,13 +1,11 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
+  actorCache,
   activities,
   blocks,
   inbox as inboxTable,
@@ -33,18 +31,7 @@ const LOCAL_BOB = `${APP_URL}/ap/users/bob`;
 const REMOTE_OTHER = "https://remote.example/users/dave";
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of [
-    "0001_init.sql",
-    "0004_blocklist.sql",
-    "0008_actor_fields_aka.sql",
-    "0009_object_tags.sql",
-  ]) {
-    const migration = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(migration);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function seedActor(
@@ -52,6 +39,16 @@ async function seedActor(
   apId: string,
   username: string,
 ): Promise<void> {
+  if (!apId.startsWith(APP_URL + "/")) {
+    await db.insert(actorCache).values({
+      apId,
+      type: "Person",
+      preferredUsername: username,
+      inbox: `${apId}/inbox`,
+      rawJson: JSON.stringify({ id: apId, type: "Person" }),
+    });
+    return;
+  }
   await db.insert(actors).values({
     apId,
     type: "Person",
