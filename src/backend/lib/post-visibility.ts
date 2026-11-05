@@ -6,16 +6,23 @@
 // (bookmarks), and notifications.ts implement the same logic and may migrate to
 // this helper over time.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import type { Database } from "../../db/index.ts";
-import { follows, objectRecipients } from "../../db/index.ts";
-import { canViewerReadObject } from "./community-visibility.ts";
+import { follows, objectRecipients, objects } from "../../db/index.ts";
+import {
+  canViewerReadObject,
+  communityReadAdmissionSql,
+  type CommunityReadAdmission,
+} from "./community-visibility.ts";
 import { safeJsonParse } from "../federation-helpers.ts";
 import {
   personalActorIsBlockedBy,
   personalActorIsSuppressedBy,
 } from "./personal-actor-moderation.ts";
-import { isActorBlockedStrict } from "./blocklist.ts";
+import {
+  isActorBlockedStrict,
+  operatorActorNotBlockedSql,
+} from "./blocklist.ts";
 
 export type ReadGateObject = {
   apId?: string;
@@ -32,6 +39,63 @@ export type ReadGateObject = {
   type?: string;
   endTime?: string | null;
 };
+
+/** Ephemeral dependencies of one successful canonical read decision. */
+export type PostReadAdmission = {
+  object: Required<Omit<ReadGateObject, "type">> & { type: string | null };
+  viewer: string | null;
+  community: CommunityReadAdmission | null;
+  followRequired: boolean;
+  projectedRecipientRequired: boolean;
+  expires: boolean;
+};
+
+// A bound D1 string may contain at most 2,000,000 bytes. Do not silently
+// truncate a historical projection that cannot fit its admission receipt.
+export const MAX_POST_READ_ADMISSION_BYTES = 2_000_000;
+
+/** The actual object and every positive/negative read dependency still hold. */
+export function postReadAdmissionSql(admission: PostReadAdmission): SQL {
+  const serialized = JSON.stringify(admission);
+  if (
+    new TextEncoder().encode(serialized).byteLength >
+    MAX_POST_READ_ADMISSION_BYTES
+  ) {
+    throw new RangeError(
+      "Parent read admission exceeds the D1 bound-string limit",
+    );
+  }
+  const receipt = sql`read_receipt.value`;
+  const viewer = sql`json_extract(${receipt}, '$.viewer')`;
+  const fields = [
+    "apId",
+    "type",
+    "attributedTo",
+    "visibility",
+    "toJson",
+    "ccJson",
+    "audienceJson",
+    "communityApId",
+    "endTime",
+  ] as const;
+  const snapshot = fields.map(
+    (field) =>
+      sql`${objects[field]} IS json_extract(${receipt}, ${sql.raw("'$.object." + field + "'")})`,
+  );
+  return sql`(WITH read_receipt(value) AS MATERIALIZED (SELECT ${serialized})
+    SELECT EXISTS (SELECT 1 FROM ${objects}, read_receipt
+      WHERE ${sql.join(snapshot, sql` AND `)}
+        AND ${operatorActorNotBlockedSql(sql`${objects.attributedTo}`)}
+        AND (json_type(${receipt}, '$.community') = 'null' OR (
+          ${communityReadAdmissionSql(sql`json_extract(${receipt}, '$.community')`, viewer)}))
+        AND (NOT json_extract(${receipt}, '$.followRequired') OR EXISTS (
+          SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${viewer}
+            AND ${follows.followingApId} = ${objects.attributedTo} AND ${follows.status} = 'accepted'))
+        AND (NOT json_extract(${receipt}, '$.projectedRecipientRequired') OR EXISTS (
+          SELECT 1 FROM ${objectRecipients} WHERE ${objectRecipients.objectApId} = ${objects.apId}
+            AND ${objectRecipients.recipientApId} = ${viewer} AND ${objectRecipients.type} = 'to'))
+        AND (NOT json_extract(${receipt}, '$.expires') OR ${objects.endTime} > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))))`;
+}
 
 /**
  * A viewer the author EXPLICITLY addressed (in `to` or `cc`) — e.g. an
@@ -158,8 +222,38 @@ export async function canViewerReadObjectFull(
   db: Database,
   obj: ReadGateObject,
   viewerApId: string | null | undefined,
+  onAllowed?: (admission: PostReadAdmission) => void,
 ): Promise<boolean> {
   const now = new Date().toISOString();
+  const allow = (
+    community: CommunityReadAdmission | null,
+    followRequired = false,
+    projectedRecipientRequired = false,
+  ) => {
+    if (obj.apId)
+      onAllowed?.({
+        object: {
+          apId: obj.apId,
+          type: obj.type ?? null,
+          attributedTo: obj.attributedTo,
+          visibility: obj.visibility,
+          toJson: obj.toJson,
+          ccJson: obj.ccJson,
+          audienceJson: obj.audienceJson,
+          communityApId: obj.communityApId,
+          endTime: obj.endTime ?? null,
+        },
+        viewer: viewerApId ?? null,
+        community,
+        followRequired,
+        projectedRecipientRequired,
+        expires:
+          obj.type === "Story" &&
+          viewerApId !== obj.attributedTo &&
+          Boolean(obj.endTime),
+      });
+    return true;
+  };
 
   // Instance moderation is a read boundary, not only an ingest/delivery
   // boundary. A failed or partial purge intentionally leaves retained objects
@@ -170,16 +264,20 @@ export async function canViewerReadObjectFull(
 
   // Story author + expiry shortcuts need no community/follow query.
   if (obj.type === "Story") {
-    if (viewerApId && obj.attributedTo === viewerApId) return true;
+    if (viewerApId && obj.attributedTo === viewerApId) return allow(null);
     if (obj.endTime && obj.endTime <= now) return false;
   }
 
   // Private-community membership gate first (non-community objects short to true).
+  let communityAdmission: CommunityReadAdmission | null = null;
   if (
     !(await canViewerReadObject(
       db,
       { audienceJson: obj.audienceJson, communityApId: obj.communityApId },
       viewerApId,
+      (admission) => {
+        communityAdmission = admission;
+      },
     ))
   ) {
     return false;
@@ -211,13 +309,16 @@ export async function canViewerReadObjectFull(
     ? await hasAcceptedFollow(db, viewerApId, obj.attributedTo)
     : false;
 
-  return passesPostVisibilitySync(
+  const allowed = passesPostVisibilitySync(
     obj,
     viewerApId,
     () => following,
     () => projectedRecipient,
     now,
   );
+  return allowed
+    ? allow(communityAdmission, following, projectedRecipient)
+    : false;
 }
 
 /**

@@ -1,7 +1,8 @@
 import { expect, mock, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
-import type { Database } from "../../../db/index.ts";
+import type { Database, D1Statement } from "../../../db/index.ts";
+import { InboundNoteUpdateConflict } from "../../lib/inbound-note-update-order.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 import {
   actorCache,
@@ -861,6 +862,80 @@ test("an Announce-fetched reply recomputes its already-retained public parent", 
         .get()
     )?.replyCount,
   ).toBe(1);
+});
+
+test("an Announce-fetched reply cannot race a parent reach revocation at its actual batch", async () => {
+  const f = await createTestDb();
+  const db = f.db as typeof f.db & {
+    batch(
+      statements: readonly [D1Statement, ...D1Statement[]],
+    ): Promise<unknown[]>;
+  };
+  const batch = db.batch.bind(db);
+  let injected = false;
+  const bob = "https://yuru.test/ap/users/bob",
+    parentId = "https://yuru.test/ap/objects/public-parent";
+  try {
+    await seedAlice(db);
+    await seedActor(db, bob, "bob");
+    await db.insert(objects).values({
+      apId: parentId,
+      type: "Note",
+      attributedTo: bob,
+      isLocal: 1,
+      visibility: "public",
+    });
+    db.batch = async (statements) => {
+      const creates = statements.some((statement) =>
+        (statement as unknown as { toSQL?: () => { sql: string } })
+          .toSQL?.()
+          .sql.startsWith('insert into "objects"'),
+      );
+      if (!injected && creates) {
+        injected = true;
+        await db
+          .update(objects)
+          .set({ visibility: "direct", toJson: JSON.stringify([bob]) })
+          .where(eq(objects.apId, parentId));
+      }
+      return batch(statements);
+    };
+    const result = await fetchAndPersistAnnouncedNote(
+      db,
+      FETCHED_REPLY_ID,
+      "https://yuru.test",
+    ).then(
+      (value) => ({ value, error: null as unknown }),
+      (error) => ({ value: null, error }),
+    );
+    expect(injected).toBe(true);
+    expect(result.error).toBeInstanceOf(InboundNoteUpdateConflict);
+    expect(
+      await db.select().from(objects).where(eq(objects.apId, FETCHED_REPLY_ID)),
+    ).toHaveLength(0);
+    expect(
+      (await db.select().from(objects).where(eq(objects.apId, parentId)).get())
+        ?.replyCount,
+    ).toBe(0);
+    await db
+      .update(objects)
+      .set({ visibility: "public", toJson: "[]" })
+      .where(eq(objects.apId, parentId));
+    expect(
+      await fetchAndPersistAnnouncedNote(
+        db,
+        FETCHED_REPLY_ID,
+        "https://yuru.test",
+      ),
+    ).toBe(true);
+    expect(
+      (await db.select().from(objects).where(eq(objects.apId, parentId)).get())
+        ?.replyCount,
+    ).toBe(1);
+  } finally {
+    db.batch = batch;
+    f.client.close();
+  }
 });
 
 test("an Announce-fetched reply cannot inject beneath an unreadable direct parent", async () => {

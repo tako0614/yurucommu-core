@@ -17,6 +17,22 @@ export function canonicalPersonalModerationActorId(actorApId: string): string {
   return normalizeActivityPubActorId(actorApId) ?? actorApId;
 }
 
+/** Current absence of the same normalized block/mute rows used by ingress. */
+export function personalActorNotSuppressedSql(
+  actorApId: SQL,
+  ownerApId?: SQL,
+): SQL {
+  const matches = activityPubActorIdentityMatchesSql(
+    sql`
+    SELECT ${blocks.blockedApId} FROM ${blocks} ${ownerApId ? sql`WHERE ${blocks.blockerApId} = ${ownerApId}` : sql``}
+    UNION ALL
+    SELECT ${mutes.mutedApId} FROM ${mutes} ${ownerApId ? sql`WHERE ${mutes.muterApId} = ${ownerApId}` : sql``}
+  `,
+    actorApId,
+  );
+  return sql`NOT EXISTS (${matches})`;
+}
+
 async function actorIdentitySetContains(
   db: Database,
   actorApId: string,

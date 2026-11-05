@@ -9,7 +9,6 @@ import {
   type Database,
   type D1Statement,
 } from "../../../../db/index.ts";
-import { isLocal } from "../../../federation-helpers.ts";
 import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
 import {
   guardInboundNoteUpdateWindow,
@@ -17,11 +16,15 @@ import {
   type AdmittedNotePatch,
   type NoteUpdateWindow,
 } from "../../../lib/inbound-note-update-order.ts";
-import { anyOwnerSuppressesInboundActor } from "../../../lib/personal-actor-moderation.ts";
 import {
-  actorSuppressesInteractionFrom,
-  canViewerReadObjectFull,
-} from "../../../lib/post-visibility.ts";
+  anyOwnerSuppressesInboundActor,
+  personalActorNotSuppressedSql,
+} from "../../../lib/personal-actor-moderation.ts";
+import {
+  readInboundNoteParent,
+  inboundNoteParentAdmissionSql,
+  type InboundNoteParentAdmission,
+} from "./inbound-note-parent-admission.ts";
 import { getConversationId } from "../../dm/query-helpers.ts";
 import {
   boundInboundContent,
@@ -66,6 +69,9 @@ export type NoteProjection = Pick<
 > & {
   recipients: { recipientApId: string; type: string }[];
   communityAdmissions?: InboundCommunityAdmission[];
+  parentAdmission?: InboundNoteParentAdmission;
+  ownerSuppressionChecked?: boolean;
+  recipientSuppressionOwner?: string;
 };
 
 export function noteAddressList(value: unknown): string[] {
@@ -295,30 +301,24 @@ export async function projectAdmittedNotePatch(
       return null;
     communityApId = scope.communityApId;
   }
-  if (patch.inReplyTo) {
-    const parent = await db
-      .select()
-      .from(objects)
-      .where(eq(objects.apId, patch.inReplyTo))
-      .get();
-    if (
-      patch.inReplyTo === source.apId ||
-      (parent &&
-        (parent.deletedAt !== null ||
-          !(await canViewerReadObjectFull(db, parent, actor)) ||
-          (isLocal(parent.attributedTo, baseUrl) &&
-            (await actorSuppressesInteractionFrom(
-              db,
-              parent.attributedTo,
-              actor,
-            )))))
-    )
-      return null;
+  let parentAdmission = source.parentAdmission;
+  if (patch.inReplyTo !== undefined) {
+    if (patch.inReplyTo === source.apId) return null;
+    const parent = await readInboundNoteParent(
+      db,
+      patch.inReplyTo,
+      actor,
+      baseUrl,
+    );
+    if (!parent.allowed) return null;
+    parentAdmission = parent.admission;
   }
   const result: NoteProjection = {
     ...source,
     communityApId,
     communityAdmissions: [...admissions.values()],
+    parentAdmission,
+    ownerSuppressionChecked: true,
   };
   for (const field of [
     "content",
@@ -460,10 +460,14 @@ export async function commitNoteProjection(
   ) {
     throw new Error("Note projection identity mismatch");
   }
+  const admission = sql`${inboundCommunityAdmissionsSql(after.communityAdmissions ?? [], window.actor)}
+    AND ${inboundNoteParentAdmissionSql(after.parentAdmission, after.inReplyTo, window.actor)}
+    AND ${after.ownerSuppressionChecked ? personalActorNotSuppressedSql(sql`${window.actor}`) : sql`1`}
+    AND ${after.recipientSuppressionOwner ? personalActorNotSuppressedSql(sql`${window.actor}`, sql`${after.recipientSuppressionOwner}`) : sql`1`}`;
   const guarded = guardInboundNoteUpdateWindow(
     db,
     window,
-    sql`(${noteProjectionSourceSql(before, after.apId)}) AND ${inboundCommunityAdmissionsSql(after.communityAdmissions ?? [], window.actor)}`,
+    sql`(${noteProjectionSourceSql(before, after.apId)}) AND (${admission})`,
   );
   const values = {
     type: after.type,
@@ -546,7 +550,7 @@ export async function commitNoteProjection(
     db: guardInboundNoteUpdateWindow(
       db,
       committedWindow,
-      sql`(${noteProjectionSourceSql(after, after.apId)}) AND ${inboundCommunityAdmissionsSql(after.communityAdmissions ?? [], window.actor)}`,
+      sql`(${noteProjectionSourceSql(after, after.apId)}) AND (${admission})`,
     ),
     projection: after,
     window: committedWindow,

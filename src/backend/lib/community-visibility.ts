@@ -18,7 +18,7 @@
  * A private community is readable only by an actor with a `community_members` row.
  */
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Database } from "../../db/index.ts";
 import { communities, communityMembers } from "../../db/index.ts";
 import { objects } from "../../db/index.ts";
@@ -68,6 +68,29 @@ export type CommunityGateObject = {
   communityApId?: string | null;
 };
 
+export type CommunityReadAdmission = {
+  ids: string[];
+  rows: { apId: string; visibility: string | null; deletedAt: string | null }[];
+  memberCommunity: string | null;
+};
+
+/** Recheck actual resolution, including IDs that had no local row at read time. */
+export function communityReadAdmissionSql(receipt: SQL, viewer: SQL): SQL {
+  return sql`NOT EXISTS (SELECT 1 FROM json_each(json_extract(${receipt}, '$.ids')) AS requested
+    WHERE EXISTS (SELECT 1 FROM ${communities} WHERE ${communities.apId} = requested.value)
+      != EXISTS (SELECT 1 FROM json_each(json_extract(${receipt}, '$.rows')) AS retained
+        WHERE json_extract(retained.value, '$.apId') = requested.value))
+    AND NOT EXISTS (SELECT 1 FROM json_each(json_extract(${receipt}, '$.rows')) AS retained
+      WHERE NOT EXISTS (SELECT 1 FROM ${communities}
+        WHERE ${communities.apId} = json_extract(retained.value, '$.apId')
+          AND ${communities.visibility} IS json_extract(retained.value, '$.visibility')
+          AND ${communities.deletedAt} IS json_extract(retained.value, '$.deletedAt')))
+    AND (json_extract(${receipt}, '$.memberCommunity') IS NULL OR EXISTS (
+      SELECT 1 FROM ${communityMembers}
+      WHERE ${communityMembers.communityApId} = json_extract(${receipt}, '$.memberCommunity')
+        AND ${communityMembers.actorApId} = ${viewer}))`;
+}
+
 /**
  * True when the object is addressed to a community (or otherwise carries a
  * non-empty audience). Community-scoped Notes set `audienceJson = [communityApId]`.
@@ -111,9 +134,13 @@ export async function canViewerReadObject(
   db: Database,
   obj: CommunityGateObject,
   viewerApId: string | null | undefined,
+  onAllowed?: (admission: CommunityReadAdmission) => void,
 ): Promise<boolean> {
   const communityIds = communityApIdsFor(obj);
-  if (communityIds.length === 0) return true;
+  if (communityIds.length === 0) {
+    onAllowed?.({ ids: [], rows: [], memberCommunity: null });
+    return true;
+  }
 
   // Resolve local lifecycle + visibility in one query. Unknown IDs are left to
   // the caller's ordinary visibility rules (they may name a remote audience),
@@ -133,7 +160,14 @@ export async function canViewerReadObject(
     communityRequiresMembership(row.visibility),
   );
 
-  if (privateRows.length === 0) return true;
+  if (privateRows.length === 0) {
+    onAllowed?.({
+      ids: communityIds,
+      rows: communityRows,
+      memberCommunity: null,
+    });
+    return true;
+  }
 
   // Addressed to at least one private community: an anonymous viewer can never
   // satisfy membership, so fail closed.
@@ -152,7 +186,13 @@ export async function canViewerReadObject(
     .limit(1)
     .get();
 
-  return Boolean(membership);
+  if (!membership) return false;
+  onAllowed?.({
+    ids: communityIds,
+    rows: communityRows,
+    memberCommunity: membership.communityApId,
+  });
+  return true;
 }
 
 /**
