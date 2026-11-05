@@ -1,11 +1,20 @@
 // GET /contacts - List DM contacts and communities
 
 import { Hono } from "hono";
-import { and, count, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  ne,
+  not,
+  sql,
+} from "drizzle-orm";
 import {
   communities,
   communityMembers,
-  dmArchivedConversations,
   dmReadStatus,
   objectRecipients,
   objects,
@@ -17,15 +26,20 @@ import {
   operatorActorNotBlockedSql,
 } from "../../lib/blocklist.ts";
 import { yurumeUnreadCounts } from "../../lib/unread-counts.ts";
+import { unreadTalkObjectSql } from "../../lib/talk-read-receipts.ts";
+import {
+  otherParticipantSql,
+  peerArchivedSql,
+} from "../../lib/talk-peer-archives.ts";
 import {
   buildActorInfoMap,
   byTimeDesc,
   dmWhereForActor,
-  findRepliedConversations,
   formatActorProfile,
   groupConversations,
   type HonoEnv,
   parseOtherApId,
+  recipientObjectIds,
   uniqueValues,
 } from "./conversations-helpers.ts";
 
@@ -40,21 +54,14 @@ contacts.get("/contacts", async (c) => {
   // counterpart decision in one helper makes contacts, archived threads, and
   // Takos tool threads agree for both incoming and outgoing messages.
   const dmWhere = dmWhereForActor(db, actor.ap_id);
+  const pairKey = (conversationId: string, otherApId: string) =>
+    JSON.stringify([conversationId, otherApId]);
 
   // GET must be side-effect-free: this handler no longer prunes orphaned
   // dm_read_status rows. Read-status cleanup happens on the write paths that
   // delete conversations/messages, not on this read.
 
-  // Get archived conversation IDs to exclude
-  const archivedConversations = await db
-    .select({
-      conversationId: dmArchivedConversations.conversationId,
-    })
-    .from(dmArchivedConversations)
-    .where(eq(dmArchivedConversations.actorApId, actor.ap_id));
-  const archivedSet = new Set(
-    archivedConversations.map((a) => a.conversationId),
-  );
+  const other = otherParticipantSql(sql`${actor.ap_id}`);
 
   // Get the latest message per conversation. SQLite's bare-column + single
   // MAX() rule fills the non-aggregated columns (attributedTo, toJson, content)
@@ -73,15 +80,27 @@ contacts.get("/contacts", async (c) => {
       published: sql<string>`MAX(${objects.published})`,
     })
     .from(objects)
-    .where(dmWhere)
-    .groupBy(objects.conversation)
+    .where(
+      and(
+        dmWhere,
+        not(
+          peerArchivedSql(
+            sql`${actor.ap_id}`,
+            other,
+            sql`${objects.conversation}`,
+          ),
+        ),
+      ),
+    )
+    .groupBy(objects.conversation, other)
     .orderBy(desc(sql`MAX(${objects.published})`))
     .limit(2000);
 
   const conversationMap = groupConversations(
     dmObjects,
     actor.ap_id,
-    (id) => !archivedSet.has(id),
+    () => true,
+    pairKey,
   );
 
   // Get read status for all conversations
@@ -94,7 +113,11 @@ contacts.get("/contacts", async (c) => {
   );
 
   // Calculate unread counts for each conversation using batch query
-  const conversationIds = Array.from(conversationMap.keys());
+  const conversationIds = [
+    ...new Set(
+      [...conversationMap.values()].map((value) => value.conversation),
+    ),
+  ];
   const unreadCounts = new Map<string, number>();
 
   if (conversationIds.length > 0) {
@@ -114,10 +137,11 @@ contacts.get("/contacts", async (c) => {
         // while D1 caps a query at 100 bound parameters. Each conversation is in
         // exactly one bucket and one chunk, so the per-chunk count is complete
         // and `.set` is collision-free (no summing across chunks).
-        for (const chunk of chunkForInClause(convIds)) {
+        for (const chunk of chunkForInClause(convIds, 75)) {
           const unreadMessages = await db
             .select({
               conversation: objects.conversation,
+              sender: objects.attributedTo,
               count: count(),
             })
             .from(objects)
@@ -125,16 +149,30 @@ contacts.get("/contacts", async (c) => {
               and(
                 inArray(objects.conversation, chunk),
                 eq(objects.visibility, "direct"),
+                eq(objects.type, "Note"),
                 ne(objects.attributedTo, actor.ap_id),
-                sql`${objects.published} > ${lastReadAt}`,
+                inArray(objects.apId, recipientObjectIds(db, actor.ap_id)),
+                unreadTalkObjectSql(
+                  "user",
+                  sql`${actor.ap_id}`,
+                  sql`${objects.attributedTo}`,
+                  sql`${objects.conversation}`,
+                  sql`''`,
+                  sql`${objects.published}`,
+                  sql`${objects.apId}`,
+                  sql`${lastReadAt}`,
+                ),
                 operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
               ),
             )
-            .groupBy(objects.conversation);
+            .groupBy(objects.conversation, objects.attributedTo);
 
           for (const msg of unreadMessages) {
             if (msg.conversation) {
-              unreadCounts.set(msg.conversation, msg.count);
+              unreadCounts.set(
+                pairKey(msg.conversation, msg.sender),
+                msg.count,
+              );
             }
           }
         }
@@ -157,7 +195,8 @@ contacts.get("/contacts", async (c) => {
           }
         : null,
       last_message_at: conv.lastMessageAt,
-      unread_count: unreadCounts.get(conv.conversation) || 0,
+      unread_count:
+        unreadCounts.get(pairKey(conv.conversation, conv.otherApId)) || 0,
     }))
     .sort((a, b) => byTimeDesc(a.last_message_at, b.last_message_at));
 
@@ -282,7 +321,7 @@ contacts.get("/contacts", async (c) => {
         AND r.actor_ap_id = ${me}
       WHERE cm.actor_ap_id = ${me}
         AND ${operatorActorNotBlockedSql(sql.raw("o.attributed_to"))}
-        AND o.published > COALESCE(r.last_read_at, cm.joined_at, '1970-01-01T00:00:00Z')
+        AND ${unreadTalkObjectSql("community", sql`${me}`, sql`cm.community_ap_id`, sql`cm.community_ap_id`, sql`cm.joined_at`, sql`o.published`, sql`o.ap_id`, sql`COALESCE(r.last_read_at, cm.joined_at, '1970-01-01T00:00:00Z')`)}
       GROUP BY cm.community_ap_id
     `);
     for (const row of unreadRows) {
@@ -327,35 +366,25 @@ contacts.get("/contacts", async (c) => {
   // instead of an unindexable `to_json LIKE` substring scan. This matches the
   // recipient-membership semantics of the conversation list above; the
   // requests are conversations among these for which the actor has not yet
-  // replied (see findRepliedConversations).
-  const incomingDMs = await db
-    .selectDistinct({
-      conversation: objects.conversation,
-    })
-    .from(objects)
-    .innerJoin(objectRecipients, eq(objectRecipients.objectApId, objects.apId))
-    .where(
-      and(
-        eq(objects.visibility, "direct"),
-        eq(objects.type, "Note"),
-        eq(objectRecipients.recipientApId, actor.ap_id),
-        eq(objectRecipients.type, "to"),
-        operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
-      ),
-    );
-
-  const incomingConversations = incomingDMs
-    .map((dm) => dm.conversation)
-    .filter((c): c is string => c !== null);
-
-  const repliedConversations = await findRepliedConversations(
-    db,
-    incomingConversations,
-    actor.ap_id,
-  );
-  const requestCount = incomingConversations.filter(
-    (c) => !repliedConversations.has(c),
-  ).length;
+  // replied. Both the incoming and reply sets use the actual indexed peer;
+  // historical conversation IDs alone could collide across unrelated pairs.
+  const requestRow = await db.get<{ c: number }>(sql`
+    SELECT count(*) AS c FROM (
+      SELECT DISTINCT incoming.conversation AS conversation_id, incoming.attributed_to AS peer_ap_id
+      FROM object_recipients addressed JOIN objects incoming ON incoming.ap_id = addressed.object_ap_id
+      WHERE addressed.recipient_ap_id = ${actor.ap_id} AND addressed.type = 'to'
+        AND incoming.visibility = 'direct' AND incoming.type = 'Note'
+        AND incoming.conversation IS NOT NULL
+        AND ${operatorActorNotBlockedSql(sql`incoming.attributed_to`)}
+    ) incoming_pairs
+    WHERE NOT EXISTS (
+      SELECT 1 FROM object_recipients reply_to JOIN objects reply ON reply.ap_id = reply_to.object_ap_id
+      WHERE reply_to.recipient_ap_id = incoming_pairs.peer_ap_id AND reply_to.type = 'to'
+        AND reply.conversation = incoming_pairs.conversation_id
+        AND reply.attributed_to = ${actor.ap_id} AND reply.visibility = 'direct' AND reply.type = 'Note'
+    )
+  `);
+  const requestCount = Number(requestRow?.c ?? 0);
 
   return c.json({
     mutual_followers: contactsResult,

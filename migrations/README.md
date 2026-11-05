@@ -16,6 +16,22 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration 0037 adds opt-in observed-message read receipts without modifying
+existing messages or timestamp read rows. It does not opt in any account or
+perform a global backfill. The serving engine must have the complete migration
+before exposing the new endpoints. A first authenticated init atomically
+preserves the conversation's legacy read set and enters exact mode; later ACKs
+record only explicitly supplied readable IDs. Legacy mark-current endpoints
+retain their existing weaker semantics. See [observed chat reads](../docs/design/talk-observed-read.md)
+for membership epochs, compatibility, rollback and qualification limits.
+
+The same additive file stores peer-specific archives and explicit expansion
+markers for historical conversation-wide archives. Applying it changes no
+archive state. A later authenticated archive/unarchive operation atomically
+copies its currently indexed peers before selecting peer-specific state;
+the original coarse row and its timestamp remain intact. GET never backfills.
+New archive rows also retain the selected stored conversation ID as provenance.
+
 Migration 0036 repairs notification push tables created by the published Core
 3.2.0 version of 0019, whose actor foreign keys remain when a filename-only
 ledger skips the current 0019. It also preserves fresh current installations.

@@ -122,6 +122,7 @@ export function groupConversations(
   dmObjects: DmObject[],
   actorApId: string,
   filterFn: (conversationId: string) => boolean,
+  groupKey: (conversationId: string, otherApId: string) => string = (id) => id,
 ): Map<
   string,
   {
@@ -144,17 +145,14 @@ export function groupConversations(
   >();
 
   for (const obj of dmObjects) {
-    if (
-      !obj.conversation ||
-      !filterFn(obj.conversation) ||
-      map.has(obj.conversation)
-    )
-      continue;
+    if (!obj.conversation || !filterFn(obj.conversation)) continue;
 
     const otherApId = getOtherParticipant(obj, actorApId);
     if (!otherApId) continue;
+    const key = groupKey(obj.conversation, otherApId);
+    if (map.has(key)) continue;
 
-    map.set(obj.conversation, {
+    map.set(key, {
       conversation: obj.conversation,
       otherApId,
       lastMessageAt: obj.published,

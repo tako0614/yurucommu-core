@@ -4,6 +4,8 @@ import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
+import { createTestDb } from "../helpers/d1-semantics.ts";
+import { setPeerArchived } from "../../lib/talk-peer-archives.ts";
 
 import * as schema from "../../../db/schema.ts";
 import {
@@ -902,6 +904,70 @@ test("delivery suppresses a direct message archived after enqueue", async () => 
     processingToken: null,
   });
 });
+
+for (const archive of [true, false]) {
+  test(`peer archive delivery preference is honored after enqueue: ${archive ? "new archive" : "legacy unarchive"}`, async () => {
+    const { db, client } = await createTestDb();
+    const originalFetch = globalThis.fetch;
+    try {
+      const alice = actor("alice"),
+        bob = actor("bob");
+      await seedActor(db, alice);
+      await seedActor(db, bob);
+      await register(
+        appFor(db, alice),
+        pusherBody("yurume", "synthetic-peer-archive"),
+      );
+      await seedNotification(db, alice, "direct");
+      const { sent, env } = queueEnv(db);
+      expect(await enqueuePendingNotificationPushJobs(env)).toBe(1);
+      const conversation = `${APP_URL}/conversations/bob-alice`;
+      if (!archive)
+        await db.insert(dmArchivedConversations).values({
+          actorApId: alice.ap_id,
+          conversationId: conversation,
+          archivedAt: "2020-01-01T00:00:00Z",
+        });
+      await setPeerArchived(
+        db,
+        {
+          viewer: alice.ap_id,
+          target: bob.ap_id,
+          kind: "user",
+          thread: conversation,
+          epoch: "",
+        },
+        archive,
+        new Date().toISOString(),
+      );
+      let egressCalls = 0,
+        acked = false;
+      // Delivery's actual eligibility gate runs; external transport is only a
+      // synthetic response counter. No real gateway/provider call is made.
+      globalThis.fetch = (async () => {
+        egressCalls++;
+        return Response.json({ rejected: [] });
+      }) as unknown as typeof fetch;
+      await processNotificationPushJob(
+        env,
+        sent[0] as DeliveryNotificationPushMessageV1,
+        {
+          ack() {
+            acked = true;
+          },
+          retry() {
+            throw new Error("unexpected retry");
+          },
+        } as never,
+      );
+      expect(acked).toBe(true);
+      expect(egressCalls).toBe(archive ? 0 : 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      client.close();
+    }
+  });
+}
 
 test("direct messages dispatch only to the yurume client and transient failures retain the pusher", async () => {
   const db = await freshDb();

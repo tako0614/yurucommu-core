@@ -1,12 +1,8 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import { Hono } from "hono";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
-
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
-import { actors, objects } from "../../../db/index.ts";
+import { actors, objectRecipients, objects } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import dmRoutes from "../../routes/dm/messages.ts";
 import { getConversationId } from "../../routes/dm/query-helpers.ts";
@@ -17,21 +13,8 @@ import { getConversationId } from "../../routes/dm/query-helpers.ts";
 
 const APP_URL = "https://yuru.test";
 
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0002_social_remote_actor_edges.sql",
-  "0004_blocklist.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
-
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    await client.executeMultiple(await readFile(new URL(file, root), "utf8"));
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 async function seedActor(db: Database, apId: string, username: string) {
@@ -116,6 +99,11 @@ test("DM messages paginate: has_more + before fetches the older page", async () 
       published: stamps[i],
       isLocal: 1,
     });
+    await db.insert(objectRecipients).values({
+      objectApId: `${APP_URL}/ap/objects/dm-${i}`,
+      recipientApId: bob,
+      type: "to",
+    });
   }
 
   const app = appWith(db, fakeActor(alice, "alice"));
@@ -180,6 +168,11 @@ test("DM load-older composite cursor does not skip a same-millisecond message", 
       conversation,
       published: stamps[i],
       isLocal: 1,
+    });
+    await db.insert(objectRecipients).values({
+      objectApId: apId,
+      recipientApId: bob,
+      type: "to",
     });
   }
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 
 /**
  * GA #20 follow-up regression: the remaining DM read paths must enumerate
@@ -21,10 +21,6 @@ import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 
 import { sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
-
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import { actors, objects } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -32,23 +28,8 @@ import dmRoutes from "../../routes/dm/conversations.ts";
 import { getConversationId } from "../../routes/dm/query-helpers.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0004_blocklist.sql",
-  "0006_dm_community_read_status.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
-
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  await client.execute("PRAGMA foreign_keys = OFF");
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const migration = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(migration);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function localApId(username: string): string {

@@ -18,6 +18,7 @@ import {
   inArray,
   isNull,
   ne,
+  not,
   notExists,
   or,
   sql,
@@ -26,7 +27,6 @@ import {
 
 import {
   activities,
-  dmArchivedConversations,
   inbox,
   notificationArchived,
   objects,
@@ -34,6 +34,7 @@ import {
 } from "../../db/index.ts";
 import { excludeBlockedMutedAuthors } from "./feed-exclude.ts";
 import { operatorActorNotBlockedSql } from "./blocklist.ts";
+import { otherParticipantSql, peerArchivedSql } from "./talk-peer-archives.ts";
 
 /**
  * The activity types that surface as notifications. Any addition must hold for
@@ -114,19 +115,16 @@ export function notificationEligibilityWhere(
       ne(objects.visibility, "direct"),
     )!;
   } else {
-    const archivedDmSubquery = db
-      .select({ conversationId: dmArchivedConversations.conversationId })
-      .from(dmArchivedConversations)
-      .where(
-        and(
-          eq(dmArchivedConversations.actorApId, actorApId),
-          eq(dmArchivedConversations.conversationId, objects.conversation),
-        ),
-      );
     directCondition = or(
       isNull(objects.visibility),
       ne(objects.visibility, "direct"),
-      notExists(archivedDmSubquery),
+      not(
+        peerArchivedSql(
+          sql`${actorApId}`,
+          otherParticipantSql(sql`${actorApId}`),
+          sql`${objects.conversation}`,
+        ),
+      ),
     )!;
   }
 

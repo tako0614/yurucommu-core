@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 /**
  * Item 12 regression tests: community (group chat) unread badge, community
  * read-tracking, and deep-link contact resolution.
@@ -13,10 +13,6 @@ import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 
 import { eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
-
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
@@ -28,28 +24,8 @@ import type { Actor, Env, Variables } from "../../types.ts";
 import dmRoutes from "../../routes/dm/conversations.ts";
 
 const APP_URL = "https://yuru.test";
-const MIGRATIONS = [
-  "0001_init.sql",
-  "0004_blocklist.sql",
-  "0006_dm_community_read_status.sql",
-  "0008_actor_fields_aka.sql",
-  "0009_object_tags.sql",
-];
-
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  // Community messages link `object_recipients.recipient_ap_id` to the
-  // community AP-ID, which is intentionally NOT an `actors` row (the FK targets
-  // Actor). Production writes that link via raw SQL on a backend (D1) that does
-  // not enforce this FK; mirror that here so the test exercises the real
-  // audience-linked read path rather than the FK.
-  await client.execute("PRAGMA foreign_keys = OFF");
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of MIGRATIONS) {
-    const migration = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(migration);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function localApId(username: string): string {
