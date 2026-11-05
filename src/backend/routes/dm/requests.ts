@@ -6,7 +6,6 @@ import { activities, blocks, objects } from "../../../db/index.ts";
 import { resolveConversationId } from "./query-helpers.ts";
 import {
   buildActorInfoMap,
-  findRepliedConversations,
   formatActorProfile,
   type HonoEnv,
   recipientObjectIds,
@@ -19,11 +18,10 @@ import {
   purgeMediaBlobs,
 } from "../posts/delete-cascade.ts";
 
-// Upper bound on the number of pending-request CONVERSATIONS returned. The list
-// is collapsed to one row per conversation in SQL (GROUP BY), so this bounds
-// distinct senders, NOT messages — a single high-volume sender can occupy at
-// most one slot and can no longer evict every other pending requester.
-const MAX_REQUEST_CONVERSATIONS = 500;
+// Bound pending (stored conversation, sender) pairs, not messages. Historical
+// conversation IDs could collide across peers, so conversation alone is not a
+// sender identity. Filter replied pairs before the cap, not after it.
+const MAX_REQUEST_PAIRS = 500;
 
 const requests = new Hono<HonoEnv>();
 
@@ -33,14 +31,10 @@ requests.get("/requests", async (c) => {
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
 
-  // Collapse to ONE row per conversation IN SQL (GROUP BY) — the latest message
-  // of each — then bound by conversation count. Previously we fetched the 1000
-  // most-recent incoming MESSAGES and deduped in JS, so a single sender with
-  // >1000 stored DMs filled the whole window and evicted every other pending
-  // request (and diverged from the unbounded request_count badge). `max()` with
-  // GROUP BY makes the bare columns take their value from each group's latest
-  // message (SQLite min/max bare-column rule).
-  const latestPerConversation = await db
+  // Select the latest message per pending conversation/sender pair in SQL.
+  // A flood of messages occupies one slot per pair; replied pairs occupy none.
+  // SQLite's max()/GROUP BY rule takes the bare columns from a latest message.
+  const latestRequests = await db
     .select({
       apId: objects.apId,
       attributedTo: objects.attributedTo,
@@ -60,33 +54,27 @@ requests.get("/requests", async (c) => {
         // recipient-membership semantics.
         inArray(objects.apId, recipientObjectIds(db, actor.ap_id)),
         operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
+        sql`NOT EXISTS (
+          SELECT 1 FROM object_recipients reply_to
+          JOIN objects reply ON reply.ap_id = reply_to.object_ap_id
+          WHERE reply_to.recipient_ap_id = ${objects.attributedTo} AND reply_to.type = 'to'
+            AND reply.conversation = ${objects.conversation}
+            AND reply.attributed_to = ${actor.ap_id}
+            AND reply.visibility = 'direct' AND reply.type = 'Note'
+        )`,
       ),
     )
-    .groupBy(objects.conversation)
+    .groupBy(objects.conversation, objects.attributedTo)
     .orderBy(desc(sql`max(${objects.published})`))
-    .limit(MAX_REQUEST_CONVERSATIONS);
+    .limit(MAX_REQUEST_PAIRS);
 
-  const allConversations = latestPerConversation
-    .map((dm) => dm.conversation)
-    .filter((c): c is string => c !== null);
-  const repliedConversationsSet = await findRepliedConversations(
-    db,
-    allConversations,
-    actor.ap_id,
-  );
-
-  // Keep only unreplied conversations; GROUP BY already guarantees one row each.
-  const requestList = latestPerConversation
-    .filter(
-      (dm) => dm.conversation && !repliedConversationsSet.has(dm.conversation),
-    )
-    .map((dm) => ({
-      id: dm.apId,
-      senderApId: dm.attributedTo,
-      content: dm.content,
-      createdAt: dm.published,
-      conversation: dm.conversation,
-    }));
+  const requestList = latestRequests.map((dm) => ({
+    id: dm.apId,
+    senderApId: dm.attributedTo,
+    content: dm.content,
+    createdAt: dm.published,
+    conversation: dm.conversation,
+  }));
 
   const senderApIds = [...new Set(requestList.map((r) => r.senderApId))];
   const actorInfoMap = await buildActorInfoMap(db, senderApIds);
@@ -123,8 +111,11 @@ requests.post("/requests/reject", async (c) => {
     body.sender_ap_id,
   );
 
-  // One exact owner predicate for every cleanup stage. A legacy/corrupt public
-  // row can share the conversation string; omitting the direct-Note scope from
+  // One exact owner predicate, including the authenticated recipient, for every
+  // cleanup stage. The same sender's DM to another local recipient may share a
+  // historical conversation ID; that is not this viewer's request to delete.
+  // A legacy/corrupt public row can also share the conversation string;
+  // omitting the direct-Note scope from
   // only the Activity/recipient subqueries would delete that survivor's
   // projections while leaving its object behind.
   const senderMessageWhere = (afterApId?: string) =>
@@ -133,6 +124,7 @@ requests.post("/requests/reject", async (c) => {
       eq(objects.visibility, "direct"),
       eq(objects.type, "Note"),
       eq(objects.attributedTo, body.sender_ap_id),
+      inArray(objects.apId, recipientObjectIds(db, actor.ap_id)),
       afterApId ? gt(objects.apId, afterApId) : undefined,
     );
 
@@ -197,7 +189,7 @@ requests.post("/requests/reject", async (c) => {
 //
 // In this AP-native DM model there is no separate "accepted" state to persist:
 // a conversation is treated as a pending request precisely until the recipient
-// sends their first reply (see findRepliedConversations / the /requests list),
+// sends their first reply to that peer (see the /requests list),
 // at which point it leaves the request list and the sender becomes a contact.
 // There is therefore nothing this endpoint can record server-side that would
 // make the request "accepted" without actually sending a reply.
