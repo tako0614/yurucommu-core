@@ -1,4 +1,4 @@
-# Community chat message editing
+# Community chat message editing and deletion
 
 The author of a chat Note can read one current message and conditionally edit it.
 This is a source contract; package publication, installed host adoption and real D1 operation are separate.
@@ -33,3 +33,40 @@ Moderators do not gain permission to edit another author's content.
 The existing community-chat local persistence and receive-refresh behavior is preserved;
 this edit path does not invent a new ActivityPub delivery or realtime event contract.
 Community deletion/moderation, attachment replacement and group creation are separate operations.
+
+## Conditional deletion
+
+The author-only single-message GET additionally advertises
+`message_actions.delete = { version: 1, precondition: "group-message-v1" }`.
+This field is an observation of the implemented conditional DELETE contract,
+not permission or a durable server lease. New clients must not send a Group
+DELETE based only on the earlier editing reader: that host could still ignore
+If-Match. Missing/unknown delete metadata disables that operation while editing
+can continue. Mixed-version rollback/routing still requires owning host release
+qualification; the hint does not pin a server version across requests.
+
+`DELETE /api/communities/:identifier/messages/:messageId` keeps legacy callers
+without If-Match and the existing author-or-current-manager permission. A quoted
+group revision rejects a changed message with409; invalid/DM validators return400.
+Message IDs are decoded once. The response retains `success: true` and binds the
+acknowledgment to `community_ap_id` and `message_id`.
+
+The same live-community/current-read/chat-source guard permits the author or a
+current owner/moderator at commit. Role removal, private membership revocation,
+source changes and audience/scope removal abort without payload effects. A
+manager can still remove an operator-hidden retained chat message: deletion
+serves no message payload. This does not expand author-only GET/PATCH access.
+Public authors, including legacy NULL visibility, keep the existing membership
+semantics. Feed posts and deleted communities remain outside this route.
+
+The existing read-only cascade planner supplies child cleanup and durable media
+intent. These statements and final object removal commit in one guarded atomic
+batch. A final-object failure rolls back all preceding effects. Physical media
+purge runs afterward; storage failure retains durable pending intent for the
+existing drain. No new schema, transport or ActivityPub/realtime event is added.
+
+Native clients show a confirmation with current server content, preserve compose
+drafts and fence an unknown ACK without resending. Exact author readback can
+resolve supported absence; generic404 or revoked access cannot. A conflict
+requires fresh content and another explicit confirmation. Moderator actions are
+not exposed by the author-only native UI.
