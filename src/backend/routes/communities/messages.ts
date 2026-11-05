@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   getTableColumns,
+  inArray,
   isNull,
   ne,
   notInArray,
@@ -20,6 +21,8 @@ import {
   notificationPushJobs,
   objectRecipients,
   objects,
+  runBatch,
+  type D1Statement,
   type Database,
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
@@ -48,7 +51,7 @@ import {
   runRealtimeAfterResponse,
 } from "../../runtime/realtime-hub.ts";
 import {
-  deleteObjectCascade,
+  prepareObjectsDeleteCascade,
   purgeMediaBlobs,
 } from "../posts/delete-cascade.ts";
 import {
@@ -153,6 +156,7 @@ function groupMessageScope(
   id: string,
   communityApId: string,
   actorApId: string,
+  deleting = false,
 ) {
   const addressed = db
     .select({ id: objectRecipients.objectApId })
@@ -171,7 +175,11 @@ function groupMessageScope(
     isNull(objects.deletedAt),
     sql`EXISTS ${addressed}`,
     groupReadScope(db, communityApId, actorApId),
-    operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
+    // Deletion serves no message payload. Preserve current managers' ability
+    // to clean up operator-hidden retained chat; GET/PATCH still hide it.
+    deleting
+      ? undefined
+      : operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
   );
 }
 
@@ -183,6 +191,7 @@ async function findOwnedGroupMessage(
   identifier: string,
   id: string,
   actorApId: string,
+  deleting = false,
 ) {
   const db = c.get("db"),
     { community } = await fetchCommunityId(c, identifier);
@@ -198,7 +207,7 @@ async function findOwnedGroupMessage(
   const message = await db
     .select()
     .from(objects)
-    .where(groupMessageScope(db, id, community.apId, actorApId))
+    .where(groupMessageScope(db, id, community.apId, actorApId, deleting))
     .get();
   if (!message) {
     const current = await db
@@ -210,11 +219,22 @@ async function findOwnedGroupMessage(
       ? { error: "owned_group_message_not_found", status: 404 as const }
       : { error: "Community is not readable", status: 403 as const };
   }
-  if (message.attributedTo !== actorApId)
-    return {
-      error: "Only the author can edit this message",
-      status: 403 as const,
-    };
+  if (message.attributedTo !== actorApId) {
+    const manager = deleting
+      ? await db
+          .select({ role: communityMembers.role })
+          .from(communityMembers)
+          .where(memberWhere(community.apId, actorApId))
+          .get()
+      : undefined;
+    if (!manager || !managerRoles.has(manager.role))
+      return {
+        error: deleting
+          ? "Permission denied"
+          : "Only the author can edit this message",
+        status: 403 as const,
+      };
+  }
   return { message, communityApId: community.apId };
 }
 
@@ -252,14 +272,28 @@ function guardGroupMessage(
   message: OwnedGroupMessage,
   communityApId: string,
   actorApId: string,
+  deleting = false,
 ) {
+  const manager = db
+    .select({ id: communityMembers.actorApId })
+    .from(communityMembers)
+    .where(
+      and(
+        memberWhere(communityApId, actorApId),
+        inArray(communityMembers.role, [...managerRoles]),
+      ),
+    );
+  const permitted = deleting
+    ? or(eq(objects.attributedTo, actorApId), sql`EXISTS ${manager}`)
+    : eq(objects.attributedTo, actorApId);
   const selected = db
     .select({ id: objects.apId })
     .from(objects)
     .where(
       and(
-        groupMessageScope(db, message.apId, communityApId, actorApId),
-        eq(objects.attributedTo, actorApId),
+        groupMessageScope(db, message.apId, communityApId, actorApId, deleting),
+        eq(objects.attributedTo, message.attributedTo),
+        permitted,
         sql`${objects.content} IS ${message.content}`,
         sql`${objects.published} IS ${message.published}`,
         sql`${objects.updated} IS ${message.updated}`,
@@ -279,6 +313,14 @@ function guardGroupMessage(
       () => new GroupMessageChangedError(),
     ),
   );
+}
+
+function groupRevisionError(header: string | undefined, revision: string) {
+  if (header === undefined) return undefined; // Preserve legacy callers.
+  if (!/^"group-message-v1:[a-f0-9]{64}"$/.test(header))
+    return { error: "Invalid If-Match", status: 400 as const };
+  if (header !== JSON.stringify(revision))
+    return { error: "message_changed", status: 409 as const };
 }
 
 // Author-only exact readback, including messages outside the latest page.
@@ -308,6 +350,9 @@ messagesRouter.get("/:identifier/messages/:messageId", async (c) => {
   return c.json({
     revision,
     community_ap_id: communityApId,
+    message_actions: {
+      delete: { version: 1, precondition: "group-message-v1" },
+    },
     message: {
       id: message.apId,
       content: message.content,
@@ -736,13 +781,9 @@ messagesRouter.patch("/:identifier/messages/:messageId", async (c) => {
   if ("error" in found) return c.json({ error: found.error }, found.status);
   const { message, communityApId } = found,
     revision = await groupMessageRevision(message, communityApId);
-  const header = c.req.header("if-match");
-  if (header !== undefined) {
-    if (!/^"group-message-v1:[a-f0-9]{64}"$/.test(header))
-      return c.json({ error: "Invalid If-Match" }, 400);
-    if (header !== JSON.stringify(revision))
-      return c.json({ error: "message_changed" }, 409);
-  }
+  const conditional = groupRevisionError(c.req.header("if-match"), revision);
+  if (conditional)
+    return c.json({ error: conditional.error }, conditional.status);
   const now = new Date().toISOString();
   try {
     await guardGroupMessage(db, message, communityApId, actor.ap_id)
@@ -770,73 +811,54 @@ messagesRouter.delete("/:identifier/messages/:messageId", async (c) => {
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
   const identifier = c.req.param("identifier")!;
-  const messageId = decodeURIComponent(c.req.param("messageId")!);
+  const messageId = c.req.param("messageId")!;
   const db = c.get("db");
-
-  const { community } = await fetchCommunityId(c, identifier);
-  if (!community) {
-    return c.json({ error: "Community not found" }, 404);
-  }
-
-  // Check message exists and belongs to community
-  const recipientsForDelete = await db.all<{ object_ap_id: string }>(sql`
-    SELECT object_ap_id FROM object_recipients
-    WHERE object_ap_id = ${messageId} AND recipient_ap_id = ${community.apId} AND type = 'audience'
-    LIMIT 1
-  `);
-  if (recipientsForDelete.length === 0) {
-    return c.json({ error: "Message not found" }, 404);
-  }
-
-  const message = await db
-    .select({
-      apId: objects.apId,
-      attributedTo: objects.attributedTo,
-    })
-    .from(objects)
-    .where(eq(objects.apId, messageId))
-    .get();
-  if (!message) {
-    return c.json({ error: "Message not found" }, 404);
-  }
-
-  // Check permission: author can delete, or moderator/owner can delete any
-  const membership = await db
-    .select()
-    .from(communityMembers)
-    .where(memberWhere(community.apId, actor.ap_id))
-    .get();
-
-  // Membership / read gate first: a kicked or never-member author must not keep
-  // deleting a private community's history. (A manager is always a member.)
-  const communityRow = await db
-    .select({ visibility: communities.visibility })
-    .from(communities)
-    .where(eq(communities.apId, community.apId))
-    .get();
-  const readError = checkReadAccess(
-    communityRow?.visibility || "public",
-    membership ?? null,
+  const found = await findOwnedGroupMessage(
+    c,
+    identifier,
+    messageId,
+    actor.ap_id,
+    true,
   );
-  if (readError) return c.json({ error: readError }, 403);
+  if ("error" in found) return c.json({ error: found.error }, found.status);
+  const { message, communityApId } = found;
+  const conditional = groupRevisionError(
+    c.req.header("if-match"),
+    await groupMessageRevision(message, communityApId),
+  );
+  if (conditional)
+    return c.json({ error: conditional.error }, conditional.status);
 
-  const isAuthor = message.attributedTo === actor.ap_id;
-  const isManager = membership && managerRoles.has(membership.role);
-
-  if (!isAuthor && !isManager) {
-    return c.json({ error: "Permission denied" }, 403);
+  // The shared planner reads without effects. Co-commit all children/media
+  // intent and the final object removal; a failing final DELETE rolls it back.
+  const plan = await prepareObjectsDeleteCascade(db, [messageId], c.env.MEDIA);
+  if (
+    plan.objects.length !== 1 ||
+    plan.objects[0]!.attributedTo !== message.attributedTo ||
+    plan.objects[0]!.attachmentsJson !== message.attachmentsJson
+  )
+    return c.json({ error: "message_changed" }, 409);
+  const statements: [D1Statement, ...D1Statement[]] = [
+    db.delete(objects).where(eq(objects.apId, messageId)),
+  ];
+  // Build a nonempty tuple while retaining media/children -> final DELETE order.
+  statements.unshift(...plan.mediaStatements, ...plan.batches.flat());
+  try {
+    await runBatch(
+      guardGroupMessage(db, message, communityApId, actor.ap_id, true),
+      statements,
+    );
+  } catch (error) {
+    if (!(error instanceof GroupMessageChangedError)) throw error;
+    return c.json({ error: "message_changed" }, 409);
   }
-
-  // Route through the shared object cascade so a chat message's interaction rows
-  // (likes/announces/bookmarks/object_recipients/story_*) and any attached R2
-  // blob + media_uploads row are reaped deterministically — the runtime's
-  // ON DELETE CASCADE is not relied upon (self-host libsql may run with FK
-  // enforcement off). Then drop the object row and purge blobs last.
-  const mediaKeys = await deleteObjectCascade(db, messageId, c.env.MEDIA);
-  await db.delete(objects).where(eq(objects.apId, messageId));
-  await purgeMediaBlobs(db, c.env.MEDIA, mediaKeys);
-
-  return c.json({ success: true });
+  // Physical media deletion is irreversible and remains after the DB commit.
+  await purgeMediaBlobs(db, c.env.MEDIA, plan.mediaKeys);
+  return c.json({
+    success: true,
+    community_ap_id: communityApId,
+    message_id: messageId,
+  });
 });
 
 export default messagesRouter;
