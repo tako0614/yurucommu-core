@@ -1,11 +1,8 @@
 import { expect, mock, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { drizzle } from "drizzle-orm/libsql";
-import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
 
-import * as schema from "../../../db/schema.ts";
 import type { Database } from "../../../db/index.ts";
+import { createTestDb } from "../helpers/d1-semantics.ts";
 import {
   actorCache,
   actors,
@@ -141,28 +138,16 @@ mock.module("../../lib/federation-fetch.ts", () => ({
 
 // Imported AFTER the mock is registered so the handler + actor-cache modules
 // pick up the stubbed fetch.
-const { fetchAndPersistAnnouncedNote, handleCreateStory, handleUpdate } =
-  await import("../../routes/activitypub/handlers/inbox-content-handlers.ts");
+const {
+  fetchAndPersistAnnouncedNote,
+  handleCreate,
+  handleDelete,
+  handleCreateStory,
+  handleUpdate,
+} = await import("../../routes/activitypub/handlers/inbox-content-handlers.ts");
 
 async function freshDb(): Promise<Database> {
-  const client = createClient({ url: ":memory:" });
-  const root = new URL("../../../../migrations/", import.meta.url);
-  for (const file of [
-    "0001_init.sql",
-    "0002_social_remote_actor_edges.sql",
-    "0004_blocklist.sql",
-    "0005_story_community_scope.sql",
-    "0008_actor_fields_aka.sql",
-    "0009_object_tags.sql",
-    "0011_drop_remote_actor_fks.sql",
-    "0015_community_bans.sql",
-    "0026_remote_actor_fetch_failures.sql",
-    "0027_remote_actor_tombstones.sql",
-  ]) {
-    const sql = await readFile(new URL(file, root), "utf8");
-    await client.executeMultiple(sql);
-  }
-  return drizzle(client, { schema }) as unknown as Database;
+  return (await createTestDb()).db;
 }
 
 function ctx(db: Database): ActivityContext {
@@ -1154,7 +1139,15 @@ async function seedActor(
 }
 
 async function seedAlice(db: Database): Promise<void> {
-  await seedActor(db, ALICE, "alice");
+  await db.insert(actorCache).values({
+    apId: ALICE,
+    type: "Person",
+    preferredUsername: "alice",
+    inbox: `${ALICE}/inbox`,
+    publicKeyId: `${ALICE}#main-key`,
+    publicKeyPem: "pub",
+    rawJson: JSON.stringify({ id: ALICE, type: "Person" }),
+  });
 }
 
 function storyWithEndTime(endTime: string, id: string): Activity {
@@ -1294,4 +1287,63 @@ test("inbound Create(Story) from a blocked actor is dropped (not stored)", async
   expect(
     (await db.select().from(objects).where(eq(objects.apId, STORY_ID))).length,
   ).toBe(0);
+});
+
+test("terminal Delete keeps a late Story out of object storage", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  const context = {
+    ...ctx(db),
+    env: { APP_URL: "https://yuru.test" },
+  } as ActivityContext;
+  await handleDelete(context, {
+    id: `${ALICE}/activities/delete-story-terminal`,
+    type: "Delete",
+    actor: ALICE,
+    object: STORY_ID,
+  });
+  const local = "https://yuru.test/ap/users/terminal-story-reader";
+  await seedActor(db, local, "terminal-story-reader");
+  const recipient = (await db
+    .select()
+    .from(actors)
+    .where(eq(actors.apId, local))
+    .get())!;
+  await handleCreate(
+    context,
+    storyActivity(),
+    recipient,
+    ALICE,
+    "https://yuru.test",
+  );
+  expect(
+    await db.select().from(objects).where(eq(objects.apId, STORY_ID)),
+  ).toHaveLength(0);
+});
+
+test("terminal Delete keeps a fetched Announce target from rematerializing", async () => {
+  const db = await freshDb();
+  await seedAlice(db);
+  fetchedUrls.length = 0;
+  const context = {
+    ...ctx(db),
+    env: { APP_URL: "https://yuru.test" },
+  } as ActivityContext;
+  await handleDelete(context, {
+    id: `${ALICE}/activities/delete-announced-terminal`,
+    type: "Delete",
+    actor: ALICE,
+    object: FETCHED_NOTE_ID,
+  });
+  expect(
+    await fetchAndPersistAnnouncedNote(
+      db,
+      FETCHED_NOTE_ID,
+      "https://yuru.test",
+    ),
+  ).toBe(false);
+  expect(fetchedUrls).toContain(FETCHED_NOTE_ID);
+  expect(
+    await db.select().from(objects).where(eq(objects.apId, FETCHED_NOTE_ID)),
+  ).toHaveLength(0);
 });

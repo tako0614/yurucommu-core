@@ -1,5 +1,23 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 import { nowIsoUtc } from "./date-utils.ts";
+
+/** Verified terminal Delete evidence; neither actor nor object lifetime owns it. */
+export const inboundObjectDeletions = sqliteTable(
+  "inbound_object_deletions",
+  {
+    actorApId: text("actor_ap_id").notNull(),
+    objectApId: text("object_ap_id").notNull(),
+    deleteActivityApId: text("delete_activity_ap_id"),
+    deletedAt: text("deleted_at").notNull().$defaultFn(nowIsoUtc),
+  },
+  (t) => [primaryKey({ columns: [t.actorApId, t.objectApId] })],
+);
 
 /**
  * Short-lived fencing leases for inbound ActivityPub dispatch.

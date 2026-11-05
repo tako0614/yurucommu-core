@@ -7,7 +7,9 @@ import {
   activities,
   actorCache,
   actors,
+  communities,
   inboundActivityClaims,
+  inboundObjectDeletions,
   inbox,
   objectRecipients,
   objects,
@@ -81,31 +83,40 @@ async function fixture() {
     content = type === "Update"
       ? "Updated while Delete waits"
       : "Message before deletion",
+    addresses = [LOCAL],
+    group = false,
+    objectId = OBJECT,
   ) {
     const body = JSON.stringify({
       "@context": "https://www.w3.org/ns/activitystreams",
       id: `${actor}/activities/${wireId}`,
       type,
       actor,
-      to: [LOCAL],
+      to: addresses,
       object:
         type === "Delete"
-          ? { id: OBJECT, type: "Tombstone", formerType: "Note" }
+          ? { id: objectId, type: "Tombstone", formerType: "Note" }
           : {
-              id: OBJECT,
+              id: objectId,
               type: "Note",
               attributedTo: actor,
               content,
-              to: [LOCAL],
+              ...(group ? { room: `${HOST}/ap/rooms/terminal-room` } : {}),
+              to: addresses,
               cc: [],
               published: "2026-11-05T00:00:00.000Z",
             },
     });
-    const url = shared ? `${HOST}/ap/inbox` : `${LOCAL}/inbox`;
-    const pair = actor === AUTHOR ? keys : otherKeys;
+    const url = group
+      ? `${HOST}/ap/actor/inbox`
+      : shared
+        ? `${HOST}/ap/inbox`
+        : `${LOCAL}/inbox`;
+    const signingActor = actor === OTHER ? OTHER : AUTHOR;
+    const pair = signingActor === AUTHOR ? keys : otherKeys;
     const headers = await signRequest(
       pair.privateKeyPem,
-      `${actor}#main-key`,
+      `${signingActor}#main-key`,
       "POST",
       url,
       body,
@@ -127,7 +138,7 @@ async function fixture() {
   return { ...f, request, deletion, dbErrors };
 }
 
-for (const replacementActor of [OTHER, AUTHOR]) {
+for (const replacementActor of [OTHER]) {
   test(`a stale signed Delete cannot remove the ${replacementActor === AUTHOR ? "same author changed-content" : "other author"} replacement or its projections`, async () => {
     const f = await fixture();
     const db = f.db as typeof f.db & {
@@ -371,6 +382,321 @@ test("a real final object-delete failure remains retryable without losing the De
     expect(await f.db.select().from(objects)).toHaveLength(0);
     expect(await f.db.select().from(objectRecipients)).toHaveLength(0);
     expect(await f.db.select().from(inbox)).toHaveLength(0);
+  } finally {
+    f.client.close();
+  }
+});
+
+for (const shared of [false, true]) {
+  for (const publicNote of [false, true]) {
+    const addresses = publicNote
+      ? ["https://www.w3.org/ns/activitystreams#Public", LOCAL]
+      : [LOCAL];
+    test(`terminal signed Delete before ${shared ? "shared" : "user"} ${publicNote ? "public" : "direct"} Create never exposes the late object`, async () => {
+      const f = await fixture();
+      try {
+        expect((await f.request("Delete", shared)).status).toBe(202);
+        expect(
+          (
+            await f.request(
+              "Create",
+              shared,
+              AUTHOR,
+              "late-create",
+              "Late body",
+              addresses,
+            )
+          ).status,
+        ).toBe(202);
+        expect(await f.db.select().from(objects)).toHaveLength(0);
+        expect(await f.db.select().from(objectRecipients)).toHaveLength(0);
+        expect(await f.db.select().from(inbox)).toHaveLength(0);
+        expect((await f.request("Delete", shared)).status).toBe(202);
+      } finally {
+        f.client.close();
+      }
+    });
+    test(`terminal signed Delete survives ledger cleanup and ${shared ? "shared" : "user"} ${publicNote ? "public" : "direct"} Create redelivery`, async () => {
+      const f = await fixture();
+      try {
+        expect(
+          (
+            await f.request(
+              "Create",
+              shared,
+              AUTHOR,
+              "first-create",
+              "Original body",
+              addresses,
+            )
+          ).status,
+        ).toBe(202);
+        expect((await f.request("Delete", shared)).status).toBe(202);
+        expect(await f.db.select().from(objects)).toHaveLength(0);
+        await f.db.delete(activities);
+        expect(
+          (
+            await f.request(
+              "Create",
+              shared,
+              AUTHOR,
+              "new-create-id",
+              "Resurrected body",
+              addresses,
+            )
+          ).status,
+        ).toBe(202);
+        expect(await f.db.select().from(objects)).toHaveLength(0);
+        expect(await f.db.select().from(objectRecipients)).toHaveLength(0);
+        expect(await f.db.select().from(inbox)).toHaveLength(0);
+      } finally {
+        f.client.close();
+      }
+    });
+  }
+}
+
+test("terminal signed Delete of an unknown target cannot suppress another actor on the same host", async () => {
+  const f = await fixture();
+  try {
+    expect((await f.request("Delete")).status).toBe(202);
+    expect(
+      (await f.request("Create", false, OTHER, "other-create")).status,
+    ).toBe(202);
+    const retained = await f.db.select().from(objects);
+    expect(retained).toHaveLength(1);
+    expect(retained[0].attributedTo).toBe(OTHER);
+    expect(
+      (await f.request("Delete", false, AUTHOR, "another-delete")).status,
+    ).toBe(202);
+    expect(await f.db.select().from(objects)).toEqual(retained);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("terminal signed Delete between a Create pre-read and actual batch prevents its first exposure", async () => {
+  const f = await fixture();
+  const db = f.db as typeof f.db & {
+    batch(
+      statements: readonly [D1Statement, ...D1Statement[]],
+    ): Promise<unknown[]>;
+  };
+  const batch = db.batch.bind(db);
+  let injected = false;
+  try {
+    db.batch = async (statements) => {
+      const inserting = statements.some((statement) =>
+        (statement as unknown as { toSQL?: () => { sql: string } })
+          .toSQL?.()
+          .sql.startsWith('insert into "objects"'),
+      );
+      if (!injected && inserting) {
+        injected = true;
+        expect((await f.request("Delete")).status).toBe(202);
+      }
+      return batch(statements);
+    };
+    expect((await f.request("Create")).status).toBe(202);
+    expect(injected).toBe(true);
+    expect(await db.select().from(objects)).toHaveLength(0);
+    expect(await db.select().from(objectRecipients)).toHaveLength(0);
+    expect(await db.select().from(inbox)).toHaveLength(0);
+  } finally {
+    db.batch = batch;
+    f.client.close();
+  }
+});
+
+test("terminal signed Delete records its intent before an absent-object read can become stale", async () => {
+  const f = await fixture();
+  const execute = f.client.execute.bind(f.client);
+  let injected = false;
+  try {
+    f.client.execute = async (...args: Parameters<typeof execute>) => {
+      const result = await execute(...args);
+      const statement: unknown = args[0];
+      const query =
+        typeof statement === "string"
+          ? statement
+          : (statement as { sql: string }).sql;
+      if (
+        !injected &&
+        query.startsWith("select ") &&
+        query.includes('from "objects"') &&
+        query.includes('"attachments_json"') &&
+        query.includes('"deleted_at"')
+      ) {
+        injected = true;
+        expect(
+          (await f.request("Create", false, AUTHOR, "interleaved-create"))
+            .status,
+        ).toBe(202);
+      }
+      return result;
+    };
+    expect((await f.request("Delete")).status).toBe(202);
+    expect(injected).toBe(true);
+    expect(await f.db.select().from(objects)).toHaveLength(0);
+    expect(await f.db.select().from(objectRecipients)).toHaveLength(0);
+    expect(await f.db.select().from(inbox)).toHaveLength(0);
+  } finally {
+    f.client.execute = execute;
+    f.client.close();
+  }
+});
+
+for (const createFirst of [false, true]) {
+  test(`terminal signed Delete in actor inbox fences ${createFirst ? "redelivered" : "late"} group messages without suppressing another actor`, async () => {
+    const f = await fixture();
+    const room = `${HOST}/ap/groups/terminal-room`;
+    try {
+      await f.db.insert(communities).values({
+        apId: room,
+        preferredUsername: "terminal-room",
+        name: "Terminal room",
+        inbox: `${room}/inbox`,
+        outbox: `${room}/outbox`,
+        followersUrl: `${room}/followers`,
+        createdBy: LOCAL,
+        publicKeyPem: "unused-local-key",
+        privateKeyPem: "unused-local-key",
+        postPolicy: "anyone",
+        visibility: "public",
+      });
+      if (createFirst) {
+        expect(
+          (
+            await f.request(
+              "Create",
+              false,
+              AUTHOR,
+              "first-group",
+              "Group body",
+              [LOCAL],
+              true,
+            )
+          ).status,
+        ).toBe(202);
+        expect((await f.db.select().from(objects).get())?.visibility).toBe(
+          "group",
+        );
+        expect(await f.db.select().from(objectRecipients)).toHaveLength(1);
+      }
+      expect(
+        (
+          await f.request(
+            "Delete",
+            false,
+            AUTHOR,
+            "group-delete",
+            "",
+            [LOCAL],
+            true,
+          )
+        ).status,
+      ).toBe(202);
+      expect(
+        (
+          await f.request(
+            "Create",
+            false,
+            AUTHOR,
+            "late-group",
+            "Late group body",
+            [LOCAL],
+            true,
+          )
+        ).status,
+      ).toBe(202);
+      expect(await f.db.select().from(objects)).toHaveLength(0);
+      expect(await f.db.select().from(objectRecipients)).toHaveLength(0);
+      expect(
+        (
+          await f.request(
+            "Create",
+            false,
+            OTHER,
+            "other-group",
+            "Other member body",
+            [LOCAL],
+            true,
+          )
+        ).status,
+      ).toBe(202);
+      expect((await f.db.select().from(objects).get())?.attributedTo).toBe(
+        OTHER,
+      );
+      expect(
+        (await f.db.select().from(objectRecipients).get())?.recipientApId,
+      ).toBe(room);
+    } finally {
+      f.client.close();
+    }
+  });
+}
+
+test("terminal signed Delete uses canonical signer identity but exact object identity", async () => {
+  const f = await fixture();
+  try {
+    const cosmetic = "https://REMOTE.example:443/users/alice/";
+    expect((await f.request("Delete", false, cosmetic)).status).toBe(202);
+    expect(
+      (await f.request("Create", false, AUTHOR, "canonical-create")).status,
+    ).toBe(202);
+    expect(await f.db.select().from(objects)).toHaveLength(0);
+    const distinct = OBJECT + "?revision=1";
+    expect(
+      (
+        await f.request(
+          "Create",
+          false,
+          AUTHOR,
+          "distinct-object",
+          "New object identity",
+          [LOCAL],
+          false,
+          distinct,
+        )
+      ).status,
+    ).toBe(202);
+    expect((await f.db.select().from(objects).get())?.apId).toBe(distinct);
+    expect(
+      (await f.db.select().from(inboundObjectDeletions).get())?.actorApId,
+    ).toBe(AUTHOR);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("terminal signed Delete cannot mint local, foreign-origin or unsafe object reservations", async () => {
+  const f = await fixture();
+  try {
+    for (const [index, id] of [
+      `${HOST}/ap/objects/local`,
+      "https://other.example/objects/foreign",
+      "javascript:unsafe",
+    ].entries()) {
+      expect(
+        (
+          await f.request(
+            "Delete",
+            false,
+            AUTHOR,
+            `invalid-delete-${index}`,
+            "",
+            [LOCAL],
+            false,
+            id,
+          )
+        ).status,
+      ).toBe(202);
+    }
+    expect(await f.db.select().from(inboundObjectDeletions)).toHaveLength(0);
+    expect((await f.request("Create")).status).toBe(202);
+    expect((await f.db.select().from(objects).get())?.attributedTo).toBe(
+      AUTHOR,
+    );
   } finally {
     f.client.close();
   }

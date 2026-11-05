@@ -26,6 +26,7 @@ import {
   deliveryResolutions,
   follows,
   inbox as inboxTable,
+  inboundObjectDeletions,
   likes,
   objectRecipients,
   objects,
@@ -83,6 +84,11 @@ import {
   normalizeActivityPubActorId,
 } from "../../../lib/activitypub-actor-identity.ts";
 import { activityPubActorIdentityMatchesSql } from "../../../lib/activitypub-actor-identity-sql.ts";
+import {
+  guardInboundObjectCreation,
+  inboundObjectNotDeletedSql,
+  InboundObjectDeletionConflict,
+} from "../../../lib/inbound-object-deletion.ts";
 import { fetchWithTimeout } from "../../../lib/federation-fetch.ts";
 import { signRequest } from "../../../lib/ap-signing.ts";
 import {
@@ -209,7 +215,11 @@ function guardInboundNoteCreate(
   )`
     : retained;
   return createGuardedDatabase(db, () =>
-    admissionGuard(db, admissible, () => new InboundNoteIdentityConflict()),
+    admissionGuard(
+      db,
+      sql`(${admissible}) AND ${inboundObjectNotDeletedSql(objectId, actor)}`,
+      () => new InboundNoteIdentityConflict(),
+    ),
   );
 }
 
@@ -626,10 +636,17 @@ export async function handleCreate(
   try {
     await createInboundObject(c, activity, recipient, actor, baseUrl);
   } catch (error) {
-    if (!(error instanceof InboundNoteIdentityConflict)) throw error;
-    log.warn("Create rejected: retained Note identity conflicts with signer", {
-      event: "ap.create.note_identity_conflict",
-    });
+    if (
+      !(error instanceof InboundNoteIdentityConflict) &&
+      !(error instanceof InboundObjectDeletionConflict)
+    )
+      throw error;
+    log.warn(
+      "Create rejected: retained identity or deletion conflicts with signer",
+      {
+        event: "ap.create.note_identity_conflict",
+      },
+    );
   }
 }
 
@@ -965,7 +982,7 @@ export async function handleCreateStory(
   actor: string,
   baseUrl: string,
 ) {
-  const db = c.get("db");
+  let db = c.get("db");
   const object = getActivityObject(activity);
   if (!object) return;
 
@@ -981,6 +998,8 @@ export async function handleCreateStory(
   }
 
   const objectId = identity.objectId;
+
+  db = guardInboundObjectCreation(db, objectId, actor);
 
   // Per-user block: drop a Story from an actor the local owner has blocked,
   // mirroring the inbound DM blockedBySigner drop + the inbound Like/Announce/
@@ -1293,6 +1312,7 @@ export async function fetchAndPersistAnnouncedNote(
     }
   }
 
+  db = guardInboundObjectCreation(db, objectId, attributedTo);
   const insertObject = db
     .insert(objects)
     .values({
@@ -1319,16 +1339,24 @@ export async function fetchAndPersistAnnouncedNote(
     })
     .onConflictDoNothing();
 
-  if (parentId) {
-    await runBatch(db, [
-      insertObject,
-      recomputeObjectReplyCount(db, parentId),
-      // Unknown Announce targets race normal Create delivery; the no-op insert
-      // plus recompute keeps both arrival paths idempotent and repairable.
-      recomputeObjectReplyCount(db, objectId),
-    ]);
-  } else {
-    await runBatch(db, [insertObject, recomputeObjectReplyCount(db, objectId)]);
+  try {
+    if (parentId) {
+      await runBatch(db, [
+        insertObject,
+        recomputeObjectReplyCount(db, parentId),
+        // Unknown Announce targets race normal Create delivery; the no-op insert
+        // plus recompute keeps both arrival paths idempotent and repairable.
+        recomputeObjectReplyCount(db, objectId),
+      ]);
+    } else {
+      await runBatch(db, [
+        insertObject,
+        recomputeObjectReplyCount(db, objectId),
+      ]);
+    }
+  } catch (error) {
+    if (error instanceof InboundObjectDeletionConflict) return false;
+    throw error;
   }
 
   return true;
@@ -1632,6 +1660,30 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
       objectId,
     });
     return;
+  }
+
+  // Persist before reading the object: a Create that commits first is found
+  // below; a later Create cannot cross its own atomic receipt assertion.
+  // A receipt is the signer's intent, not ownership of another actor's object.
+  const identity = validateInboundObjectIdentity(
+    objectId,
+    actorId,
+    c.env.APP_URL,
+  );
+  const canonicalActor = normalizeActivityPubActorId(actorId);
+  if (
+    identity.ok &&
+    canonicalActor &&
+    !isSameActivityPubActor(objectId, actorId)
+  ) {
+    await sourceDb
+      .insert(inboundObjectDeletions)
+      .values({
+        actorApId: canonicalActor,
+        objectApId: identity.objectId,
+        deleteActivityApId: activity.id ?? null,
+      })
+      .onConflictDoNothing();
   }
 
   const delObj = await sourceDb

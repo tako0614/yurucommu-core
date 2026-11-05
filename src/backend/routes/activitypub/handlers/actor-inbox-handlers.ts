@@ -13,6 +13,10 @@ import {
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
+import {
+  guardInboundObjectCreation,
+  InboundObjectDeletionConflict,
+} from "../../../lib/inbound-object-deletion.ts";
 import { severFollowDirection } from "../../../lib/follow-edge-mutations.ts";
 import { isMemberBanned } from "../../communities/membership-shared.ts";
 import {
@@ -223,7 +227,7 @@ export async function handleGroupCreate(
   actorApIdStr: string,
   baseUrl: string,
 ) {
-  const db = c.get("db");
+  let db = c.get("db");
   const object = getActivityObject(activity);
   if (!object || !typeIncludes(object.type, "Note")) return;
 
@@ -275,6 +279,7 @@ export async function handleGroupCreate(
 
   const newObjectId = identity.objectId;
   const audienceJson = JSON.stringify([community.apId]);
+  db = guardInboundObjectCreation(db, newObjectId, actorApIdStr);
 
   // Clamp + normalize the remote-controlled `published` exactly like the other
   // inbound Note paths (handleCreate / insertDirectNote / handleCreateStory). The
@@ -299,56 +304,62 @@ export async function handleGroupCreate(
   // both statements are idempotent so a retry also repairs partial rows left by
   // older deployments. Migration 0010 deliberately removed the incorrect
   // object_recipients -> actors FK, so a community ap_id is valid here.
-  await runBatch(db, [
-    db
-      .insert(objects)
-      .values({
-        apId: newObjectId,
-        type: "Note",
-        attributedTo: actorApIdStr,
-        content: boundInboundContent(object.content),
-        summary: boundInboundSummary(object.summary),
-        attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
-        tagsJson: boundInboundTagsJson(object.tag),
-        visibility: "group",
-        // Record the community in audienceJson too (not just the
-        // object_recipients row): the canonical single-object read-gate
-        // (canViewerReadObject) keys on audienceJson/communityApId and does NOT
-        // consult object_recipients, so without this a federated chat message in
-        // a PRIVATE community was served to ANY caller via GET /api/posts/:id.
-        audienceJson,
-        communityApId: null,
-        published: now,
-        isLocal: 0,
-      })
-      .onConflictDoNothing(),
-    db
-      .insert(objectRecipients)
-      // Select from the object that ACTUALLY exists after the preceding insert,
-      // rather than trusting the attempted values. This closes the concurrent
-      // id-reuse race: if another community won the object-id insert, its
-      // different audience shape cannot be linked into this room.
-      .select(
-        db
-          .select({
-            objectApId: objects.apId,
-            recipientApId: sql<string>`${community.apId}`.as("recipient_ap_id"),
-            type: sql<string>`'audience'`.as("type"),
-            createdAt: sql<string>`${now}`.as("created_at"),
-          })
-          .from(objects)
-          .where(
-            and(
-              eq(objects.apId, newObjectId),
-              eq(objects.type, "Note"),
-              eq(objects.attributedTo, actorApIdStr),
-              eq(objects.visibility, "group"),
-              eq(objects.audienceJson, audienceJson),
-              isNull(objects.communityApId),
-              eq(objects.isLocal, 0),
+  try {
+    await runBatch(db, [
+      db
+        .insert(objects)
+        .values({
+          apId: newObjectId,
+          type: "Note",
+          attributedTo: actorApIdStr,
+          content: boundInboundContent(object.content),
+          summary: boundInboundSummary(object.summary),
+          attachmentsJson: boundInboundNoteAttachmentsJson(object.attachment),
+          tagsJson: boundInboundTagsJson(object.tag),
+          visibility: "group",
+          // Record the community in audienceJson too (not just the
+          // object_recipients row): the canonical single-object read-gate
+          // (canViewerReadObject) keys on audienceJson/communityApId and does NOT
+          // consult object_recipients, so without this a federated chat message in
+          // a PRIVATE community was served to ANY caller via GET /api/posts/:id.
+          audienceJson,
+          communityApId: null,
+          published: now,
+          isLocal: 0,
+        })
+        .onConflictDoNothing(),
+      db
+        .insert(objectRecipients)
+        // Select from the object that ACTUALLY exists after the preceding insert,
+        // rather than trusting the attempted values. This closes the concurrent
+        // id-reuse race: if another community won the object-id insert, its
+        // different audience shape cannot be linked into this room.
+        .select(
+          db
+            .select({
+              objectApId: objects.apId,
+              recipientApId: sql<string>`${community.apId}`.as(
+                "recipient_ap_id",
+              ),
+              type: sql<string>`'audience'`.as("type"),
+              createdAt: sql<string>`${now}`.as("created_at"),
+            })
+            .from(objects)
+            .where(
+              and(
+                eq(objects.apId, newObjectId),
+                eq(objects.type, "Note"),
+                eq(objects.attributedTo, actorApIdStr),
+                eq(objects.visibility, "group"),
+                eq(objects.audienceJson, audienceJson),
+                isNull(objects.communityApId),
+                eq(objects.isLocal, 0),
+              ),
             ),
-          ),
-      )
-      .onConflictDoNothing(),
-  ]);
+        )
+        .onConflictDoNothing(),
+    ]);
+  } catch (error) {
+    if (!(error instanceof InboundObjectDeletionConflict)) throw error;
+  }
 }
