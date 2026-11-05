@@ -6,6 +6,8 @@ import {
   requiredCount,
   validateActor,
   validateMessage,
+  responseObject,
+  InvalidApiResponseError,
 } from "./response.ts";
 import type { ApiReadOptions } from "./fetch.ts";
 import type { DMMessage, MediaAttachment } from "../../types/index.ts";
@@ -31,6 +33,62 @@ export interface DMContactsResponse {
   mutual_followers: DMContact[];
   communities: DMContact[];
   request_count: number;
+}
+
+/** A navigation hint revalidated for the current authenticated recipient. */
+export interface DMNotificationTarget {
+  event_id: string;
+  recipient_ap_id: string;
+  target: { type: "user" | "community"; ap_id: string };
+}
+
+function notificationTargetId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 2048 &&
+    value.trim() === value &&
+    !/[\u0000-\u001f\u007f]/u.test(value)
+  );
+}
+
+/** Resolve an opaque push event on this host, never by dereferencing its URL. */
+export async function fetchDMNotificationTarget(
+  eventId: string,
+  options: ApiReadOptions & { objectId?: string } = {},
+): Promise<DMNotificationTarget | null> {
+  const { objectId, ...readOptions } = options;
+  if (
+    !notificationTargetId(eventId) ||
+    (objectId !== undefined && !notificationTargetId(objectId))
+  ) {
+    throw new TypeError("Invalid notification target id");
+  }
+  const query = new URLSearchParams({
+    event_id: eventId,
+    ...(objectId !== undefined ? { object_id: objectId } : {}),
+  });
+  const res = await apiFetch(
+    `/api/dm/notification-target?${query}`,
+    readOptions,
+  );
+  if (res.status === 404) return null;
+  await assertOk(res, "Failed to resolve notification target");
+  const data = await readResponseJson(res);
+  const target = responseObject(data.target, "target");
+  if (
+    data.event_id !== eventId ||
+    !notificationTargetId(data.recipient_ap_id) ||
+    (target.type !== "user" && target.type !== "community") ||
+    !notificationTargetId(target.ap_id)
+  ) {
+    throw new InvalidApiResponseError("notification target");
+  }
+  return {
+    event_id: eventId,
+    recipient_ap_id: data.recipient_ap_id,
+    target: { type: target.type, ap_id: target.ap_id },
+  };
 }
 
 export interface DMRequest {

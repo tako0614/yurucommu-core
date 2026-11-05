@@ -11,6 +11,7 @@ import contacts from "./contacts.ts";
 import requests from "./requests.ts";
 import typing from "./typing.ts";
 import readArchive from "./read-archive.ts";
+import notificationTarget from "./notification-target.ts";
 
 // -- Routes --
 
@@ -21,5 +22,6 @@ dm.route("/", contacts);
 dm.route("/", requests);
 dm.route("/", typing);
 dm.route("/", readArchive);
+dm.route("/", notificationTarget);
 
 export default dm;
