@@ -16,6 +16,9 @@ import {
   actors,
   announces,
   bookmarks,
+  blocks,
+  actorWriteAssertions,
+  mediaBlobDeletionJobs,
   dmPeerArchivedConversations,
   inbox as inboxTable,
   likes,
@@ -30,8 +33,309 @@ import type { ObjectStore } from "../../runtime/types.ts";
 import dmRoutes from "../../routes/dm/conversations.ts";
 import dmMessages from "../../routes/dm/messages.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
+import { prepareObjectsDeleteCascade } from "../../routes/posts/delete-cascade.ts";
+import { guardActorWrites } from "../../lib/account-deletion-admission.ts";
 
 const APP_URL = "https://yuru.test";
+
+async function rejectSnapshot(db: Database) {
+  return {
+    objects: await db.select().from(objects),
+    recipients: await db.select().from(objectRecipients),
+    activities: await db.select().from(activities),
+    inbox: await db.select().from(inboxTable),
+    likes: await db.select().from(likes),
+    bookmarks: await db.select().from(bookmarks),
+    uploads: await db.select().from(mediaUploads),
+    mediaIntents: await db.select().from(mediaBlobDeletionJobs),
+    assertions: await db.select().from(actorWriteAssertions),
+    blocks: await db.select().from(blocks),
+  };
+}
+
+test("a stale request accepted on another device is not deleted or blocked", async () => {
+  const fixture = await createTestDb(),
+    db = fixture.db;
+  try {
+    const alice = await insertLocalActor(db, "stale-alice"),
+      bob = await insertLocalActor(db, "stale-bob");
+    const message = await insertDm(
+      db,
+      bob,
+      alice,
+      "stale-pair",
+      "pending",
+      "2026-11-05T00:00:00Z",
+    );
+    await surfaceInbound(db, message, bob, alice);
+    const app = appWith(db, fakeActor(alice, "stale-alice"));
+    const list = await app.fetch(
+      new Request(`${APP_URL}/requests`),
+      envFor(db),
+    );
+    expect(
+      ((await list.json()) as { requests: unknown[] }).requests,
+    ).toHaveLength(1);
+    const reply = await app.fetch(
+      new Request(`${APP_URL}/user/${encodeURIComponent(bob)}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "accepted on another device" }),
+      }),
+      envFor(db),
+    );
+    expect(reply.status).toBe(201);
+    const before = await rejectSnapshot(db);
+    const response = await app.fetch(
+      new Request(`${APP_URL}/requests/reject-pending`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sender_ap_id: bob, block: true }),
+      }),
+      envFor(db),
+    );
+    expect(response.status).toBe(409);
+    expect(await rejectSnapshot(db)).toEqual(before);
+    expect(await db.select().from(blocks)).toHaveLength(0);
+  } finally {
+    fixture.client.close();
+  }
+});
+
+test("acceptance after preparation but before the atomic reject batch has zero delete effects", async () => {
+  const fixture = await createTestDb(),
+    db = fixture.db;
+  try {
+    const alice = await insertLocalActor(db, "race-alice"),
+      bob = await insertLocalActor(db, "race-bob");
+    const message = await insertDm(
+      db,
+      bob,
+      alice,
+      "race-pair",
+      "pending-race",
+      "2026-11-05T00:00:00Z",
+    );
+    await surfaceInbound(db, message, bob, alice);
+    const app = appWith(db, fakeActor(alice, "race-alice"));
+    const batch = fixture.client.batch.bind(fixture.client);
+    let injected = false,
+      before: Awaited<ReturnType<typeof rejectSnapshot>> | undefined;
+    fixture.client.batch = (async (statements, ...rest) => {
+      if (
+        !injected &&
+        statements.some((statement) =>
+          String(
+            typeof statement === "string"
+              ? statement
+              : Array.isArray(statement)
+                ? statement[0]
+                : statement.sql,
+          )
+            .toLowerCase()
+            .includes("delete from"),
+        )
+      ) {
+        injected = true;
+        const reply = await app.fetch(
+          new Request(`${APP_URL}/user/${encodeURIComponent(bob)}/messages`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ content: "accepted before mutation" }),
+          }),
+          envFor(db),
+        );
+        expect(reply.status).toBe(201);
+        before = await rejectSnapshot(db);
+      }
+      return batch(statements, ...rest);
+    }) as typeof fixture.client.batch;
+    const response = await app.fetch(
+      new Request(`${APP_URL}/requests/reject`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sender_ap_id: bob }),
+      }),
+      envFor(db),
+    );
+    expect(injected).toBe(true);
+    expect(response.status).toBe(409);
+    expect(before).toBeDefined();
+    expect(await rejectSnapshot(db)).toEqual(before!);
+  } finally {
+    fixture.client.close();
+  }
+});
+
+test("a reply between guarded pages stops remaining pages and never acknowledges complete rejection", async () => {
+  const fixture = await createTestDb(),
+    db = fixture.db;
+  try {
+    const alice = await insertLocalActor(db, "page-race-alice"),
+      bob = await insertLocalActor(db, "page-race-bob");
+    for (let index = 0; index < 85; index++) {
+      const message = await insertDm(
+        db,
+        bob,
+        alice,
+        "page-race",
+        `page-${String(index).padStart(3, "0")}`,
+        "2026-11-05T00:00:00Z",
+      );
+      await surfaceInbound(db, message, bob, alice);
+    }
+    const viewer = fakeActor(alice, "page-race-alice");
+    // Production's account-deletion guard must compose with the request guard.
+    const app = appWith(guardActorWrites(db, viewer), viewer);
+    const batch = fixture.client.batch.bind(fixture.client);
+    let pages = 0,
+      before: Awaited<ReturnType<typeof rejectSnapshot>> | undefined;
+    fixture.client.batch = (async (statements, ...rest) => {
+      if (
+        statements.some((statement) =>
+          /delete from "objects"/i.test(
+            String(
+              typeof statement === "string"
+                ? statement
+                : Array.isArray(statement)
+                  ? statement[0]
+                  : statement.sql,
+            ),
+          ),
+        )
+      ) {
+        pages += 1;
+        if (pages === 2) {
+          const reply = await app.fetch(
+            new Request(`${APP_URL}/user/${encodeURIComponent(bob)}/messages`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ content: "accepted between pages" }),
+            }),
+            envFor(db),
+          );
+          expect(reply.status).toBe(201);
+          before = await rejectSnapshot(db);
+        }
+      }
+      return batch(statements, ...rest);
+    }) as typeof fixture.client.batch;
+    const response = await app.fetch(
+      new Request(`${APP_URL}/requests/reject`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sender_ap_id: bob, block: true }),
+      }),
+      envFor(db),
+    );
+    expect(response.status).toBe(409);
+    expect(pages).toBe(2);
+    expect(before).toBeDefined();
+    expect(await rejectSnapshot(db)).toEqual(before!);
+    expect(
+      await db.select().from(objects).where(eq(objects.attributedTo, bob)),
+    ).toHaveLength(45);
+    expect(
+      await db.select().from(inboxTable).where(eq(inboxTable.actorApId, alice)),
+    ).toHaveLength(45);
+    expect(await db.select().from(blocks)).toHaveLength(0);
+    expect(await db.select().from(actorWriteAssertions)).toHaveLength(0);
+  } finally {
+    fixture.client.close();
+  }
+});
+
+test("changed attachment metadata invalidates the prepared cascade without deleting children", async () => {
+  const fixture = await createTestDb(),
+    db = fixture.db;
+  try {
+    const alice = await insertLocalActor(db, "metadata-alice"),
+      bob = await insertLocalActor(db, "metadata-bob");
+    const message = await insertDm(
+      db,
+      bob,
+      alice,
+      "metadata-pair",
+      "metadata",
+      "2026-11-05T00:00:00Z",
+    );
+    await surfaceInbound(db, message, bob, alice);
+    const initial = await rejectSnapshot(db);
+    const plan = await prepareObjectsDeleteCascade(db, [message]);
+    expect(plan.objects[0]?.apId).toBe(message);
+    expect(plan.batches).toHaveLength(1);
+    expect(await rejectSnapshot(db)).toEqual(initial);
+    const batch = fixture.client.batch.bind(fixture.client);
+    let before: Awaited<ReturnType<typeof rejectSnapshot>> | undefined;
+    fixture.client.batch = (async (statements, ...rest) => {
+      if (!before) {
+        await db
+          .update(objects)
+          .set({
+            attachmentsJson: JSON.stringify([
+              { url: "https://remote.example/new.png" },
+            ]),
+          })
+          .where(eq(objects.apId, message));
+        before = await rejectSnapshot(db);
+      }
+      return batch(statements, ...rest);
+    }) as typeof fixture.client.batch;
+    const response = await appWith(
+      db,
+      fakeActor(alice, "metadata-alice"),
+    ).fetch(
+      new Request(`${APP_URL}/requests/reject`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sender_ap_id: bob }),
+      }),
+      envFor(db),
+    );
+    expect(response.status).toBe(409);
+    expect(await rejectSnapshot(db)).toEqual(before!);
+  } finally {
+    fixture.client.close();
+  }
+});
+
+test("a failed final object delete rolls back its activity, recipient and projection cleanup", async () => {
+  const fixture = await createTestDb(),
+    db = fixture.db;
+  try {
+    const alice = await insertLocalActor(db, "rollback-alice"),
+      bob = await insertLocalActor(db, "rollback-bob");
+    const message = await insertDm(
+      db,
+      bob,
+      alice,
+      "rollback-pair",
+      "rollback",
+      "2026-11-05T00:00:00Z",
+    );
+    await surfaceInbound(db, message, bob, alice);
+    await fixture.client.execute(
+      "CREATE TRIGGER synthetic_reject_failure BEFORE DELETE ON objects BEGIN SELECT RAISE(ABORT, 'synthetic final delete failure'); END",
+    );
+    const before = await rejectSnapshot(db);
+    const app = appWith(db, fakeActor(alice, "rollback-alice"));
+    app.onError((_error, c) =>
+      c.json({ error: "controlled test DB failure" }, 500),
+    );
+    const response = await app.fetch(
+      new Request(`${APP_URL}/requests/reject`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sender_ap_id: bob }),
+      }),
+      envFor(db),
+    );
+    expect(response.status).toBe(500);
+    expect(await rejectSnapshot(db)).toEqual(before);
+  } finally {
+    fixture.client.close();
+  }
+});
 
 function canonicalKey(label: string): string {
   const digest = [...new TextEncoder().encode(label)]

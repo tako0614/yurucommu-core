@@ -400,25 +400,38 @@ export async function prepareObjectDeleteCascade(
 }
 
 /**
- * Reap every child row for a set of objects without deleting the object rows.
+ * Prepare child/projection cleanup and media intent without writing any rows.
  * This is the set-shaped counterpart to {@link deleteObjectCascade}; callers
  * still own the final object delete and trailing {@link purgeMediaBlobs}. It
- * records durable pending media intent while retaining upload metadata. The
+ * returns durable pending media intent statements while retaining upload metadata. The
  * caller removes the source before a trailing purge can claim or delete bytes.
  *
  * The old bulk callers invoked the singular helper once per object. On D1 that
  * meant one attachment read plus eight serial delete round-trips per post: five
  * empty posts took about ten seconds in a real workerd probe and larger domain
  * purges could outlive the request. Here each <=90-id D1-safe chunk issues one
- * atomic bounded statement batch, so latency scales by chunks rather than posts.
+ * bounded statement batch. Owners can combine each page with their authority
+ * assertion and final object delete; deleteObjectsCascade executes the original
+ * media-intent and child batches for callers that own that sequence separately.
  */
-export async function deleteObjectsCascade(
+export async function prepareObjectsDeleteCascade(
   db: Database,
   objectApIds: string[],
   media?: ObjectStore,
-): Promise<string[]> {
+): Promise<{
+  objects: CascadeObject[];
+  mediaKeys: string[];
+  mediaStatements: readonly D1Statement[];
+  batches: readonly (readonly [D1Statement, ...D1Statement[]])[];
+}> {
   const uniqueApIds = [...new Set(objectApIds)];
-  if (uniqueApIds.length === 0) return [];
+  const empty = {
+    objects: [],
+    mediaKeys: [],
+    mediaStatements: [],
+    batches: [],
+  };
+  if (uniqueApIds.length === 0) return empty;
 
   const cascadeObjects: CascadeObject[] = [];
   for (const chunk of chunkForInClause(uniqueApIds)) {
@@ -433,7 +446,7 @@ export async function deleteObjectsCascade(
         .where(inArray(objects.apId, chunk))),
     );
   }
-  if (cascadeObjects.length === 0) return [];
+  if (cascadeObjects.length === 0) return empty;
   const existingApIds = cascadeObjects.map((obj) => obj.apId);
 
   // Remote attachments are normally ordinary remote URLs with no local
@@ -477,7 +490,7 @@ export async function deleteObjectsCascade(
     })),
     { conflict: "ignore" },
   );
-  await runMediaJobStatements(db, mediaStatements);
+  const batches: [D1Statement, ...D1Statement[]][] = [];
 
   for (const chunk of chunkForInClause(existingApIds)) {
     // Cancel every notification/delivery projection of retained Activities
@@ -486,7 +499,7 @@ export async function deleteObjectsCascade(
     // claim must not retain that deleted payload. Keep the Activity ledger rows
     // themselves; callers may need history/Undo, and the new outbound Delete
     // Activity is created only after this cascade so it remains unaffected.
-    await runBatch(db, [
+    batches.push([
       db.delete(likes).where(inArray(likes.objectApId, chunk)),
       db.delete(announces).where(inArray(announces.objectApId, chunk)),
       db.delete(bookmarks).where(inArray(bookmarks.objectApId, chunk)),
@@ -503,5 +516,22 @@ export async function deleteObjectsCascade(
     ]);
   }
 
-  return [...mediaKeys];
+  return {
+    objects: cascadeObjects,
+    mediaKeys: [...mediaKeys],
+    mediaStatements,
+    batches,
+  };
+}
+
+/** Execute the existing cascade; transactional owners may compose its plan. */
+export async function deleteObjectsCascade(
+  db: Database,
+  objectApIds: string[],
+  media?: ObjectStore,
+): Promise<string[]> {
+  const plan = await prepareObjectsDeleteCascade(db, objectApIds, media);
+  await runMediaJobStatements(db, plan.mediaStatements);
+  for (const batch of plan.batches) await runBatch(db, batch);
+  return plan.mediaKeys;
 }

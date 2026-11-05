@@ -137,3 +137,24 @@ legacy compatibility, current membership/recipient/block authority, both unread
 projections, account and object cleanup, bounded requests and the actual App/Core
 race. Native D1, real identity, installed clients, devices and federation delivery
 are separate evidence; no live schema or credential operation is implied.
+## Pending request rejection
+
+New clients use `POST /api/dm/requests/reject-pending` and fail closed on an old
+host's 404, without falling back to `/requests/reject`. The existing reject
+route shares the guarded implementation for older clients on updated hosts.
+
+Rejecting a request is restricted to the authenticated recipient, sender and
+resolved stored conversation while that pair has no reply from the recipient.
+A stale inbox does not authorize deleting an accepted conversation. Each page
+revalidates the pending predicate and selected direct-Note ownership and
+attachment snapshots inside the existing SQL CHECK admission boundary.
+Activity/projection cleanup, media deletion intent, children and object removal
+commit in one bounded batch. Physical media purge remains trailing.
+
+The operation is atomic per page, not across the complete multi-page history.
+A reply before the first page causes no deletion; a reply between pages stops
+new page deletion with `409 request_changed`. Earlier committed pages remain
+removed. Clients must reload and never treat this as a complete ACK or blindly
+retry the destructive request. Optional blocking uses the same pending guard.
+The sender-only public API still selects the peer's current stored conversation;
+it does not identify a particular older request row.

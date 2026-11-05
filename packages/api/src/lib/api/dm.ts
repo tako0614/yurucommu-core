@@ -193,6 +193,25 @@ export async function rejectDMRequest(
   await assertOk(res, "Failed to reject request");
 }
 
+/** Refuse older hosts instead of falling back to unguarded legacy rejection. */
+export async function rejectPendingDMRequest(
+  senderApId: string,
+  block = false,
+): Promise<void> {
+  if (!notificationTargetId(senderApId) || typeof block !== "boolean") {
+    throw new TypeError("Invalid pending request rejection");
+  }
+  const res = await apiPost("/api/dm/requests/reject-pending", {
+    sender_ap_id: senderApId,
+    block,
+  });
+  await assertOk(res, "Failed to reject pending request");
+  const data = await readResponseJson(res);
+  if (data.success !== true) {
+    throw new InvalidApiResponseError("pending request rejection");
+  }
+}
+
 // User-based DM endpoints (no conversation creation needed)
 export async function fetchUserDMMessages(
   userApId: string,
