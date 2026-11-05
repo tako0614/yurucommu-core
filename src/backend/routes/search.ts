@@ -514,6 +514,14 @@ search.get("/remote", async (c) => {
     return c.json({ actors: [] });
   }
 
+  // A failed lookup is not evidence that the account does not exist. Keep
+  // upstream diagnostics private and let clients offer an explicit retry.
+  const unavailable = () =>
+    c.json(
+      { error: "Remote search unavailable", code: "REMOTE_SEARCH_UNAVAILABLE" },
+      503,
+    );
+
   try {
     // WebFinger lookup
     const webfingerUrl = `https://${safeDomain}/.well-known/webfinger?resource=acct:${username}@${safeDomain}`;
@@ -521,7 +529,11 @@ search.get("/remote", async (c) => {
       headers: { Accept: "application/jrd+json" },
       timeout: REMOTE_FETCH_TIMEOUT_MS,
     });
-    if (!wfRes.ok) return c.json({ actors: [] });
+    if (!wfRes.ok) {
+      return wfRes.status === 404 || wfRes.status === 410
+        ? c.json({ actors: [] })
+        : unavailable();
+    }
 
     const wfRaw: unknown = await wfRes.json();
     let wfData;
@@ -560,7 +572,11 @@ search.get("/remote", async (c) => {
       },
       timeout: REMOTE_FETCH_TIMEOUT_MS,
     });
-    if (!actorRes.ok) return c.json({ actors: [] });
+    if (!actorRes.ok) {
+      return actorRes.status === 404 || actorRes.status === 410
+        ? c.json({ actors: [] })
+        : unavailable();
+    }
 
     const actorRaw: unknown = await actorRes.json();
     const cached = await cacheRemoteActorDocument(db, actorLink.href, actorRaw);
@@ -583,7 +599,7 @@ search.get("/remote", async (c) => {
       event: "search.remote.failed",
       error: e,
     });
-    return c.json({ actors: [] });
+    return unavailable();
   }
 });
 
