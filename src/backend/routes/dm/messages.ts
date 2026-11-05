@@ -4,7 +4,7 @@
 
 import { Hono } from "hono";
 import { mediaReferenceError } from "../../lib/errors.ts";
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
   hasObservedReads,
@@ -19,9 +19,18 @@ import {
   inbox as inboxTable,
   objectRecipients,
   objects,
+  runBatch,
+  type D1Statement,
 } from "../../../db/index.ts";
+import { createGuardedDatabase } from "../../../db/guarded-writes.ts";
+import { admissionGuard } from "../../lib/account-deletion-admission.ts";
+import { bytesToHex } from "../../lib/hex.ts";
 import {
-  deleteObjectCascade,
+  prepareDeliveryResolutionJobs,
+  enqueueDeliveryResolutionJobs,
+} from "../../lib/delivery/resolution-outbox.ts";
+import {
+  prepareObjectsDeleteCascade,
   purgeMediaBlobs,
 } from "../posts/delete-cascade.ts";
 import type { Env, Variables } from "../../types.ts";
@@ -30,6 +39,7 @@ import {
   formatUsername,
   generateId,
   isLocal,
+  isSafeRemoteUrl,
   objectApId,
   parseLimit,
   safeJsonParse,
@@ -50,7 +60,7 @@ import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { validateChatAttachments } from "../../lib/attachments.ts";
 import { logger } from "../../lib/logger.ts";
 import { isActorBlockedStrict } from "../../lib/blocklist.ts";
-import { deleteActivitiesCascade } from "../../lib/activity-delete-cascade.ts";
+import { activityDeleteCascadeStatements } from "../../lib/activity-delete-cascade.ts";
 
 const log = logger.child({ component: "dm.messages" });
 
@@ -314,32 +324,35 @@ async function fetchAndFormatMessages(
   return { messages: formatMessages(rows, authorMap), hasMore };
 }
 
+function ownedDmScope(messageId: string) {
+  return and(
+    eq(objects.apId, messageId),
+    eq(objects.visibility, "direct"),
+    eq(objects.type, "Note"),
+    isNull(objects.communityApId),
+    sql`NOT EXISTS (SELECT 1 FROM object_recipients audience
+      WHERE audience.object_ap_id=${objects.apId} AND audience.type='audience')`,
+  );
+}
+
+class OwnedMessageChangedError extends Error {}
+
 /** Look up a direct-message Note that the actor owns (for edit/delete). */
 async function findOwnedDmMessage(
   db: Database,
   messageId: string,
   actorApId: string,
 ): Promise<
-  | { apId: string; attributedTo: string; conversation: string | null }
+  | typeof objects.$inferSelect
   | {
       error: string;
       status: 403 | 404;
     }
 > {
   const message = await db
-    .select({
-      apId: objects.apId,
-      attributedTo: objects.attributedTo,
-      conversation: objects.conversation,
-    })
+    .select()
     .from(objects)
-    .where(
-      and(
-        eq(objects.apId, messageId),
-        eq(objects.visibility, "direct"),
-        eq(objects.type, "Note"),
-      ),
-    )
+    .where(ownedDmScope(messageId))
     .get();
 
   if (!message) return { error: "Message not found", status: 404 };
@@ -347,6 +360,162 @@ async function findOwnedDmMessage(
     return { error: "Forbidden", status: 403 };
   }
   return message;
+}
+
+type OwnedDmMessage = typeof objects.$inferSelect;
+
+/** A content/authority snapshot, not a secret or a durable schema revision. */
+async function ownedDmRevision(message: OwnedDmMessage) {
+  const value = JSON.stringify([
+    message.apId,
+    message.attributedTo,
+    message.content,
+    message.published,
+    message.updated,
+    message.attachmentsJson,
+    message.toJson,
+    message.ccJson,
+    message.conversation,
+    message.communityApId,
+  ]);
+  return (
+    "dm-v1:" +
+    bytesToHex(
+      new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
+      ),
+    )
+  );
+}
+
+function guardedOwnedDm(db: Database, message: OwnedDmMessage) {
+  const same = and(
+    ownedDmScope(message.apId),
+    eq(objects.attributedTo, message.attributedTo),
+    sql`${objects.content} IS ${message.content}`,
+    sql`${objects.published} IS ${message.published}`,
+    sql`${objects.updated} IS ${message.updated}`,
+    eq(objects.attachmentsJson, message.attachmentsJson),
+    eq(objects.toJson, message.toJson),
+    eq(objects.ccJson, message.ccJson),
+    sql`${objects.conversation} IS ${message.conversation}`,
+  );
+  const present = db.select({ id: objects.apId }).from(objects).where(same);
+  return createGuardedDatabase(db, () =>
+    admissionGuard(
+      db,
+      sql`EXISTS ${present}`,
+      () => new OwnedMessageChangedError(),
+    ),
+  );
+}
+
+function revisionError(header: string | undefined, revision: string) {
+  if (header === undefined) return undefined; // Preserve older callers' contract.
+  if (!/^"dm-v1:[a-f0-9]{64}"$/.test(header))
+    return { error: "Invalid If-Match", status: 400 as const };
+  if (header !== JSON.stringify(revision))
+    return { error: "message_changed", status: 409 as const };
+}
+
+async function prepareDmMutationDelivery(
+  db: Database,
+  env: Env,
+  message: OwnedDmMessage,
+  kind: "Update" | "Delete",
+  content?: string,
+  updated?: string,
+) {
+  const addresses = (value: string) => {
+    const parsed = safeJsonParse<unknown>(value, []);
+    return Array.isArray(parsed)
+      ? [
+          ...new Set(
+            parsed.filter(
+              (id): id is string =>
+                typeof id === "string" &&
+                id !== "https://www.w3.org/ns/activitystreams#Public" &&
+                !id.endsWith("/followers"),
+            ),
+          ),
+        ]
+      : [];
+  };
+  const to = addresses(message.toJson),
+    cc = addresses(message.ccJson);
+  const recipients: string[] = [];
+  for (const id of new Set([...to, ...cc])) {
+    if (
+      !isLocal(id, env.APP_URL) &&
+      isSafeRemoteUrl(id) &&
+      !(await isActorBlockedStrict(db, id))
+    )
+      recipients.push(id);
+  }
+  const id = activityApId(env.APP_URL, generateId());
+  const wire = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id,
+    type: kind,
+    actor: message.attributedTo,
+    to,
+    cc,
+    object:
+      kind === "Delete"
+        ? { id: message.apId, type: "Tombstone" }
+        : {
+            id: message.apId,
+            type: "Note",
+            attributedTo: message.attributedTo,
+            to,
+            cc,
+            content,
+            published: message.published,
+            updated,
+            conversation: message.conversation,
+            attachment: toApAttachments(
+              safeJsonParse<unknown[]>(message.attachmentsJson, []),
+              env.APP_URL,
+            ),
+          },
+  };
+  const intents = recipients.map((recipientActorApId) => ({
+    activityId: id,
+    recipientActorApId,
+  }));
+  const jobs = await prepareDeliveryResolutionJobs(db, intents);
+  return {
+    statements: [
+      db.insert(activities).values({
+        apId: id,
+        type: kind,
+        actorApId: message.attributedTo,
+        objectApId: message.apId,
+        rawJson: JSON.stringify(wire),
+        direction: "outbound",
+      }) as D1Statement,
+      ...jobs.statements,
+    ] as [D1Statement, ...D1Statement[]],
+    async publish() {
+      try {
+        // First-hop intent already committed. A missing Queue or lost wakeup
+        // leaves it recoverable by the established resolution outbox drain.
+        await enqueueDeliveryResolutionJobs(
+          db,
+          env.DELIVERY_QUEUE && env.DELIVERY_DLQ
+            ? env.DELIVERY_QUEUE
+            : undefined,
+          intents,
+        );
+      } catch (error) {
+        log.error("DM mutation delivery wakeup failed", {
+          event: "dm.mutation.delivery_wakeup_failed",
+          activityId: id,
+          error,
+        });
+      }
+    },
+  };
 }
 
 /** Create the DM Note object row. */
@@ -694,6 +863,34 @@ dm.post("/user/:encodedApId/messages", async (c) => {
   );
 });
 
+// Exact author-only readback also covers an older message outside the latest page.
+dm.get("/messages/:messageId", async (c) => {
+  c.header("cache-control", "no-store");
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const message = await findOwnedDmMessage(
+    c.get("db"),
+    c.req.param("messageId"),
+    actor.ap_id,
+  );
+  if ("error" in message)
+    return message.status === 404
+      ? c.json({ error: "owned_dm_not_found", code: "owned_dm_not_found" }, 404)
+      : c.json({ error: message.error }, message.status);
+  const revision = await ownedDmRevision(message);
+  c.header("etag", JSON.stringify(revision));
+  return c.json({
+    revision,
+    message: {
+      id: message.apId,
+      sender: buildSenderFromActor(actor),
+      content: message.content,
+      created_at: message.published,
+      attachments: safeJsonParse<Attachment[]>(message.attachmentsJson, []),
+    },
+  });
+});
+
 // Edit a DM message
 dm.patch("/messages/:messageId", async (c) => {
   const actor = c.get("actor");
@@ -717,16 +914,40 @@ dm.patch("/messages/:messageId", async (c) => {
     return c.json({ error: messageOrError.error }, messageOrError.status);
   }
   const message = messageOrError;
+  const conditional = revisionError(
+    c.req.header("if-match"),
+    await ownedDmRevision(message),
+  );
+  if (conditional)
+    return c.json({ error: conditional.error }, conditional.status);
 
   const now = new Date().toISOString();
-  await db
-    .update(objects)
-    .set({ content, updated: now })
-    .where(eq(objects.apId, message.apId));
+  const delivery = await prepareDmMutationDelivery(
+    db,
+    c.env,
+    message,
+    "Update",
+    content,
+    now,
+  );
+  try {
+    await runBatch(guardedOwnedDm(db, message), [
+      db
+        .update(objects)
+        .set({ content, updated: now })
+        .where(eq(objects.apId, message.apId)),
+      ...delivery.statements,
+    ]);
+  } catch (error) {
+    if (!(error instanceof OwnedMessageChangedError)) throw error;
+    return c.json({ error: "message_changed" }, 409);
+  }
+  await delivery.publish();
 
   return c.json({
     success: true,
     message: { id: message.apId, content, updated_at: now },
+    revision: await ownedDmRevision({ ...message, content, updated: now }),
   });
 });
 
@@ -746,26 +967,49 @@ dm.delete("/messages/:messageId", async (c) => {
     return c.json({ error: messageOrError.error }, messageOrError.status);
   }
   const message = messageOrError;
+  const conditional = revisionError(
+    c.req.header("if-match"),
+    await ownedDmRevision(message),
+  );
+  if (conditional)
+    return c.json({ error: conditional.error }, conditional.status);
 
-  // Sequential object/media operations (D1 doesn't support interactive
-  // transactions). First atomically remove every delivery Create activity and
-  // its activity-keyed inbox/push/delivery/archive/claim projections. These
-  // tables are addressed by AP id with no object FK, so deleting only the object
-  // orphans them — and because the notifications query LEFT JOINs the now-missing
-  // object (NULL visibility → not excluded as "direct"), an orphan inbox row
-  // resurfaces as a blank "mention" with a dead /post link.
-  await deleteActivitiesCascade(db, eq(activities.objectApId, message.apId));
-  // Reap the message's child rows AND any attached R2 blob + media_uploads row
-  // via the shared cascade (covers objectRecipients + media + likes/announces/
-  // bookmarks/story*), then drop the object. Local DMs are text-only today so
-  // there is no blob to leak yet, but routing through the cascade now keeps DM
-  // deletion correct the moment DM media upload is wired in (and a leaked DM
-  // blob would be PRIVATE) — matching the post and story delete paths.
-  const mediaKeys = await deleteObjectCascade(db, message.apId, c.env.MEDIA);
-  await db.delete(objects).where(eq(objects.apId, message.apId));
+  const plan = await prepareObjectsDeleteCascade(
+    db,
+    [message.apId],
+    c.env.MEDIA,
+  );
+  if (
+    plan.objects.length !== 1 ||
+    plan.objects[0]!.attachmentsJson !== message.attachmentsJson
+  ) {
+    return c.json({ error: "message_changed" }, 409);
+  }
+  const delivery = await prepareDmMutationDelivery(
+    db,
+    c.env,
+    message,
+    "Delete",
+  );
+  try {
+    await runBatch(guardedOwnedDm(db, message), [
+      ...activityDeleteCascadeStatements(
+        db,
+        eq(activities.objectApId, message.apId),
+      ),
+      ...plan.mediaStatements,
+      ...plan.batches.flat(),
+      db.delete(objects).where(eq(objects.apId, message.apId)),
+      ...delivery.statements,
+    ]);
+  } catch (error) {
+    if (!(error instanceof OwnedMessageChangedError)) throw error;
+    return c.json({ error: "message_changed" }, 409);
+  }
   // Irreversible R2 purge LAST — after the objects row is gone, so a failed
   // object delete can't leave a live (private) DM pointing at a deleted blob.
-  await purgeMediaBlobs(db, c.env.MEDIA, mediaKeys);
+  await purgeMediaBlobs(db, c.env.MEDIA, plan.mediaKeys);
+  await delivery.publish();
 
   return c.json({ success: true });
 });

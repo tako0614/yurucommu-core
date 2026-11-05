@@ -158,3 +158,33 @@ removed. Clients must reload and never treat this as a complete ACK or blindly
 retry the destructive request. Optional blocking uses the same pending guard.
 The sender-only public API still selects the peer's current stored conversation;
 it does not identify a particular older request row.
+## Owned DM mutation and readback
+
+`GET /api/dm/messages/:messageId` is an authenticated author-only, no-store
+reader for one direct Note. It does not open or acknowledge a conversation.
+It retains the legacy author-owned direct-Note scope even when old records
+lack conversation metadata; the native UI supplies IDs from its selected chat.
+Chat/feed community objects are outside this scope. A supported missing/scope
+result is `404 owned_dm_not_found`; an old host's generic 404 is not a deletion
+receipt. Opaque AP IDs are decoded once by the router.
+
+The response includes the message and an opaque `dm-v1` source fingerprint,
+also returned as a quoted ETag. New callers provide that exact value in
+`If-Match` for edit/delete. Older callers may omit it; all mutations still
+recheck the current author, direct-Note scope, addressing, content, attachment
+and timestamp snapshot in the existing SQL CHECK write boundary. A stale
+precondition or a changed source at commit returns409 without that mutation's
+effects. The fingerprint is not a new durable schema revision.
+
+Object changes, Activity ledger and durable explicit-recipient resolution
+intent co-commit. Deletion also includes old Activity/projection cleanup, media
+intent and children before final removal; its new Tombstone Activity remains.
+Physical media purge is trailing. A missing Queue or lost wakeup does not turn
+a committed change into a failed edit; the established outbox drain recovers
+the first-hop intent. Direct changes never enter followers/public fanout.
+
+These guarantees are local mutation and durable delivery-intent guarantees.
+The current inbound Note paths still discard Update before Create and do not
+persist a Note tombstone for Delete before Create. Those ordering gaps remain
+unfinished; queued intent does not prove remote arrival or final convergence.
+Group mutation membership, post policy and fanout remain their own contract.
