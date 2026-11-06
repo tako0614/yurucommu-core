@@ -91,14 +91,15 @@ pushers.post("/", async (c) => {
       400,
     );
   }
-  // `webpush` rows are bound to the session that registers them, so the
-  // subscription stops receiving when that session ends.
-  let sessionKey: string | null = null;
-  if (parsed.value.pusher.kind === "webpush") {
-    const rawSession = rawSessionCredential(c);
-    if (!rawSession) return c.json({ error: "Unauthorized" }, 401);
-    sessionKey = await hashSessionIdForEnv(c.env, rawSession);
+  // Bind both browser and native gateway registrations to their host session.
+  // Device unregister is best effort and can lose a race with logout.
+  const rawSession = rawSessionCredential(c);
+  if (!rawSession && parsed.value.pusher.kind === "webpush") {
+    return c.json({ error: "Unauthorized" }, 401);
   }
+  const sessionKey = rawSession
+    ? await hashSessionIdForEnv(c.env, rawSession)
+    : null;
   try {
     const pusher = await registerNotificationPusher(
       c.get("db"),
