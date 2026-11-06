@@ -50,6 +50,15 @@ yurucommu-coreのinstanceが、ブラウザ・ホーム画面のweb app・ブラ
 - browserの購読は、使っているsessionでアプリを開くたびにSDKが登録し直すので、新しいsessionに結び付け直されます。
 - 既存の、`last_seen_at` が90日より古いpusherを消す掃除はそのまま働きます。
 
+native Appの `http` pusherも、host sessionで登録すると同じserver所有の
+`data_json.session` に結び付きます。gatewayへ送る直前にsessionの存在・所有者・期限を
+確認し、終了していれば送らずに登録を消します。Appのlogoutと通知解除が競合して
+通知解除が401になっても、終了したsessionの端末へ送り続けません。bindingは登録応答・
+gateway payloadには含めず、clientが送った `data.session` では上書きできません。
+同じdeviceを新しいsessionで登録し直した行は、古い行を読んだcleanupでは削除しません。
+host sessionを持たない旧来のactor-only gateway登録は、従来の未binding契約を維持します。
+既存の未binding行も、Appが正規sessionで再登録するとbindingを持ちます。
+
 ## VAPIDの鍵
 
 - `ENCRYPTION_KEY`（32byteの16進）から、HKDF-SHA256（salt空、info = `yurucommu/web-push/vapid/v1` || 0x00 || counter）で

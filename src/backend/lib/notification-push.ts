@@ -195,11 +195,11 @@ export async function registerNotificationPusher(
   if (webPush && !context.sessionKey) {
     throw new Error("A webpush pusher must be registered from a session");
   }
-  // `webpush` rows remember the registering session (server-owned data_json;
-  // never echoed) so delivery stops once that session ends.
-  const storedData: JsonObject = webPush
-    ? { ...input.storedData, session: context.sessionKey! }
-    : input.storedData;
+  // The binding is server-owned, never supplied by a client or echoed to one.
+  // Older actor-only gateway integrations without a host session stay unbound.
+  const storedData: JsonObject = { ...input.storedData };
+  delete storedData.session;
+  if (context.sessionKey) storedData.session = context.sessionKey;
 
   // The device key is globally unique inside product+app. Reassigning that row
   // is one atomic upsert, so concurrent logins cannot leave duplicate owners.
@@ -345,7 +345,7 @@ export async function registerNotificationPusher(
   return {
     ...common,
     kind: "http",
-    data: parseStoredData(row.dataJson),
+    data: publicStoredData(row.dataJson),
     gateway_url: row.gatewayUrl,
   };
 }
@@ -1032,6 +1032,19 @@ async function deliverGatewayGroup(
       error: "gateway is no longer operator-allowed",
     };
   }
+  const livePushers: StoredPusher[] = [];
+  for (const row of pushers) {
+    const stored = parseStoredData(row.dataJson);
+    if ("session" in stored && !(await pusherSessionIsLive(db, row, stored))) {
+      await deletePusherRow(db, row);
+    } else {
+      livePushers.push(row);
+    }
+  }
+  pushers = livePushers;
+  if (pushers.length === 0) {
+    return { retryIds: [], retryAfterSeconds: 0, error: null };
+  }
   const data = pushers.map((row) => normalizedStoredData(row.dataJson));
   const eventIdOnly = format === "event_id_only";
   const payload = {
@@ -1145,17 +1158,7 @@ async function deliverGatewayGroup(
   for (const pushkey of rejected) {
     const row = byPushkey.get(pushkey);
     if (!row) continue;
-    await db
-      .delete(notificationPushers)
-      .where(
-        and(
-          eq(notificationPushers.id, row.id),
-          eq(notificationPushers.actorApId, row.actorApId),
-          eq(notificationPushers.product, row.product),
-          eq(notificationPushers.pushkeyHash, row.pushkeyHash),
-          eq(notificationPushers.pushkey, row.pushkey),
-        ),
-      );
+    await deletePusherRow(db, row);
   }
   const terminal = new Set([...rejected, ...failed]);
   const retrySet = new Set(retryable);
@@ -1350,7 +1353,7 @@ async function deliverWebPushPusher(
   // message names the sender on a lock screen, so a signed-out or expired
   // session must stop receiving. Logout, session rotation, revocation,
   // expiry and account teardown all end here without separate hooks.
-  if (!(await webPushSessionIsLive(db, row, stored))) {
+  if (!(await pusherSessionIsLive(db, row, stored))) {
     await deletePusherRow(db, row);
     log.info("Removed a web push subscription whose session has ended", {
       event: "notification.push.webpush_session_ended",
@@ -1415,7 +1418,7 @@ async function deliverWebPushPusher(
   }
 }
 
-/** Delete exactly this stored pusher row (no-op if it changed owner since). */
+/** Delete only while the observed owner, route, and session binding match. */
 async function deletePusherRow(db: Database, row: StoredPusher): Promise<void> {
   await db
     .delete(notificationPushers)
@@ -1426,16 +1429,20 @@ async function deletePusherRow(db: Database, row: StoredPusher): Promise<void> {
         eq(notificationPushers.product, row.product),
         eq(notificationPushers.pushkeyHash, row.pushkeyHash),
         eq(notificationPushers.pushkey, row.pushkey),
+        eq(notificationPushers.dataJson, row.dataJson),
+        eq(notificationPushers.kind, row.kind),
+        eq(notificationPushers.gatewayUrl, row.gatewayUrl),
       ),
     );
 }
 
 /**
- * The session a `webpush` row is bound to (`data_json.session`, the session's
+ * The session a pusher row is bound to (`data_json.session`, the session's
  * stored key) still exists for the same member and has not expired. A row
- * without a binding is treated as ended: every registration stores one.
+ * without a binding is treated as ended. Web Push always requires this check;
+ * the gateway path calls it only for bound rows, preserving legacy HTTP rows.
  */
-async function webPushSessionIsLive(
+async function pusherSessionIsLive(
   db: Database,
   row: StoredPusher,
   stored: JsonObject,
@@ -1749,8 +1756,14 @@ function notificationPushFormat(data: JsonObject): NotificationPushFormat {
 }
 
 function normalizedStoredData(value: string): JsonObject {
-  const data = parseStoredData(value);
+  const data = publicStoredData(value);
   return { ...data, format: notificationPushFormat(data) };
+}
+
+function publicStoredData(value: string): JsonObject {
+  const data = parseStoredData(value);
+  delete data.session;
+  return data;
 }
 
 function stringArray(value: unknown): string[] | null {
