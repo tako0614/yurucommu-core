@@ -10,7 +10,8 @@ const log = logger.child({ component: "middleware.body_limit" });
  *
  * Reads `Content-Length` before any handler runs and rejects the request with
  * a `413 body_too_large` envelope when the declared body exceeds the
- * configured cap. The check is conservative on purpose:
+ * configured cap. Every accepted body is also counted while consumed, even
+ * when Content-Length is present. The check is conservative on purpose:
  *
  * - HEAD / GET / OPTIONS / DELETE without a body are skipped.
  * - The cap is bytes. `1 MiB = 1024 * 1024`.
@@ -18,10 +19,9 @@ const log = logger.child({ component: "middleware.body_limit" });
  * Missing `Content-Length` is allowed by default because the Fetch `Request`
  * constructor does not auto-populate the header for string bodies in tests,
  * and many real callers omit it for chunked encoded uploads. A declared
- * `Content-Length` is NOT trusted as the only line of defense: when the
- * header is absent (chunked transfer-encoding), the request body is wrapped
- * in a streaming counter that aborts once the byte count exceeds the cap, so
- * an attacker cannot bypass the limit by simply omitting `Content-Length`.
+ * `Content-Length` is NOT trusted as the only line of defense: the request
+ * body is wrapped in a streaming counter that aborts above the cap, so omitting
+ * or understating the header cannot bypass the byte count.
  * Set `requireContentLength: true` on routes that must refuse chunked-only
  * requests outright with 411 instead (= the strict mode rejects the request
  * before the body is even read).
@@ -38,15 +38,22 @@ const log = logger.child({ component: "middleware.body_limit" });
 
 const BODY_BEARING_METHODS = new Set(["POST", "PUT", "PATCH"]);
 
+function hasBodyLimit(request: Request): boolean {
+  const method = request.method.toUpperCase();
+  return (
+    BODY_BEARING_METHODS.has(method) ||
+    (method === "DELETE" && request.body !== null)
+  );
+}
+
 export interface BodyLimitOptions {
   /** Maximum body size in bytes. */
   maxBytes: number;
   /**
    * When true, requests without a `Content-Length` header are rejected with
    * 411 on body-bearing methods. Defaults to false — the middleware then
-   * only validates the header value when present and lets chunked-only
-   * traffic through to the next layer (which can still enforce a stream
-   * cap).
+   * validates the header value when present and counts the actual stream
+   * while the next layer consumes it.
    */
   requireContentLength?: boolean;
 }
@@ -82,8 +89,7 @@ export function evaluateBodyLimit(
   request: Request,
   options: BodyLimitOptions,
 ): BodyLimitDecision {
-  const method = request.method.toUpperCase();
-  if (!BODY_BEARING_METHODS.has(method)) return { ok: true };
+  if (!hasBodyLimit(request)) return { ok: true };
 
   const declared = parseContentLength(request.headers.get("content-length"));
   if (declared === null) {
@@ -126,6 +132,7 @@ export class BodyTooLargeError extends Error {
 export function capRequestBodyStream(
   request: Request,
   maxBytes: number,
+  onLimitExceeded?: () => void,
 ): Request {
   const body = request.body;
   if (!body) return request;
@@ -136,6 +143,7 @@ export function capRequestBodyStream(
       transform(chunk, controller) {
         seen += chunk.byteLength;
         if (seen > maxBytes) {
+          onLimitExceeded?.();
           controller.error(new BodyTooLargeError(maxBytes));
           return;
         }
@@ -145,18 +153,41 @@ export function capRequestBodyStream(
   );
 
   // `duplex: "half"` is required when constructing a Request with a stream
-  // body. The cloned Request keeps method / headers / url so downstream
-  // handlers and signature verification see an unchanged request shape.
-  return new Request(request.url, {
-    method: request.method,
-    headers: request.headers,
+  // body. Clone the original Request so its other settings and runtime
+  // metadata also survive replacement of the stream.
+  return new Request(request, {
     body: capped,
-    redirect: request.redirect,
-    signal: request.signal,
     // @ts-expect-error duplex is a valid RequestInit field at runtime but is
     // not yet in the lib.dom typings shipped with this TypeScript target.
     duplex: "half",
   });
+}
+
+function bodyLimitResponse(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  decision: Extract<BodyLimitDecision, { ok: false }>,
+): Response {
+  log.warn("body limit exceeded", {
+    event: "body_limit.rejected",
+    reason: decision.reason,
+    limit: decision.limit,
+    declared: decision.declared,
+    path: new URL(c.req.url).pathname,
+    method: c.req.method,
+  });
+
+  const status = decision.reason === "body_length_required" ? 411 : 413;
+  return c.json(
+    {
+      error: decision.reason,
+      message:
+        decision.reason === "body_too_large"
+          ? `Request body exceeds the ${decision.limit} byte cap`
+          : "Content-Length header is required",
+      limit: decision.limit,
+    },
+    status,
+  );
 }
 
 export function bodyLimit(
@@ -168,45 +199,34 @@ export function bodyLimit(
   ) => {
     const decision = evaluateBodyLimit(c.req.raw, options);
     if (decision.ok) {
-      // The header check above only guards declared `Content-Length`. For
-      // body-bearing requests that omit it (chunked transfer-encoding), wrap
-      // the stream so the cap is still enforced as the body is consumed.
-      const method = c.req.method.toUpperCase();
-      if (
-        BODY_BEARING_METHODS.has(method) &&
-        c.req.raw.headers.get("content-length") === null &&
-        c.req.raw.body !== null
-      ) {
-        const capped = capRequestBodyStream(c.req.raw, options.maxBytes);
+      // A declared length cannot replace counting the bytes actually read.
+      // Keep the overflow fact here: a route may catch a JSON parser error.
+      let exceeded = false;
+      if (hasBodyLimit(c.req.raw) && c.req.raw.body !== null) {
+        const capped = capRequestBodyStream(c.req.raw, options.maxBytes, () => {
+          exceeded = true;
+        });
         if (capped !== c.req.raw) {
           // Replace the underlying Request so downstream `c.req.*` readers
           // consume the length-capped stream.
           c.req.raw = capped;
         }
       }
-      return await next();
+      await next();
+      if (exceeded) {
+        c.res = bodyLimitResponse(c, {
+          ok: false,
+          reason: "body_too_large",
+          limit: options.maxBytes,
+          declared: parseContentLength(c.req.raw.headers.get("content-length")),
+        });
+        // Hono preserves earlier response headers when replacing c.res.
+        // They must not describe the caught route error's previous body.
+        c.res.headers.delete("content-length");
+        c.res.headers.delete("content-encoding");
+      }
+      return;
     }
-
-    log.warn("body limit exceeded", {
-      event: "body_limit.rejected",
-      reason: decision.reason,
-      limit: decision.limit,
-      declared: decision.declared,
-      path: new URL(c.req.url).pathname,
-      method: c.req.method,
-    });
-
-    const status = decision.reason === "body_length_required" ? 411 : 413;
-    return c.json(
-      {
-        error: decision.reason,
-        message:
-          decision.reason === "body_too_large"
-            ? `Request body exceeds the ${decision.limit} byte cap`
-            : "Content-Length header is required",
-        limit: decision.limit,
-      },
-      status,
-    );
+    return bodyLimitResponse(c, decision);
   };
 }
