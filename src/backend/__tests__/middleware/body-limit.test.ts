@@ -4,6 +4,7 @@ import { Hono } from "hono";
 
 import {
   bodyLimit,
+  capRequestBodyStream,
   DEFAULT_BODY_LIMIT_BYTES,
   evaluateBodyLimit,
 } from "../../middleware/body-limit.ts";
@@ -179,3 +180,134 @@ test("default middleware lets a chunked under-cap body through", async () => {
   const json = (await res.json()) as { size: number };
   expect(json.size).toEqual(8);
 });
+
+test("bodyless DELETE remains exempt even in strict mode", () => {
+  expect(
+    evaluateBodyLimit(new Request("https://t.local/x", { method: "DELETE" }), {
+      maxBytes: 8,
+      requireContentLength: true,
+    }),
+  ).toEqual({ ok: true });
+});
+
+test("capped Request preserves settings and abort propagation", async () => {
+  const abort = new AbortController();
+  const request = new Request("https://t.local/x", {
+    method: "POST",
+    headers: { "x-request-setting": "retained" },
+    body: "payload",
+    cache: "no-store",
+    mode: "same-origin",
+    redirect: "manual",
+    signal: abort.signal,
+  });
+  const capped = capRequestBodyStream(request, 8);
+  expect(capped.url).toBe(request.url);
+  expect(capped.method).toBe(request.method);
+  expect(capped.headers.get("x-request-setting")).toBe("retained");
+  expect(capped.cache).toBe("no-store");
+  expect(capped.mode).toBe("same-origin");
+  expect(capped.redirect).toBe("manual");
+  expect(await capped.text()).toBe("payload");
+  abort.abort();
+  expect(capped.signal.aborted).toBe(true);
+});
+
+test("stacked inbox and default caps preserve declared bytes and strict refusal", async () => {
+  const app = new Hono();
+  const bytes = new TextEncoder().encode(
+    '\r\n{"type":"Create","content":"通知 🌱"}\n',
+  );
+  let handled = 0;
+  app.use(
+    "/ap/*/inbox",
+    bodyLimit({ maxBytes: 512 * 1024, requireContentLength: true }),
+  );
+  app.use("*", bodyLimit({ maxBytes: DEFAULT_BODY_LIMIT_BYTES }));
+  app.post("/ap/actor/inbox", async (c) => {
+    handled++;
+    expect(new Uint8Array(await c.req.arrayBuffer())).toEqual(bytes);
+    expect(c.req.header("x-request-setting")).toBe("retained");
+    expect(c.req.raw.cache).toBe("no-store");
+    expect(c.req.raw.redirect).toBe("manual");
+    return c.json({ accepted: true });
+  });
+  const accepted = await app.fetch(
+    new Request("https://t.local/ap/actor/inbox", {
+      method: "POST",
+      headers: {
+        "content-length": String(bytes.byteLength),
+        "content-type": "application/activity+json",
+        "x-request-setting": "retained",
+      },
+      body: bytes,
+      cache: "no-store",
+      redirect: "manual",
+    }),
+  );
+  expect(accepted.status).toBe(200);
+  expect(await accepted.json()).toEqual({ accepted: true });
+  const refused = await app.fetch(
+    chunkedRequest("https://t.local/ap/actor/inbox", [bytes]),
+  );
+  expect(refused.status).toBe(411);
+  expect(await refused.json()).toMatchObject({ error: "body_length_required" });
+  expect(handled).toBe(1);
+});
+
+test("DELETE with a body observes declared and strict limits", () => {
+  expect(
+    evaluateBodyLimit(
+      new Request("https://t.local/x", {
+        method: "DELETE",
+        headers: { "content-length": "16" },
+        body: "x".repeat(16),
+      }),
+      { maxBytes: 8 },
+    ),
+  ).toEqual({ ok: false, reason: "body_too_large", limit: 8, declared: 16 });
+  expect(
+    evaluateBodyLimit(
+      new Request("https://t.local/x", { method: "DELETE", body: "x" }),
+      { maxBytes: 8, requireContentLength: true },
+    ),
+  ).toEqual({
+    ok: false,
+    reason: "body_length_required",
+    limit: 8,
+    declared: null,
+  });
+});
+
+for (const method of ["POST", "DELETE"]) {
+  for (const declared of [undefined, "1"]) {
+    test(`${method} stream overflow remains 413 when the handler catches it, length=${declared}`, async () => {
+      const app = new Hono();
+      app.use("*", bodyLimit({ maxBytes: 8 }));
+      app.on(method, "/x", async (c) => {
+        await c.req.text().catch(() => null);
+        c.header("content-length", "999");
+        c.header("content-encoding", "gzip");
+        return c.json({ error: "invalid_body" }, 400);
+      });
+      const headers: HeadersInit = declared
+        ? { "content-length": declared }
+        : {};
+      const response = await app.fetch(
+        new Request("https://t.local/x", {
+          method,
+          headers,
+          body: "x".repeat(32),
+        }),
+      );
+      expect(response.status).toBe(413);
+      expect(await response.json()).toEqual({
+        error: "body_too_large",
+        message: "Request body exceeds the 8 byte cap",
+        limit: 8,
+      });
+      expect(response.headers.has("content-length")).toBe(false);
+      expect(response.headers.has("content-encoding")).toBe(false);
+    });
+  }
+}
