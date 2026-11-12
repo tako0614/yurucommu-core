@@ -14,9 +14,11 @@ import type { Database } from "../../../db/index.ts";
 import {
   activities,
   actors,
+  actorCache,
   announces,
   bookmarks,
   blocks,
+  follows,
   actorWriteAssertions,
   mediaBlobDeletionJobs,
   dmPeerArchivedConversations,
@@ -35,8 +37,176 @@ import dmMessages from "../../routes/dm/messages.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 import { prepareObjectsDeleteCascade } from "../../routes/posts/delete-cascade.ts";
 import { guardActorWrites } from "../../lib/account-deletion-admission.ts";
+import { generateKeyPair, signRequest } from "../../federation-helpers.ts";
+import activityPubOutbox from "../../routes/activitypub/outbox.ts";
 
 const APP_URL = "https://yuru.test";
+const localReadKeys = generateKeyPair();
+
+for (const route of ["/requests/reject", "/requests/reject-pending"]) {
+  for (const block of [true, false]) {
+    test(`${route} block=${block} preserves the canonical follow and signed-read policy`, async () => {
+      const { db, client } = await createTestDb();
+      try {
+        const alice = await insertLocalActor(db, "block-alice"),
+          bob = await insertLocalActor(db, "block-bob"),
+          carol = await insertLocalActor(db, "unrelated-carol");
+        for (const [followerApId, followingApId] of [
+          [alice, bob],
+          [bob, alice],
+          [alice, carol],
+          [carol, alice],
+        ])
+          await db.insert(follows).values({
+            followerApId,
+            followingApId,
+            status: "accepted",
+            acceptedAt: "2026-11-12T00:00:00.000Z",
+          });
+        await db.update(actors).set({ followerCount: 1, followingCount: 1 });
+        await db
+          .update(actors)
+          .set({ followerCount: 2, followingCount: 2 })
+          .where(eq(actors.apId, alice));
+        await insertDm(
+          db,
+          bob,
+          alice,
+          "block-pair",
+          "block-request",
+          "2026-11-12T00:00:00Z",
+        );
+        const postUrl = `${APP_URL}/ap/objects/followers-fixture`;
+        await db.insert(objects).values({
+          apId: postUrl,
+          type: "Note",
+          attributedTo: alice,
+          content: "local followers-only fixture",
+          visibility: "followers",
+          toJson: "[]",
+          ccJson: "[]",
+          audienceJson: "[]",
+          isLocal: 1,
+        });
+        // Ephemeral signer and fresh public cache are local fixtures only. The
+        // actual GET signature verifier needs no remote key fetch or real ID.
+        const keys = await localReadKeys,
+          keyId = `${bob}#main-key`;
+        await db.insert(actorCache).values({
+          apId: bob,
+          inbox: `${bob}/inbox`,
+          publicKeyPem: keys.publicKeyPem,
+          publicKeyId: keyId,
+          lastFetchedAt: new Date().toISOString(),
+          rawJson: JSON.stringify({
+            id: bob,
+            type: "Person",
+            publicKey: {
+              id: keyId,
+              owner: bob,
+              publicKeyPem: keys.publicKeyPem,
+            },
+          }),
+        });
+        const app = appWith(db, fakeActor(alice, "block-alice"));
+        app.route("/", activityPubOutbox);
+        const read = async () =>
+          app.fetch(
+            new Request(postUrl, {
+              headers: await signRequest(
+                keys.privateKeyPem,
+                keyId,
+                "GET",
+                postUrl,
+              ),
+            }),
+            envFor(db),
+          );
+        expect((await read()).status).toBe(200);
+        const response = await app.fetch(
+          new Request(`${APP_URL}${route}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ sender_ap_id: bob, block }),
+          }),
+          envFor(db),
+        );
+        expect(response.status).toBe(200);
+        expect(await db.select().from(blocks)).toHaveLength(block ? 1 : 0);
+        expect((await read()).status).toBe(block ? 404 : 200);
+        expect(await db.select().from(follows)).toHaveLength(block ? 2 : 4);
+        const counts = await db
+          .select({
+            apId: actors.apId,
+            followers: actors.followerCount,
+            following: actors.followingCount,
+          })
+          .from(actors)
+          .orderBy(actors.apId);
+        expect(counts).toEqual([
+          { apId: alice, followers: block ? 1 : 2, following: block ? 1 : 2 },
+          { apId: bob, followers: block ? 0 : 1, following: block ? 0 : 1 },
+          { apId: carol, followers: 1, following: 1 },
+        ]);
+      } finally {
+        client.close();
+      }
+    });
+  }
+}
+
+test("stale reject-with-block leaves accepted follows and counters byte-identical", async () => {
+  const { db, client } = await createTestDb();
+  try {
+    const alice = await insertLocalActor(db, "stale-block-alice"),
+      bob = await insertLocalActor(db, "stale-block-bob");
+    for (const [followerApId, followingApId] of [
+      [alice, bob],
+      [bob, alice],
+    ])
+      await db
+        .insert(follows)
+        .values({ followerApId, followingApId, status: "accepted" });
+    await db.update(actors).set({ followerCount: 1, followingCount: 1 });
+    await insertDm(
+      db,
+      bob,
+      alice,
+      "accepted-pair",
+      "pending-before-reply",
+      "2026-11-12T00:00:00Z",
+    );
+    await insertDm(
+      db,
+      alice,
+      bob,
+      "accepted-pair",
+      "reply",
+      "2026-11-12T00:01:00Z",
+    );
+    const snapshot = async () => ({
+      follows: await db.select().from(follows),
+      actors: await db.select().from(actors),
+      blocks: await db.select().from(blocks),
+    });
+    const before = await snapshot();
+    const response = await appWith(
+      db,
+      fakeActor(alice, "stale-block-alice"),
+    ).fetch(
+      new Request(`${APP_URL}/requests/reject-pending`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sender_ap_id: bob, block: true }),
+      }),
+      envFor(db),
+    );
+    expect(response.status).toBe(409);
+    expect(await snapshot()).toEqual(before);
+  } finally {
+    client.close();
+  }
+});
 
 async function rejectSnapshot(db: Database) {
   return {
