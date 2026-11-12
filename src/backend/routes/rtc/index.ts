@@ -50,6 +50,9 @@ function normalizeMedia(input: unknown): CallMediaKind {
 
 // --- Server-to-server signaling ingest -------------------------------------
 rtc.post("/ap/rtc/signal", async (c) => {
+  if (!isSignalingAvailable(c.env)) {
+    return c.json({ error: "signaling_unavailable" }, 503);
+  }
   const db = c.get("db");
   const body = await c.req.text();
   const sig = await verifyHttpSignature(c.req.raw, db, body);
