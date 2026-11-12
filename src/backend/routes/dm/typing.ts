@@ -27,14 +27,9 @@ const typing = new Hono<HonoEnv>();
 
 class TypingPeerUnavailableError extends Error {}
 
-// The same current predicate gates the atomic write, the optional event and
-// polling. A cached spelling cannot revive a deleted local or remote peer.
-function typingAdmission(sender: string, recipient: string, peer: string) {
-  const personalBlock = activityPubActorIdentityMatchesSql(
-    sql`SELECT ${blocks.blockedApId} FROM ${blocks}
-      WHERE ${blocks.blockerApId} = ${recipient}`,
-    sender,
-  );
+// A cached spelling cannot revive a deleted local or remote peer. Event
+// delivery rechecks both participants after the write has committed.
+function typingPeerAvailable(peer: string) {
   const canonicalPeer = normalizeActivityPubActorId(peer) ?? peer;
   return sql`(
     EXISTS (SELECT 1 FROM ${actors} WHERE ${actors.apId} = ${peer}
@@ -44,8 +39,16 @@ function typingAdmission(sender: string, recipient: string, peer: string) {
       AND EXISTS (SELECT 1 FROM ${actorCache} WHERE ${actorCache.apId} = ${peer}))
   ) AND NOT EXISTS (SELECT 1 FROM ${remoteActorTombstones}
       WHERE ${remoteActorTombstones.actorApId} = ${canonicalPeer})
-    AND ${operatorActorNotBlockedSql(sql`${peer}`)}
-    AND NOT EXISTS (${personalBlock})`;
+    AND ${operatorActorNotBlockedSql(sql`${peer}`)}`;
+}
+
+function typingAdmission(sender: string, recipient: string, peer: string) {
+  const personalBlock = activityPubActorIdentityMatchesSql(
+    sql`SELECT ${blocks.blockedApId} FROM ${blocks}
+      WHERE ${blocks.blockerApId} = ${recipient}`,
+    sender,
+  );
+  return sql`${typingPeerAvailable(peer)} AND NOT EXISTS (${personalBlock})`;
 }
 
 typing.post("/user/:encodedApId/typing", async (c) => {
@@ -90,10 +93,14 @@ typing.post("/user/:encodedApId/typing", async (c) => {
           eq(dmTyping.recipientApId, otherApId),
           eq(dmTyping.lastTypedAt, now),
           admission,
+          typingPeerAvailable(actor.ap_id),
         ),
       )
       .get();
     if (!current) return;
+    const lastTypedMs = Date.parse(current.lastTypedAt);
+    if (!Number.isFinite(lastTypedMs) || Date.now() - lastTypedMs > 8000)
+      return;
     await emitRealtimeBestEffort(c.env, [
       {
         actorApId: otherApId,

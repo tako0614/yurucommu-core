@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
+import { FakeTime } from "#test/time";
 import { eq, sql } from "drizzle-orm";
 import {
   accountDeletionTargets,
@@ -375,6 +376,69 @@ for (const change of ["block", "unreadableAuthority"] as const) {
       expect(await f.db.select().from(dmTyping)).toHaveLength(1);
       expect(f.events).toHaveLength(0);
     } finally {
+      f.client.close();
+    }
+  });
+}
+
+for (const change of ["operator", "deleted", "reserved"] as const) {
+  test(`a ${change} sender after commit cannot emit a typing notification`, async () => {
+    const f = await fixture();
+    try {
+      const injected = f.hookOnce("insert", "after", async () => {
+        if (change === "operator")
+          await f.db.insert(blockedActors).values({ actorApId: ALICE });
+        if (change === "deleted")
+          await f.db
+            .update(actors)
+            .set({ deletedAt: "2020-01-01T00:00:00Z" })
+            .where(eq(actors.apId, ALICE));
+        if (change === "reserved")
+          await f.db.insert(accountDeletionTargets).values({
+            actorApId: ALICE,
+            operationId: "local-reservation-fixture",
+            publicKeyPem: "unused-local-fixture",
+            followersUrl: `${ALICE}/followers`,
+            deleteActivityApId: `${ALICE}/delete`,
+          });
+      });
+      expect((await f.post()).status).toBe(200);
+      expect(injected()).toBe(true);
+      const rows = await f.db.select().from(dmTyping);
+      expect(rows).toHaveLength(1);
+      expect(await (await f.poll()).json()).toEqual({
+        is_typing: false,
+        last_typed_at: null,
+      });
+      expect(await f.db.select().from(dmTyping)).toEqual(rows);
+      expect(f.events).toHaveLength(0);
+    } finally {
+      f.client.close();
+    }
+  });
+}
+
+for (const elapsed of [8000, 8001]) {
+  test(`a delayed typing notification respects the polling lifetime at ${elapsed}ms`, async () => {
+    const f = await fixture();
+    const clock = new FakeTime();
+    try {
+      const injected = f.hookOnce("insert", "after", async () => {
+        clock.tick(elapsed);
+      });
+      expect((await f.post()).status).toBe(200);
+      expect(injected()).toBe(true);
+      const rows = await f.db.select().from(dmTyping);
+      expect(rows).toHaveLength(1);
+      const active = elapsed <= 8000;
+      expect(await (await f.poll()).json()).toEqual({
+        is_typing: active,
+        last_typed_at: rows[0].lastTypedAt,
+      });
+      expect(f.events).toHaveLength(active ? 1 : 0);
+      expect(await f.db.select().from(dmTyping)).toEqual(rows);
+    } finally {
+      clock.restore();
       f.client.close();
     }
   });
