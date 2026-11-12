@@ -46,4 +46,27 @@ opt-in and private-target refusal. Resolver tests supply a local deterministic
 resolver; they do not perform DNS or peer requests. These are source/local
 checks, not real federation, production transport or installed-app evidence.
 
-This transport gate does not change the shadow probe's recipient selection.
+## Configured shadow probe recipient authority
+
+The staging-only probe remains disabled unless its primary endpoint host is
+explicitly selected and its sample rate admits the request. A shared endpoint
+in `actor_cache` is not permission to send an Activity to another actor.
+The probe selects at most one cached individual inbox joined to a positive
+`delivery_endpoint_recipients` row for the exact delivery job, Activity and
+shared endpoint. Orphan rows, another job and unknown legacy attribution do
+not authorize a probe. Retained positive recipients on partially attributed
+legacy jobs remain usable. Missing or changed cache/ledger data has no
+cache-only fallback.
+
+Before signing the secondary request, the probe uses the existing durable
+remote-actor tombstone and strict actor/domain block checks. Missing authority
+or a failed probe skips the optional effect and leaves the successful primary
+delivery acknowledged, without resetting its budgets or reposting it. The
+existing HTTPS/URL gate, signature, body and timeout remain unchanged.
+
+Disposable local regressions cover positive selection, mismatched attribution,
+changes made during primary delivery, current tombstone/block authority and
+probe failure. These reads do not form an atomic transaction with a remote
+HTTP request; a later concurrent policy/cache change or remote acceptance is
+not proven by these tests. A shadow probe is diagnostic, not new addressing
+authority or a fallback delivery path.
