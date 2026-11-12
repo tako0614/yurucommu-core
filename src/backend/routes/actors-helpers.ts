@@ -16,10 +16,10 @@ import type { Actor, Env, Variables } from "../types.ts";
 import {
   actorApId,
   formatUsername,
-  getDomain,
   parseLimit,
   parseOffset,
 } from "../federation-helpers.ts";
+import { isSameActivityPubActor } from "../lib/activitypub-actor-identity.ts";
 import { canonicalPersonalModerationActorId } from "../lib/personal-actor-moderation.ts";
 import { operatorActorNotBlockedSql } from "../lib/blocklist.ts";
 
@@ -163,6 +163,32 @@ export function formatActorSummary(
   };
 }
 
+// The cache has no unique (username, host) key. Bound the inspected set and
+// refuse ambiguity instead of letting insertion/query order choose an actor.
+const MAX_CACHED_HANDLE_CANDIDATES = 100;
+
+function handleHost(domain: string, protocol: string): string | null {
+  if (protocol !== "https:" && protocol !== "http:") return null;
+  // A handle's domain is an authority, never a URL/path/query or userinfo.
+  if (!domain || /[\s\\\/?#@%]/u.test(domain) || domain.endsWith(":"))
+    return null;
+  try {
+    const parsed = new URL(`${protocol}//${domain}`);
+    if (
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash ||
+      !parsed.hostname
+    )
+      return null;
+    return parsed.host;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve an identifier (AP ID, @user@domain, or bare username) to an AP ID string.
  * Returns null when the identifier cannot be resolved.
@@ -184,31 +210,38 @@ export async function resolveActorApId(
   if (parts.length === 1) return actorApId(baseUrl, username);
 
   const domain = parts.slice(1).join("@");
-  if (!domain) return null;
-  if (domain === getDomain(baseUrl)) return actorApId(baseUrl, username);
+  if (handleHost(domain, "https:") === null) return null;
+  const localUrl = new URL(baseUrl);
+  if (handleHost(domain, localUrl.protocol) === localUrl.host) {
+    return actorApId(baseUrl, username);
+  }
 
   const cached = await db
     .select({ apId: actorCache.apId })
     .from(actorCache)
-    .where(
-      and(
-        eq(actorCache.preferredUsername, username),
-        // Match the domain as a LITERAL substring of the AP-ID via instr() — NOT
-        // `LIKE '%' || domain || '%'`. The domain comes from a federated handle
-        // (`@user@domain`) and is caller-influenceable: an unescaped LIKE would
-        // (a) treat a `%`/`_` in `domain` as a wildcard — `@alice@%` would match
-        // ANY cached `alice` regardless of domain (wrong-actor resolution), and
-        // (b) trip D1's LIKE pattern-complexity limit (SQLITE_ERROR 7500) for a
-        // long domain. instr() is literal (no wildcards, no escaping) and has no
-        // length limit, so `@alice@%` correctly resolves to null. Both sides are
-        // lowercased to preserve LIKE's ASCII case-insensitivity: a handle typed
-        // with a non-canonical host case (`@alice@Mastodon.Social`) — which
-        // webfinger treats as equivalent — still matches the lowercase cached host.
-        sql`instr(lower(${actorCache.apId}), lower(${domain})) > 0`,
-      ),
-    )
-    .get();
-  return cached?.apId || null;
+    .where(eq(actorCache.preferredUsername, username))
+    .limit(MAX_CACHED_HANDLE_CANDIDATES + 1);
+  if (cached.length > MAX_CACHED_HANDLE_CANDIDATES) return null;
+
+  let resolved: string | null = null;
+  for (const candidate of cached) {
+    try {
+      const url = new URL(candidate.apId);
+      if (url.username || url.password) continue;
+      // URL parsing supplies case/IDNA/IPv6/default-port normalization. Use
+      // the candidate's actual scheme so HTTP and HTTPS default ports stay
+      // distinct from non-default ports. Path/query text never selects host.
+      const host = handleHost(domain, url.protocol);
+      if (host === null || url.host !== host) continue;
+      if (resolved && !isSameActivityPubActor(resolved, candidate.apId)) {
+        return null;
+      }
+      resolved ??= candidate.apId;
+    } catch {
+      // A malformed legacy cache row cannot satisfy a valid handle.
+    }
+  }
+  return resolved;
 }
 
 /**
