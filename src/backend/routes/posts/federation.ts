@@ -17,6 +17,7 @@ import {
 } from "../../federation-helpers.ts";
 import { toApAttachments } from "../../lib/activitypub-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import { prepareDeliveryResolutionJobs } from "../../lib/delivery/resolution-outbox.ts";
 import { logger } from "../../lib/logger.ts";
 import type { Env } from "../../types.ts";
 import {
@@ -319,6 +320,16 @@ export async function prepareDeletedPostFederation(
   let statements: readonly [D1Statement, ...D1Statement[]];
   let publish = async () => {};
   if (post.visibility === "direct") {
+    // The Delete and its exact recipients must survive together with local
+    // removal. Queue wakeups remain trailing; a lost wakeup can then be repaired
+    // from the existing durable outbox without broadcasting to followers.
+    const prepared = await prepareDeliveryResolutionJobs(
+      db,
+      [...explicitRecipients].map((recipientActorApId) => ({
+        activityId: deleteActivity.id,
+        recipientActorApId,
+      })),
+    );
     statements = [
       db.insert(activities).values({
         apId: deleteActivity.id,
@@ -328,6 +339,7 @@ export async function prepareDeletedPostFederation(
         rawJson: JSON.stringify(deleteActivity),
         direction: "outbound",
       }) as D1Statement,
+      ...prepared.statements,
     ];
   } else if (post.communityApId) {
     const prepared = await preparePersistAndFanoutToCommunity(
