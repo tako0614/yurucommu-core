@@ -1,13 +1,20 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, eq, sql } from "drizzle-orm";
-import { activities, actors, follows } from "../../../../db/index.ts";
+import { and, eq, exists, sql } from "drizzle-orm";
+import {
+  activities,
+  actors,
+  deliveryResolutions,
+  follows,
+} from "../../../../db/index.ts";
 import {
   activityApId,
   generateId,
   isLocal,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import { prepareDeliveryResolutionJobs } from "../../../lib/delivery/resolution-outbox.ts";
 import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
+import { isActorBlockedStrict } from "../../../lib/blocklist.ts";
 import { actorSuppressesInteractionFrom } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
 import { resolveInboundActivityReference } from "../inbound-activity-reference.ts";
@@ -95,21 +102,23 @@ export async function handleFollow(
 
   const activityId = activity.id || activityApId(baseUrl, generateId());
 
-  // Determine if we need to approve
-  const status = recipient.isPrivate ? "pending" : "accepted";
   const now = new Date().toISOString();
 
   // Was the edge already present BEFORE this dispatch? Exact keys are the
   // steady-state path; the helper also recognizes a pre-invariant cosmetic
   // spelling so a retry cannot create a second logical edge. The original
-  // insert + counter transition committed atomically, so a retained edge means
-  // there is nothing left to reconcile or notify.
+  // insert + counter transition committed atomically, but notification/Accept
+  // persistence can still fail afterwards. Only that SAME Follow may repair
+  // those effects; a different Follow cannot replace the retained relationship.
   const existingEdge = await findFollowByFollowerIdentity(
     db,
     actor,
     recipient.apId,
   );
-  if (existingEdge) return;
+  if (existingEdge && existingEdge.activityApId !== activityId) return;
+  const status =
+    existingEdge?.status ?? (recipient.isPrivate ? "pending" : "accepted");
+  if (status !== "pending" && status !== "accepted") return;
 
   // #COUNTER-SYM (crash-retry convergence): the followers-edge insert and the
   // recipient.followerCount +1 MUST commit together. Previously the edge was
@@ -127,7 +136,7 @@ export async function handleFollow(
   // after the edge already existed, sees the edge present → the guard is false and
   // the insert is a no-op, so the count can neither double-bump nor under-count.
   // For a private recipient the edge inserts as 'pending' with no count change.
-  if (status === "accepted") {
+  if (!existingEdge && status === "accepted") {
     const edgeAbsent = sql`NOT EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${actor} AND ${follows.followingApId} = ${recipient.apId})`;
     await runBatch(db, [
       db
@@ -145,7 +154,7 @@ export async function handleFollow(
         })
         .onConflictDoNothing(),
     ]);
-  } else {
+  } else if (!existingEdge) {
     // Private recipient: follow stays pending, no count change.
     await db
       .insert(follows)
@@ -170,9 +179,45 @@ export async function handleFollow(
     recipient.apId,
   );
 
-  // Send Accept response
-  // If the recipient requires approval, do NOT auto-accept.
+  // Only an accepted relationship may reply; a retained pending approval is
+  // never promoted merely because the recipient's privacy setting changed.
   if (status === "accepted" && !isLocal(actor, baseUrl)) {
+    // Preserve the outbound producer's moderation gate before creating its
+    // durable intent. The producer rechecks it before Queue publication.
+    if (await isActorBlockedStrict(db, actor)) return;
+
+    // Wire Follow ids can be reused by same-origin sibling actors. A retained
+    // response is reusable only with a positive durable recipient binding;
+    // an orphan legacy response cannot be attributed from its wire id alone.
+    const retainedAccept = await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(
+        and(
+          eq(activities.type, "Accept"),
+          eq(activities.actorApId, recipient.apId),
+          eq(activities.objectApId, sourceActivityId || activityId),
+          eq(activities.direction, "outbound"),
+          exists(
+            db
+              .select({ id: deliveryResolutions.id })
+              .from(deliveryResolutions)
+              .where(
+                and(
+                  eq(deliveryResolutions.activityApId, activities.apId),
+                  eq(deliveryResolutions.recipientActorApId, actor),
+                ),
+              ),
+          ),
+        ),
+      )
+      .limit(1)
+      .get();
+    if (retainedAccept) {
+      await enqueueDeliveryToActor(c.env, retainedAccept.apId, actor);
+      return;
+    }
+
     const acceptId = activityApId(baseUrl, generateId());
     const acceptActivity = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -184,15 +229,22 @@ export async function handleFollow(
       object: sourceActivityId || activityId,
     };
 
-    // Store accept activity before enqueue.
-    await db.insert(activities).values({
-      apId: acceptId,
-      type: "Accept",
-      actorApId: recipient.apId,
-      objectApId: sourceActivityId || activityId,
-      rawJson: JSON.stringify(acceptActivity),
-      direction: "outbound",
-    });
+    // Commit the response with its exact recipient intent so a failed outbox
+    // write cannot leave a new ambiguous orphan Accept. Wakeup remains trailing.
+    const prepared = await prepareDeliveryResolutionJobs(db, [
+      { activityId: acceptId, recipientActorApId: actor },
+    ]);
+    await runBatch(db, [
+      db.insert(activities).values({
+        apId: acceptId,
+        type: "Accept",
+        actorApId: recipient.apId,
+        objectApId: sourceActivityId || activityId,
+        rawJson: JSON.stringify(acceptActivity),
+        direction: "outbound",
+      }),
+      ...prepared.statements,
+    ]);
 
     // Outbound delivery must be async (no remote POST in request path).
     await enqueueDeliveryToActor(c.env, acceptId, actor);
