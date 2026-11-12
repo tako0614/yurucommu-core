@@ -44,7 +44,9 @@ archive. This may refuse a stored JSON field with excessive whitespace even if
 its decoded output would be small. It does not silently omit that field.
 
 The page query, cost measurement and conditional payload use one SQL snapshot;
-there is no separate preflight/read window. Original owner/deletion filters,
+there is no separate preflight/read window. The CTE is inside an outer
+`SELECT`, so the authenticated request's existing guarded database accepts the
+read without broadening its write boundary. Original owner/deletion filters,
 row caps and timestamp/identity ordering remain. Column decoders preserve
 the original schema types, numbers, nulls and normal exported values. No signing
 keys or non-exported columns are read. This does not add round trips: the existing

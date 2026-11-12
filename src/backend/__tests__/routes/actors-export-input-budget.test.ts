@@ -16,6 +16,7 @@ import {
   runBatch,
 } from "../../../db/index.ts";
 import actorsRoute from "../../routes/actors.ts";
+import { admitSessionRequest } from "../../lib/account-deletion-admission.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 import { createTestDb } from "../helpers/d1-semantics.ts";
 
@@ -49,7 +50,7 @@ async function fixture() {
       query,
       typeof statement === "string" ? args : statement.args,
     );
-    if (/^\s*(select|with)\b/i.test(query)) {
+    if (query.includes("__export_input_bytes")) {
       allReads.push({
         sql: query,
         rows: result.rows.length,
@@ -92,10 +93,10 @@ async function fixture() {
     app.use("*", async (c, next) => {
       c.set("db", db);
       c.set("actor", actor);
-      await next();
+      await admitSessionRequest(c, next);
     });
-    app.route("/", actorsRoute);
-    return app.fetch(new Request(`${APP_URL}/me/export`), {
+    app.route("/api/actors", actorsRoute);
+    return app.fetch(new Request(`${APP_URL}/api/actors/me/export`), {
       APP_URL,
       YURUCOMMU_EXPORT_MAX_BYTES: String(maxBytes),
     } as Env);

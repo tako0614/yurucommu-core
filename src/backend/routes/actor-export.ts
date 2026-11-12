@@ -77,7 +77,10 @@ export async function readExportPage<Fields extends ExportFields>(
         sql`, `,
       )}`
     : sql``;
+  // Authenticated requests use a read/write facade that accepts raw SELECT,
+  // not a top-level WITH. Keep the guard intact and the CTE inside this read.
   const rows = await db.all<Record<string, unknown>>(sql`
+    select * from (
     with export_page as materialized (${query.getSQL()}),
     export_budget as materialized (
       select coalesce(sum(${cost}), 0) as input_bytes,
@@ -88,6 +91,7 @@ export async function readExportPage<Fields extends ExportFields>(
     union all
     select ${emptyPayload}, input_bytes as __export_input_bytes
     from export_budget where input_bytes > max_bytes
+    )
     ${order}
   `);
   budget.consume(rows.length ? Number(rows[0].__export_input_bytes) : 0);
