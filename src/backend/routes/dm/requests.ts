@@ -14,7 +14,6 @@ import {
 } from "drizzle-orm";
 import {
   activities,
-  blocks,
   objects,
   runBatch,
   type D1Statement,
@@ -29,6 +28,7 @@ import {
   recipientObjectIds,
 } from "./conversations-helpers.ts";
 import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
+import { blockActorAndSeverFollowPair } from "../../lib/follow-edge-mutations.ts";
 import { activityDeleteCascadeStatements } from "../../lib/activity-delete-cascade.ts";
 import {
   prepareObjectsDeleteCascade,
@@ -227,13 +227,11 @@ requests.on(
         const guarded = createGuardedDatabase(db, () =>
           admissionGuard(db, pending, () => new RequestChangedError()),
         );
-        await guarded
-          .insert(blocks)
-          .values({
-            blockerApId: actor.ap_id,
-            blockedApId: body.sender_ap_id,
-          })
-          .onConflictDoNothing();
+        await blockActorAndSeverFollowPair(
+          guarded,
+          actor.ap_id,
+          body.sender_ap_id,
+        );
       }
     } catch (error) {
       if (!(error instanceof RequestChangedError)) throw error;
