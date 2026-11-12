@@ -1,13 +1,20 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, eq, sql } from "drizzle-orm";
-import { activities, actors, follows } from "../../../../db/index.ts";
+import { and, eq, exists, sql } from "drizzle-orm";
+import {
+  activities,
+  actors,
+  deliveryResolutions,
+  follows,
+} from "../../../../db/index.ts";
 import {
   activityApId,
   generateId,
   isLocal,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import { prepareDeliveryResolutionJobs } from "../../../lib/delivery/resolution-outbox.ts";
 import { isSameActivityPubActor } from "../../../lib/activitypub-actor-identity.ts";
+import { isActorBlockedStrict } from "../../../lib/blocklist.ts";
 import { actorSuppressesInteractionFrom } from "../../../lib/post-visibility.ts";
 import { logger } from "../../../lib/logger.ts";
 import { resolveInboundActivityReference } from "../inbound-activity-reference.ts";
@@ -172,11 +179,16 @@ export async function handleFollow(
     recipient.apId,
   );
 
-  // Send Accept response
-  // If the recipient requires approval, do NOT auto-accept.
+  // Only an accepted relationship may reply; a retained pending approval is
+  // never promoted merely because the recipient's privacy setting changed.
   if (status === "accepted" && !isLocal(actor, baseUrl)) {
-    // A crash can also occur after the Accept commits but before its durable
-    // delivery intent. Reuse that response rather than minting another one.
+    // Preserve the outbound producer's moderation gate before creating its
+    // durable intent. The producer rechecks it before Queue publication.
+    if (await isActorBlockedStrict(db, actor)) return;
+
+    // Wire Follow ids can be reused by same-origin sibling actors. A retained
+    // response is reusable only with a positive durable recipient binding;
+    // an orphan legacy response cannot be attributed from its wire id alone.
     const retainedAccept = await db
       .select({ apId: activities.apId })
       .from(activities)
@@ -186,6 +198,17 @@ export async function handleFollow(
           eq(activities.actorApId, recipient.apId),
           eq(activities.objectApId, sourceActivityId || activityId),
           eq(activities.direction, "outbound"),
+          exists(
+            db
+              .select({ id: deliveryResolutions.id })
+              .from(deliveryResolutions)
+              .where(
+                and(
+                  eq(deliveryResolutions.activityApId, activities.apId),
+                  eq(deliveryResolutions.recipientActorApId, actor),
+                ),
+              ),
+          ),
         ),
       )
       .limit(1)
@@ -206,15 +229,22 @@ export async function handleFollow(
       object: sourceActivityId || activityId,
     };
 
-    // Store accept activity before enqueue.
-    await db.insert(activities).values({
-      apId: acceptId,
-      type: "Accept",
-      actorApId: recipient.apId,
-      objectApId: sourceActivityId || activityId,
-      rawJson: JSON.stringify(acceptActivity),
-      direction: "outbound",
-    });
+    // Commit the response with its exact recipient intent so a failed outbox
+    // write cannot leave a new ambiguous orphan Accept. Wakeup remains trailing.
+    const prepared = await prepareDeliveryResolutionJobs(db, [
+      { activityId: acceptId, recipientActorApId: actor },
+    ]);
+    await runBatch(db, [
+      db.insert(activities).values({
+        apId: acceptId,
+        type: "Accept",
+        actorApId: recipient.apId,
+        objectApId: sourceActivityId || activityId,
+        rawJson: JSON.stringify(acceptActivity),
+        direction: "outbound",
+      }),
+      ...prepared.statements,
+    ]);
 
     // Outbound delivery must be async (no remote POST in request path).
     await enqueueDeliveryToActor(c.env, acceptId, actor);

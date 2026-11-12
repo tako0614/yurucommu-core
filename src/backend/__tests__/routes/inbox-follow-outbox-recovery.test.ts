@@ -11,6 +11,7 @@ import {
 } from "../../../db/index.ts";
 import { acceptRetainedFollowDirection } from "../../lib/follow-edge-mutations.ts";
 import { handleFollow } from "../../routes/activitypub/handlers/inbox-follow-handlers.ts";
+import { internalInboundActivityId } from "../../routes/activitypub/inbound-activity-identity.ts";
 import type {
   Activity,
   ActivityContext,
@@ -46,11 +47,16 @@ async function fixture(options: { private?: boolean; local?: boolean } = {}) {
     .where(eq(actors.apId, RECIPIENT))
     .get())!;
   const queued: unknown[] = [];
+  let failNextWakeup = false;
   const queue = {
     send: async (body: unknown) => {
       queued.push(body);
     },
     sendBatch: async (messages: { body: unknown }[]) => {
+      if (failNextWakeup) {
+        failNextWakeup = false;
+        throw new Error("fixture queue unavailable");
+      }
       queued.push(...messages.map((message) => message.body));
     },
   };
@@ -63,12 +69,21 @@ async function fixture(options: { private?: boolean; local?: boolean } = {}) {
       DELIVERY_DLQ: queue,
     },
   } as unknown as ActivityContext;
-  const dispatch = (id = LEDGER_ID, sourceId = SOURCE_ID) =>
+  const dispatch = (
+    id = LEDGER_ID,
+    sourceId = SOURCE_ID,
+    verifiedFollower = follower,
+  ) =>
     handleFollow(
       c,
-      { id, type: "Follow", actor: follower, object: RECIPIENT } as Activity,
+      {
+        id,
+        type: "Follow",
+        actor: verifiedFollower,
+        object: RECIPIENT,
+      } as Activity,
       recipient,
-      follower,
+      verifiedFollower,
       APP_URL,
       sourceId,
     );
@@ -96,7 +111,19 @@ async function fixture(options: { private?: boolean; local?: boolean } = {}) {
     );
   };
   const recover = () => db.run(sql`DROP TRIGGER fail_follow_effect`);
-  return { db, client, follower, dispatch, snapshot, fail, recover, queued };
+  return {
+    db,
+    client,
+    follower,
+    dispatch,
+    snapshot,
+    fail,
+    recover,
+    queued,
+    failWakeup: () => {
+      failNextWakeup = true;
+    },
+  };
 }
 
 for (const table of ["activities", "inbox", "delivery_resolutions"] as const) {
@@ -116,9 +143,9 @@ for (const table of ["activities", "inbox", "delivery_resolutions"] as const) {
         activityApId: LEDGER_ID,
         status: "accepted",
       });
-      expect(partial.accepts).toHaveLength(
-        table === "delivery_resolutions" ? 1 : 0,
-      );
+      // Response and recipient intent now commit together, including when the
+      // resolution INSERT itself fails. No new orphan response may survive.
+      expect(partial.accepts).toHaveLength(0);
       await f.recover();
 
       await f.dispatch();
@@ -138,8 +165,6 @@ for (const table of ["activities", "inbox", "delivery_resolutions"] as const) {
         activityApId: repaired.accepts[0].apId,
         recipientActorApId: REMOTE,
       });
-      if (partial.accepts.length)
-        expect(repaired.accepts[0].apId).toBe(partial.accepts[0].apId);
 
       // A further retry reuses the same Accept/outbox, not another count or
       // notification. Keep the notification's read state as well.
@@ -163,6 +188,56 @@ test("an ordinary accepted remote Follow remains idempotent", async () => {
     expect(first.resolutions).toHaveLength(1);
     await f.dispatch();
     expect(await f.snapshot()).toEqual(first);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("a failed Queue wakeup reuses the exact atomically bound Accept and intent", async () => {
+  const f = await fixture();
+  try {
+    f.failWakeup();
+    await expect(f.dispatch()).rejects.toThrow("fixture queue unavailable");
+    const partial = await f.snapshot();
+    expect(partial.accepts).toHaveLength(1);
+    expect(partial.resolutions).toHaveLength(1);
+    expect(partial.resolutions[0]).toMatchObject({
+      activityApId: partial.accepts[0].apId,
+      recipientActorApId: REMOTE,
+      status: "pending",
+    });
+    await f.dispatch();
+    const after = await f.snapshot();
+    expect(after.accepts).toEqual(partial.accepts);
+    expect(after.edges).toEqual(partial.edges);
+    expect(after.recipient?.followerCount).toBe(1);
+    expect(after.resolutions).toHaveLength(1);
+    expect(after.resolutions[0]).toMatchObject({
+      id: partial.resolutions[0].id,
+      activityApId: partial.accepts[0].apId,
+      recipientActorApId: REMOTE,
+      status: "queued",
+    });
+    expect(f.queued).toHaveLength(1);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("a completed recipient intent is not reopened or given a fresh retry budget", async () => {
+  const f = await fixture();
+  try {
+    await f.dispatch();
+    await f.db.update(deliveryResolutions).set({
+      status: "resolved",
+      attempts: 7,
+      resolvedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const before = await f.snapshot();
+    const queued = f.queued.length;
+    await f.dispatch();
+    expect(await f.snapshot()).toEqual(before);
+    expect(f.queued).toHaveLength(queued);
   } finally {
     f.client.close();
   }
@@ -261,6 +336,77 @@ test("a newly blocked follower cannot use recovery to bypass moderation", async 
     await f.dispatch();
     expect(await f.snapshot()).toEqual(before);
     expect(f.queued).toHaveLength(0);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("same-origin followers sharing a wire id retain separate Accept identities", async () => {
+  const f = await fixture();
+  try {
+    const second = "https://remote.test/users/second";
+    const firstId = await internalInboundActivityId(APP_URL, REMOTE, SOURCE_ID);
+    const secondId = await internalInboundActivityId(
+      APP_URL,
+      second,
+      SOURCE_ID,
+    );
+    expect(firstId).not.toBe(secondId);
+    await f.dispatch(firstId, SOURCE_ID, REMOTE);
+    await f.dispatch(secondId, SOURCE_ID, second);
+    const after = await f.snapshot();
+    expect(after.recipient?.followerCount).toBe(2);
+    expect(after.edges).toHaveLength(2);
+    expect(after.accepts).toHaveLength(2);
+    expect(after.resolutions).toHaveLength(2);
+    expect(new Set(after.resolutions.map((row) => row.activityApId)).size).toBe(
+      2,
+    );
+    expect(
+      after.resolutions.map((row) => row.recipientActorApId).sort(),
+    ).toEqual([REMOTE, second].sort());
+    await f.dispatch(secondId, SOURCE_ID, second);
+    expect(await f.snapshot()).toEqual(after);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("an unattributable legacy Accept is preserved without binding it to a follower", async () => {
+  const f = await fixture();
+  try {
+    const legacyId = `${APP_URL}/ap/activities/legacy-unattributed`;
+    await f.db.insert(activities).values({
+      apId: legacyId,
+      type: "Accept",
+      actorApId: RECIPIENT,
+      objectApId: SOURCE_ID,
+      rawJson: JSON.stringify({
+        id: legacyId,
+        type: "Accept",
+        actor: RECIPIENT,
+        object: SOURCE_ID,
+      }),
+      direction: "outbound",
+    });
+    const legacy = await f.db
+      .select()
+      .from(activities)
+      .where(eq(activities.apId, legacyId))
+      .get();
+    await f.dispatch();
+    const after = await f.snapshot();
+    expect(after.accepts).toHaveLength(2);
+    expect(after.resolutions).toHaveLength(1);
+    expect(after.resolutions[0].activityApId).not.toBe(legacyId);
+    expect(after.resolutions[0].recipientActorApId).toBe(REMOTE);
+    expect(
+      await f.db
+        .select()
+        .from(activities)
+        .where(eq(activities.apId, legacyId))
+        .get(),
+    ).toEqual(legacy);
   } finally {
     f.client.close();
   }
