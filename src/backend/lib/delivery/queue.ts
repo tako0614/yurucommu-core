@@ -515,36 +515,27 @@ export async function enqueueResolveForEndpointActors(
   let enqueued = 0;
 
   while (enqueued < MAX_ACTORS) {
-    let query = db
-      .select({ apId: actorCache.apId })
-      .from(actorCache)
-      .where(
-        or(
-          eq(actorCache.sharedInbox, endpoint),
-          eq(actorCache.inbox, endpoint),
-        ),
-      )
-      .orderBy(actorCache.apId)
-      .limit(PAGE_SIZE);
-
+    // Only retained recipient attribution can authorize recovery. Sharing a
+    // cached endpoint does not make another actor a recipient of this Activity.
+    const conditions = [
+      eq(deliveryQueue.activityApId, activityId),
+      eq(deliveryQueue.inboxUrl, endpoint),
+    ];
     if (cursor) {
-      query = db
-        .select({ apId: actorCache.apId })
-        .from(actorCache)
-        .where(
-          and(
-            or(
-              eq(actorCache.sharedInbox, endpoint),
-              eq(actorCache.inbox, endpoint),
-            ),
-            sql`${actorCache.apId} > ${cursor}`,
-          ),
-        )
-        .orderBy(actorCache.apId)
-        .limit(PAGE_SIZE);
+      conditions.push(
+        sql`${deliveryEndpointRecipients.recipientActorApId} > ${cursor}`,
+      );
     }
-
-    const page = await query;
+    const page = await db
+      .selectDistinct({ apId: deliveryEndpointRecipients.recipientActorApId })
+      .from(deliveryEndpointRecipients)
+      .innerJoin(
+        deliveryQueue,
+        eq(deliveryQueue.id, deliveryEndpointRecipients.deliveryJobId),
+      )
+      .where(and(...conditions))
+      .orderBy(deliveryEndpointRecipients.recipientActorApId)
+      .limit(PAGE_SIZE);
 
     if (page.length === 0) break;
 
