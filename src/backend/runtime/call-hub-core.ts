@@ -33,6 +33,7 @@ import {
   isTerminalCallState,
   RTC_SIGNAL_ENVELOPE_VERSION,
 } from "../../../packages/api/src/types/call.ts";
+import { isSameActivityPubActor } from "../lib/activitypub-actor-identity.ts";
 import type { CallRelayContinuation } from "./call-relay.ts";
 
 export interface DeferredCallRelay {
@@ -456,6 +457,11 @@ export class CallHub {
   async handleInboundSignal(envelope: RtcSignalEnvelopeV1): Promise<void> {
     if (!isEnvelopeFresh(envelope, this.port.now())) {
       this.port.log?.("call.hub.stale_signal", { callId: envelope.callId });
+      return;
+    }
+    const existing = this.calls.get(envelope.callId);
+    if (existing && !isSameActivityPubActor(existing.peerApId, envelope.from)) {
+      this.port.log?.("call.hub.peer_mismatch", { callId: envelope.callId });
       return;
     }
     switch (envelope.type) {

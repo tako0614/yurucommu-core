@@ -95,6 +95,7 @@ s2s の署名・recipient・freshness 判定、および既存の optional field
 ## 5. Signaling（core）
 
 - **`runtime/call-hub-core.ts` `CallHub`** — runtime 中立の状態機械 + frame router。connection は保持せず（DO の hibernation で失われるため）、host が `HubPort.broadcast`/`hasClients` を提供。calls は host が永続化し `hydrate()` で復元。
+  - **peer binding**: 既存callへの全inbound signalは、署名が束縛した`from`と保存済み`peerApId`が同じactorの場合だけ処理する。比較はHTTP Signature境界と共通の`isSameActivityPubActor`を使い、許容するcosmetic差異を保つ。別peerのframeはstate／broadcast／保存／ring／media準備前にdropする。未使用callIdのofferは通常の新規着信として扱う。
   - **glare**（同時発信）: peer-based Perfect Negotiation。2 actor ap_id の辞書順で impolite（低い方）が自分の outgoing を維持、polite（高い方）が自分の outgoing を cancel して incoming を受ける。両者が impolite 側の callId に収束。
   - **timeout**: `tick()` sweep で ringing>45s→missed、connecting>40s→failed。
 - **`runtime/call-signaling-do.ts` `CallSignalingDurableObject`** — Hibernatable WebSocket（`state.acceptWebSocket`/`getWebSockets`）。call metadata を DO storage に持ち hibernation 越しに rehydrate。CF/DO 固有 API は file-local 型で workers-types のバージョン差から切り離す。`/_ws`（upgrade）/`/_ingest`（s2s signal 流入）。`alarm()` で tick。
