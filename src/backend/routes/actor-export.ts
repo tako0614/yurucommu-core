@@ -1,3 +1,7 @@
+import { sql, type GetColumnData, type SQLWrapper } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { Database } from "../../db/index.ts";
+
 // The response budget covers the complete encoded JSON, including metadata,
 // punctuation and UTF-8/JSON escaping. Never send a partial successful archive.
 export const MAX_EXPORT_BYTES = 8 * 1024 * 1024;
@@ -15,6 +19,94 @@ export function exportByteLimit(configured: string | undefined): number | null {
 }
 
 export class ExportTooLarge extends Error {}
+export class ExportInputTooLarge extends ExportTooLarge {}
+
+// Separate from the encoded archive budget: stored JSON may contain whitespace
+// that disappears during parsing. Share one input allowance across all pages.
+export class ExportReadBudget {
+  constructor(public remainingBytes: number) {}
+
+  consume(bytes: number): void {
+    if (!Number.isSafeInteger(bytes) || bytes < 0) {
+      throw new Error("Invalid export input byte measurement");
+    }
+    if (bytes > this.remainingBytes) throw new ExportInputTooLarge();
+    this.remainingBytes -= bytes;
+  }
+}
+
+type ExportFields = Record<string, AnySQLiteColumn>;
+type ExportRow<Fields extends ExportFields> = {
+  [Key in keyof Fields]: GetColumnData<Fields[Key]>;
+};
+
+// Only the route's explicit, direct-column projections are accepted. Measure
+// the original filtered/ordered/limited query and return its payload in ONE
+// SQL snapshot. A separate preflight followed by an unconstrained read races
+// concurrent writes. MATERIALIZED keeps cost evaluation inside the database;
+// this bounds transfer/decoding, not database CPU or internal page storage.
+export async function readExportPage<Fields extends ExportFields>(
+  db: Database,
+  budget: ExportReadBudget,
+  fields: Fields,
+  query: SQLWrapper,
+  descendingKeys: readonly (keyof Fields & string)[] = [],
+): Promise<ExportRow<Fields>[]> {
+  const entries = Object.entries(fields);
+  const column = (field: AnySQLiteColumn) =>
+    sql`export_page.${sql.identifier(field.name)}`;
+  const cost = sql.join(
+    entries.map(
+      ([, field]) => sql`coalesce(length(cast(${column(field)} as blob)), 0)`,
+    ),
+    sql` + `,
+  );
+  const payload = sql.join(
+    entries.map(
+      ([key, field]) => sql`${column(field)} as ${sql.identifier(key)}`,
+    ),
+    sql`, `,
+  );
+  const emptyPayload = sql.join(
+    entries.map(([key]) => sql`null as ${sql.identifier(key)}`),
+    sql`, `,
+  );
+  const order = descendingKeys.length
+    ? sql`order by ${sql.join(
+        descendingKeys.map((key) => sql`${sql.identifier(key)} desc`),
+        sql`, `,
+      )}`
+    : sql``;
+  // Authenticated requests use a read/write facade that accepts raw SELECT,
+  // not a top-level WITH. Keep the guard intact and the CTE inside this read.
+  const rows = await db.all<Record<string, unknown>>(sql`
+    select * from (
+    with export_page as materialized (${query.getSQL()}),
+    export_budget as materialized (
+      select coalesce(sum(${cost}), 0) as input_bytes,
+             ${budget.remainingBytes} as max_bytes from export_page
+    )
+    select ${payload}, input_bytes as __export_input_bytes
+    from export_page cross join export_budget where input_bytes <= max_bytes
+    union all
+    select ${emptyPayload}, input_bytes as __export_input_bytes
+    from export_budget where input_bytes > max_bytes
+    )
+    ${order}
+  `);
+  budget.consume(rows.length ? Number(rows[0].__export_input_bytes) : 0);
+  // db.all is raw across both adapters. Preserve the original projection's
+  // schema column decoders and SQL nulls, rather than returning raw values.
+  return rows.map(
+    (row) =>
+      Object.fromEntries(
+        entries.map(([key, field]) => [
+          key,
+          row[key] === null ? null : field.mapFromDriverValue(row[key]),
+        ]),
+      ) as ExportRow<Fields>,
+  );
+}
 
 export class ExportJsonWriter {
   private readonly chunks: string[] = [];

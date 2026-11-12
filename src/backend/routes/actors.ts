@@ -87,7 +87,10 @@ import { logger } from "../lib/logger.ts";
 import {
   exportByteLimit,
   ExportJsonWriter,
+  ExportInputTooLarge,
+  ExportReadBudget,
   ExportTooLarge,
+  readExportPage,
   writeExportCollection,
 } from "./actor-export.ts";
 import { isAccountDeletionWriteConflict } from "../lib/errors.ts";
@@ -1392,8 +1395,10 @@ actorsRoute.get("/me/export", async (c) => {
   }
   const db = c.get("db");
   const actorApIdVal = result.ap_id;
-  const profileRow = await db
-    .select({
+  const inputBudget = new ExportReadBudget(maxBytes);
+  const writer = new ExportJsonWriter(maxBytes);
+  try {
+    const profileFields = {
       apId: actors.apId,
       type: actors.type,
       preferredUsername: actors.preferredUsername,
@@ -1407,14 +1412,19 @@ actorsRoute.get("/me/export", async (c) => {
       fieldsJson: actors.fieldsJson,
       alsoKnownAsJson: actors.alsoKnownAsJson,
       movedTo: actors.movedTo,
-    })
-    .from(actors)
-    .where(eq(actors.apId, actorApIdVal))
-    .get();
-  if (!profileRow) return c.json({ error: "Actor not found" }, 404);
+    };
+    const [profileRow] = await readExportPage(
+      db,
+      inputBudget,
+      profileFields,
+      db
+        .select(profileFields)
+        .from(actors)
+        .where(eq(actors.apId, actorApIdVal))
+        .limit(1),
+    );
+    if (!profileRow) return c.json({ error: "Actor not found" }, 404);
 
-  const writer = new ExportJsonWriter(maxBytes);
-  try {
     writer.append(
       '{"@context":"https://www.w3.org/ns/activitystreams","exported_at":',
     );
@@ -1436,30 +1446,37 @@ actorsRoute.get("/me/export", async (c) => {
       moved_to: profileRow.movedTo,
       username: formatUsername(profileRow.apId, profileRow.preferredUsername),
     });
+    const outboxFields = {
+      apId: objects.apId,
+      type: objects.type,
+      content: objects.content,
+      summary: objects.summary,
+      attachmentsJson: objects.attachmentsJson,
+      inReplyTo: objects.inReplyTo,
+      visibility: objects.visibility,
+      communityApId: objects.communityApId,
+      published: objects.published,
+      updated: objects.updated,
+    };
     writer.append(',"outbox":');
     await writeExportCollection(
       writer,
       (limit, offset) =>
-        db
-          .select({
-            apId: objects.apId,
-            type: objects.type,
-            content: objects.content,
-            summary: objects.summary,
-            attachmentsJson: objects.attachmentsJson,
-            inReplyTo: objects.inReplyTo,
-            visibility: objects.visibility,
-            communityApId: objects.communityApId,
-            published: objects.published,
-            updated: objects.updated,
-          })
-          .from(objects)
-          .where(
-            and(eq(objects.attributedTo, actorApIdVal), notDeleted(objects)),
-          )
-          .orderBy(desc(objects.published), desc(objects.apId))
-          .limit(limit)
-          .offset(offset),
+        readExportPage(
+          db,
+          inputBudget,
+          outboxFields,
+          db
+            .select(outboxFields)
+            .from(objects)
+            .where(
+              and(eq(objects.attributedTo, actorApIdVal), notDeleted(objects)),
+            )
+            .orderBy(desc(objects.published), desc(objects.apId))
+            .limit(limit)
+            .offset(offset),
+          ["published", "apId"],
+        ),
       MAX_EXPORT_POSTS,
       (p) => ({
         ap_id: p.apId,
@@ -1475,21 +1492,28 @@ actorsRoute.get("/me/export", async (c) => {
       }),
       true,
     );
+    const followingFields = {
+      followingApId: follows.followingApId,
+      status: follows.status,
+      createdAt: follows.createdAt,
+    };
     writer.append(',"following":');
     await writeExportCollection(
       writer,
       (limit, offset) =>
-        db
-          .select({
-            followingApId: follows.followingApId,
-            status: follows.status,
-            createdAt: follows.createdAt,
-          })
-          .from(follows)
-          .where(eq(follows.followerApId, actorApIdVal))
-          .orderBy(desc(follows.createdAt), desc(follows.followingApId))
-          .limit(limit)
-          .offset(offset),
+        readExportPage(
+          db,
+          inputBudget,
+          followingFields,
+          db
+            .select(followingFields)
+            .from(follows)
+            .where(eq(follows.followerApId, actorApIdVal))
+            .orderBy(desc(follows.createdAt), desc(follows.followingApId))
+            .limit(limit)
+            .offset(offset),
+          ["createdAt", "followingApId"],
+        ),
       MAX_EXPORT_RELATIONS,
       (f) => ({
         ap_id: f.followingApId,
@@ -1497,21 +1521,28 @@ actorsRoute.get("/me/export", async (c) => {
         created_at: f.createdAt,
       }),
     );
+    const followersFields = {
+      followerApId: follows.followerApId,
+      status: follows.status,
+      createdAt: follows.createdAt,
+    };
     writer.append(',"followers":');
     await writeExportCollection(
       writer,
       (limit, offset) =>
-        db
-          .select({
-            followerApId: follows.followerApId,
-            status: follows.status,
-            createdAt: follows.createdAt,
-          })
-          .from(follows)
-          .where(eq(follows.followingApId, actorApIdVal))
-          .orderBy(desc(follows.createdAt), desc(follows.followerApId))
-          .limit(limit)
-          .offset(offset),
+        readExportPage(
+          db,
+          inputBudget,
+          followersFields,
+          db
+            .select(followersFields)
+            .from(follows)
+            .where(eq(follows.followingApId, actorApIdVal))
+            .orderBy(desc(follows.createdAt), desc(follows.followerApId))
+            .limit(limit)
+            .offset(offset),
+          ["createdAt", "followerApId"],
+        ),
       MAX_EXPORT_RELATIONS,
       (f) => ({
         ap_id: f.followerApId,
@@ -1519,23 +1550,30 @@ actorsRoute.get("/me/export", async (c) => {
         created_at: f.createdAt,
       }),
     );
+    const mediaFields = {
+      id: mediaUploads.id,
+      r2Key: mediaUploads.r2Key,
+      contentType: mediaUploads.contentType,
+      size: mediaUploads.size,
+      createdAt: mediaUploads.createdAt,
+    };
     writer.append(',"media":');
     await writeExportCollection(
       writer,
       (limit, offset) =>
-        db
-          .select({
-            id: mediaUploads.id,
-            r2Key: mediaUploads.r2Key,
-            contentType: mediaUploads.contentType,
-            size: mediaUploads.size,
-            createdAt: mediaUploads.createdAt,
-          })
-          .from(mediaUploads)
-          .where(eq(mediaUploads.uploaderApId, actorApIdVal))
-          .orderBy(desc(mediaUploads.createdAt), desc(mediaUploads.id))
-          .limit(limit)
-          .offset(offset),
+        readExportPage(
+          db,
+          inputBudget,
+          mediaFields,
+          db
+            .select(mediaFields)
+            .from(mediaUploads)
+            .where(eq(mediaUploads.uploaderApId, actorApIdVal))
+            .orderBy(desc(mediaUploads.createdAt), desc(mediaUploads.id))
+            .limit(limit)
+            .offset(offset),
+          ["createdAt", "id"],
+        ),
       MAX_EXPORT_MEDIA,
       (m) => ({
         id: m.id,
@@ -1546,24 +1584,27 @@ actorsRoute.get("/me/export", async (c) => {
       }),
     );
     writer.append("}");
+    c.header(
+      "Content-Disposition",
+      `attachment; filename="${profileRow.preferredUsername}-export.json"`,
+    );
+    return c.body(writer.finish(), 200, {
+      "Content-Type": "application/json; charset=UTF-8",
+    });
   } catch (error) {
     if (!(error instanceof ExportTooLarge)) throw error;
+    const inputTooLarge = error instanceof ExportInputTooLarge;
     return c.json(
       {
-        error: "Export exceeds the synchronous byte limit",
-        code: "EXPORT_TOO_LARGE",
+        error: inputTooLarge
+          ? "Export exceeds the synchronous input byte limit"
+          : "Export exceeds the synchronous byte limit",
+        code: inputTooLarge ? "EXPORT_INPUT_TOO_LARGE" : "EXPORT_TOO_LARGE",
         max_bytes: maxBytes,
       },
       413,
     );
   }
-  c.header(
-    "Content-Disposition",
-    `attachment; filename="${profileRow.preferredUsername}-export.json"`,
-  );
-  return c.body(writer.finish(), 200, {
-    "Content-Type": "application/json; charset=UTF-8",
-  });
 });
 
 // Get actor's followers
