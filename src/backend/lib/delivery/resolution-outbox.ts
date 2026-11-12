@@ -1,9 +1,10 @@
-import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, or, sql, type SQL } from "drizzle-orm";
 
 import {
   affectedRowCount,
   deliveryResolutions,
   insertMany,
+  rawBatchStatement,
   runBatch,
   type D1Statement,
   type Database,
@@ -90,10 +91,46 @@ export type PreparedDeliveryResolutionJobs = {
 export async function prepareDeliveryResolutionJobs(
   db: Database,
   intents: readonly DeliveryResolutionIntent[],
+  // Trusted engine-only SQL over the CTE `intent`. Fence every insert/reopen,
+  // not only a later cursor update in the containing atomic batch.
+  options?: { readonly guard: SQL; readonly reopenTerminal: true },
 ): Promise<PreparedDeliveryResolutionJobs> {
   const rows = await materializeIntents(intents);
   if (rows.length === 0) return { rows, statements: [] };
   const now = new Date().toISOString();
+  if (options) {
+    const statements: D1Statement[] = [];
+    // 15 * 3 values plus fixed claim/binding/time parameters stay below D1's
+    // 100-bind limit; VALUES avoids the five-term compound SELECT ceiling.
+    for (let offset = 0; offset < rows.length; offset += 15) {
+      const values = rows
+        .slice(offset, offset + 15)
+        .map(
+          (row) =>
+            sql`(${row.id}, ${row.activityId}, ${row.recipientActorApId})`,
+        );
+      statements.push(
+        rawBatchStatement(
+          db,
+          sql`
+        WITH intent(id, activity_ap_id, recipient_actor_ap_id) AS
+          (VALUES ${sql.join(values, sql`, `)})
+        INSERT INTO delivery_resolutions
+          (id, activity_ap_id, recipient_actor_ap_id, status, attempts,
+           next_attempt_at, created_at, updated_at)
+        SELECT id, activity_ap_id, recipient_actor_ap_id, 'pending', 0,
+          ${now}, ${now}, ${now} FROM intent WHERE ${options.guard}
+        ON CONFLICT(id) DO UPDATE SET status = 'pending', attempts = 0,
+          next_attempt_at = excluded.next_attempt_at,
+          processing_token = NULL, last_error = NULL, resolved_at = NULL,
+          updated_at = excluded.updated_at
+        WHERE delivery_resolutions.status IN ('resolved', 'failed', 'discarded')
+      `,
+        ),
+      );
+    }
+    return { rows, statements };
+  }
   const statements = insertMany(
     db,
     deliveryResolutions,
@@ -164,6 +201,39 @@ async function sendRows(
       ),
     );
   return rows.length;
+}
+
+/** Publish already-committed intent without inserting or reopening authority. */
+export async function publishDeliveryResolutionJobs(
+  db: Database,
+  queue: IQueueProducer<DeliveryQueueMessageV1> | undefined,
+  ids: readonly string[],
+): Promise<number> {
+  if (!queue) return 0;
+  const now = new Date().toISOString();
+  let sent = 0;
+  for (let offset = 0; offset < ids.length; offset += OUTBOX_SCAN_LIMIT) {
+    const rows = await db
+      .select({
+        id: deliveryResolutions.id,
+        activityApId: deliveryResolutions.activityApId,
+        recipientActorApId: deliveryResolutions.recipientActorApId,
+        attempts: deliveryResolutions.attempts,
+      })
+      .from(deliveryResolutions)
+      .where(
+        and(
+          inArray(
+            deliveryResolutions.id,
+            ids.slice(offset, offset + OUTBOX_SCAN_LIMIT),
+          ),
+          inArray(deliveryResolutions.status, ["pending", "retry_wait"]),
+          lte(deliveryResolutions.nextAttemptAt, now),
+        ),
+      );
+    sent += await sendRows(db, queue, rows, now);
+  }
+  return sent;
 }
 
 /** Persist a bounded recipient set, then publish only currently-due rows. */
