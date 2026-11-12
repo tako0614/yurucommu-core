@@ -51,6 +51,10 @@ export function activityDeliveryDrainedGuard(
                 eq(deliveryQueue.status, "dead_letter"),
                 eq(deliveryQueue.dlqPending, 1),
               ),
+              // A terminal HTTP verdict can still own unconsumed endpoint
+              // recovery. Its Activity and signer must survive until every
+              // recovery page and resulting delivery has drained.
+              eq(deliveryQueue.endpointRecoveryPending, 1),
             ),
           ),
         ),

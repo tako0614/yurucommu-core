@@ -47,6 +47,11 @@ superseded wakeups have no authority to reset progress or exhausted budgets.
 Terminal endpoint reaping excludes pending recovery in both selection and
 conditional deletion. Once all pages have committed, ordinary retention and
 projection cleanup resume. Resolution outbox retention remains independent.
+The shared Activity-drained predicate also retains a retired actor/Group's
+Delete Activity and signer while recovery is pending, even if the HTTP job is
+failed and no resolution page exists yet. Its guard is repeated on every
+cleanup statement; normal tombstone cleanup resumes after the continuation
+and its resulting delivery work have drained.
 
 ## Migration and runtime adoption
 
