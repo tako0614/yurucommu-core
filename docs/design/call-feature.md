@@ -112,7 +112,9 @@ activeの枠にはmedia準備中の発信とglare処理中の着信も含め、a
 同じ処理中callIdは二重に作成せず、media準備の失敗時には予約を解放して再試行を許す。
 
 新規着信の上限超過はcall作成・保存・ring・media準備へ進めない。
-browserからの新規発信は既存のerror frameで`call_capacity`を返す。
+browserからの新規発信は既存のerror frameで`call_capacity`を返し、同じconnectionに
+拒否したcallIdの`call-state: failed`を返す。clientはその試行のmediaを解放して再発信でき、
+別callIdの通話は終端しない。拒否したcallを保存したり、全tabへbroadcastしたりしない。
 既存callIdの再offer、正常なglare置換、timeout/terminal後の枠の再利用は維持する。
 glareは着信枠を先に予約し、relay後にも受付条件を再確認する。着信枠が無い場合は
 既存の発信をcancelしない。既に保存されたactive callは上限を超えていても復元し、

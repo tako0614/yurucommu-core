@@ -146,6 +146,16 @@ export class CallHub {
     );
   }
 
+  private rejectCallCapacity(conn: HubConnection, callId: string): void {
+    conn.send({
+      t: "error",
+      code: "call_capacity",
+      message: "Too many active calls.",
+    });
+    // The client may already own media. End only this rejected local attempt.
+    conn.send({ t: "call-state", callId, state: "failed" });
+  }
+
   private transition(call: CallRecord, state: CallState): void {
     call.state = state;
     call.updatedAt = this.port.now();
@@ -285,11 +295,7 @@ export class CallHub {
     if (this.calls.has(frame.callId) || this.pendingCalls.has(frame.callId))
       return;
     if (!this.canAdmitCall("outgoing")) {
-      conn.send({
-        t: "error",
-        code: "call_capacity",
-        message: "Too many active calls.",
-      });
+      this.rejectCallCapacity(conn, frame.callId);
       return;
     }
     this.pendingCalls.set(frame.callId, "outgoing");
@@ -297,11 +303,7 @@ export class CallHub {
       const media = await this.port.provisionMedia(frame.media);
       if (this.calls.has(frame.callId)) return;
       if (!this.canAdmitCall("outgoing", undefined, frame.callId)) {
-        conn.send({
-          t: "error",
-          code: "call_capacity",
-          message: "Too many active calls.",
-        });
+        this.rejectCallCapacity(conn, frame.callId);
         return;
       }
       const now = this.port.now();
