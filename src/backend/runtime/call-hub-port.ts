@@ -17,6 +17,7 @@ import {
 } from "../lib/rtc/signal-transport.ts";
 import { createRtcProvider } from "../lib/rtc/provider.ts";
 import { upsertCallSession } from "../lib/rtc/call-store.ts";
+import { outgoingCallIsAllowed } from "../lib/rtc/outgoing-policy.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "call.hub" });
@@ -54,6 +55,8 @@ export function createCallHubPort(deps: CallHubPortDeps): HubPort {
     hasClients: deps.hasClients,
     ring: deps.ring,
     now: () => Date.now(),
+    isOutgoingPeerAllowed: (peerApId) =>
+      outgoingCallIsAllowed(deps.db, deps.localActorApId, peerApId),
     log: (event, data) => log.info(event, data),
     async sendToPeer(envelope, peerSignalEndpoint) {
       const s = await loadSigner();

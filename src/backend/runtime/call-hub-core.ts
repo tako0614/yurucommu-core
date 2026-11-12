@@ -79,6 +79,8 @@ export interface HubPort {
   /** Explicit acceptance-only lane; resolution is NEVER a peer acknowledgement. */
   deferToPeer?(relay: DeferredCallRelay): Promise<void>;
   newCallGeneration?(): string;
+  /** Current owner moderation policy, supplied by the application runtime. */
+  isOutgoingPeerAllowed?(peerApId: string): Promise<boolean>;
   /** ICE servers (+ optional SFU focus) for a call. */
   provisionMedia(
     media: CallMediaKind,
@@ -154,6 +156,28 @@ export class CallHub {
     });
     // The client may already own media. End only this rejected local attempt.
     conn.send({ t: "call-state", callId, state: "failed" });
+  }
+
+  private async allowClientInvite(
+    conn: HubConnection,
+    callId: string,
+    peerApId: string,
+  ): Promise<boolean> {
+    if (!this.port.isOutgoingPeerAllowed) return true;
+    let allowed: boolean;
+    try {
+      allowed = await this.port.isOutgoingPeerAllowed(peerApId);
+    } catch {
+      this.port.log?.("call.hub.policy_unavailable");
+      conn.send({ t: "error", code: "call_unavailable" });
+      conn.send({ t: "call-state", callId, state: "failed" });
+      return false;
+    }
+    if (!allowed) {
+      conn.send({ t: "error", code: "blocked" });
+      conn.send({ t: "call-state", callId, state: "failed" });
+    }
+    return allowed;
   }
 
   private transition(call: CallRecord, state: CallState): void {
@@ -300,7 +324,17 @@ export class CallHub {
     }
     this.pendingCalls.set(frame.callId, "outgoing");
     try {
+      if (
+        this.port.isOutgoingPeerAllowed &&
+        !(await this.allowClientInvite(conn, frame.callId, frame.to))
+      )
+        return;
       const media = await this.port.provisionMedia(frame.media);
+      if (
+        this.port.isOutgoingPeerAllowed &&
+        !(await this.allowClientInvite(conn, frame.callId, frame.to))
+      )
+        return;
       if (this.calls.has(frame.callId)) return;
       if (!this.canAdmitCall("outgoing", undefined, frame.callId)) {
         this.rejectCallCapacity(conn, frame.callId);

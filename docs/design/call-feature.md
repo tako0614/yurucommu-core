@@ -123,6 +123,11 @@ glareは着信枠を先に予約し、relay後にも受付条件を再確認す�
 この上限は新規callの同時受付制御であり、request rate、media providerの実capacity、
 永続履歴の保持期間、hostのtick配線や実DO/WebSocketの資格を代替しない。
 
+発信APIとshared runtimeの直接inviteは、operatorのstrict blockと発信者自身のpersonal blockを
+同じpolicyで検査する。runtimeはmedia準備前と完了後に確認し、拒否／authority読取失敗では
+新規callを作成・保存せず、同callIdのterminal frameでclientを復帰させる。
+muteの適用、既存通話の強制終了や実runtimeでのpolicy変更との線形化はこの新規発信gateとは別に扱う。
+
 ---
 
 ## 5.1. Actor execution candidate（2026-09-27、未公開 adapter）
