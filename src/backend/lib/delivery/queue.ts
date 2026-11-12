@@ -45,6 +45,11 @@ import { computeDeliveryJobId, safeEndpointHost } from "./transformers.ts";
 import { emitMetric } from "./metrics.ts";
 import { logger } from "../logger.ts";
 import {
+  buildEndpointRecoveryMessage,
+  continueEndpointRecovery,
+  enqueuePendingEndpointRecoveries,
+} from "./endpoint-recovery.ts";
+import {
   filterBlockedActorApIdsStrict,
   isActorBlockedStrict,
 } from "../blocklist.ts";
@@ -398,6 +403,7 @@ export async function purgeTerminalDeliveryEndpointJobs(
       and(
         inArray(deliveryQueue.status, [...TERMINAL_DELIVERY_STATUSES]),
         eq(deliveryQueue.dlqPending, 0),
+        eq(deliveryQueue.endpointRecoveryPending, 0),
         lte(deliveryQueue.createdAt, cutoff),
       ),
     )
@@ -412,6 +418,7 @@ export async function purgeTerminalDeliveryEndpointJobs(
       ),
       inArray(deliveryQueue.status, [...TERMINAL_DELIVERY_STATUSES]),
       eq(deliveryQueue.dlqPending, 0),
+      eq(deliveryQueue.endpointRecoveryPending, 0),
       lte(deliveryQueue.createdAt, cutoff),
     ),
   );
@@ -433,6 +440,7 @@ export async function enqueuePendingDeliveryEndpointJobs(
 ): Promise<number> {
   await purgeTerminalDeliveryEndpointJobs(env.DB_INSTANCE, nowDate);
   if (!env.DELIVERY_QUEUE) return 0;
+  const endpointRepairs = await enqueuePendingEndpointRecoveries(env, nowDate);
   const now = nowDate.toISOString();
   const staleBefore = new Date(
     nowDate.getTime() - STALE_DELIVERY_PROCESSING_MS,
@@ -496,7 +504,7 @@ export async function enqueuePendingDeliveryEndpointJobs(
       })),
     );
   }
-  return rows.length + repairs.length;
+  return rows.length + repairs.length + endpointRepairs;
 }
 
 export async function enqueueResolveForEndpointActors(
@@ -504,7 +512,19 @@ export async function enqueueResolveForEndpointActors(
   env: Env,
   activityId: string,
   endpoint: string,
+  recovery?: { readonly jobId: string; readonly generation: string },
 ): Promise<number> {
+  if (recovery) {
+    // The caller has committed its exact HTTP claim's invalidation marker.
+    // The DB generation remains authoritative over this Queue-style hint.
+    return continueEndpointRecovery(
+      db,
+      env,
+      buildEndpointRecoveryMessage(recovery.jobId, recovery.generation),
+    );
+  }
+  // Compatibility synchronous helper. Production HTTP invalidation always
+  // supplies its exact claim above, which owns resumable DB progress.
   if (!queueAvailable(env)) return 0;
 
   const PAGE_SIZE = 200;
@@ -838,6 +858,10 @@ export async function handleDeliveryQueueBatch(
           break;
         case "reconcile_job":
           await processReconcileJob(db, env, body, message);
+          break;
+        case "recover_endpoint":
+          await continueEndpointRecovery(db, env, body);
+          message.ack();
           break;
         case "notification_push":
           await processNotificationPushJob(env, body, message);

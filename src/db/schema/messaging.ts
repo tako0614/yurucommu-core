@@ -74,6 +74,22 @@ export const deliveryQueue = sqliteTable(
     reconcileAttempt: integer("reconcile_attempt").notNull().default(5),
     dlqPending: integer("dlq_pending").notNull().default(0),
     processingToken: text("processing_token"),
+    // Endpoint invalidation has its own durable continuation, independent of
+    // HTTP retry/reconcile budgets and terminal HTTP status.
+    endpointRecoveryGeneration: text("endpoint_recovery_generation"),
+    endpointRecoveryPending: integer("endpoint_recovery_pending")
+      .notNull()
+      .default(0),
+    endpointRecoveryCursor: text("endpoint_recovery_cursor"),
+    endpointRecoveryProcessingToken: text("endpoint_recovery_processing_token"),
+    endpointRecoveryProcessingStartedAt: text(
+      "endpoint_recovery_processing_started_at",
+    ),
+    endpointRecoveryNextAttemptAt: text("endpoint_recovery_next_attempt_at"),
+    endpointRecoveryAttempts: integer("endpoint_recovery_attempts")
+      .notNull()
+      .default(0),
+    endpointRecoveryError: text("endpoint_recovery_error"),
     lastAttemptAt: text("last_attempt_at"),
     processingStartedAt: text("processing_started_at"),
     nextAttemptAt: text("next_attempt_at").notNull().$defaultFn(nowIso),
@@ -89,6 +105,11 @@ export const deliveryQueue = sqliteTable(
     index("delivery_queue_next_attempt_idx").on(t.nextAttemptAt),
     index("delivery_queue_status_next_idx").on(t.status, t.nextAttemptAt),
     index("delivery_queue_terminal_retention_idx").on(t.status, t.createdAt),
+    index("delivery_queue_endpoint_recovery_due_idx").on(
+      t.endpointRecoveryPending,
+      t.endpointRecoveryNextAttemptAt,
+      t.id,
+    ),
   ],
 );
 

@@ -63,9 +63,10 @@ import {
   sendQueueMessage,
 } from "./queue.ts";
 
+import { beginEndpointRecovery } from "./endpoint-recovery.ts";
+
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
 const STALE_PROCESSING_MS = 2 * 60 * 1000;
-const EPOCH_ISO = "1970-01-01T00:00:00.000Z";
 
 // 4xx statuses that are RETRYABLE rather than permanent (see isPermanentDeliveryFailure):
 //   429 Too Many Requests, 408 Request Timeout, 425 Too Early.
@@ -611,21 +612,24 @@ export async function processDeliverEndpoint(
 
     // 404/410: expire endpoint cache immediately
     if (status === 404 || status === 410) {
+      // Failure to persist the initial recovery marker must remain retryable.
+      // Once retained, a page/Queue outage can safely leave HTTP status alone:
+      // the independent durable sweep resumes the same recovery generation.
+      const recoveryGeneration = await beginEndpointRecovery(db, {
+        jobId: job.id,
+        activityId: job.activityApId,
+        endpoint,
+        processingToken,
+      });
       try {
-        await enqueueResolveForEndpointActors(
-          db,
-          env,
-          job.activityApId,
-          endpoint,
-        );
-        await db
-          .update(actorCache)
-          .set({ sharedInbox: null, lastFetchedAt: EPOCH_ISO })
-          .where(eq(actorCache.sharedInbox, endpoint));
-        await db
-          .update(actorCache)
-          .set({ lastFetchedAt: EPOCH_ISO })
-          .where(eq(actorCache.inbox, endpoint));
+        if (recoveryGeneration)
+          await enqueueResolveForEndpointActors(
+            db,
+            env,
+            job.activityApId,
+            endpoint,
+            { jobId: job.id, generation: recoveryGeneration },
+          );
       } catch (e) {
         log.warn("Endpoint invalidation failed", {
           event: "delivery.endpoint.invalidation_failed",

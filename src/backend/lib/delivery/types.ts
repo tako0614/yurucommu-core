@@ -74,6 +74,15 @@ export type DeliveryReconcileJobMessageV1 = DeliveryAutoDlqStateV1 & {
   scheduledAt: string; // ISO8601 UTC
 };
 
+/** Only a wakeup for DB-owned endpoint invalidation progress. */
+export type DeliveryRecoverEndpointMessageV1 = DeliveryAutoDlqStateV1 & {
+  version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
+  type: "recover_endpoint";
+  jobId: string;
+  generation: string;
+  scheduledAt: string;
+};
+
 /**
  * Product notification delivery. The queue carries only the durable outbox id;
  * device pushkeys, gateway URLs, and notification content remain in the DB.
@@ -91,6 +100,7 @@ export type DeliveryQueueMessageV1 =
   | DeliveryResolveActorMessageV1
   | DeliveryDeliverEndpointMessageV1
   | DeliveryReconcileJobMessageV1
+  | DeliveryRecoverEndpointMessageV1
   | DeliveryNotificationPushMessageV1;
 
 export type DeliveryDlqMessageV1 = {
@@ -117,6 +127,13 @@ export function isDeliveryQueueMessageV1(
   if (!isOptionalNonNegativeInteger(v.autoDlqAttempt)) return false;
 
   switch (v.type) {
+    case "recover_endpoint":
+      return (
+        typeof v.jobId === "string" &&
+        typeof v.generation === "string" &&
+        v.generation.length > 0 &&
+        typeof v.scheduledAt === "string"
+      );
     case "fanout_followers":
       return (
         typeof v.activityId === "string" &&

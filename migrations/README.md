@@ -16,6 +16,14 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration 0040 adds bounded endpoint-invalidation continuation to retained
+delivery jobs. Existing rows receive no inferred recovery authority or extra
+HTTP/reconcile budget. Apply before serving its engine with old delivery
+writers/consumers closed. Once pending recovery is accepted, an older engine
+that ignores it is not a safe runtime rollback: preserve state and repair
+forward. See [endpoint invalidation recovery](../docs/design/delivery-endpoint-recovery.md)
+for conditional page writes, wakeup loss, retention and qualification limits.
+
 Migration 0039 retains newly admitted Note Update patches in local admission
 order, independently of Activity dispatch completion. Object/reach projection
 and its applied watermark commit together; pending patches are folded before

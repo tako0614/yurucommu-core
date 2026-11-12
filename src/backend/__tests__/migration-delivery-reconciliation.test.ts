@@ -49,6 +49,11 @@ test("0033 retains legacy delivery history and exhausts only its unknown additio
     (await client.execute("SELECT * FROM delivery_endpoint_recipients")).rows,
   ).toEqual(recipients.rows);
   expect((await client.execute("PRAGMA foreign_key_check")).rows).toEqual([]);
+  // The assertions above qualify 0033 on its exact historical schema.
+  // Current runtime writers require the later additive delivery columns.
+  await client.executeMultiple(
+    await readMigration("0040_delivery_endpoint_recovery.sql"),
+  );
   expect(
     await upsertDeliveryJob(
       db,
