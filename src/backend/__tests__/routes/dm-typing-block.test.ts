@@ -1,6 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, test } from "bun:test";
 import { Hono } from "hono";
-import { FakeTime } from "#test/time";
 import { eq, sql } from "drizzle-orm";
 import {
   accountDeletionTargets,
@@ -421,10 +420,11 @@ for (const change of ["operator", "deleted", "reserved"] as const) {
 for (const elapsed of [8000, 8001]) {
   test(`a delayed typing notification respects the polling lifetime at ${elapsed}ms`, async () => {
     const f = await fixture();
-    const clock = new FakeTime();
+    const started = Date.now();
+    setSystemTime(started);
     try {
       const injected = f.hookOnce("insert", "after", async () => {
-        clock.tick(elapsed);
+        setSystemTime(started + elapsed);
       });
       expect((await f.post()).status).toBe(200);
       expect(injected()).toBe(true);
@@ -438,7 +438,7 @@ for (const elapsed of [8000, 8001]) {
       expect(f.events).toHaveLength(active ? 1 : 0);
       expect(await f.db.select().from(dmTyping)).toEqual(rows);
     } finally {
-      clock.restore();
+      setSystemTime();
       f.client.close();
     }
   });
