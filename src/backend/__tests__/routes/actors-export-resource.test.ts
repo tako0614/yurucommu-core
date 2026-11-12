@@ -12,6 +12,10 @@ import {
 } from "../../../db/index.ts";
 import * as schema from "../../../db/schema.ts";
 import actorsRoute from "../../routes/actors.ts";
+import {
+  ExportJsonWriter,
+  writeExportCollection,
+} from "../../routes/actor-export.ts";
 import { buildLocalRuntimeEnvPassthrough } from "../../server.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
 
@@ -182,7 +186,7 @@ test("a byte failure while reading posts stops later collection reads", async ()
   expect(f.queries.some((q) => q.includes('from "media_uploads"'))).toBe(false);
 });
 
-test("small paged reads retain tied-date posts in deterministic order exactly once", async () => {
+test("small export retains tied-date posts in deterministic order exactly once", async () => {
   const f = await fixture();
   for (let n = 0; n < 26; n++) await f.post(String(n).padStart(2, "0"));
   const response = await f.request("20000");
@@ -192,7 +196,9 @@ test("small paged reads retain tied-date posts in deterministic order exactly on
   expect(ids).toHaveLength(26);
   expect(new Set(ids).size).toBe(26);
   expect(ids).toEqual([...ids].sort().reverse());
-  expect(f.queries.filter((q) => q.includes('from "objects"'))).toHaveLength(2);
+  const postReads = f.queries.filter((q) => q.includes('from "objects"'));
+  expect(postReads.length).toBeGreaterThan(0);
+  expect(postReads.length).toBeLessThanOrEqual(8);
   expect(
     f.queries
       .filter((q) => q.includes('from "objects"'))
@@ -229,4 +235,29 @@ test("local self-host adapter preserves valid and invalid export limits verbatim
   expect(
     buildLocalRuntimeEnvPassthrough({}).YURUCOMMU_EXPORT_MAX_BYTES,
   ).toBeUndefined();
+});
+
+test("existing collection row caps fit a bounded read count without dropping items", async () => {
+  for (const cap of [5000, 10000, 10000, 10000]) {
+    const writer = new ExportJsonWriter(256 * 1024);
+    let reads = 0;
+    await writeExportCollection(
+      writer,
+      async (limit, offset) => {
+        reads++;
+        // Tiny numeric fixture: no database or external target and <50 KiB JSON.
+        return Array.from({ length: limit }, (_, n) => offset + n);
+      },
+      cap,
+      (value) => value,
+    );
+    const collection = JSON.parse(writer.finish());
+    expect(reads).toBeLessThanOrEqual(8);
+    expect(collection.total_items).toBe(cap);
+    expect(collection.truncated).toBe(true);
+    expect(collection.items).toHaveLength(cap);
+    expect(collection.items[0]).toBe(0);
+    expect(collection.items[cap - 1]).toBe(cap - 1);
+    expect(new Set(collection.items).size).toBe(cap);
+  }
 });

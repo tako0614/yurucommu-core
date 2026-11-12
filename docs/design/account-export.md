@@ -21,11 +21,17 @@ with `max_bytes`, without a download header or a partial archive. It does not
 silently discard fields or truncate at the byte boundary. Small exports keep
 the existing JSON field names, values and attachment filename.
 
-Collection queries select only exported columns, in pages of 25 rows with a
-stable timestamp/identity order. Byte checks happen while assembling items;
+Collection queries select only exported columns in stable timestamp/identity
+order. A page holds at most one eighth of that collection's existing row cap:
+625 posts or 1,250 follow/media rows. This bounds both materialization and round
+trips: at most eight reads per collection and 33 export reads including the
+profile, without lowering row caps. Byte checks happen while assembling items;
 a limit failure stops further pages and later collections. The complete JSON
 is sent only after successful assembly. There are no new persistent jobs,
-cursors, streaming responses, locks, or database writes.
+cursors, streaming responses, locks, or database writes. The round-trip budget
+avoids the repeated-query amplification of very small fixed pages; it does not
+qualify a deployment's quota, which also includes its authentication/runtime
+work. See [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
 
 This bounds encoded output and avoids loading every collection together; it
 does not set a wall-clock deadline, provide a database snapshot, limit parallel

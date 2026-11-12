@@ -1,7 +1,9 @@
 // The response budget covers the complete encoded JSON, including metadata,
 // punctuation and UTF-8/JSON escaping. Never send a partial successful archive.
 export const MAX_EXPORT_BYTES = 8 * 1024 * 1024;
-const EXPORT_READ_PAGE_SIZE = 25;
+// Bound round trips as well as response bytes. At the existing row caps this
+// is <=32 collection reads plus the profile read, leaving room for auth on D1.
+const MAX_EXPORT_PAGES_PER_COLLECTION = 8;
 
 export function exportByteLimit(configured: string | undefined): number | null {
   if (configured === undefined) return MAX_EXPORT_BYTES;
@@ -47,9 +49,10 @@ export async function writeExportCollection<T>(
   writer.append(
     ordered ? '{"type":"OrderedCollection","ordered_items":[' : '{"items":[',
   );
+  const readPageSize = Math.ceil(rowLimit / MAX_EXPORT_PAGES_PER_COLLECTION);
   let total = 0;
   while (total < rowLimit) {
-    const pageSize = Math.min(EXPORT_READ_PAGE_SIZE, rowLimit - total);
+    const pageSize = Math.min(readPageSize, rowLimit - total);
     const rows = await readPage(pageSize, total);
     for (const row of rows) {
       if (total > 0) writer.append(",");
