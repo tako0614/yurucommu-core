@@ -84,6 +84,12 @@ import { isActorBlockedStrict } from "../lib/blocklist.ts";
 import { encodeFeedCursor, feedCursorWhere } from "../lib/feed-cursor.ts";
 import { chunkForInClause } from "../lib/chunk.ts";
 import { logger } from "../lib/logger.ts";
+import {
+  exportByteLimit,
+  ExportJsonWriter,
+  ExportTooLarge,
+  writeExportCollection,
+} from "./actor-export.ts";
 import { isAccountDeletionWriteConflict } from "../lib/errors.ts";
 import { excludeModeratedActors } from "../lib/feed-exclude.ts";
 import {
@@ -139,7 +145,7 @@ const MAX_PROFILE_FIELD_NAME_LENGTH = 255;
 const MAX_PROFILE_FIELD_VALUE_LENGTH = 255;
 // Bound declared aliases (alsoKnownAs) so the actor document stays bounded.
 const MAX_ALSO_KNOWN_AS = 10;
-// Personal-portability export caps so a single archive request cannot OOM.
+// Personal-portability row caps, in addition to the encoded response budget.
 const MAX_EXPORT_POSTS = 5000;
 const MAX_EXPORT_RELATIONS = 10000;
 const MAX_EXPORT_MEDIA = 10000;
@@ -1369,17 +1375,23 @@ actorsRoute.post("/me/move", async (c) => {
   return c.json({ success: true, moved_to: target });
 });
 
-// Personal-portability data export: a bounded JSON archive of the actor's
-// profile + authored posts (outbox-style) + follow graph + media manifest.
-// Every collection is capped so a single request cannot OOM the worker; this
-// is a portability aid, not a streaming full backup.
+// Personal-portability JSON export, bounded by both rows and encoded bytes.
+// This is a synchronous portability aid, not a streaming full backup.
 actorsRoute.get("/me/export", async (c) => {
   const result = requireActor(c);
   if (result instanceof Response) return result;
-  const actor = result;
+  const maxBytes = exportByteLimit(c.env.YURUCOMMU_EXPORT_MAX_BYTES);
+  if (maxBytes === null) {
+    return c.json(
+      {
+        error: "Invalid export byte limit configuration",
+        code: "EXPORT_LIMIT_INVALID",
+      },
+      503,
+    );
+  }
   const db = c.get("db");
-  const actorApIdVal = actor.ap_id;
-
+  const actorApIdVal = result.ap_id;
   const profileRow = await db
     .select({
       apId: actors.apId,
@@ -1399,54 +1411,16 @@ actorsRoute.get("/me/export", async (c) => {
     .from(actors)
     .where(eq(actors.apId, actorApIdVal))
     .get();
-
   if (!profileRow) return c.json({ error: "Actor not found" }, 404);
 
-  const [authoredPosts, following, followers, media] = await Promise.all([
-    db
-      .select()
-      .from(objects)
-      .where(and(eq(objects.attributedTo, actorApIdVal), notDeleted(objects)))
-      .orderBy(desc(objects.published))
-      .limit(MAX_EXPORT_POSTS),
-    db
-      .select({
-        followingApId: follows.followingApId,
-        status: follows.status,
-        createdAt: follows.createdAt,
-      })
-      .from(follows)
-      .where(eq(follows.followerApId, actorApIdVal))
-      .orderBy(desc(follows.createdAt))
-      .limit(MAX_EXPORT_RELATIONS),
-    db
-      .select({
-        followerApId: follows.followerApId,
-        status: follows.status,
-        createdAt: follows.createdAt,
-      })
-      .from(follows)
-      .where(eq(follows.followingApId, actorApIdVal))
-      .orderBy(desc(follows.createdAt))
-      .limit(MAX_EXPORT_RELATIONS),
-    db
-      .select({
-        id: mediaUploads.id,
-        r2Key: mediaUploads.r2Key,
-        contentType: mediaUploads.contentType,
-        size: mediaUploads.size,
-        createdAt: mediaUploads.createdAt,
-      })
-      .from(mediaUploads)
-      .where(eq(mediaUploads.uploaderApId, actorApIdVal))
-      .orderBy(desc(mediaUploads.createdAt))
-      .limit(MAX_EXPORT_MEDIA),
-  ]);
-
-  const archive = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    exported_at: new Date().toISOString(),
-    actor: {
+  const writer = new ExportJsonWriter(maxBytes);
+  try {
+    writer.append(
+      '{"@context":"https://www.w3.org/ns/activitystreams","exported_at":',
+    );
+    writer.value(new Date().toISOString());
+    writer.append(',"actor":');
+    writer.value({
       ap_id: profileRow.apId,
       type: profileRow.type,
       preferred_username: profileRow.preferredUsername,
@@ -1461,12 +1435,33 @@ actorsRoute.get("/me/export", async (c) => {
       also_known_as: safeJsonParse<string[]>(profileRow.alsoKnownAsJson, []),
       moved_to: profileRow.movedTo,
       username: formatUsername(profileRow.apId, profileRow.preferredUsername),
-    },
-    outbox: {
-      type: "OrderedCollection",
-      total_items: authoredPosts.length,
-      truncated: authoredPosts.length >= MAX_EXPORT_POSTS,
-      ordered_items: authoredPosts.map((p) => ({
+    });
+    writer.append(',"outbox":');
+    await writeExportCollection(
+      writer,
+      (limit, offset) =>
+        db
+          .select({
+            apId: objects.apId,
+            type: objects.type,
+            content: objects.content,
+            summary: objects.summary,
+            attachmentsJson: objects.attachmentsJson,
+            inReplyTo: objects.inReplyTo,
+            visibility: objects.visibility,
+            communityApId: objects.communityApId,
+            published: objects.published,
+            updated: objects.updated,
+          })
+          .from(objects)
+          .where(
+            and(eq(objects.attributedTo, actorApIdVal), notDeleted(objects)),
+          )
+          .orderBy(desc(objects.published), desc(objects.apId))
+          .limit(limit)
+          .offset(offset),
+      MAX_EXPORT_POSTS,
+      (p) => ({
         ap_id: p.apId,
         type: p.type,
         content: p.content,
@@ -1477,44 +1472,98 @@ actorsRoute.get("/me/export", async (c) => {
         community_ap_id: p.communityApId,
         published: p.published,
         updated: p.updated,
-      })),
-    },
-    following: {
-      total_items: following.length,
-      truncated: following.length >= MAX_EXPORT_RELATIONS,
-      items: following.map((f) => ({
+      }),
+      true,
+    );
+    writer.append(',"following":');
+    await writeExportCollection(
+      writer,
+      (limit, offset) =>
+        db
+          .select({
+            followingApId: follows.followingApId,
+            status: follows.status,
+            createdAt: follows.createdAt,
+          })
+          .from(follows)
+          .where(eq(follows.followerApId, actorApIdVal))
+          .orderBy(desc(follows.createdAt), desc(follows.followingApId))
+          .limit(limit)
+          .offset(offset),
+      MAX_EXPORT_RELATIONS,
+      (f) => ({
         ap_id: f.followingApId,
         status: f.status,
         created_at: f.createdAt,
-      })),
-    },
-    followers: {
-      total_items: followers.length,
-      truncated: followers.length >= MAX_EXPORT_RELATIONS,
-      items: followers.map((f) => ({
+      }),
+    );
+    writer.append(',"followers":');
+    await writeExportCollection(
+      writer,
+      (limit, offset) =>
+        db
+          .select({
+            followerApId: follows.followerApId,
+            status: follows.status,
+            createdAt: follows.createdAt,
+          })
+          .from(follows)
+          .where(eq(follows.followingApId, actorApIdVal))
+          .orderBy(desc(follows.createdAt), desc(follows.followerApId))
+          .limit(limit)
+          .offset(offset),
+      MAX_EXPORT_RELATIONS,
+      (f) => ({
         ap_id: f.followerApId,
         status: f.status,
         created_at: f.createdAt,
-      })),
-    },
-    media: {
-      total_items: media.length,
-      truncated: media.length >= MAX_EXPORT_MEDIA,
-      items: media.map((m) => ({
+      }),
+    );
+    writer.append(',"media":');
+    await writeExportCollection(
+      writer,
+      (limit, offset) =>
+        db
+          .select({
+            id: mediaUploads.id,
+            r2Key: mediaUploads.r2Key,
+            contentType: mediaUploads.contentType,
+            size: mediaUploads.size,
+            createdAt: mediaUploads.createdAt,
+          })
+          .from(mediaUploads)
+          .where(eq(mediaUploads.uploaderApId, actorApIdVal))
+          .orderBy(desc(mediaUploads.createdAt), desc(mediaUploads.id))
+          .limit(limit)
+          .offset(offset),
+      MAX_EXPORT_MEDIA,
+      (m) => ({
         id: m.id,
         key: m.r2Key,
         content_type: m.contentType,
         size: m.size,
         created_at: m.createdAt,
-      })),
-    },
-  };
-
+      }),
+    );
+    writer.append("}");
+  } catch (error) {
+    if (!(error instanceof ExportTooLarge)) throw error;
+    return c.json(
+      {
+        error: "Export exceeds the synchronous byte limit",
+        code: "EXPORT_TOO_LARGE",
+        max_bytes: maxBytes,
+      },
+      413,
+    );
+  }
   c.header(
     "Content-Disposition",
     `attachment; filename="${profileRow.preferredUsername}-export.json"`,
   );
-  return c.json(archive);
+  return c.body(writer.finish(), 200, {
+    "Content-Type": "application/json; charset=UTF-8",
+  });
 });
 
 // Get actor's followers

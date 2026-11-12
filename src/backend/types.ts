@@ -16,6 +16,10 @@ import type {
 export interface EnvVars {
   APP_URL: string;
 
+  // Optional lower synchronous account-export budget, in encoded JSON bytes.
+  // Unset defaults to 8 MiB; invalid or greater values fail closed.
+  YURUCOMMU_EXPORT_MAX_BYTES?: string;
+
   // What shape the Worker's bindings arrive in. Unset (or "cloudflare") = raw
   // Cloudflare bindings, which is also what an ordinary-Workers Takoserver
   // backend projects; "portable" = the edge.sql / edge.kv / edge.objects /
