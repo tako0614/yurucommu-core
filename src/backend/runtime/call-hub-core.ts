@@ -98,9 +98,13 @@ const RINGING_TIMEOUT_MS = 45_000;
 const CONNECTING_TIMEOUT_MS = 40_000;
 // Default freshness window stamped on outbound envelopes.
 const DEFAULT_TTL_MS = 30_000;
+// Per-local-actor admission budgets. Restored calls are never discarded.
+const MAX_INCOMING_RINGING_CALLS = 16;
+const MAX_ACTIVE_CALLS = 64;
 
 export class CallHub {
   private readonly calls = new Map<string, CallRecord>();
+  private readonly pendingCalls = new Map<string, CallDirection>();
 
   constructor(private readonly port: HubPort) {}
 
@@ -120,6 +124,26 @@ export class CallHub {
     for (const rec of records) {
       if (!isTerminalCallState(rec.state)) this.calls.set(rec.callId, rec);
     }
+  }
+
+  private canAdmitCall(
+    direction: CallDirection,
+    replacing?: CallRecord,
+    reservation?: string,
+  ): boolean {
+    const calls = [...this.calls.values()].filter((call) => call !== replacing);
+    const pending = [...this.pendingCalls.entries()].filter(
+      ([callId]) => callId !== reservation,
+    );
+    if (calls.length + pending.length >= MAX_ACTIVE_CALLS) return false;
+    return (
+      direction === "outgoing" ||
+      calls.filter(
+        (call) => call.direction === "incoming" && call.state === "ringing",
+      ).length +
+        pending.filter(([, kind]) => kind === "incoming").length <
+        MAX_INCOMING_RINGING_CALLS
+    );
   }
 
   private transition(call: CallRecord, state: CallState): void {
@@ -258,36 +282,59 @@ export class CallHub {
     conn: HubConnection,
     frame: Extract<ClientToHubFrame, { t: "invite" }>,
   ): Promise<void> {
-    if (this.calls.has(frame.callId)) return;
-    const media = await this.port.provisionMedia(frame.media);
-    const now = this.port.now();
-    const call: CallRecord = {
-      callId: frame.callId,
-      peerApId: frame.to,
-      direction: "outgoing",
-      state: "ringing",
-      media: frame.media,
-      sfuFocus: media.sfuFocus,
-      createdAt: now,
-      updatedAt: now,
-      ...(this.port.newCallGeneration
-        ? { generation: this.port.newCallGeneration() }
-        : {}),
-    };
-    this.calls.set(call.callId, call);
-    void this.port.persist?.(call);
-    // Hand the caller its media params immediately so it can build the offer.
-    conn.send({
-      t: "ice-servers",
-      callId: call.callId,
-      iceServers: media.iceServers,
-      sfuFocus: media.sfuFocus,
-    });
-    this.port.broadcast({
-      t: "call-state",
-      callId: call.callId,
-      state: "ringing",
-    });
+    if (this.calls.has(frame.callId) || this.pendingCalls.has(frame.callId))
+      return;
+    if (!this.canAdmitCall("outgoing")) {
+      conn.send({
+        t: "error",
+        code: "call_capacity",
+        message: "Too many active calls.",
+      });
+      return;
+    }
+    this.pendingCalls.set(frame.callId, "outgoing");
+    try {
+      const media = await this.port.provisionMedia(frame.media);
+      if (this.calls.has(frame.callId)) return;
+      if (!this.canAdmitCall("outgoing", undefined, frame.callId)) {
+        conn.send({
+          t: "error",
+          code: "call_capacity",
+          message: "Too many active calls.",
+        });
+        return;
+      }
+      const now = this.port.now();
+      const call: CallRecord = {
+        callId: frame.callId,
+        peerApId: frame.to,
+        direction: "outgoing",
+        state: "ringing",
+        media: frame.media,
+        sfuFocus: media.sfuFocus,
+        createdAt: now,
+        updatedAt: now,
+        ...(this.port.newCallGeneration
+          ? { generation: this.port.newCallGeneration() }
+          : {}),
+      };
+      this.calls.set(call.callId, call);
+      void this.port.persist?.(call);
+      // Hand the caller its media params immediately so it can build the offer.
+      conn.send({
+        t: "ice-servers",
+        callId: call.callId,
+        iceServers: media.iceServers,
+        sfuFocus: media.sfuFocus,
+      });
+      this.port.broadcast({
+        t: "call-state",
+        callId: call.callId,
+        state: "ringing",
+      });
+    } finally {
+      this.pendingCalls.delete(frame.callId);
+    }
   }
 
   private async onClientOffer(
@@ -400,6 +447,7 @@ export class CallHub {
   private async onPeerOffer(envelope: RtcSignalEnvelopeV1): Promise<void> {
     let call = this.calls.get(envelope.callId);
     if (!call) {
+      if (this.pendingCalls.has(envelope.callId)) return;
       // Glare: we are already ringing this same peer (a DIFFERENT callId) and
       // their offer arrives — both sides dialed at once. Perfect Negotiation:
       // the lexicographically-lower ap_id is "impolite" and keeps its own
@@ -412,38 +460,53 @@ export class CallHub {
           c.peerApId === envelope.from &&
           c.state === "ringing",
       );
-      if (outgoingToPeer) {
-        const weArePolite = this.localActorApId > envelope.from;
-        if (!weArePolite) return; // keep our outgoing offer; ignore theirs
+      if (outgoingToPeer && this.localActorApId <= envelope.from) return;
+      if (!this.canAdmitCall("incoming", outgoingToPeer)) return;
+      // Reserve before glare relay can yield, then transfer the slot to calls.
+      this.pendingCalls.set(envelope.callId, "incoming");
+      try {
+        if (outgoingToPeer) {
+          if (
+            !(await this.relay(
+              outgoingToPeer,
+              "cancel",
+              { reason: "glare" },
+              "glare",
+            ))
+          )
+            return;
+          if (
+            this.calls.get(outgoingToPeer.callId) !== outgoingToPeer ||
+            outgoingToPeer.state !== "ringing" ||
+            !this.canAdmitCall("incoming", outgoingToPeer, envelope.callId)
+          )
+            return;
+          this.transition(outgoingToPeer, "cancelled");
+        }
         if (
-          !(await this.relay(
-            outgoingToPeer,
-            "cancel",
-            { reason: "glare" },
-            "glare",
-          ))
+          this.calls.has(envelope.callId) ||
+          !this.canAdmitCall("incoming", undefined, envelope.callId)
         )
           return;
-        this.transition(outgoingToPeer, "cancelled");
+        const now = this.port.now();
+        call = {
+          callId: envelope.callId,
+          peerApId: envelope.from,
+          direction: "incoming",
+          state: "ringing",
+          media: envelope.media ?? { audio: true, video: false },
+          sfuFocus: envelope.sfuFocus ?? null,
+          createdAt: now,
+          updatedAt: now,
+          ...(this.port.newCallGeneration
+            ? { generation: this.port.newCallGeneration() }
+            : {}),
+        };
+        this.calls.set(call.callId, call);
+        void this.port.persist?.(call);
+      } finally {
+        this.pendingCalls.delete(envelope.callId);
       }
-    }
-    if (!call) {
-      const now = this.port.now();
-      call = {
-        callId: envelope.callId,
-        peerApId: envelope.from,
-        direction: "incoming",
-        state: "ringing",
-        media: envelope.media ?? { audio: true, video: false },
-        sfuFocus: envelope.sfuFocus ?? null,
-        createdAt: now,
-        updatedAt: now,
-        ...(this.port.newCallGeneration
-          ? { generation: this.port.newCallGeneration() }
-          : {}),
-      };
-      this.calls.set(call.callId, call);
-      void this.port.persist?.(call);
     }
     // Wake an offline client (best effort) and ring any live ones.
     void this.port.ring?.(envelope);

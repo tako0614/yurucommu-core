@@ -103,6 +103,24 @@ s2s の署名・recipient・freshness 判定、および既存の optional field
 - **`lib/rtc/signal-transport.ts` `sendCallSignal`** — `signRequest`+`fetchWithTimeout` の**直接署名 POST**（queued delivery を使わない: ephemeral SDP に backoff/circuit-breaker は不適）。peer endpoint は actor doc の `endpoints.rtcSignal` → fallback で `<inbox-origin>/ap/rtc/signal`。
 - **`lib/rtc/call-store.ts`** — `call_sessions` upsert/list/get（history/missed-call）。
 
+### 通話の受付上限
+
+local actor単位でincoming/ringingは16件、active callは64件まで新規受付する。
+これは1:1通話に十分な余裕を残しつつ、異なるcallIdの着信でstateと保存が無制限に
+増えないためのCoreの既定値であり、operatorの実capacityを保証する値ではない。
+activeの枠にはmedia準備中の発信とglare処理中の着信も含め、await前にcallIdと枠を予約する。
+同じ処理中callIdは二重に作成せず、media準備の失敗時には予約を解放して再試行を許す。
+
+新規着信の上限超過はcall作成・保存・ring・media準備へ進めない。
+browserからの新規発信は既存のerror frameで`call_capacity`を返す。
+既存callIdの再offer、正常なglare置換、timeout/terminal後の枠の再利用は維持する。
+glareは着信枠を先に予約し、relay後にも受付条件を再確認する。着信枠が無い場合は
+既存の発信をcancelしない。既に保存されたactive callは上限を超えていても復元し、
+この上限を理由に通話や履歴を削除しない。
+
+この上限は新規callの同時受付制御であり、request rate、media providerの実capacity、
+永続履歴の保持期間、hostのtick配線や実DO/WebSocketの資格を代替しない。
+
 ---
 
 ## 5.1. Actor execution candidate（2026-09-27、未公開 adapter）
