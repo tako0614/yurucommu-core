@@ -95,21 +95,23 @@ export async function handleFollow(
 
   const activityId = activity.id || activityApId(baseUrl, generateId());
 
-  // Determine if we need to approve
-  const status = recipient.isPrivate ? "pending" : "accepted";
   const now = new Date().toISOString();
 
   // Was the edge already present BEFORE this dispatch? Exact keys are the
   // steady-state path; the helper also recognizes a pre-invariant cosmetic
   // spelling so a retry cannot create a second logical edge. The original
-  // insert + counter transition committed atomically, so a retained edge means
-  // there is nothing left to reconcile or notify.
+  // insert + counter transition committed atomically, but notification/Accept
+  // persistence can still fail afterwards. Only that SAME Follow may repair
+  // those effects; a different Follow cannot replace the retained relationship.
   const existingEdge = await findFollowByFollowerIdentity(
     db,
     actor,
     recipient.apId,
   );
-  if (existingEdge) return;
+  if (existingEdge && existingEdge.activityApId !== activityId) return;
+  const status =
+    existingEdge?.status ?? (recipient.isPrivate ? "pending" : "accepted");
+  if (status !== "pending" && status !== "accepted") return;
 
   // #COUNTER-SYM (crash-retry convergence): the followers-edge insert and the
   // recipient.followerCount +1 MUST commit together. Previously the edge was
@@ -127,7 +129,7 @@ export async function handleFollow(
   // after the edge already existed, sees the edge present → the guard is false and
   // the insert is a no-op, so the count can neither double-bump nor under-count.
   // For a private recipient the edge inserts as 'pending' with no count change.
-  if (status === "accepted") {
+  if (!existingEdge && status === "accepted") {
     const edgeAbsent = sql`NOT EXISTS (SELECT 1 FROM ${follows} WHERE ${follows.followerApId} = ${actor} AND ${follows.followingApId} = ${recipient.apId})`;
     await runBatch(db, [
       db
@@ -145,7 +147,7 @@ export async function handleFollow(
         })
         .onConflictDoNothing(),
     ]);
-  } else {
+  } else if (!existingEdge) {
     // Private recipient: follow stays pending, no count change.
     await db
       .insert(follows)
@@ -173,6 +175,26 @@ export async function handleFollow(
   // Send Accept response
   // If the recipient requires approval, do NOT auto-accept.
   if (status === "accepted" && !isLocal(actor, baseUrl)) {
+    // A crash can also occur after the Accept commits but before its durable
+    // delivery intent. Reuse that response rather than minting another one.
+    const retainedAccept = await db
+      .select({ apId: activities.apId })
+      .from(activities)
+      .where(
+        and(
+          eq(activities.type, "Accept"),
+          eq(activities.actorApId, recipient.apId),
+          eq(activities.objectApId, sourceActivityId || activityId),
+          eq(activities.direction, "outbound"),
+        ),
+      )
+      .limit(1)
+      .get();
+    if (retainedAccept) {
+      await enqueueDeliveryToActor(c.env, retainedAccept.apId, actor);
+      return;
+    }
+
     const acceptId = activityApId(baseUrl, generateId());
     const acceptActivity = {
       "@context": "https://www.w3.org/ns/activitystreams",
