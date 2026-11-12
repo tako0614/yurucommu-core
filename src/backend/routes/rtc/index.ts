@@ -30,6 +30,7 @@ import {
   getSignalingHub,
   isSignalingAvailable,
 } from "../../runtime/signaling-hub.ts";
+import { outgoingCallIsAllowed } from "../../lib/rtc/outgoing-policy.ts";
 import { createRtcProvider } from "../../lib/rtc/provider.ts";
 import { getCallSession, listCallSessions } from "../../lib/rtc/call-store.ts";
 import type {
@@ -144,7 +145,7 @@ rtc.post("/api/rtc/calls", async (c) => {
   const media = normalizeMedia(payload.media);
 
   // Do not let the local owner place a call to a contact they have blocked.
-  if (await isActorBlockedStrict(db, to)) {
+  if (!(await outgoingCallIsAllowed(db, actor.ap_id, to))) {
     return c.json({ error: "blocked" }, 403);
   }
 
