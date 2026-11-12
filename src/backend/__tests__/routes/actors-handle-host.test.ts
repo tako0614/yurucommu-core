@@ -293,3 +293,32 @@ for (const count of [100, 101]) {
     expect((await direct.json()).actor.ap_id).toBe(id);
   });
 }
+
+for (const [suffix, resolves] of [
+  ["/", false],
+  ["#presentation", true],
+] as const) {
+  test(`query identity: suffix ${suffix} preserves distinct values and cosmetic fragments`, async () => {
+    const first = "https://remote.example/users/member?next=x";
+    const ids = [first, first + suffix];
+    const f = await fixture(ids);
+    const resolved = await resolveActorApId(
+      f.db,
+      APP_URL,
+      "@member@remote.example",
+    );
+    const response = await f.request("@member@remote.example");
+    expect({
+      identity: resolves ? ids.includes(resolved ?? "") : resolved === null,
+      status: response.status,
+    }).toEqual({ identity: true, status: resolves ? 200 : 404 });
+    const body = await response.json();
+    if (resolves) expect(ids.includes(body.actor.ap_id)).toBe(true);
+    else expect(body).toEqual({ error: "Actor not found" });
+    for (const id of ids) {
+      const direct = await f.request(id);
+      expect(direct.status).toBe(200);
+      expect((await direct.json()).actor.ap_id).toBe(id);
+    }
+  });
+}

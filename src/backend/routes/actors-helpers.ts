@@ -233,7 +233,11 @@ export async function resolveActorApId(
       // distinct from non-default ports. Path/query text never selects host.
       const host = handleHost(domain, url.protocol);
       if (host === null || url.host !== host) continue;
-      if (resolved && !isSameActivityPubActor(resolved, candidate.apId)) {
+      if (
+        resolved &&
+        (new URL(resolved).search !== url.search ||
+          !isSameActivityPubActor(resolved, candidate.apId))
+      ) {
         return null;
       }
       resolved ??= candidate.apId;

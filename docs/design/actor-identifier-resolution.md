@@ -32,7 +32,8 @@ and its data transition are separate work.
 Within that set, multiple different actor IDs on the requested host are
 ambiguous and also return null. Only the existing `isSameActivityPubActor`
 cosmetic equivalence can treat duplicate cache representations as one actor;
-path case and query differences remain identity-significant. The helper returns
+path case and query differences remain identity-significant. Parsed query
+strings must agree exactly before that cosmetic comparison. The helper returns
 a stored AP ID, without rewriting it. Null becomes the existing 404 at profile
 and relationship entrypoints. Using a full AP ID remains the explicit recovery
 path; ambiguity does not delete cache rows or disable other account operations.
