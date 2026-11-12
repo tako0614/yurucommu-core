@@ -7,15 +7,20 @@
  * missed-call surfacing, and current-state lookups.
  */
 
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 import { nowIso } from "./date-utils.ts";
 import { actors } from "./actors.ts";
 
-export const callSessions = sqliteTable(
-  "call_sessions",
-  {
+function callSessionColumns() {
+  return {
     // callId (client-minted uuid; also the signaling anti-replay nonce).
-    id: text("id").primaryKey(),
+    id: text("id").notNull(),
     localActorApId: text("local_actor_ap_id")
       .notNull()
       .references(() => actors.apId, { onDelete: "cascade" }),
@@ -38,9 +43,29 @@ export const callSessions = sqliteTable(
       .$onUpdateFn(nowIso),
     connectedAt: text("connected_at"),
     endedAt: text("ended_at"),
-  },
+  };
+}
+
+/** Applied legacy history remains readable without an in-place table rebuild. */
+export const legacyCallSessions = sqliteTable(
+  "call_sessions",
+  { ...callSessionColumns(), id: text("id").primaryKey() },
   (t) => [
     index("call_sessions_local_created_idx").on(t.localActorApId, t.createdAt),
     index("call_sessions_state_idx").on(t.state),
+  ],
+);
+
+/** A call identifier belongs to its local owner, not to every actor globally. */
+export const callSessions = sqliteTable(
+  "actor_call_sessions",
+  callSessionColumns(),
+  (t) => [
+    primaryKey({ columns: [t.localActorApId, t.id] }),
+    index("actor_call_sessions_local_created_idx").on(
+      t.localActorApId,
+      t.createdAt,
+    ),
+    index("actor_call_sessions_state_idx").on(t.state),
   ],
 );
