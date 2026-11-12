@@ -23,6 +23,7 @@ import {
   actorCache,
   actors,
   communities,
+  deliveryEndpointRecipients,
   deliveryQueue,
   instanceActor,
 } from "../../../db/index.ts";
@@ -64,6 +65,8 @@ import {
 } from "./queue.ts";
 
 import { beginEndpointRecovery } from "./endpoint-recovery.ts";
+import { isActorBlockedStrict } from "../blocklist.ts";
+import { isRemoteActorTombstoned } from "../activitypub-actor-cache.ts";
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
 const STALE_PROCESSING_MS = 2 * 60 * 1000;
@@ -240,6 +243,7 @@ async function maybeShadowProbeInbox(
   db: Database,
   env: Env,
   params: {
+    jobId: string;
     activityId: string;
     sharedInboxEndpoint: string;
     endpointHost: string;
@@ -256,17 +260,39 @@ async function maybeShadowProbeInbox(
   if (sampleRate <= 0) return;
   if (sampleRate < 1 && Math.random() > sampleRate) return;
 
+  // Cache proximity is not recipient authority. Only the positive ledger for
+  // this exact job/Activity/endpoint may authorize a secondary request.
   const rep = await db
     .select({
       apId: actorCache.apId,
       inbox: actorCache.inbox,
     })
     .from(actorCache)
+    .innerJoin(
+      deliveryEndpointRecipients,
+      eq(deliveryEndpointRecipients.recipientActorApId, actorCache.apId),
+    )
+    .innerJoin(
+      deliveryQueue,
+      and(
+        eq(deliveryQueue.id, deliveryEndpointRecipients.deliveryJobId),
+        eq(deliveryQueue.id, params.jobId),
+        eq(deliveryQueue.activityApId, params.activityId),
+        eq(deliveryQueue.inboxUrl, params.sharedInboxEndpoint),
+      ),
+    )
     .where(eq(actorCache.sharedInbox, params.sharedInboxEndpoint))
     .limit(1)
     .get();
   const inbox = rep?.inbox;
   if (!inbox || !isSafeRemoteUrl(inbox)) return;
+  // Reuse current lifecycle/moderation authority. Unavailable authority throws
+  // into the caller's best-effort probe catch, preserving primary success.
+  if (
+    (await isRemoteActorTombstoned(db, rep.apId)) ||
+    (await isActorBlockedStrict(db, rep.apId))
+  )
+    return;
 
   const inboxHost = safeEndpointHost(inbox);
   if (!inboxHost) return;
@@ -585,6 +611,7 @@ export async function processDeliverEndpoint(
             db,
             env,
             {
+              jobId: job.id,
               activityId: job.activityApId,
               sharedInboxEndpoint: endpoint,
               endpointHost: host,
