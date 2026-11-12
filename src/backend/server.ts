@@ -93,6 +93,7 @@ const ENV_PASSTHROUGH_KEY_SET: Record<LocalRuntimeEnvKey, true> = {
   // consults it: this server builds the runtime ports directly from its own
   // compat classes rather than wrapping a Worker's bindings, so it is neither
   // the `cloudflare` nor the `portable` lane. See runtime/lane.ts.
+  YURUCOMMU_EXPORT_MAX_BYTES: true,
   YURUCOMMU_RUNTIME_LANE: true,
   ENABLE_TAKOS_TOOLS: true,
   AUTH_PASSWORD_HASH: true,
