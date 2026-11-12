@@ -25,6 +25,7 @@ import {
   signingActorFromKeyId,
 } from "../activitypub/inbox.ts";
 import { isActorBlockedStrict } from "../../lib/blocklist.ts";
+import { personalActorIsBlockedBy } from "../../lib/personal-actor-moderation.ts";
 import {
   getSignalingHub,
   isSignalingAvailable,
@@ -76,7 +77,11 @@ rtc.post("/ap/rtc/signal", async (c) => {
   if (!local) return c.json({ error: "unknown_recipient" }, 404);
 
   // Never ring for a sender the local owner has blocked; drop silently.
-  if (await isActorBlockedStrict(db, envelope.from)) return c.body(null, 204);
+  if (
+    (await isActorBlockedStrict(db, envelope.from)) ||
+    (await personalActorIsBlockedBy(db, envelope.to, envelope.from))
+  )
+    return c.body(null, 204);
 
   await getSignalingHub(c.env).deliver(envelope.to, envelope);
   return c.body(null, 204);
