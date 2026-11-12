@@ -1,4 +1,5 @@
 import { isSafeRemoteUrl } from "../../federation-helpers.ts";
+import { localSubstrateRemoteFetchesEnabled } from "../ssrf.ts";
 import { bytesToHex } from "../hex.ts";
 
 export const DELIVERY_ENDPOINT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -47,7 +48,13 @@ export function safeParseIsoTimeMs(
 export function safeEndpointHost(endpoint: string): string | null {
   try {
     const url = new URL(endpoint);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    // Federation payloads are signed but not encrypted. Cleartext delivery is
+    // permitted only through the existing explicit local-substrate opt-in.
+    if (url.protocol !== "https:") {
+      if (url.protocol !== "http:" || !localSubstrateRemoteFetchesEnabled()) {
+        return null;
+      }
+    }
     if (!isSafeRemoteUrl(endpoint)) return null;
     return url.host;
   } catch {

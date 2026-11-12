@@ -269,6 +269,7 @@ async function maybeShadowProbeInbox(
   if (!inbox || !isSafeRemoteUrl(inbox)) return;
 
   const inboxHost = safeEndpointHost(inbox);
+  if (!inboxHost) return;
   const keyId = `${params.sender.apId}#main-key`;
   const headers = await signRequest(
     params.sender.privateKeyPem,
