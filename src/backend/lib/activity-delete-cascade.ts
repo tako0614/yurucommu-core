@@ -1,4 +1,4 @@
-import { and, inArray, ne, notExists, or, type SQL } from "drizzle-orm";
+import { and, eq, inArray, ne, notExists, or, type SQL } from "drizzle-orm";
 
 import {
   activities,
@@ -38,11 +38,20 @@ export function activityDeliveryDrainedGuard(
         .where(
           and(
             inArray(deliveryQueue.activityApId, targetActivityIds()),
-            inArray(deliveryQueue.status, [
-              "pending",
-              "processing",
-              "retry_wait",
-            ]),
+            or(
+              inArray(deliveryQueue.status, [
+                "pending",
+                "processing",
+                "retry_wait",
+              ]),
+              // Dead-lettered work can still be revived by its retained DLQ
+              // intent. Keep the Activity and signer until repair consumes it
+              // and the resulting delivery has also drained.
+              and(
+                eq(deliveryQueue.status, "dead_letter"),
+                eq(deliveryQueue.dlqPending, 1),
+              ),
+            ),
           ),
         ),
     ),
