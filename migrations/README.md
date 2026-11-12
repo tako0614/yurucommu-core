@@ -16,6 +16,14 @@ SQL migrations for the yurucommu social engine. Deployable product repos
 
 ## Naming convention
 
+Migration 0041 adds owner-scoped RTC history while preserving the applied
+history table and rows. Reads merge retained own rows; a lifecycle write
+imports only its own legacy metadata in one statement. Apply before serving
+the corresponding engine with old call writers/consumers closed. After new
+history is accepted, a legacy-only engine is not a safe runtime rollback.
+See [RTC history ownership](../docs/design/rtc-call-history-scope.md) for
+deletion guards, activation readback, interruption and forward repair.
+
 Migration 0040 adds bounded endpoint-invalidation continuation to retained
 delivery jobs. Existing rows receive no inferred recovery authority or extra
 HTTP/reconcile budget. Apply before serving its engine with old delivery

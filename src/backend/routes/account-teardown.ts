@@ -24,6 +24,7 @@ import {
   bookmarks,
   communities,
   callSessions,
+  legacyCallSessions,
   communityBans,
   communityInvites,
   communityJoinRequests,
@@ -481,14 +482,13 @@ export async function teardownActor(
   await db
     .delete(mobilePushRegistrations)
     .where(eq(mobilePushRegistrations.actorApId, apId));
-  await db
-    .delete(callSessions)
-    .where(
-      or(
-        eq(callSessions.localActorApId, apId),
-        eq(callSessions.peerActorApId, apId),
-      ),
-    );
+  for (const history of [callSessions, legacyCallSessions]) {
+    await db
+      .delete(history)
+      .where(
+        or(eq(history.localActorApId, apId), eq(history.peerActorApId, apId)),
+      );
+  }
 
   // Story interactions the actor performed on OTHER/remote stories.
   await db.delete(storyVotes).where(eq(storyVotes.actorApId, apId));
