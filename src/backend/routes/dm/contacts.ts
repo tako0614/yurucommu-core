@@ -253,6 +253,10 @@ contacts.get("/contacts", async (c) => {
           eq(objects.type, "Note"),
           isNull(objects.communityApId),
           operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
+          personalActorNotSuppressedSql(
+            sql`${objects.attributedTo}`,
+            sql`${actor.ap_id}`,
+          ),
         ),
       )
       .orderBy(desc(objects.published))

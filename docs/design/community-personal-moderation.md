@@ -14,6 +14,14 @@ restores still-unread retained messages without altering membership or read
 receipts. The shared total continues to supply the badge endpoint and the
 existing push/realtime unread snapshot consumers.
 
+Community contact previews apply that viewer predicate before the existing
+global recent-chat query limit. A suppressed latest sender falls back to the
+latest allowed chat in the selected results; a community with no allowed chat
+has no preview or preview timestamp. Other members and DM previews are
+unchanged. Removing the relation restores retained previews without changing
+messages, membership or read state. The existing global query limit remains;
+this does not add an unbounded per-community history search.
+
 After a successful community message write, the existing best-effort realtime
 member selection excludes viewers who currently block or mute the sender.
 The existing normalized personal-identity SQL predicate correlates each member
@@ -34,10 +42,9 @@ author/manager roles, admission guards, revisions and atomic writes are unchange
 A selection failure emits no realtime events through this task and follows the
 existing best-effort error handling after the committed write.
 
-This change does not alter contact previews, DM count SQL, observed-read
+This change does not alter DM preview/count SQL, observed-read
 authority, existing unread event triggers or push-delivery rechecks. Those
-paths require separate qualification; previews may still reflect retained
-personally hidden messages. A relation changing
+paths require separate qualification. A relation changing
 after selection is not atomically rechecked at event delivery. Large-community
 fanout beyond the existing cap, query cost under real data, genuine sessions,
 real Durable Objects/Queue, installed consumers and deployment remain separate.
