@@ -26,6 +26,7 @@ import {
 } from "../../db/index.ts";
 import { notificationEligibilityWhere } from "./notification-eligibility.ts";
 import { operatorActorNotBlockedSql } from "./blocklist.ts";
+import { personalActorNotSuppressedSql } from "./personal-actor-moderation.ts";
 import { unreadTalkObjectSql } from "./talk-read-receipts.ts";
 import { peerArchivedSql } from "./talk-peer-archives.ts";
 
@@ -74,6 +75,7 @@ export async function yurumeUnreadCounts(
       AND r.actor_ap_id = ${actorApId}
     WHERE cm.actor_ap_id = ${actorApId}
       AND ${operatorActorNotBlockedSql(sql.raw("o.attributed_to"))}
+      AND ${personalActorNotSuppressedSql(sql`o.attributed_to`, sql`${actorApId}`)}
       AND ${unreadTalkObjectSql("community", sql`${actorApId}`, sql`cm.community_ap_id`, sql`cm.community_ap_id`, sql`cm.joined_at`, sql`o.published`, sql`o.ap_id`, sql`COALESCE(r.last_read_at, cm.joined_at, '1970-01-01T00:00:00Z')`)}
   `);
 
