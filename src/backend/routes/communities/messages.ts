@@ -63,6 +63,8 @@ import {
   resolveCommunityApId,
 } from "./membership-shared.ts";
 import { operatorActorNotBlockedSql } from "../../lib/blocklist.ts";
+import { excludeModeratedActors } from "../../lib/feed-exclude.ts";
+import { personalActorNotSuppressedSql } from "../../lib/personal-actor-moderation.ts";
 
 const MAX_COMMUNITY_MESSAGE_LENGTH = 5000;
 const MAX_COMMUNITY_MESSAGES_LIMIT = 100;
@@ -427,9 +429,9 @@ messagesRouter.get("/:identifier/messages", async (c) => {
     eq(objectRecipients.type, "audience"),
     eq(objects.type, "Note"),
     isNull(objects.communityApId),
-    // A partial purge may retain remote chat objects. Defederation must hide
-    // them before cursor/limit so they cannot consume or shorten the page.
-    operatorActorNotBlockedSql(sql`${objects.attributedTo}`),
+    // Apply operator and viewer moderation before cursor/limit so retained
+    // hidden messages cannot consume a page or make allowed history unreachable.
+    excludeModeratedActors(actor.ap_id, objects.attributedTo),
   ];
   // Composite (published, apId) cursor so same-millisecond messages aren't
   // skipped on a load-older boundary (see lib/feed-cursor.ts).
@@ -716,11 +718,23 @@ messagesRouter.post(
     if (isRealtimeAvailable(c.env)) {
       const communityApIdForEmit = community.apId;
       await runRealtimeAfterResponse(c, async () => {
-        const members = await db
+        // Preserve the existing candidate-work cap before viewer filtering.
+        // Hidden candidates must not make this dispatch scan later members.
+        const candidates = db
           .select({ actorApId: communityMembers.actorApId })
           .from(communityMembers)
           .where(eq(communityMembers.communityApId, communityApIdForEmit))
-          .limit(200);
+          .limit(200)
+          .as("community_realtime_candidates");
+        const members = await db
+          .select({ actorApId: candidates.actorApId })
+          .from(candidates)
+          .where(
+            personalActorNotSuppressedSql(
+              sql`${actor.ap_id}`,
+              sql`${candidates.actorApId}`,
+            ),
+          );
         await emitRealtimeBestEffort(
           c.env,
           members.map(({ actorApId }) => ({
