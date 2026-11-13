@@ -181,6 +181,140 @@ function appWith(
 const envFor = (db: Database): Env =>
   ({ APP_URL, DB_INSTANCE: db }) as unknown as Env;
 
+for (const relation of ["block", "mute"] as const) {
+  for (const retainedAlias of [false, true]) {
+    test(`community contact preview honors ${relation} (${retainedAlias ? "retained alias" : "exact actor"}) without changing retained rows or another member`, async () => {
+      const { db, client } = await createTestDb();
+      try {
+        const viewer = await insertLocalActor(db, "alice");
+        const sender = await insertLocalActor(db, "bob");
+        const allowed = await insertLocalActor(db, "carol");
+        const control = await insertLocalActor(db, "dan");
+        const mixed = await insertCommunity(db, "mixed-preview");
+        const hidden = await insertCommunity(db, "hidden-preview");
+        for (const group of [mixed, hidden]) {
+          for (const member of [viewer, sender, allowed, control]) {
+            await addMember(db, group, member, "2026-06-20T08:00:00.000Z");
+          }
+        }
+        await insertCommunityChat(
+          db,
+          allowed,
+          mixed,
+          "allowed-preview",
+          "2026-06-20T09:00:00.000Z",
+        );
+        await insertCommunityChat(
+          db,
+          sender,
+          mixed,
+          "suppressed-latest",
+          "2026-06-20T10:00:00.000Z",
+        );
+        await insertCommunityChat(
+          db,
+          sender,
+          hidden,
+          "suppressed-only",
+          "2026-06-20T11:00:00.000Z",
+        );
+        await insertDm(
+          db,
+          allowed,
+          viewer,
+          "unaffected-dm-preview",
+          "allowed-dm-preview",
+          "2026-06-20T12:00:00.000Z",
+        );
+        async function retainedRows() {
+          const rows: Record<string, unknown> = {};
+          for (const table of [
+            "objects",
+            "object_recipients",
+            "communities",
+            "community_members",
+            "dm_read_status",
+            "dm_community_read_status",
+            "talk_read_modes",
+            "talk_message_reads",
+          ]) {
+            rows[table] = await db.all(
+              sql.raw(`SELECT * FROM ${table} ORDER BY rowid`),
+            );
+          }
+          return rows;
+        }
+        type ContactPreview = {
+          ap_id: string;
+          last_message: { content: string; is_mine: boolean } | null;
+          last_message_at: string | null;
+        };
+        async function contactsFor(apId: string, username: string) {
+          // Initial actor context is synthetic; the actual route and SQL run.
+          const response = await appWith(db, fakeActor(apId, username)).fetch(
+            new Request(`${APP_URL}/contacts`),
+            envFor(db),
+          );
+          expect(response.status).toBe(200);
+          return (await response.json()) as {
+            communities: ContactPreview[];
+            mutual_followers: unknown[];
+          };
+        }
+        const before = await retainedRows();
+        const original = await contactsFor(viewer, "alice");
+        expect(original.mutual_followers).toHaveLength(1);
+        const target = retainedAlias
+          ? "https://YURU.test:443/ap/users/bob/#profile"
+          : sender;
+        if (relation === "block")
+          await db
+            .insert(blocks)
+            .values({ blockerApId: viewer, blockedApId: target });
+        else
+          await db
+            .insert(mutes)
+            .values({ muterApId: viewer, mutedApId: target });
+
+        const filtered = await contactsFor(viewer, "alice");
+        const mixedPreview = filtered.communities.find(
+          (c) => c.ap_id === mixed,
+        )!;
+        expect(mixedPreview.last_message).toEqual({
+          content: "allowed-preview",
+          is_mine: false,
+        });
+        expect(mixedPreview.last_message_at).toBe("2026-06-20T09:00:00.000Z");
+        const hiddenPreview = filtered.communities.find(
+          (c) => c.ap_id === hidden,
+        )!;
+        expect(hiddenPreview.last_message).toBeNull();
+        expect(hiddenPreview.last_message_at).toBeNull();
+        expect(filtered.communities).toHaveLength(2);
+        expect(filtered.mutual_followers).toEqual(original.mutual_followers);
+
+        const other = await contactsFor(control, "dan");
+        expect(
+          other.communities.find((c) => c.ap_id === mixed)?.last_message
+            ?.content,
+        ).toBe("suppressed-latest");
+        expect(
+          other.communities.find((c) => c.ap_id === hidden)?.last_message
+            ?.content,
+        ).toBe("suppressed-only");
+        expect(await retainedRows()).toEqual(before);
+
+        if (relation === "block") await db.delete(blocks);
+        else await db.delete(mutes);
+        expect(await contactsFor(viewer, "alice")).toEqual(original);
+        expect(await retainedRows()).toEqual(before);
+      } finally {
+        client.close();
+      }
+    });
+  }
+}
+
 type ContactsResponse = {
   mutual_followers: Array<{ unread_count?: number }>;
   communities: Array<{ unread_count?: number }>;
