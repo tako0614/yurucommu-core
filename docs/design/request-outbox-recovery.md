@@ -10,7 +10,8 @@ Requests sharing the same materialized `DB_INSTANCE` share an in-flight sweep
 promise. Another accepted request marks it for a further pass, so a durable row
 created after the current scan remains eligible before the shared lifetime ends.
 The existing federation, push and realtime recovery order, error handling and
-waitUntil/inline fallback are preserved. Completion releases the in-flight entry;
+waitUntil/inline fallback are preserved. The stopping continuation releases the
+entry synchronously, so later requests cannot join an already-finished loop;
 different database objects do not share it.
 
 This is a bounded source mitigation, not a global rate limit. A sustained stream

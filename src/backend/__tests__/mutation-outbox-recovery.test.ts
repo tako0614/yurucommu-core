@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { drizzle } from "drizzle-orm/libsql";
+import * as schema from "../../db/schema.ts";
 
 import {
   createYurucommuBackendApp,
@@ -245,5 +247,146 @@ test("waitUntil coalescing reruns for an accepted durable row created in flight"
     expect(sent[2]).toBe("https://test.local/ap/activities/local-recovery-3");
   } finally {
     f.client.close();
+  }
+});
+
+// Observe completed real SQL without replacing rows or importing scheduler internals.
+// Sweep the small finishing window on both sides of the accepted-response tail.
+async function schedule(microtasks: number) {
+  const { client } = await createTestDb();
+  const sent: string[] = [];
+  const firstSend = Promise.withResolvers<void>();
+  const firstGate = Promise.withResolvers<void>();
+  const secondWritten = Promise.withResolvers<void>();
+  const responseGate = Promise.withResolvers<void>();
+  const pending: Promise<unknown>[] = [];
+  let armed = false;
+  let observed = false;
+  const observedClient = new Proxy(client, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (property === "execute") {
+        return async (...args: unknown[]) => {
+          const result = await value.apply(target, args);
+          const sql =
+            typeof args[0] === "string"
+              ? args[0]
+              : ((args[0] as { sql?: string })?.sql ?? "");
+          if (
+            armed &&
+            !observed &&
+            sql.includes('from "notification_push_jobs"') &&
+            sql.includes("exists (select")
+          ) {
+            observed = true;
+            let remaining = microtasks;
+            const step = () => {
+              if (remaining-- <= 0) responseGate.resolve();
+              else queueMicrotask(step);
+            };
+            queueMicrotask(step);
+          }
+          return result;
+        };
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const db = drizzle(observedClient, { schema });
+  let count = 0;
+  const app = createYurucommuBackendApp({
+    plugins: [
+      {
+        apiVersion: 1,
+        name: "closing-recovery-fixture",
+        setup({ app }) {
+          app.get("/__closing/warm", (c) => c.text("ok"));
+          app.post("/__closing/record", async () => {
+            const id = `closing-${++count}`;
+            await db.insert(schema.deliveryFanouts).values({
+              id,
+              activityApId: `https://closing.test/ap/activities/${id}`,
+              kind: "followers",
+              targetApId: "https://closing.test/ap/users/local",
+            });
+            if (count === 2) {
+              secondWritten.resolve();
+              await responseGate.promise;
+            }
+            return new Response(null, { status: 204 });
+          });
+        },
+      },
+    ],
+  });
+  const env = {
+    APP_URL: "https://closing.test",
+    DB_INSTANCE: db,
+  } as unknown as Env;
+  await app.fetch(new Request("https://closing.test/__closing/warm"), env);
+  let first = true;
+  async function send(body: { activityId?: string }) {
+    sent.push(body.activityId!);
+    if (first) {
+      first = false;
+      firstSend.resolve();
+      await firstGate.promise;
+    }
+  }
+  const queue = {
+    send,
+    async sendBatch(messages: readonly { body: { activityId?: string } }[]) {
+      for (const { body } of messages) await send(body);
+    },
+  };
+  env.DELIVERY_QUEUE = queue as never;
+  env.DELIVERY_DLQ = queue as never;
+  const fetch = () =>
+    app.fetch(
+      new Request("https://closing.test/__closing/record", { method: "POST" }),
+      env,
+      {
+        waitUntil(p: Promise<unknown>) {
+          pending.push(p);
+        },
+      } as never,
+    );
+  try {
+    expect((await fetch()).status).toBe(204);
+    await firstSend.promise;
+    const second = fetch();
+    await secondWritten.promise;
+    armed = true;
+    const release = pending[0]!.finally(() => responseGate.resolve());
+    firstGate.resolve();
+    expect((await second).status).toBe(204);
+    await release;
+    await Promise.all(pending);
+    return {
+      observed,
+      sent,
+      statuses: (
+        await db
+          .select({ status: schema.deliveryFanouts.status })
+          .from(schema.deliveryFanouts)
+      ).map((row) => row.status),
+    };
+  } finally {
+    firstGate.resolve();
+    responseGate.resolve();
+    await Promise.allSettled(pending);
+    client.close();
+  }
+}
+
+test("an accepted response at sweep closure retains its newly written intent", async () => {
+  for (const n of [6, 7, 8, 9, 10]) {
+    const result = await schedule(n);
+    expect(result.observed).toBe(true);
+    expect(result.sent).toEqual([
+      "https://closing.test/ap/activities/closing-1",
+      "https://closing.test/ap/activities/closing-2",
+    ]);
+    expect(result.statuses).toEqual(["published", "published"]);
   }
 });

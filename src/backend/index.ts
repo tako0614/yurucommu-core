@@ -126,13 +126,17 @@ function requestOutboxSweep(env: Env): Promise<void> {
   };
   outboxSweeps.set(key, state);
   state.promise = (async () => {
-    do {
-      state.rerun = false;
-      await runOutboxSweep(env);
-    } while (state.rerun);
-  })().finally(() => {
-    if (outboxSweeps.get(key) === state) outboxSweeps.delete(key);
-  });
+    try {
+      do {
+        state.rerun = false;
+        await runOutboxSweep(env);
+      } while (state.rerun);
+    } finally {
+      // Release in the same continuation that decides to stop. A separate
+      // Promise.finally would leave a window accepting an unconsumed rerun.
+      if (outboxSweeps.get(key) === state) outboxSweeps.delete(key);
+    }
+  })();
   return state.promise;
 }
 
