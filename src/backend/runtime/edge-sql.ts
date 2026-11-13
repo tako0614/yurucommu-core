@@ -19,6 +19,7 @@ import {
   drizzle as drizzleProxy,
   type AsyncBatchRemoteCallback,
   type AsyncRemoteCallback,
+  type SqliteRemoteDatabase,
 } from "drizzle-orm/sqlite-proxy";
 
 import * as schema from "../../db/schema.ts";
@@ -38,6 +39,11 @@ import {
   rewriteProjection,
   type ProjectedStatement,
 } from "./sqlite-proxy-rows.ts";
+
+const edgeSqlDatabases = new WeakMap<
+  EdgeSqlBinding,
+  SqliteRemoteDatabase<typeof schema>
+>();
 
 /** The lane name a row-shape refusal reports. */
 const LANE = "edge.sql";
@@ -146,6 +152,8 @@ function prepare(sql: string, params: readonly unknown[]): PreparedStatement {
  * from Drizzle's would reject a legitimate write.
  */
 export function createEdgeSqlDatabase(binding: EdgeSqlBinding) {
+  const existing = edgeSqlDatabases.get(binding);
+  if (existing) return existing;
   const one = async (
     statement: PreparedStatement,
     method: "run" | "all" | "values" | "get",
@@ -201,7 +209,9 @@ export function createEdgeSqlDatabase(binding: EdgeSqlBinding) {
     );
   };
 
-  return drizzleProxy(callback, batchCallback, { schema });
+  const database = drizzleProxy(callback, batchCallback, { schema });
+  edgeSqlDatabases.set(binding, database);
+  return database;
 }
 
 /**

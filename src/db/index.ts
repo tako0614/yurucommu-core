@@ -28,11 +28,17 @@ export type Database = BaseSQLiteDatabase<
   typeof schema
 >;
 
+const d1Databases = new WeakMap<D1Database, DrizzleD1Database<typeof schema>>();
+
 /**
  * Create a Drizzle client for Cloudflare D1
  */
 export function getDb(d1: D1Database): DrizzleD1Database<typeof schema> {
-  return drizzleD1(d1, { schema });
+  const existing = d1Databases.get(d1);
+  if (existing) return existing;
+  const database = drizzleD1(d1, { schema });
+  d1Databases.set(d1, database);
+  return database;
 }
 
 // Singleton for non-D1 runtimes

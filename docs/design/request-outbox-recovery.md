@@ -16,9 +16,17 @@ different database objects do not share it.
 
 This is a bounded source mitigation, not a global rate limit. A sustained stream
 can require further passes; no elapsed-time or distributed capacity is promised.
-Runtime adapters which recreate database wrappers per request do not share this
-object identity and may run concurrent accepted sweeps. No database/client
-identity registry or binding cache is introduced by this change.
+The owning D1 and edge.sql factories reuse their base Drizzle client for the
+identical binding object through weak object keys. Recreated request environments
+can therefore share this recovery lifetime without caching requests, authority
+guards, query results or configuration under a database name/URL. Separate
+binding objects retain separate clients, even if they address the same database.
+Per-request write guards remain separate facades over the base client.
+
+A runtime recreating the binding object itself still has separate lifetimes.
+This is not a stable global database identity registry or proof of the installed
+runtime's binding-object lifetime. Factory construction performs no SQL or
+provider call, and the underlying query, batch and row-shape contracts stay intact.
 
 An accepted status is not proof of a durable write. A successful no-op can still
 request recovery, while a write followed by a failed response waits for later
