@@ -496,7 +496,25 @@ export async function listFollowRelation(
     .from(actors)
     .where(eq(actors.apId, apId))
     .get();
-  if (targetRow?.isPrivate && viewer?.ap_id !== apId) {
+  // Local policy takes precedence; otherwise use the cached remote boolean.
+  // Project only the flag so the entire remote document is not transferred.
+  const remoteRow = targetRow
+    ? undefined
+    : await db
+        .select({
+          isPrivate: sql<number>`CASE
+            WHEN json_valid(${actorCache.rawJson})
+              THEN json_type(${actorCache.rawJson}, '$.manuallyApprovesFollowers') = 'true'
+            ELSE 0
+          END`,
+        })
+        .from(actorCache)
+        .where(eq(actorCache.apId, apId))
+        .get();
+  if (
+    (targetRow?.isPrivate || remoteRow?.isPrivate) &&
+    viewer?.ap_id !== apId
+  ) {
     const total =
       (
         await db
