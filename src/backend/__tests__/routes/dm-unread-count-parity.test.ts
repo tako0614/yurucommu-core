@@ -20,8 +20,10 @@ import { sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
   actors,
+  blocks,
   communities,
   communityMembers,
+  mutes,
   objects,
 } from "../../../db/index.ts";
 import type { Actor, Env, Variables } from "../../types.ts";
@@ -333,3 +335,106 @@ test("GET /unread/count requires auth", async () => {
   );
   expect(res.status).toEqual(401);
 });
+
+for (const relation of ["block", "mute"] as const) {
+  for (const retainedAlias of [false, true]) {
+    test(`community unread excludes personal ${relation} (${retainedAlias ? "retained alias" : "exact actor"}) without changing another member`, async () => {
+      const { db, client } = await createTestDb();
+      try {
+        const viewer = await insertLocalActor(db, "alice");
+        const sender = await insertLocalActor(db, "bob");
+        const allowed = await insertLocalActor(db, "carol");
+        const control = await insertLocalActor(db, "dan");
+        const group = await insertCommunity(db, "personal-unread");
+        for (const member of [viewer, sender, allowed, control]) {
+          await addMember(db, group, member, "2026-06-20T08:00:00.000Z");
+        }
+        await insertCommunityChat(
+          db,
+          sender,
+          group,
+          "hidden-1",
+          "2026-06-20T10:00:00.000Z",
+        );
+        await insertCommunityChat(
+          db,
+          sender,
+          group,
+          "hidden-2",
+          "2026-06-20T10:01:00.000Z",
+        );
+        await insertCommunityChat(
+          db,
+          allowed,
+          group,
+          "allowed",
+          "2026-06-20T10:02:00.000Z",
+        );
+        await insertDm(
+          db,
+          allowed,
+          viewer,
+          "unaffected-dm",
+          "dm",
+          "2026-06-20T10:03:00.000Z",
+        );
+
+        // This is an injected test actor, not real session/identity proof. The
+        // actual route and shared COUNT SQL run against the sanctioned schema.
+        async function readCounts(actorApId: string, username: string) {
+          const app = appWith(db, fakeActor(actorApId, username));
+          const badge = await app.fetch(
+            new Request(`${APP_URL}/unread/count`),
+            envFor(db),
+          );
+          const contacts = await app.fetch(
+            new Request(`${APP_URL}/contacts`),
+            envFor(db),
+          );
+          expect(badge.status).toBe(200);
+          expect(contacts.status).toBe(200);
+          return {
+            badge: await badge.json(),
+            community: ((await contacts.json()) as ContactsResponse)
+              .communities,
+            shared: await yurumeUnreadCounts(db, actorApId),
+          };
+        }
+
+        const target = retainedAlias
+          ? "https://YURU.test:443/ap/users/bob/#profile"
+          : sender;
+        if (relation === "block") {
+          await db
+            .insert(blocks)
+            .values({ blockerApId: viewer, blockedApId: target });
+        } else {
+          await db
+            .insert(mutes)
+            .values({ muterApId: viewer, mutedApId: target });
+        }
+
+        const filtered = await readCounts(viewer, "alice");
+        expect(filtered.shared).toEqual({ dm: 1, community: 1, total: 2 });
+        expect(filtered.badge).toEqual({ dm: 1, community: 1, total: 2 });
+        expect(filtered.community.map((c) => c.unread_count)).toEqual([1]);
+
+        const untouched = await readCounts(control, "dan");
+        expect(untouched.shared).toEqual({ dm: 0, community: 3, total: 3 });
+        expect(untouched.badge).toEqual({ dm: 0, community: 3, total: 3 });
+        expect(untouched.community.map((c) => c.unread_count)).toEqual([3]);
+
+        if (relation === "block") await db.delete(blocks);
+        else await db.delete(mutes);
+        const restored = await readCounts(viewer, "alice");
+        expect(restored.shared).toEqual({ dm: 1, community: 3, total: 4 });
+        expect(restored.badge).toEqual({ dm: 1, community: 3, total: 4 });
+        expect(restored.community.map((c) => c.unread_count)).toEqual([3]);
+        expect((await db.select().from(communityMembers)).length).toBe(4);
+        expect((await db.select().from(objects)).length).toBe(4);
+      } finally {
+        client.close();
+      }
+    });
+  }
+}

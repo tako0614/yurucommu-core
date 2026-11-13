@@ -6,6 +6,14 @@ before the existing cursor and page limit. Hidden retained messages do not
 consume a page. A different member's view is unchanged, and removing a personal
 relation makes retained allowed history visible again without rewriting it.
 
+Community unread counts apply that same current viewer predicate in both the
+shared total and the grouped contacts count. Personally blocked/muted senders,
+including retained equivalent actor spellings, do not contribute to that
+viewer's badge; another member's count is unchanged. Removing the relation
+restores still-unread retained messages without altering membership or read
+receipts. The shared total continues to supply the badge endpoint and the
+existing push/realtime unread snapshot consumers.
+
 After a successful community message write, the existing best-effort realtime
 member selection excludes viewers who currently block or mute the sender.
 The existing normalized personal-identity SQL predicate correlates each member
@@ -26,10 +34,10 @@ author/manager roles, admission guards, revisions and atomic writes are unchange
 A selection failure emits no realtime events through this task and follows the
 existing best-effort error handling after the committed write.
 
-This change does not alter the shared unread-count or contact-preview SQL,
-observed-read authority, existing unread events triggered by other operations,
-or push-delivery rechecks. Those consumers require separate qualification and
-may still reflect retained personally hidden messages. A relation changing
+This change does not alter contact previews, DM count SQL, observed-read
+authority, existing unread event triggers or push-delivery rechecks. Those
+paths require separate qualification; previews may still reflect retained
+personally hidden messages. A relation changing
 after selection is not atomically rechecked at event delivery. Large-community
 fanout beyond the existing cap, query cost under real data, genuine sessions,
 real Durable Objects/Queue, installed consumers and deployment remain separate.

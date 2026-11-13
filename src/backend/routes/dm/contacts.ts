@@ -26,6 +26,7 @@ import {
   operatorActorNotBlockedSql,
 } from "../../lib/blocklist.ts";
 import { yurumeUnreadCounts } from "../../lib/unread-counts.ts";
+import { personalActorNotSuppressedSql } from "../../lib/personal-actor-moderation.ts";
 import { unreadTalkObjectSql } from "../../lib/talk-read-receipts.ts";
 import {
   otherParticipantSql,
@@ -304,6 +305,7 @@ contacts.get("/contacts", async (c) => {
         AND r.actor_ap_id = ${me}
       WHERE cm.actor_ap_id = ${me}
         AND ${operatorActorNotBlockedSql(sql.raw("o.attributed_to"))}
+        AND ${personalActorNotSuppressedSql(sql`o.attributed_to`, sql`${me}`)}
         AND ${unreadTalkObjectSql("community", sql`${me}`, sql`cm.community_ap_id`, sql`cm.community_ap_id`, sql`cm.joined_at`, sql`o.published`, sql`o.ap_id`, sql`COALESCE(r.last_read_at, cm.joined_at, '1970-01-01T00:00:00Z')`)}
       GROUP BY cm.community_ap_id
     `);
