@@ -1,5 +1,16 @@
 import { Hono } from "hono";
-import { and, desc, eq, gt, inArray, isNull, like, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  like,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import {
   fetchWithTimeout,
@@ -367,9 +378,25 @@ search.get("/actors", async (c) => {
       })
       .from(actorCache)
       .where(
-        or(
-          likeContains(actorCache.preferredUsername, query),
-          likeContains(actorCache.name, query),
+        and(
+          or(
+            likeContains(actorCache.preferredUsername, query),
+            likeContains(actorCache.name, query),
+          ),
+          // Local policy/metadata remains authoritative even when a stale
+          // cached copy would otherwise reintroduce a private/deleted actor.
+          notExists(
+            db
+              .select({ apId: actors.apId })
+              .from(actors)
+              .where(eq(actors.apId, actorCache.apId)),
+          ),
+          // Exclude only literal remote opt-out/lock flags before the scan
+          // cap. Keep the existing public default for malformed/unknown data.
+          sql`CASE WHEN json_valid(${actorCache.rawJson}) THEN
+            COALESCE(json_type(${actorCache.rawJson}, '$.discoverable') <> 'false', 1)
+            AND COALESCE(json_type(${actorCache.rawJson}, '$.manuallyApprovesFollowers') <> 'true', 1)
+          ELSE 1 END`,
         ),
       )
       .limit(ACTOR_SEARCH_SCAN_CAP),
