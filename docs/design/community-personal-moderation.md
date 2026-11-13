@@ -10,7 +10,11 @@ After a successful community message write, the existing best-effort realtime
 member selection excludes viewers who currently block or mute the sender.
 The existing normalized personal-identity SQL predicate correlates each member
 with that member's relations; no JavaScript member-ID list or new lookup cache
-is introduced. The current 200-recipient cap and after-response behavior remain.
+is introduced. The original community-only query first selects at most 200
+member candidates in a derived table; the personal predicate applies outside
+that bounded set. Suppressed candidates are not replaced by later members, so
+filtering preserves the original candidate-work bound and can emit fewer than
+200 messages. Selection order and after-response behavior remain unchanged.
 Both `talk.message` and its immediate `unread` event use this selected set. The
 sender's separate decision to block another member does not revoke that member's
 community membership or read permission.

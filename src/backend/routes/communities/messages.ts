@@ -718,22 +718,23 @@ messagesRouter.post(
     if (isRealtimeAvailable(c.env)) {
       const communityApIdForEmit = community.apId;
       await runRealtimeAfterResponse(c, async () => {
-        const members = await db
+        // Preserve the existing candidate-work cap before viewer filtering.
+        // Hidden candidates must not make this dispatch scan later members.
+        const candidates = db
           .select({ actorApId: communityMembers.actorApId })
           .from(communityMembers)
+          .where(eq(communityMembers.communityApId, communityApIdForEmit))
+          .limit(200)
+          .as("community_realtime_candidates");
+        const members = await db
+          .select({ actorApId: candidates.actorApId })
+          .from(candidates)
           .where(
-            and(
-              eq(communityMembers.communityApId, communityApIdForEmit),
-              // The viewer's block/mute suppresses payload and badge events,
-              // without revoking community membership or changing the write.
-              // Correlation keeps the member set in SQL, not an ID bind list.
-              personalActorNotSuppressedSql(
-                sql`${actor.ap_id}`,
-                sql`${communityMembers.actorApId}`,
-              ),
+            personalActorNotSuppressedSql(
+              sql`${actor.ap_id}`,
+              sql`${candidates.actorApId}`,
             ),
-          )
-          .limit(200);
+          );
         await emitRealtimeBestEffort(
           c.env,
           members.map(({ actorApId }) => ({

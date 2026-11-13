@@ -285,8 +285,9 @@ test("failed realtime member selection emits nothing without undoing the committ
     f.client.execute = (async (statement: InStatement, args?: InArgs) => {
       const query = typeof statement === "string" ? statement : statement.sql;
       if (
-        query.startsWith('select "actor_ap_id" from "community_members"') &&
-        query.includes("limit")
+        query.includes('from "community_members"') &&
+        query.includes("limit") &&
+        !query.includes('"role"')
       ) {
         failedSelection = true;
         throw new Error("isolated realtime selection failure");
@@ -300,6 +301,47 @@ test("failed realtime member selection emits nothing without undoing the committ
     expect(f.events).toHaveLength(0);
     expect(await f.db.select().from(objects)).toHaveLength(1);
     expect(await f.db.select().from(objectRecipients)).toHaveLength(1);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("community realtime retains the original 200-member candidate cap before filtering", async () => {
+  const f = await fixture();
+  try {
+    for (let n = 3; n < 205; n++) await f.member(id(`cap-member-${n}`));
+    // The old query is the oracle for this existing dispatch budget. Do not
+    // replace suppressed candidates with members outside that selected cohort.
+    const originalCandidates = await f.db
+      .select({ actorApId: communityMembers.actorApId })
+      .from(communityMembers)
+      .where(eq(communityMembers.communityApId, GROUP))
+      .limit(200);
+    const suppressed = originalCandidates.find(
+      (m) => m.actorApId !== AUTHOR,
+    )!.actorApId;
+    await f.db
+      .insert(blocks)
+      .values({ blockerApId: suppressed, blockedApId: AUTHOR });
+    const expected = originalCandidates
+      .map((m) => m.actorApId)
+      .filter((m) => m !== suppressed)
+      .sort();
+    expect(originalCandidates).toHaveLength(200);
+    expect((await f.send()).status).toBe(201);
+    expect(
+      f.events
+        .filter((e) => e.type === "talk.message")
+        .map((e) => e.actor)
+        .sort(),
+    ).toEqual(expected);
+    expect(
+      f.events
+        .filter((e) => e.type === "unread")
+        .map((e) => e.actor)
+        .sort(),
+    ).toEqual(expected.filter((m) => m !== AUTHOR));
+    expect(await f.db.select().from(communityMembers)).toHaveLength(205);
   } finally {
     f.client.close();
   }
