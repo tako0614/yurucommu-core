@@ -81,6 +81,61 @@ import { enqueuePendingDeliveryFanoutJobs } from "./lib/delivery/fanout-outbox.t
 import { enqueuePendingNotificationPushJobs } from "./lib/notification-push.ts";
 import { runYurucommuRetention } from "./retention.ts";
 
+type OutboxSweepState = {
+  rerun: boolean;
+  promise: Promise<void>;
+};
+
+const outboxSweeps = new WeakMap<object, OutboxSweepState>();
+
+async function runOutboxSweep(env: Env): Promise<void> {
+  try {
+    await enqueuePendingDeliveryFanoutJobs(env);
+    await enqueuePendingDeliveryEndpointJobs(env);
+    await enqueuePendingDeliveryResolutionJobs(env);
+  } catch (error) {
+    log.error("Failed to enqueue durable federation outbox", {
+      event: "delivery.outbox.enqueue_failed",
+      error,
+    });
+  }
+  try {
+    await enqueuePendingNotificationPushJobs(env);
+  } catch (error) {
+    log.error("Failed to enqueue notification push outbox", {
+      event: "notification.push.enqueue_failed",
+      error,
+    });
+  }
+  await sweepRealtimeNotifications(env);
+}
+
+function requestOutboxSweep(env: Env): Promise<void> {
+  const key = env.DB_INSTANCE;
+  const existing = outboxSweeps.get(key);
+  if (existing) {
+    // A completed mutation may have created rows after the current scan.
+    // Share its lifetime, but request another pass before that lifetime ends.
+    existing.rerun = true;
+    return existing.promise;
+  }
+
+  const state: OutboxSweepState = {
+    rerun: false,
+    promise: Promise.resolve(),
+  };
+  outboxSweeps.set(key, state);
+  state.promise = (async () => {
+    do {
+      state.rerun = false;
+      await runOutboxSweep(env);
+    } while (state.rerun);
+  })().finally(() => {
+    if (outboxSweeps.get(key) === state) outboxSweeps.delete(key);
+  });
+  return state.promise;
+}
+
 type YurucommuApp = Hono<{ Bindings: Env; Variables: Variables }>;
 
 export const YURUCOMMU_BACKEND_PLUGIN_API_VERSION = 1 as const;
@@ -635,32 +690,12 @@ function applyGlobalMiddleware(
     const method = c.req.method.toUpperCase();
     const now = Date.now();
     const mutating = !["GET", "HEAD", "OPTIONS"].includes(method);
+    const acceptedMutation =
+      mutating && c.res.status >= 200 && c.res.status < 400;
     const recoveryDue = now - lastOutboxRecoverySweep >= 60_000;
-    if (mutating || recoveryDue) {
+    if (acceptedMutation || recoveryDue) {
       if (recoveryDue) lastOutboxRecoverySweep = now;
-      const sweep = (async () => {
-        try {
-          await enqueuePendingDeliveryFanoutJobs(baseEnv);
-          await enqueuePendingDeliveryEndpointJobs(baseEnv);
-          await enqueuePendingDeliveryResolutionJobs(baseEnv);
-        } catch (error) {
-          log.error("Failed to enqueue durable federation outbox", {
-            event: "delivery.outbox.enqueue_failed",
-            error,
-          });
-        }
-        try {
-          await enqueuePendingNotificationPushJobs(baseEnv);
-        } catch (error) {
-          log.error("Failed to enqueue notification push outbox", {
-            event: "notification.push.enqueue_failed",
-            error,
-          });
-        }
-        // Same choke point feeds the realtime stream: the push-jobs the inbox
-        // trigger wrote tell us exactly which users gained a notification.
-        await sweepRealtimeNotifications(baseEnv);
-      })();
+      const sweep = requestOutboxSweep(baseEnv);
       // Prefer to run the sweep AFTER the response is sent (waitUntil) so its
       // 2-4 D1 round-trips never add latency to the request. `executionCtx`
       // throws when no runtime context exists (tests / plain fetch); fall back
