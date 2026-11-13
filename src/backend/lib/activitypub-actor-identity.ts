@@ -1,11 +1,11 @@
 /**
- * Normalize the deliberately-small set of cosmetic actor-IRI differences that
- * the HTTP-signature boundary accepts.
+ * Preserve the legacy canonical spelling used by persisted actor keys.
  *
- * URL parsing lowercases the scheme/host and removes default ports. Fragments
- * never identify an ActivityPub actor, and a single trailing slash is treated
- * as cosmetic. Path case, query strings, and every other component remain
- * identity-significant so sibling actors on one origin are never conflated.
+ * URL parsing folds scheme/host/default ports and fragments are removed. The
+ * historical terminal-string slash rule also collapses a query ending in "/".
+ * Authority comparisons must use isSameActivityPubActor, which checks queries
+ * separately. Changing this stored representation needs its own data/key
+ * compatibility work; an authority fix must not silently rewrite those keys.
  */
 export function normalizeActivityPubActorId(value: string): string | null {
   try {
@@ -29,6 +29,13 @@ export function isSameActivityPubActor(
 ): boolean {
   if (!left || !right) return false;
   if (left === right) return true;
+  // Legacy canonical strings are persisted as keys. Do not change those keys
+  // when enforcing the stricter, documented actor-authority comparison.
+  try {
+    if (new URL(left).search !== new URL(right).search) return false;
+  } catch {
+    return false;
+  }
   const normalizedLeft = normalizeActivityPubActorId(left);
   const normalizedRight = normalizeActivityPubActorId(right);
   return (
