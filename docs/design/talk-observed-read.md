@@ -23,6 +23,14 @@ current membership and chat-object audience. Blocked/deleted objects and revoked
 memberships cannot authorize ACKs. Init and ACK use SQL CHECK assertions before
 and after the payload in the same batch; failed assertions roll back all writes.
 
+Community object eligibility also applies the current viewer's canonical
+personal block/mute predicate, matching the community message reader. Hidden
+chat cannot be newly seeded at init, accepted in an exact ACK, or added by a
+legacy mark-current operation in exact mode. A mixed allowed/hidden ACK fails
+atomically. Another member's receipts are unchanged. Removing a relation can
+restore eligibility, but never supplies an observed receipt by itself; an
+already legitimate receipt is retained rather than deleted by moderation.
+
 Group initialization preserves the existing `COALESCE(last_read_at, joined_at,
 epoch)` bootstrap policy. Its suppression of pre-join/history timestamps is
 legacy state, not proof of observation. The exact contract starts at successful

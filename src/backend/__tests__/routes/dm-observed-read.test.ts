@@ -3,8 +3,10 @@ import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import {
   actors,
+  blocks,
   communities,
   communityMembers,
+  mutes,
   objects,
 } from "../../../db/index.ts";
 import type { Database } from "../../../db/index.ts";
@@ -21,6 +23,171 @@ const alice = `${origin}/ap/users/alice`;
 const bob = `${origin}/ap/users/bob`;
 const carol = `${origin}/ap/users/carol`;
 const channel = `${origin}/ap/groups/room`;
+
+for (const relation of ["block", "mute"] as const) {
+  for (const retainedAlias of [false, true]) {
+    test(`community observed moderation honors ${relation} (${retainedAlias ? "retained alias" : "exact actor"}) at init ACK and legacy read`, async () => {
+      const f = await fixture();
+      try {
+        await f.db.insert(communities).values({
+          apId: channel,
+          preferredUsername: "room",
+          name: "Room",
+          visibility: "private",
+          postPolicy: "members",
+          inbox: `${channel}/inbox`,
+          outbox: `${channel}/outbox`,
+          followersUrl: `${channel}/followers`,
+          publicKeyPem: "synthetic-public",
+          privateKeyPem: "synthetic-private",
+          createdBy: bob,
+        });
+        for (const actorApId of [alice, bob, carol])
+          await f.db.insert(communityMembers).values({
+            communityApId: channel,
+            actorApId,
+            role: "member",
+            joinedAt: "2000-01-01T00:00:00Z",
+          });
+        async function send(sender: string, content: string, old = false) {
+          const response = await f.request(
+            sender,
+            "/communities/room/messages",
+            { content },
+          );
+          expect(response.status).toBe(201);
+          const id = ((await response.json()) as { message: { id: string } })
+            .message.id;
+          if (old)
+            await f.db
+              .update(objects)
+              .set({ published: "1999-01-01T00:00:00Z" })
+              .where(eq(objects.apId, id));
+          return id;
+        }
+        const hiddenOld = await send(bob, "suppressed legacy baseline", true);
+        const allowedOld = await send(carol, "allowed legacy baseline", true);
+        const hiddenNew = await send(bob, "suppressed after display");
+        const allowedNew = await send(carol, "allowed displayed message");
+        const groupPath = `/dm/community/${encodeURIComponent(channel)}`;
+        const page = async () => {
+          const response = await f.request(alice, "/communities/room/messages");
+          expect(response.status).toBe(200);
+          return (await response.json()) as { messages: { id: string }[] };
+        };
+        // These opaque IDs came from the actual producer, but policy must be
+        // current at the receipt write; an earlier GET is not durable authority.
+        expect((await page()).messages.map((m) => m.id).sort()).toEqual(
+          [hiddenOld, allowedOld, hiddenNew, allowedNew].sort(),
+        );
+        const retained = async () => {
+          const result: Record<string, unknown> = {};
+          for (const table of [
+            "objects",
+            "object_recipients",
+            "communities",
+            "community_members",
+          ])
+            result[table] = (
+              await f.client.execute(`SELECT * FROM ${table} ORDER BY rowid`)
+            ).rows;
+          return result;
+        };
+        const before = await retained();
+        const target = retainedAlias
+          ? "https://YURU.test:443/ap/users/bob/#profile"
+          : bob;
+        if (relation === "block")
+          await f.db
+            .insert(blocks)
+            .values({ blockerApId: alice, blockedApId: target });
+        else
+          await f.db
+            .insert(mutes)
+            .values({ muterApId: alice, mutedApId: target });
+        expect((await page()).messages.map((m) => m.id).sort()).toEqual(
+          [allowedOld, allowedNew].sort(),
+        );
+        const readIds = async (viewer: string) =>
+          (
+            await f.client.execute({
+              sql: "SELECT object_ap_id FROM talk_message_reads WHERE actor_ap_id=? AND kind='community' AND target_ap_id=? ORDER BY object_ap_id",
+              args: [viewer, channel],
+            })
+          ).rows.map((r) => r.object_ap_id);
+        const sidecars = async () => {
+          const result: Record<string, unknown> = {};
+          for (const table of [
+            "talk_message_reads",
+            "talk_read_modes",
+            "talk_read_assertions",
+            "dm_community_read_status",
+          ])
+            result[table] = (
+              await f.client.execute(`SELECT * FROM ${table} ORDER BY rowid`)
+            ).rows;
+          return result;
+        };
+        expect(
+          (await f.request(alice, `${groupPath}/read-observed/init`, {}))
+            .status,
+        ).toBe(200);
+        expect(await readIds(alice)).toEqual([allowedOld]);
+        const initialized = await sidecars();
+        expect(
+          (
+            await f.request(alice, `${groupPath}/read-observed`, {
+              message_ids: [allowedNew, hiddenNew],
+            })
+          ).status,
+        ).toBe(409);
+        expect(await sidecars()).toEqual(initialized);
+        expect(
+          (
+            await f.request(alice, `${groupPath}/read-observed`, {
+              message_ids: [allowedNew],
+            })
+          ).status,
+        ).toBe(200);
+        expect(await readIds(alice)).toEqual([allowedOld, allowedNew].sort());
+        expect((await f.request(alice, `${groupPath}/read`, {})).status).toBe(
+          200,
+        );
+        expect(await readIds(alice)).toEqual([allowedOld, allowedNew].sort());
+        expect(
+          (await f.request(carol, `${groupPath}/read-observed/init`, {}))
+            .status,
+        ).toBe(200);
+        expect(
+          (
+            await f.request(carol, `${groupPath}/read-observed`, {
+              message_ids: [hiddenNew],
+            })
+          ).status,
+        ).toBe(200);
+        expect(await readIds(carol)).toEqual(
+          [allowedOld, hiddenOld, hiddenNew].sort(),
+        );
+        expect(await retained()).toEqual(before);
+        if (relation === "block") await f.db.delete(blocks);
+        else await f.db.delete(mutes);
+        expect(
+          (
+            await f.request(alice, `${groupPath}/read-observed`, {
+              message_ids: [hiddenOld, hiddenNew],
+            })
+          ).status,
+        ).toBe(200);
+        expect(await readIds(alice)).toEqual(
+          [hiddenOld, allowedOld, hiddenNew, allowedNew].sort(),
+        );
+        expect(await retained()).toEqual(before);
+      } finally {
+        f.client.close();
+      }
+    });
+  }
+}
 
 async function fixture() {
   const { db, client } = await createTestDb();

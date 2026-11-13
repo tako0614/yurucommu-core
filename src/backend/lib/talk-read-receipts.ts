@@ -7,6 +7,7 @@ import {
 } from "../../db/index.ts";
 import { runBatch } from "../../db/d1-write.ts";
 import { operatorActorNotBlockedSql } from "./blocklist.ts";
+import { personalActorNotSuppressedSql } from "./personal-actor-moderation.ts";
 
 export const MAX_OBSERVED_READ_IDS = 50;
 export type TalkReadScope = {
@@ -70,7 +71,8 @@ function objectReadable(s: TalkReadScope): SQL {
         WHERE p.object_ap_id = o.ap_id AND p.recipient_ap_id = ${s.viewer} AND p.type = 'to'))
       OR (o.attributed_to = ${s.viewer} AND EXISTS (SELECT 1 FROM object_recipients p
         WHERE p.object_ap_id = o.ap_id AND p.recipient_ap_id = ${s.target} AND p.type = 'to')))`
-    : sql`${common} AND o.community_ap_id IS NULL AND EXISTS (SELECT 1 FROM object_recipients p
+    : sql`${common} AND ${personalActorNotSuppressedSql(sql`o.attributed_to`, sql`${s.viewer}`)}
+      AND o.community_ap_id IS NULL AND EXISTS (SELECT 1 FROM object_recipients p
         WHERE p.object_ap_id = o.ap_id AND p.recipient_ap_id = ${s.target} AND p.type = 'audience')`;
 }
 
