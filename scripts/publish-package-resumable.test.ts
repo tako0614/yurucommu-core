@@ -49,6 +49,226 @@ describe("resumable package release", () => {
     expect(calls[0]).toContain("publish");
   });
 
+  test("publisher reconciliation marks a failed npm invocation as touched when the registry read fails", async () => {
+    const reconciliationError = new Error("registry reconciliation timeout");
+    let reads = 0;
+    let verifications = 0;
+    const commands: { command: string; args: string[] }[] = [];
+    const failure = await publishPreparedPackage(
+      {
+        packageName: "@takosjp/example",
+        version: "3.4.5",
+        integrity: "sha512-local",
+        tarballPath: "/tmp/example.tgz",
+        packageRoot: process.cwd(),
+      },
+      {
+        publishedPackageIntegrity: async () => {
+          reads += 1;
+          if (reads === 1) return undefined;
+          throw reconciliationError;
+        },
+        runCommand: (command, args) => {
+          commands.push({ command, args });
+          return { status: 1, stdout: "", stderr: "npm connection lost" };
+        },
+        verifyPublishedIntegrity: async () => {
+          verifications += 1;
+        },
+      },
+    ).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(reads).toBe(2);
+    expect(commands).toEqual([
+      {
+        command: "npm",
+        args: [
+          "publish",
+          "/tmp/example.tgz",
+          "--access",
+          "public",
+          "--ignore-scripts",
+        ],
+      },
+    ]);
+    expect(verifications).toBe(0);
+    expect(failure).toMatchObject({
+      name: "PublishMutationError",
+      targetTouched: true,
+      cause: reconciliationError,
+    });
+  });
+
+  test("publisher reconciliation keeps pre-mutation rejection and exact skips untouched", async () => {
+    const candidate = {
+      packageName: "@takosjp/example",
+      version: "3.4.5",
+      integrity: "sha512-local",
+      tarballPath: "/tmp/example.tgz",
+      packageRoot: process.cwd(),
+    };
+    const readError = new Error("initial registry read failed");
+    let mutations = 0;
+    let verifications = 0;
+    const commands = {
+      runCommand: () => {
+        mutations += 1;
+        return { status: 0, stdout: "published", stderr: "" };
+      },
+      verifyPublishedIntegrity: async () => {
+        verifications += 1;
+      },
+    };
+    const failure = await publishPreparedPackage(candidate, {
+      ...commands,
+      publishedPackageIntegrity: async () => {
+        throw readError;
+      },
+    }).catch((error: unknown) => error);
+    expect(failure).toBe(readError);
+    expect(failure).not.toHaveProperty("targetTouched");
+
+    await expect(
+      publishPreparedPackage(candidate, {
+        ...commands,
+        publishedPackageIntegrity: async () => "sha512-other",
+      }),
+    ).rejects.toThrow("does not match local tarball integrity");
+    expect(
+      await publishPreparedPackage(candidate, {
+        ...commands,
+        publishedPackageIntegrity: async () => "sha512-local",
+      }),
+    ).toEqual({ action: "skipped", integrity: "sha512-local" });
+    expect(mutations).toBe(0);
+    expect(verifications).toBe(0);
+  });
+
+  test("publisher reconciliation accepts only exact raced bytes after a failed invocation", async () => {
+    for (const racedIntegrity of [undefined, "sha512-other", "sha512-local"]) {
+      let reads = 0;
+      let mutations = 0;
+      let verifications = 0;
+      const result = await publishPreparedPackage(
+        {
+          packageName: "@takosjp/example",
+          version: "3.4.5",
+          integrity: "sha512-local",
+          tarballPath: "/tmp/example.tgz",
+          packageRoot: process.cwd(),
+        },
+        {
+          publishedPackageIntegrity: async () => {
+            reads += 1;
+            return reads === 1 ? undefined : racedIntegrity;
+          },
+          runCommand: () => {
+            mutations += 1;
+            return { status: 1, stdout: "", stderr: "npm rejected" };
+          },
+          verifyPublishedIntegrity: async () => {
+            verifications += 1;
+          },
+        },
+      ).catch((error: unknown) => error);
+      if (racedIntegrity === "sha512-local") {
+        expect(result).toEqual({
+          action: "concurrent-exact",
+          integrity: "sha512-local",
+        });
+      } else {
+        expect(result).toMatchObject({
+          name: "PublishMutationError",
+          targetTouched: true,
+        });
+      }
+      expect(reads).toBe(2);
+      expect(mutations).toBe(1);
+      expect(verifications).toBe(0);
+    }
+  });
+
+  test("publisher reconciliation preserves a completed package across an explicit pair resume", async () => {
+    const core = {
+      packageName: "@takosjp/example-core",
+      version: "3.4.5",
+      integrity: "sha512-core",
+      tarballPath: "/tmp/example-core.tgz",
+      packageRoot: process.cwd(),
+    };
+    const api = {
+      ...core,
+      packageName: "@takosjp/example-api",
+      integrity: "sha512-api",
+      tarballPath: "/tmp/example-api.tgz",
+    };
+    const registry = new Map<string, string>();
+    const mutations: string[] = [];
+    const verifications: string[] = [];
+    const readError = new Error("second package reconciliation unavailable");
+    let firstAttempt = true;
+    let apiReads = 0;
+    const dependencies = {
+      publishedPackageIntegrity: async (name: string) => {
+        if (name === api.packageName && firstAttempt) {
+          apiReads += 1;
+          if (apiReads === 2) throw readError;
+        }
+        return registry.get(name);
+      },
+      runCommand: (_command: string, args: string[]) => {
+        mutations.push(args[1]);
+        const candidate = args[1] === core.tarballPath ? core : api;
+        if (candidate === api && firstAttempt) {
+          return { status: 1, stdout: "", stderr: "npm response lost" };
+        }
+        registry.set(candidate.packageName, candidate.integrity);
+        return { status: 0, stdout: "published", stderr: "" };
+      },
+      verifyPublishedIntegrity: async (
+        name: string,
+        _version: string,
+        integrity: string,
+      ) => {
+        expect(registry.get(name)).toBe(integrity);
+        verifications.push(name);
+      },
+    };
+    expect(await publishPreparedPackage(core, dependencies)).toEqual({
+      action: "published",
+      integrity: core.integrity,
+    });
+    await expect(
+      publishPreparedPackage(api, dependencies),
+    ).rejects.toMatchObject({
+      name: "PublishMutationError",
+      targetTouched: true,
+      cause: readError,
+    });
+    expect(mutations).toEqual([core.tarballPath, api.tarballPath]);
+    expect(verifications).toEqual([core.packageName]);
+
+    // This is an explicit caller resume; the helper did not retry the failure.
+    firstAttempt = false;
+    expect(await publishPreparedPackage(core, dependencies)).toEqual({
+      action: "skipped",
+      integrity: core.integrity,
+    });
+    expect(await publishPreparedPackage(api, dependencies)).toEqual({
+      action: "published",
+      integrity: api.integrity,
+    });
+    expect(mutations).toEqual([
+      core.tarballPath,
+      api.tarballPath,
+      api.tarballPath,
+    ]);
+    expect(verifications).toEqual([core.packageName, api.packageName]);
+  });
+
   test("waits through delayed 404 reads until the exact integrity appears", async () => {
     let now = 0;
     const delays: number[] = [];
