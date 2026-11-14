@@ -61,6 +61,28 @@ actors' `partner_last_read_at`, group legacy `read_states`, and timestamp
 preceding messages were seen. Group per-message receipt display is not yet
 provided; its legacy receipt is conservatively unknown in exact mode.
 
+## Typed community API transport
+
+The source SDK's `fetchCommunityMessages` preserves advertised capability as
+optional `readObserved: { version: 1, max_ids }`. Legacy responses without the
+field retain their previous result shape. Merely reading this metadata neither
+initializes exact mode nor acknowledges messages.
+
+An opting-in caller explicitly invokes `initializeCommunityObservedReads`
+before its first message GET, then supplies only its rendered/checked IDs to
+`acknowledgeCommunityObservedReads`. Both explicit helpers take the canonical community AP-ID (not a display name).
+They use the existing community init/ACK endpoints and normal configured transport/abort options. They validate
+the successful metadata/ID acknowledgement and propagate authorization, conflict,
+unsupported-host and malformed-response failures without retry or fallback to
+`/read`. IDs are not derived from fetched rows; the SDK provides no DOM/display
+witness. The client bounds its explicit ID body, while current actor/membership,
+moderation and scope eligibility remain server-authorized in the existing batch.
+
+`markCommunityAsRead` remains the distinct bodyless legacy operation. This typed
+source transport is not consumer opt-in, package publication or installed/native
+qualification; each actual client must separately implement its checked-ID
+producer and choose adoption.
+
 ## Old clients and lifecycle
 
 An old client can still call `/read`: it deliberately marks the currently
@@ -145,6 +167,7 @@ legacy compatibility, current membership/recipient/block authority, both unread
 projections, account and object cleanup, bounded requests and the actual App/Core
 race. Native D1, real identity, installed clients, devices and federation delivery
 are separate evidence; no live schema or credential operation is implied.
+
 ## Pending request rejection
 
 New clients use `POST /api/dm/requests/reject-pending` and fail closed on an old
@@ -166,6 +189,7 @@ removed. Clients must reload and never treat this as a complete ACK or blindly
 retry the destructive request. Optional blocking uses the same pending guard.
 The sender-only public API still selects the peer's current stored conversation;
 it does not identify a particular older request row.
+
 ## Owned DM mutation and readback
 
 `GET /api/dm/messages/:messageId` is an authenticated author-only, no-store

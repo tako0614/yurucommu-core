@@ -17,6 +17,11 @@ import read from "../../routes/dm/read-archive.ts";
 import group from "../../routes/communities/messages.ts";
 import contacts from "../../routes/dm/contacts.ts";
 import { yurumeUnreadCounts } from "../../lib/unread-counts.ts";
+import * as communitySdk from "../../../../packages/api/src/lib/api/communities.ts";
+import {
+  clearYurucommuApiTransport,
+  setYurucommuApiTransport,
+} from "../../../../packages/api/src/lib/transport.ts";
 
 const origin = "https://yuru.test";
 const alice = `${origin}/ap/users/alice`;
@@ -259,7 +264,7 @@ async function fixture() {
     );
   const remove = (viewer: string, path: string) =>
     app(viewer).fetch(new Request(origin + path, { method: "DELETE" }), env);
-  return { db, client, request, requestStream, path, send, remove };
+  return { db, client, request, requestStream, path, send, remove, app };
 }
 
 async function collidingPeers() {
@@ -1034,5 +1039,234 @@ test("oversized streaming ACK stops before buffering the whole source even with 
     ).toEqual([]);
   } finally {
     f.client.close();
+  }
+});
+
+test("typed community observed transport carries actual producer metadata and explicit ACKs", async () => {
+  const f = await fixture();
+  const originalFetch = globalThis.fetch;
+  const calls: { path: string; method: string; body: unknown }[] = [];
+  let viewer = alice;
+  try {
+    await f.db.insert(communities).values({
+      apId: channel,
+      preferredUsername: "room",
+      name: "Room",
+      visibility: "private",
+      postPolicy: "members",
+      inbox: `${channel}/inbox`,
+      outbox: `${channel}/outbox`,
+      followersUrl: `${channel}/followers`,
+      publicKeyPem: "synthetic-public",
+      privateKeyPem: "synthetic-private",
+      createdBy: bob,
+    });
+    for (const actorApId of [alice, bob])
+      await f.db.insert(communityMembers).values({
+        communityApId: channel,
+        actorApId,
+        role: "member",
+        joinedAt: "2000-01-01T00:00:00Z",
+      });
+    const sent = await f.request(bob, "/communities/room/messages", {
+      content: "Actual producer message",
+    });
+    expect(sent.status).toBe(201);
+    const id = ((await sent.json()) as { message: { id: string } }).message.id;
+    const rawPage = await f.request(alice, "/communities/room/messages");
+    const raw = (await rawPage.json()) as { read_observed: unknown };
+    const expectedMetadata = { version: 1 as const, max_ids: 50 };
+    expect(raw.read_observed).toEqual(expectedMetadata);
+    setYurucommuApiTransport({
+      resolveUrl: (path) => origin + path,
+      getAuthHeaders: () => ({}),
+      credentials: "include",
+    });
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input));
+      const path = url.pathname.replace(/^\/api(?=\/)/, "") + url.search;
+      calls.push({
+        path,
+        method: init?.method ?? "GET",
+        body:
+          init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+      });
+      return f.app(viewer).fetch(new Request(origin + path, init), {
+        APP_URL: origin,
+        DB_INSTANCE: f.db,
+      } as unknown as Env);
+    }) as typeof fetch;
+    const page = await communitySdk.fetchCommunityMessages(channel, {
+      timeoutMs: 0,
+    });
+    expect(page.readObserved).toEqual(expectedMetadata);
+    expect(page.messages.map((message) => message.id)).toContain(id);
+    expect(calls.map((call) => call.method)).toEqual(["GET"]);
+    const receipts = async () =>
+      (
+        await f.client.execute({
+          sql: "SELECT object_ap_id FROM talk_message_reads WHERE actor_ap_id=? AND kind='community' AND target_ap_id=?",
+          args: [alice, channel],
+        })
+      ).rows;
+    expect(await receipts()).toEqual([]);
+    await expect(
+      communitySdk.acknowledgeCommunityObservedReads(channel, [id], {
+        timeoutMs: 0,
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(await receipts()).toEqual([]);
+    const metadata = await communitySdk.initializeCommunityObservedReads(
+      channel,
+      { timeoutMs: 0 },
+    );
+    expect(metadata).toEqual(expectedMetadata);
+    expect(await receipts()).toEqual([]);
+    const exactPage = await communitySdk.fetchCommunityMessages(channel, {
+      timeoutMs: 0,
+    });
+    expect(exactPage.readObserved).toEqual(metadata);
+    expect(await receipts()).toEqual([]);
+    const selectedId = exactPage.messages.find(
+      (message) => message.id === id,
+    )?.id;
+    expect(selectedId).toBe(id);
+    if (selectedId === undefined)
+      throw new Error("Expected the actual producer ID after init");
+    // The test caller explicitly selects one returned ID; no browser/DOM observation is claimed.
+    expect(
+      await communitySdk.acknowledgeCommunityObservedReads(
+        channel,
+        [selectedId],
+        {
+          timeoutMs: 0,
+        },
+      ),
+    ).toEqual({ message_ids: [id] });
+    expect((await receipts()).map((row) => row.object_ap_id)).toEqual([id]);
+    expect(
+      await communitySdk.acknowledgeCommunityObservedReads(
+        channel,
+        [selectedId],
+        {
+          timeoutMs: 0,
+        },
+      ),
+    ).toEqual({ message_ids: [id] });
+    expect((await receipts()).length).toBe(1);
+    const ackPath = `/dm/community/${encodeURIComponent(channel)}/read-observed`;
+    expect(
+      calls.filter((call) => call.method === "POST").map((call) => call.path),
+    ).toEqual([ackPath, ackPath + "/init", ackPath, ackPath]);
+    expect(calls.at(-1)?.body).toEqual({ message_ids: [id] });
+    viewer = carol;
+    await expect(
+      communitySdk.initializeCommunityObservedReads(channel, { timeoutMs: 0 }),
+    ).rejects.toMatchObject({ status: 403 });
+    viewer = alice;
+    await f.db
+      .delete(communityMembers)
+      .where(eq(communityMembers.actorApId, alice));
+    await expect(
+      communitySdk.acknowledgeCommunityObservedReads(channel, [id], {
+        timeoutMs: 0,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(calls.some((call) => call.path.endsWith("/read"))).toBe(false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuApiTransport();
+    f.client.close();
+  }
+});
+
+test("typed community observed transport rejects false receipts without legacy fallback", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: { path: string; init: RequestInit | undefined }[] = [];
+  let status = 200;
+  let body: unknown = { messages: [], has_more: false, read_states: [] };
+  const id = "synthetic-checked-id";
+  const abort = new AbortController();
+  try {
+    clearYurucommuApiTransport();
+    globalThis.fetch = (async (input, init) => {
+      calls.push({ path: String(input), init });
+      expect(init?.signal).toBe(abort.signal);
+      return Response.json(body, { status });
+    }) as typeof fetch;
+    const options = { signal: abort.signal, timeoutMs: 0 };
+    expect(await communitySdk.fetchCommunityMessages("room", options)).toEqual({
+      messages: [],
+      hasMore: false,
+      readStates: [],
+    });
+    const invalidMetadata = [
+      null,
+      {},
+      { version: 2, max_ids: 50 },
+      { version: 1, max_ids: 0 },
+      { version: 1, max_ids: 51 },
+      { version: 1, max_ids: 1.5 },
+    ];
+    for (const read_observed of invalidMetadata) {
+      body = { messages: [], read_observed };
+      await expect(
+        communitySdk.fetchCommunityMessages("room", options),
+      ).rejects.toMatchObject({ name: "InvalidApiResponseError" });
+      body = { success: true, read_observed };
+      await expect(
+        communitySdk.initializeCommunityObservedReads("room", options),
+      ).rejects.toMatchObject({ name: "InvalidApiResponseError" });
+    }
+    for (body of [
+      { success: true },
+      { success: false, read_observed: { version: 1, max_ids: 50 } },
+    ]) {
+      await expect(
+        communitySdk.initializeCommunityObservedReads("room", options),
+      ).rejects.toMatchObject({ name: "InvalidApiResponseError" });
+    }
+    for (body of [
+      { success: false, message_ids: [id] },
+      { success: true },
+      { success: true, message_ids: [] },
+      { success: true, message_ids: ["different"] },
+      { success: true, message_ids: [id, id] },
+    ]) {
+      await expect(
+        communitySdk.acknowledgeCommunityObservedReads("room", [id], options),
+      ).rejects.toMatchObject({ name: "InvalidApiResponseError" });
+    }
+    for (status of [401, 403, 404, 409]) {
+      body = { error: "Explicit observed operation refused" };
+      const before = calls.length;
+      await expect(
+        communitySdk.initializeCommunityObservedReads("room", options),
+      ).rejects.toMatchObject({ status });
+      await expect(
+        communitySdk.acknowledgeCommunityObservedReads("room", [id], options),
+      ).rejects.toMatchObject({ status });
+      expect(calls.length).toBe(before + 2);
+    }
+    status = 200;
+    const before = calls.length;
+    for (const ids of [
+      [],
+      [id, id],
+      [""],
+      [" padded "],
+      ["x".repeat(2049)],
+      Array.from({ length: 51 }, (_, i) => String(i)),
+      Array.from({ length: 9 }, (_, i) => String(i) + "😀".repeat(1000)),
+    ]) {
+      await expect(
+        communitySdk.acknowledgeCommunityObservedReads("room", ids, options),
+      ).rejects.toBeInstanceOf(TypeError);
+    }
+    expect(calls.length).toBe(before);
+    expect(calls.some((call) => call.path.endsWith("/read"))).toBe(false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuApiTransport();
   }
 });
