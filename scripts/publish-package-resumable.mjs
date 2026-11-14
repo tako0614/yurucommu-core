@@ -252,10 +252,20 @@ export async function publishPreparedPackage(candidate, dependencies = {}) {
     { cwd: candidate.packageRoot, capture: true, allowFailure: true },
   );
   if (publishResult.status !== 0) {
-    const racedIntegrity = await readIntegrity(
-      candidate.packageName,
-      candidate.version,
-    );
+    let racedIntegrity;
+    try {
+      racedIntegrity = await readIntegrity(
+        candidate.packageName,
+        candidate.version,
+      );
+    } catch (error) {
+      // A failed reconciliation cannot prove that the npm invocation left
+      // the registry unchanged.
+      throw new PublishMutationError(
+        `npm publish failed for ${candidate.packageName}@${candidate.version}, and registry integrity reconciliation failed.\n${publishResult.stderr || publishResult.stdout}`,
+        error,
+      );
+    }
     if (racedIntegrity === candidate.integrity) {
       return { action: "concurrent-exact", integrity: candidate.integrity };
     }
