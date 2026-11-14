@@ -6,6 +6,7 @@ import {
   requiredString,
   validateActor,
   validateMessage,
+  InvalidApiResponseError,
 } from "./response.ts";
 import type { ApiReadOptions } from "./fetch.ts";
 import type { MediaAttachment } from "../../types/index.ts";
@@ -18,6 +19,46 @@ import {
   apiPost,
   assertOk,
 } from "./fetch.ts";
+
+/** Advertised exact-read capability, not evidence that messages were displayed. */
+export interface CommunityObservedReadMetadata {
+  version: 1;
+  max_ids: number;
+}
+
+export interface CommunityObservedReadAcknowledgement {
+  message_ids: string[];
+}
+
+function observedReadMetadata(value: unknown): CommunityObservedReadMetadata {
+  const metadata = responseObject(value, "read_observed");
+  if (
+    metadata.version !== 1 ||
+    typeof metadata.max_ids !== "number" ||
+    !Number.isSafeInteger(metadata.max_ids) ||
+    metadata.max_ids < 1 ||
+    metadata.max_ids > 50
+  ) {
+    throw new InvalidApiResponseError("read_observed");
+  }
+  return { version: 1, max_ids: metadata.max_ids };
+}
+
+function observedMessageIds(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length >= 1 &&
+    value.length <= 50 &&
+    value.every(
+      (id) =>
+        typeof id === "string" &&
+        id.length >= 1 &&
+        id.length <= 2048 &&
+        id.trim() === id,
+    ) &&
+    new Set(value).size === value.length
+  );
+}
 
 export interface CommunityDetail {
   ap_id: string;
@@ -206,6 +247,8 @@ export async function fetchCommunityMessages(
   hasMore: boolean;
   /** Per-member read positions (local members only; see CommunityReadState). */
   readStates: CommunityReadState[];
+  /** Absent on legacy hosts; never initialize or ACK as a side effect of GET. */
+  readObserved?: CommunityObservedReadMetadata;
 }> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
@@ -224,6 +267,9 @@ export async function fetchCommunityMessages(
       validateMessage,
     ).map(normalizeCommunityMessage),
     hasMore: optionalBoolean(data, "has_more"),
+    ...(data.read_observed === undefined
+      ? {}
+      : { readObserved: observedReadMetadata(data.read_observed) }),
     readStates:
       data.read_states === undefined
         ? []
@@ -233,6 +279,53 @@ export async function fetchCommunityMessages(
             requiredString(state.last_read_at, "read_state.last_read_at");
           }),
   };
+}
+
+/** Explicit opt-in before the first message GET; failures never fall back to /read. */
+export async function initializeCommunityObservedReads(
+  communityApId: string,
+  options?: ApiReadOptions,
+): Promise<CommunityObservedReadMetadata> {
+  const res = await apiPost(
+    `/api/dm/community/${encodeURIComponent(communityApId)}/read-observed/init`,
+    undefined,
+    options,
+  );
+  await assertOk(res, "Failed to initialize observed community reads");
+  const data = await readResponseJson(res);
+  if (data.success !== true) throw new InvalidApiResponseError("success");
+  return observedReadMetadata(data.read_observed);
+}
+
+/** Only the caller can supply rendered/checked IDs; fetched rows are not an ACK. */
+export async function acknowledgeCommunityObservedReads(
+  communityApId: string,
+  messageIds: readonly string[],
+  options?: ApiReadOptions,
+): Promise<CommunityObservedReadAcknowledgement> {
+  if (!observedMessageIds(messageIds))
+    throw new TypeError("Expected 1-50 unique observed message IDs");
+  const ids = [...messageIds];
+  const body = { message_ids: ids };
+  if (new TextEncoder().encode(JSON.stringify(body)).byteLength > 32768) {
+    throw new TypeError("Observed community read body too large");
+  }
+  const res = await apiPost(
+    `/api/dm/community/${encodeURIComponent(communityApId)}/read-observed`,
+    body,
+    options,
+  );
+  await assertOk(res, "Failed to acknowledge observed community reads");
+  const data = await readResponseJson(res);
+  if (data.success !== true) throw new InvalidApiResponseError("success");
+  if (
+    !observedMessageIds(data.message_ids) ||
+    data.message_ids.length !== ids.length ||
+    data.message_ids.some((id) => !ids.includes(id))
+  ) {
+    throw new InvalidApiResponseError("message_ids");
+  }
+  return { message_ids: [...data.message_ids] };
 }
 
 export async function sendCommunityMessage(
